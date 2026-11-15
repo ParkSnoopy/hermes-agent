@@ -114,7 +114,6 @@ async def test_a_tap_switches_this_session_only_then_resends_like_retry(monkeypa
     runner = _runner(adapter)
     runner.config = SimpleNamespace(multiplex_profiles=False)
     runner._session_model_overrides = {}
-    runner._normalize_source_for_session_key = lambda source: source
     seen = {}
 
     async def _perform(ctx, target, provider, source):
@@ -150,7 +149,6 @@ async def test_a_failed_switch_does_not_resend(monkeypatch):
     runner = _runner(adapter)
     runner.config = SimpleNamespace(multiplex_profiles=False)
     runner._session_model_overrides = {}
-    runner._normalize_source_for_session_key = lambda source: source
     runner._perform_model_switch = AsyncMock(return_value=(None, "❌ Model not available"))
     tasks = []
     runner._track_background_task = lambda coro: tasks.append(coro)
@@ -170,7 +168,6 @@ async def test_a_switch_that_fails_at_commit_does_not_resend(monkeypatch):
     runner = _runner(adapter)
     runner.config = SimpleNamespace(multiplex_profiles=False)
     runner._session_model_overrides = {}
-    runner._normalize_source_for_session_key = lambda source: source
     runner._perform_model_switch = AsyncMock(return_value=(SimpleNamespace(new_model="x/y"), None))
     runner._commit_model_switch = AsyncMock(return_value="Error: agent swap failed")
     tasks = []
@@ -234,7 +231,6 @@ async def test_a_turn_that_ran_during_the_switch_is_not_retried(monkeypatch):
     runner = _runner(adapter)
     runner.config = SimpleNamespace(multiplex_profiles=False)
     runner._session_model_overrides = {}
-    runner._normalize_source_for_session_key = lambda source: source
     state = runner._session_state("chat:c1")
     state.persistent.run_generation = 7
 

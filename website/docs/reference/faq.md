@@ -95,9 +95,6 @@ Hermes auto-detects local endpoints and relaxes streaming timeouts (read timeout
 
 Hermes Agent itself is **free and open-source** (MIT license). You pay only for the LLM API usage from your chosen provider. Local models are completely free to run.
 
-### Can multiple people use one instance?
-
-Yes. The [messaging gateway](../user-guide/messaging/index.md) lets multiple users interact with the same Hermes Agent instance via Telegram, Discord, Slack, WhatsApp, or Home Assistant. Access is controlled through allowlists (specific user IDs) and DM pairing (first user to message claims access).
 
 ### What's the difference between memory and skills?
 
@@ -245,15 +242,6 @@ See [Security](../user-guide/security.md) for Hermes' documented execution contr
 
 **Solution:** if the request is large (hundreds of KB — long coding sessions reach this once the context grows) and short new chats work, the endpoint or a proxy in front of it is likely rejecting bodies that size: raise its body limit, or run `/compress` to shrink the context. If the request is small, the endpoint is unreachable — check the `base_url`, then retry with `/retry`. `logs/agent.log` records the exception chain for each attempt.
 
-#### Messaging replies: "interrupted mid-request" vs "not running or is unreachable" vs "could not reach"
-
-Chat surfaces (Telegram, Discord, Slack, …) never show the raw transport exception; the gateway maps it to one of three short replies, and the difference tells you where to look:
-
-| Reply | What happened | What to do |
-|---|---|---|
-| "The connection to the AI model service was **interrupted mid-request** — usually transient." | An established connection was cut (`Connection reset by peer`, EOF, `RemoteProtocolError`). The endpoint answered the connect, so it is running. | `/retry`. If it recurs on large requests, see the "stream" entry above. |
-| "The AI model service isn't reachable right now — the configured model endpoint is **not running or is unreachable**." | Nothing accepted the connection (`Connection refused`, no route to host, DNS failure). | Start the model server / check `base_url`, then `/retry`; `hermes doctor` on the host. |
-| "Hermes **could not reach** the AI model service (no further detail from the SDK)." | The SDK reported a generic `APIConnectionError` and kept no cause; neither of the above is certain. | `/retry`; `hermes doctor` if it persists. The raw exception is in `hermes logs`. |
 
 #### `/model` only shows one provider / can't switch providers
 
@@ -390,14 +378,6 @@ See [Context Length Detection](../integrations/providers.md#context-length-detec
 This is working as intended — Hermes never silently runs destructive commands. The approval prompt shows you exactly what will execute.
 :::
 
-#### `sudo` not working via messaging gateway
-
-**Cause:** The messaging gateway runs without an interactive terminal, so `sudo` cannot prompt for a password.
-
-**Solution:**
-- Avoid `sudo` in messaging — ask the agent to find alternatives
-- If you must use `sudo`, configure passwordless sudo for specific commands in `/etc/sudoers`
-- Or switch to the terminal interface for administrative tasks: `hermes chat`
 
 #### Docker backend not connecting
 
@@ -418,62 +398,7 @@ docker run hello-world
 
 ---
 
-### Messaging Issues
-
-#### Bot not responding to messages
-
-**Cause:** The bot isn't running, isn't authorized, or your user isn't in the allowlist.
-
-**Solution:**
-```bash
-# Check if the gateway is running
-hermes gateway status
-
-# Start the gateway
-hermes gateway start
-
-# Check logs for errors
-cat ~/.hermes/logs/gateway.log | tail -50
-```
-
-#### Messages not delivering
-
-**Cause:** Network issues, bot token expired, or platform webhook misconfiguration.
-
-**Solution:**
-- Verify your bot token is valid with `hermes gateway setup`
-- Check gateway logs: `cat ~/.hermes/logs/gateway.log | tail -50`
-- For webhook-based platforms (Slack, WhatsApp), ensure your server is publicly accessible
-
-#### Allowlist confusion — who can talk to the bot?
-
-**Cause:** Authorization mode determines who gets access.
-
-**Solution:**
-
-| Mode | How it works |
-|------|-------------|
-| **Allowlist** | Only user IDs listed in config can interact |
-| **DM pairing** | First user to message in DM claims exclusive access |
-| **Open** | Anyone can interact (not recommended for production) |
-
-Configure in `~/.hermes/config.yaml` under your gateway's settings. See the [Messaging docs](../user-guide/messaging/index.md).
-
-#### Gateway won't start
-
-**Cause:** Missing dependencies, port conflicts, or misconfigured tokens.
-
-**Solution:**
-```bash
-# Install core messaging gateway dependencies
-cd ~/.hermes/hermes-agent && python -c "import pm; pm.sync_venv(['messaging'], explicit=True)"  # Telegram, Discord, Slack, and shared gateway deps
-
-# Check for port conflicts
-lsof -i :8080
-
-# Verify configuration
-hermes config show
-```
+### Gateway Issues
 
 #### WSL: Gateway keeps disconnecting or `hermes gateway start` fails
 
@@ -513,7 +438,7 @@ For reliable auto-start, use Windows Task Scheduler to launch WSL + the gateway 
 
 #### macOS: Node.js / ffmpeg / other tools not found by gateway
 
-**Cause:** launchd services inherit a minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) that doesn't include Homebrew, nvm, cargo, or other user-installed tool directories. This commonly breaks the WhatsApp bridge (`node not found`) or voice transcription (`ffmpeg not found`).
+**Cause:** launchd services inherit a minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) that doesn't include Homebrew, nvm, cargo, or other user-installed tool directories. This can affect voice transcription (`ffmpeg not found`).
 
 **Solution:** The gateway captures your shell PATH when you run `hermes gateway install`. If you installed tools after setting up the gateway, re-run the install to capture the updated PATH:
 
@@ -665,9 +590,6 @@ If an MCP server crashes mid-request, Hermes will report a timeout. Check the se
 
 Profiles are a managed layer on top of `HERMES_HOME`. You *could* manually set `HERMES_HOME=/some/path` before every command, but profiles handle all the plumbing for you: creating the directory structure, generating shell aliases (`hermes-work`), tracking the active profile in `~/.hermes/active_profile`, and syncing skill updates across all profiles automatically. They also integrate with tab completion so you don't have to remember paths.
 
-### Can two profiles share the same bot token?
-
-No. Each messaging platform (Telegram, Discord, etc.) requires exclusive access to a bot token. If two profiles try to use the same token simultaneously, the second gateway will fail to connect. Create a separate bot per profile — for Telegram, talk to [@BotFather](https://t.me/BotFather) to make additional bots.
 
 ### Do profiles share memory or sessions?
 
@@ -718,81 +640,6 @@ Each `/model` switch resets the prompt cache — the cache key includes the mode
 
 See [Subagent Delegation](../user-guide/features/delegation.md) for more on how delegation works.
 
-### Running multiple agents on one WhatsApp number (per-chat binding)
-
-**Scenario:** In OpenClaw, you had multiple independent agents bound to specific WhatsApp chats — one for a family shopping list group, another for your private chat. Can Hermes do this?
-
-**Current limitation:** Hermes profiles each require their own WhatsApp number/session. You cannot bind multiple profiles to different chats on the same WhatsApp number — the WhatsApp bridge (Baileys) uses one authenticated session per number.
-
-**Workarounds:**
-
-1. **Use a single profile with personality switching.** Create different `AGENTS.md` context files or use the `/personality` command to change behavior per chat. The agent sees which chat it's in and can adapt.
-
-2. **Use cron jobs for specialized tasks.** For a shopping list tracker, set up a cron job that monitors a specific chat and manages the list — no separate agent needed.
-
-3. **Use separate numbers.** If you need truly independent agents, pair each profile with its own WhatsApp number. Virtual numbers from services like Google Voice work for this.
-
-4. **Use Telegram or Discord instead.** These platforms support per-chat binding more naturally — each Telegram group or Discord channel gets its own session, and you can run multiple bot tokens (one per profile) on the same account.
-
-See [Profiles](../user-guide/profiles.md) and [WhatsApp setup](../user-guide/messaging/whatsapp.md) for more details.
-
-### Controlling what shows up in Telegram (hiding logs and reasoning)
-
-**Scenario:** You see gateway exec logs, Hermes reasoning, and tool call details in Telegram instead of just the final output.
-
-**Solution:** The `display.tool_progress` setting in `config.yaml` controls how much tool activity is shown:
-
-```yaml
-display:
-  tool_progress: "off"   # options: off, new, all, verbose
-```
-
-- **`off`** — Only the final response. No tool calls, no reasoning, no logs.
-- **`new`** — Shows new tool calls as they happen (brief one-liners).
-- **`all`** — Shows all tool activity including results.
-- **`verbose`** — Full detail including tool arguments and outputs.
-
-For messaging platforms, `off` or `new` is usually what you want. After editing `config.yaml`, restart the gateway for changes to take effect.
-
-You can also toggle this per-session with the `/verbose` command (if enabled):
-
-```yaml
-display:
-  tool_progress_command: true   # enables /verbose in the gateway
-```
-
-### Managing skills on Telegram (slash command limit)
-
-**Scenario:** Telegram has a 100 slash command limit, and your skills are pushing past it. You want to disable skills you don't need on Telegram, but `hermes skills config` settings don't seem to take effect.
-
-**Solution:** Use `hermes skills config` to disable skills per-platform. This writes to `config.yaml`:
-
-```yaml
-skills:
-  disabled: []                    # globally disabled skills
-  platform_disabled:
-    telegram: [skill-a, skill-b]  # disabled only on telegram
-```
-
-After changing this, **restart the gateway** (`hermes gateway restart` or kill and relaunch). The Telegram bot command menu rebuilds on startup.
-
-:::tip
-Skills with very long descriptions are truncated to 40 characters in the Telegram menu to stay within payload size limits. If skills aren't appearing, it may be a total payload size issue rather than the 100 command count limit — disabling unused skills helps with both.
-:::
-
-### Shared thread sessions (multiple users, one conversation)
-
-**Scenario:** You have a Telegram or Discord thread where multiple people mention the bot. You want all mentions in that thread to be part of one shared conversation, not separate per-user sessions.
-
-**Current behavior:** Hermes creates sessions keyed by user ID on most platforms, so each person gets their own conversation context. This is by design for privacy and context isolation.
-
-**Workarounds:**
-
-1. **Use Slack.** Slack sessions are keyed by thread, not by user. Multiple users in the same thread share one conversation — exactly the behavior you're describing. This is the most natural fit.
-
-2. **Use a group chat with a single user.** If one person is the designated "operator" who relays questions, the session stays unified. Others can read along.
-
-3. **Use a Discord channel.** Discord sessions are keyed by channel, so all users in the same channel share context. Use a dedicated channel for the shared conversation.
 
 ### Exporting Hermes to another machine
 

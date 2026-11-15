@@ -74,7 +74,7 @@ Teams 会议流水线使用**仅限应用**（daemon）身份验证从 Microsoft
 
 ### 出站摘要投递所需权限（仅限 Graph 模式）
 
-若 `platforms.teams.extra.delivery_mode` 设置为 `graph`，流水线将通过 Graph API 将摘要发布到 Teams 频道或聊天。如果使用 `incoming_webhook` 投递模式，可跳过这些权限。
+若 `platforms.msgraph_webhook.extra.meeting_pipeline.teams_delivery.enabled` 为 `true` 且 `delivery_mode` 设置为 `graph`，流水线将通过 Graph API 将摘要发布到 Teams 频道或聊天。如果使用 `incoming_webhook` 投递模式，可跳过这些权限。`teams_delivery` 中显式配置的值优先于对应的 `TEAMS_*` 环境变量。
 
 | 权限 | 允许应用执行的操作 |
 |------------|--------------------------|

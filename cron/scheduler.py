@@ -50,8 +50,7 @@ from hermes_cli.config_backend import ConfigBackendUnavailable
 from hermes_cli.fallback_config import get_fallback_chain, scoped_fallback_chain
 from hermes_time import now as _hermes_now, safe_strftime
 from agent.interrupt_compat import request_hard_interrupt
-from agent.delegation_context import (
-    enter_non_dispatcher_owned_context, exit_non_dispatcher_owned_context)
+
 from agent.memory_provider import ctx_bound
 from agent.session_activity import AwakeIdleMeter
 from agent.turn_failure_copy import is_max_iteration_handoff
@@ -2373,18 +2372,14 @@ class _CronRunScope:
             record_session_cwd(self.task_id, self.workdir)
         self._cron_session_var = _VAR_MAP["HERMES_CRON_SESSION"]
         self._cron_session_token = None
-        self._non_dispatcher_token = None
+
         self._spend_token = None
 
     def enter(self) -> None:
         # Scope cron approval policy; exit() RESETS via token (pinning "" would suppress the legacy
         # os.environ fallback used by standalone entrypoints/tests).
         self._cron_session_token = self._cron_session_var.set("1")
-        # Mark NOT the kanban worker: a worker's cronjob(action="run") lands here with
-        # HERMES_KANBAN_TASK in env, and an unrelated job could close the worker's task. Must be a
-        # ContextVar, NOT an os.environ clear (env is shared with the worker heartbeat and
-        # concurrent jobs); copy_context() carries it into the agent thread.
-        self._non_dispatcher_token = enter_non_dispatcher_owned_context()
+
         # Each run is its own MCP spend "chat" (its approval session key is "" for every job).
         from tools.mcp_tool_costs import bind_run
         self._spend_token = bind_run(self.task_id)
@@ -2397,8 +2392,7 @@ class _CronRunScope:
         clear_session_vars(self._ctx_tokens)  # also clears _SESSION_CWD
         if self._cron_session_token is not None:
             self._cron_session_var.reset(self._cron_session_token)
-        if self._non_dispatcher_token is not None:
-            exit_non_dispatcher_owned_context(self._non_dispatcher_token)
+
         if self._spend_token is not None:
             from tools.mcp_tool_costs import unbind_run
             unbind_run(self._spend_token)

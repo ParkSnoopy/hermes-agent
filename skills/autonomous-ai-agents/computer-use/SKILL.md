@@ -265,14 +265,10 @@ input action goes to that same window (input actions ignore `app=`).
 
 ## Delivering screenshots to the user
 
-When the user is on a messaging platform (Telegram, Discord, etc.) and
-you took a screenshot they should see, save it somewhere durable and
-use `MEDIA:/absolute/path.png` in your reply. cua-driver's screenshots
-are PNG or JPEG bytes (mimeType is on the response); write them out
-with `write_file` or the terminal (`base64 -d`).
-
-On CLI, you can just describe what you see — the screenshot data stays
-in your conversation context.
+When the user should see a screenshot, save it somewhere durable and
+provide its path. cua-driver's screenshots are PNG or JPEG bytes (mimeType
+is on the response); write them out with `write_file` or the terminal
+(`base64 -d`). You can also describe what you see.
 
 ## Safety — these are hard rules
 

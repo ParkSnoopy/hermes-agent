@@ -26,14 +26,7 @@ export const deAuxTasks: AuxTaskCopyMap = {
     hint: '/review Bewertungs-Subagent'
   },
   voice_chat: { label: 'Sprachchat', hint: 'Gesprochene Antworten im Sprachmodus' },
-  triage_specifier: {
-    label: 'Triage-Spezifizierer',
-    hint: 'Kanban-Spezifikation ausarbeiten'
-  },
-  kanban_decomposer: {
-    label: 'Kanban-Zerleger',
-    hint: 'Aufgaben zerlegen'
-  },
+
   profile_describer: {
     label: 'Profil-Beschreiber',
     hint: 'Automatische Profilbeschreibungen'

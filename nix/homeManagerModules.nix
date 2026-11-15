@@ -304,7 +304,7 @@
             '';
           };
 
-          gateway.enable = lib.mkEnableOption "the messaging gateway service (Telegram, Discord, Slack, ...)";
+          gateway.enable = lib.mkEnableOption "the gateway service";
         };
 
       config = lib.mkMerge [

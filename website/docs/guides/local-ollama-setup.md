@@ -27,7 +27,7 @@ By the end, you'll have:
 - Ollama serving one or more open-weight models
 - Hermes connected to Ollama as a custom endpoint
 - A working local agent that can edit files, run commands, and browse the web
-- Optional: a Telegram/Discord bot powered entirely by your own hardware
+
 
 ## What You Need
 
@@ -206,50 +206,7 @@ ollama ps   # Shows which model is loaded and how many GPU layers
 
 For a 31B model on a 12 GB GPU, you'll get partial offload (~40 layers on GPU, rest on CPU), which still gives a significant speedup.
 
-## Step 7: Run as a Gateway Bot (Optional)
-
-Once Hermes works locally in the CLI, you can expose it as a Telegram or Discord bot — still running entirely on your hardware.
-
-### Telegram
-
-1. Create a bot via [@BotFather](https://t.me/BotFather) and get the token
-2. Add to your `~/.hermes/config.yaml`:
-
-```yaml
-model:
-  default: "gemma4:31b"
-  provider: "custom"
-  base_url: "http://localhost:11434/v1"
-
-platforms:
-  telegram:
-    enabled: true
-    token: "YOUR_TELEGRAM_BOT_TOKEN"
-```
-
-3. Start the gateway:
-
-```bash
-hermes gateway
-```
-
-Now message your bot on Telegram — it responds using your local model.
-
-### Discord
-
-1. Create a Discord application at [discord.com/developers](https://discord.com/developers/applications)
-2. Add to config:
-
-```yaml
-platforms:
-  discord:
-    enabled: true
-    token: "YOUR_DISCORD_BOT_TOKEN"
-```
-
-3. Start: `hermes gateway`
-
-## Step 8: Set Up Fallbacks (Optional)
+## Step 7: Set Up Fallbacks (Optional)
 
 Local models can struggle with complex tasks. Set up a cloud fallback that only activates when the local model fails:
 
@@ -337,7 +294,7 @@ Your only cost is electricity — roughly $0.01–0.05 per session depending on 
 - **Terminal commands** — Hermes wraps the command, runs it, reads output regardless of model
 - **Web browsing** — the browser tool does the fetching; the model just interprets results
 - **Cron jobs and scheduled tasks** — work identically to cloud setups
-- **Multi-platform gateway** — Telegram, Discord, Slack all work with local models
+
 
 ## What's Better with Cloud Models
 

@@ -956,7 +956,7 @@ function pathWithGlobalRemoteProfile(path, profile, opts: ProfileRouteOptions = 
 }
 
 /** Extra profile-valued query keys, beyond `profile`, that name the same
- *  self-scope on a given path. The sidebar batches recents/cron/messaging
+ *  self-scope on a given path. The sidebar batches recents/cron
  *  behind `recents_profile` instead of `profile`, so an SSH alias rewrite
  *  that only looks at `?profile=` leaves those reads on the remote default. */
 const SELF_PROFILE_QUERY_KEYS_BY_PATH: Record<string, string[]> = {

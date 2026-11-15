@@ -616,9 +616,8 @@ def is_hosted_object(obj: Any) -> bool:
 
 
 def _run_on_gateway_loop(coro: Any) -> Any:
-    """A facade coroutine (``platform_actions``) uses adapters bound to the gateway's event loop, so
-    it runs there when a gateway is up; otherwise on a private loop. Always called off-loop (a
-    channel thread), never from the loop itself."""
+    """Run a facade coroutine on the gateway loop when available, otherwise on a private loop.
+    Always called off-loop (a channel thread), never from the loop itself."""
     try:
         from gateway.run import _gateway_runner_ref
         runner = _gateway_runner_ref()

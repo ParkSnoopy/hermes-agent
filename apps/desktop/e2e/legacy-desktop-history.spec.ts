@@ -123,11 +123,11 @@ seed(home / 'profiles' / 'developer' / 'state.db', [{'id': sys.argv[2], 'source'
         const cronNames = (r: any) => (Array.isArray(r) ? r : []).map((job: any) => `${job.profile}:${job.name}`).sort()
 
         // The cross-profile lists the sidebar and Sessions view read, through main's transport.
-        const sidebarAll = '/api/profiles/sessions/sidebar?recents_profile=all&recents_limit=40&cron_limit=5&messaging_limit=5'
+        const sidebarAll = '/api/profiles/sessions/sidebar?recents_profile=all&recents_limit=40&cron_limit=5'
 
         const reads: [string, Record<string, unknown>, (r: any) => unknown][] = [
-          ['sidebar:default', { path: '/api/profiles/sessions/sidebar?recents_profile=default&recents_limit=40&cron_limit=5&messaging_limit=5' }, sessionIds],
-          ['sidebar:developer', { path: '/api/profiles/sessions/sidebar?recents_profile=developer&recents_limit=40&cron_limit=5&messaging_limit=5' }, sessionIds],
+          ['sidebar:default', { path: '/api/profiles/sessions/sidebar?recents_profile=default&recents_limit=40&cron_limit=5' }, sessionIds],
+          ['sidebar:developer', { path: '/api/profiles/sessions/sidebar?recents_profile=developer&recents_limit=40&cron_limit=5' }, sessionIds],
           ['sidebar:all', { path: sidebarAll }, sessionIds],
           ['sessions:all', { path: `/api/profiles/sessions?${q}&profile=all` }, sessionIds],
           ['sidebar:all:registry', { path: sidebarAll, ...registry }, sessionIds],

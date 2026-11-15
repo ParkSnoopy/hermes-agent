@@ -158,7 +158,7 @@ def owner_secret_scope(home: str | Path) -> dict[str, str]:
     """THE secret mapping for a body owned by *home*: ``launch_secret_scope`` when *home* is this
     process's own (its env-only keys from docker ``-e`` / systemd ``Environment=`` / ``op run`` have
     no file to rebuild from), else the profile's own files (``build_profile_secret_scope``). Every
-    per-home binding point (routed gateway turns, cron fires, kanban ticks) builds through here, so
+    per-home binding point (routed gateway turns, cron fires) builds through here, so
     the launch profile keeps its env-only credentials when a single-profile gateway starts
     multiplexing in place."""
     from agent.secret_scope import _is_process_home, build_profile_secret_scope

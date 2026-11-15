@@ -13,16 +13,14 @@ import asyncio
 import contextlib
 import contextvars
 import functools
-import json
 import os
 import time
 from agent.i18n import DEFAULT_LANGUAGE, t
 from agent.session_activity import format_iteration_progress
-from gateway.config import Platform
 from gateway.platforms.base import EphemeralReply
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.session import SessionSource
-from gateway.whatsapp_identity import canonical_whatsapp_identifier
+
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 if TYPE_CHECKING:  # string annotations only; never imported at runtime (cycle)
@@ -611,10 +609,7 @@ class GatewayBusySessionMixin:
 
     @staticmethod
     def _busy_reply_to(event: MessageEvent, reply_anchor):
-        # Telegram DM topics anchor on the thread; other Telegram threads send unanchored. An
-        # internal wake's message_id is its producer identity, never a platform id (#139611).
-        if event.source.platform == Platform.TELEGRAM and event.source.thread_id:
-            return reply_anchor if event.source.chat_type == "dm" else None
+        # An internal wake's message_id is its producer identity, not a platform id.
         return None if getattr(event, "internal", False) else event.message_id
 
     async def _send_busy_reply(self, event: MessageEvent, adapter, content: str, *, plain_anchor: bool = False) -> None:
@@ -1050,18 +1045,18 @@ class GatewayBusySessionMixin:
         await self._send_busy_ack_reply(event, adapter, message)
 
     # Slash name → handler method is ``_handle_<name>_command`` (``-`` → ``_``) except these.
-    _COMMAND_HANDLER_ALIASES = {"bg": "_handle_background_command", "sethome": "_handle_set_home_command"}
+    _COMMAND_HANDLER_ALIASES = {"bg": "_handle_background_command"}
     # Ordinary slash handlers shared by idle and busy dispatch.
     _PLAIN_COMMANDS = (
         "status", "context", "restart", "approve", "deny", "pause", "discard", "agents", "bg", "btw",
-        "kanban", "subgoal", "heartbeat", "busy", "yolo", "verbose", "footer", "help",
+        "subgoal", "heartbeat", "busy", "yolo", "verbose", "footer", "help",
         "commands", "profile", "login", "update", "version", "autoprune",
     )
     # Dispatched only on the idle path (busy dispatch has its own allowlist).
     _IDLE_COMMANDS = (
-        "topic", "whoami", "platform", "stop", "reasoning", "memory", "skills", "fast",
+        "whoami", "stop", "reasoning", "memory", "skills", "fast",
         "approvals", "model", "codex-runtime", "personality", "suggestions", "save", "retry",
-        "sethome", "compress", "usage", "topup", "insights", "reload-mcp", "reload-skills",
+        "compress", "usage", "topup", "insights", "reload-mcp", "reload-skills",
         "bundles", "debug", "title", "resume", "sessions", "branch", "rollback", "diff", "goal",
         "loop", "refine", "review", "voice", "curator",
     )
@@ -1100,7 +1095,7 @@ class GatewayBusySessionMixin:
 
     # busy_handler key (hermes_cli/commands.py CommandDef) → mid-run variant ``_busy_<key>_command``.
     _BUSY_SPECIAL_HANDLERS: dict[str, str] = {
-        k: f"_busy_{k}_command" for k in ("start", "stop", "new", "queue", "steer", "egress", "goal", "loop")
+        k: f"_busy_{k}_command" for k in ("stop", "new", "queue", "steer", "egress", "goal", "loop")
     }
 
     async def _dispatch_busy_slash_command(self, event: MessageEvent, cmd_def, quick_key: str, source):
@@ -1167,11 +1162,6 @@ class GatewayBusySessionMixin:
         suffix = t("gateway.pause.reason_suffix", reason=args) if args else ""
         return t("gateway.pause.paused", suffix=suffix)
 
-    async def _busy_start_command(self, event: MessageEvent, quick_key: str, source):
-        # Telegram's /start is a platform ping (bot launch/deep-link), not a user command.
-        await _busy_accepted()
-        logger.info("Ignoring /start platform ping for active session %s", quick_key)
-        return ""
 
     async def _busy_egress_command(self, event: MessageEvent, quick_key: str, source):
         from hermes_cli.proxy_cli import format_status_text
@@ -1428,10 +1418,6 @@ class GatewayBusySessionMixin:
         chat_id = str(getattr(source, "chat_id", None) or "")
         if not chat_id:
             return []
-        if source.chat_type == "dm" and source.platform == Platform.WHATSAPP:
-            # Match the same text build_session_key keyed: WhatsApp DM chat ids are canonicalised
-            # there, so a raw JID/LID alias would never line up with the stored key.
-            chat_id = canonical_whatsapp_identifier(chat_id) or chat_id
         namespace = ":".join(own_key.split(":", 2)[:2])
         prefix = f"{namespace}:{source.platform.value}:"
         scope_id = str(getattr(source, "scope_id", None) or "") or None
@@ -1481,61 +1467,6 @@ class GatewayBusySessionMixin:
             for key, _key_chat_type, tail in runs
             if not thread_id or not tail or _tail_has_slot(tail, thread_id)
         ]
-
-    def _is_stale_restart_redelivery(self, event: MessageEvent) -> bool:
-        """True if this /restart is a Telegram re-delivery we already handled.
-
-        The previous gateway wrote ``.restart_last_processed.json`` (platform + update_id). A
-        /restart with update_id <= that value is a redelivery when this process booted from that
-        restart; otherwise the marker must be < 5 minutes old. Telegram only (numeric ordering).
-        """
-        from gateway.run import _hermes_home
-        if event is None or event.source is None or event.platform_update_id is None:
-            return False
-        try:
-            if event.source.platform.value != "telegram":
-                return False
-        except Exception:
-            return False
-
-        try:
-            marker_path = _hermes_home / ".restart_last_processed.json"
-            if not marker_path.exists():
-                # Missing marker: a redelivered /restart would otherwise re-restart forever. Suppress
-                # ONLY when this process booted from a chat /restart AND is within a short post-boot
-                # window; consume the flag one-shot so a later legitimate /restart is honored.
-                if (
-                    # Belt-and-suspenders for when the dedup marker goes missing (manually cleaned up, or
-                    # the previous cycle's write failed). Without a marker the update_id comparison below
-                    # can't run, so a redelivered /restart would sail through and re-restart the gateway —
-                    # an infinite loop (issue #18528).
-                    getattr(self, "_booted_from_restart", False)
-                    and time.time() - getattr(self, "_startup_time", 0.0) < 60
-                ):
-                    self._booted_from_restart = False
-                    return True
-                return False
-            data = json.loads(marker_path.read_text(encoding="utf-8-sig"))
-        except Exception:
-            return False
-
-        recorded_uid = data.get("update_id")
-        if (
-            data.get("platform") != "telegram"
-            or not isinstance(recorded_uid, int)
-            or event.platform_update_id > recorded_uid
-        ):
-            return False
-
-        # A service-managed restart can outlast the 5-minute trust window; consume the boot
-        # signal one-shot.
-        if getattr(self, "_booted_from_restart", False):
-            self._booted_from_restart = False
-            return True
-
-        # Staleness guard: an old marker (crash recovery) must not swallow a fresh /restart.
-        requested_at = data.get("requested_at")
-        return not (isinstance(requested_at, (int, float)) and time.time() - requested_at > 300)
 
     async def _handle_suggestions_command(self, event: MessageEvent) -> str:
         """/suggestions via the shared handler (origin = event source so jobs deliver back here)."""
@@ -1673,7 +1604,7 @@ class GatewayBusySessionMixin:
                 # a code-only decline has no marker colon in its rendered text,
                 # and an ambiguous result must not be treated as a definite
                 # refusal.
-                from gateway.relay.egress import declined_send
+                from gateway.delivery_refusal import declined_send
 
                 _confirm_err = getattr(button_result, "error", None)
                 if declined_send(button_result):

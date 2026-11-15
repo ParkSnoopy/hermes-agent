@@ -22,8 +22,7 @@ Lanes:
   touches (``_E2E_LANES``, the ``run-e2e`` label), but ci.yaml's ``detect``
   gate forces these lanes off on pull requests and pushes to main: the E2E
   suites run only on a release run or a manual dispatch.
-* ``frontend``    — TS typecheck matrix + desktop build, and the WhatsApp
-  bridge's ``node --test`` suites.
+* ``frontend``    — TS typecheck matrix + desktop build.
 * ``site``        — Docusaurus + generated skill docs.
 * ``scan``        — supply-chain scan (Python files, .pth, setup hooks).
 * ``deps``        — pyproject.toml dependency bounds check.
@@ -98,10 +97,7 @@ _FRONTEND = ("ui-tui/", "web/", "apps/")  # TS typecheck-matrix packages
 # Shipped page outside those packages, exercised by the desktop Electron suite. The desktop cache
 # key owner is checked by tests-js/desktop-build-cache-inputs.test.mjs against the Node graph.
 _FRONTEND_FILES = {"scripts/desktop-update/ui.html", "scripts/ci/desktop_build_cache.py"}
-# The WhatsApp bridge's ``node --test`` suites run in the JS & TS job, so a
-# change to the bridge or to the Python adapter that speaks its protocol
-# selects ``frontend``.
-_WHATSAPP_BRIDGE = ("scripts/whatsapp-bridge/", "plugins/platforms/whatsapp/")
+
 # Shift every package's tree (pnpm-workspace.yaml carries the overrides).
 _ROOT_NPM = {"package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"}
 _DOCKER_META = ("docker/", ".hadolint.yaml", "Dockerfile", ".dockerignore") # docker setup
@@ -444,12 +440,7 @@ _E2E_LANES: dict[str, tuple[str, ...]] = {
         # The state.db torture chamber and the compaction/exactly-once
         # suites are the only tests that run real concurrent writers.
         "hermes_state",
-        # Messaging-gated gateway cases: only the e2e job installs the real
-        # Discord/Telegram SDKs (tests.yml "Run messaging-gated gateway cases").
-        "tests/gateway/test_native_role_reauthorization.py",
-        "tests/gateway/test_native_telegram_startup_recovery.py",
-        "tests/gateway/test_native_pause_notice.py",
-        "tests/gateway/test_native_reply_crash_recovery.py",
+
     ),
     "e2e_upgrade": (
         *_PY_TEST_HARNESS,
@@ -652,7 +643,7 @@ def classify(files: list[str], run_e2e: bool = False) -> dict[str, bool]:
     python_prod = any(not _py_irrelevant(f) and not _py_test_only(f) for f in code)
     frontend = any(
         f.startswith(_FRONTEND) or f in _ROOT_NPM or f in _FRONTEND_FILES
-        or f.startswith(("tests-js/",) + _WHATSAPP_BRIDGE)
+        or f.startswith("tests-js/")
         or (f.startswith("scripts/build/") and f.endswith((".mjs", ".js", ".ts")))
         for f in files
     )

@@ -1,29 +1,28 @@
 """Process completions that pile up behind a busy turn run as ONE queued turn, not one turn each."""
 import pytest
 
-from gateway.config import GatewayConfig, Platform, PlatformConfig
+from gateway.config import GatewayConfig
 from gateway.platforms.event import MessageEvent
 from gateway.run import GatewayRunner
 from gateway.session_authority import SessionAuthority, initialize_session_authority
 from hermes_state_runtime import list_session_admissions
+from tests.gateway.test_authority_busy_plaintext_approval import CHAT, _human_adapter
 
 
-async def _discord_session(tmp_path, monkeypatch):
+async def _human_session(tmp_path, monkeypatch):
     from gateway.session_ingress_context import native_callback, register_transport_home
     from hermes_state import SessionDB
-    from plugins.platforms.discord.adapter import DiscordAdapter
     monkeypatch.setenv('HERMES_HOME', str(tmp_path))
-    monkeypatch.setenv('DISCORD_ALLOWED_USERS', '42')
     monkeypatch.setattr(SessionAuthority, '_schedule', lambda self, ref: None)  # nothing claims: all stay queued
     runner = GatewayRunner(GatewayConfig(sessions_dir=tmp_path / 'sessions'))
     db = SessionDB(tmp_path / 'state.db')
     runner.session_store._db = runner._session_db = db
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='fold', db=db)
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token='fixture-token', typing_indicator=False))
-    runner.adapters = {Platform.DISCORD: adapter}
+    adapter = _human_adapter(monkeypatch)
+    runner.adapters = {adapter.platform: adapter}
     runner._wire_adapter_handlers(adapter)
     register_transport_home(runner, None, tmp_path)
-    source = adapter.build_source(chat_id='42', chat_type='dm', user_id='42')
+    source = adapter.build_source(chat_id=CHAT, chat_type='dm', user_id=CHAT)
 
     async def human(text):
         event = MessageEvent(text=text, source=source, message_id=text)
@@ -36,14 +35,14 @@ async def _discord_session(tmp_path, monkeypatch):
 
     async def complete(name):
         evt = {'type': 'completion', 'session_id': name, 'started_at': 1.0, 'session_key': route, 'parent_session_id': sid,
-               'platform': 'discord', 'chat_type': 'dm', 'chat_id': '42', 'user_id': '42',
+               'platform': adapter.platform.value, 'chat_type': 'dm', 'chat_id': CHAT, 'user_id': CHAT,
                'exit_code': 0, 'output': f'{name} output'}
         assert await runner._inject_watch_notification(f'[IMPORTANT: {name} finished]', evt) is True
 
     async def tick(name):
         evt = {'type': 'heartbeat', 'session_id': name, 'event_id': f'{name}-tick', 'started_at': 1.0,
-               'session_key': route, 'parent_session_id': sid, 'platform': 'discord', 'chat_type': 'dm',
-               'chat_id': '42', 'user_id': '42', 'output': f'{name} still running', 'omitted': 0}
+               'session_key': route, 'parent_session_id': sid, 'platform': adapter.platform.value, 'chat_type': 'dm',
+               'chat_id': CHAT, 'user_id': CHAT, 'output': f'{name} still running', 'omitted': 0}
         assert await runner._inject_watch_notification(f'[IMPORTANT: {name} still running]', evt) is True
     complete.tick = tick
 
@@ -57,7 +56,7 @@ async def _discord_session(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_completions_queued_behind_a_turn_fold_into_one_turn(tmp_path, monkeypatch):
-    authority, _human, complete, queued = await _discord_session(tmp_path, monkeypatch)
+    authority, _human, complete, queued = await _human_session(tmp_path, monkeypatch)
     try:
         await complete('proc_a')
         await complete.tick('proc_b')  # the finishing process's own tick never blocks the fold
@@ -86,7 +85,7 @@ async def test_completions_queued_behind_a_turn_fold_into_one_turn(tmp_path, mon
 async def test_a_prompt_queued_between_completions_keeps_them_apart(tmp_path, monkeypatch, stale_read):
     """``stale_read``: the prompt commits after the tail was read but before the fold is written."""
     from gateway import session_automation
-    authority, human, complete, queued = await _discord_session(tmp_path, monkeypatch)
+    authority, human, complete, queued = await _human_session(tmp_path, monkeypatch)
     try:
         await complete('proc_a')
         if stale_read:

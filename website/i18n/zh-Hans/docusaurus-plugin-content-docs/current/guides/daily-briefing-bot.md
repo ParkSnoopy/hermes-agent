@@ -1,14 +1,14 @@
 ---
 sidebar_position: 3
 title: "教程：每日简报机器人"
-description: "构建一个自动化每日简报机器人，研究主题、汇总发现，并每天早晨推送至 Telegram 或 Discord"
+description: "构建自动化每日简报，研究主题、汇总发现并在本地保存结果"
 ---
 
 # 教程：构建每日简报机器人
 
-在本教程中，你将构建一个个人简报机器人，它每天早晨自动启动，研究你关心的主题，汇总发现，并将简洁的简报直接推送到你的 Telegram 或 Discord。
+在本教程中，你将构建一个个人简报任务，它每天早晨自动启动，研究你关心的主题，汇总发现，并在本地保存简报。
 
-完成后，你将拥有一个完全自动化的工作流，结合了 **网页搜索**、**cron 调度**、**委托（delegation）** 和 **消息推送** — 无需编写代码。
+完成后，你将拥有一个结合 **网页搜索**、**cron 调度**和**委托（delegation）**的自动化工作流，无需编写代码。
 
 ## 我们要构建什么
 
@@ -18,7 +18,7 @@ description: "构建一个自动化每日简报机器人，研究主题、汇总
 2. **Hermes 启动**一个全新的 agent 会话，使用你的 prompt（提示词）
 3. **网页搜索**拉取你关注主题的最新新闻
 4. **汇总**将内容提炼为简洁的简报格式
-5. **推送**将简报发送到你的 Telegram 或 Discord
+5. **保存**将简报保存到本地输出目录
 
 整个流程无需人工干预。你只需在早晨喝咖啡时阅读简报即可。
 
@@ -35,10 +35,10 @@ description: "构建一个自动化每日简报机器人，研究主题、汇总
   hermes gateway           # Run in foreground
   ```
 - **Firecrawl API 密钥** — 在环境变量中设置 `FIRECRAWL_API_KEY` 以启用网页搜索
-- **已配置消息推送**（可选但推荐）— 已设置 [Telegram](../user-guide/messaging/telegram.md) 或 Discord 并配置了 home channel
 
-:::tip 没有消息推送？没关系
-你仍然可以使用 `deliver: "local"` 跟随本教程。简报将保存至 `~/.hermes/cron/output/`，你可以随时查阅。
+
+:::tip 本地结果
+使用 `deliver: "none"`。简报将保存至 `~/.hermes/cron/output/`，你可以随时查阅。
 :::
 
 ## 第一步：手动测试工作流
@@ -99,7 +99,7 @@ Hermes 将搜索网页、阅读结果，并生成类似以下内容：
 ```
 Every morning at 8am, search the web for the latest news about AI agents
 and open source LLMs. Summarize the top 3 stories in a concise briefing
-with links. Use a friendly, professional tone. Deliver to telegram.
+with links. Use a friendly, professional tone. Save the result locally with deliver=none.
 ```
 
 Hermes 将使用统一的 `cronjob` 工具为你创建 cron 任务。
@@ -109,7 +109,7 @@ Hermes 将使用统一的 `cronjob` 工具为你创建 cron 任务。
 使用 `/cron` 命令进行更精细的控制：
 
 ```
-/cron add "0 8 * * *" "Search the web for the latest news about AI agents and open source LLMs. Find at least 5 recent articles from the past 24 hours. Summarize the top 3 most important stories in a concise daily briefing format. For each story include: a clear headline, a 2-sentence summary, and the source URL. Use a friendly, professional tone. Format with emoji bullet points and end with a total story count."
+/cron add "0 8 * * *" "Search the web for the latest news about AI agents and open source LLMs. Find at least 5 recent articles from the past 24 hours. Summarize the top 3 most important stories in a concise daily briefing format. For each story include: a clear headline, a 2-sentence summary, and the source URL. Use a friendly, professional tone. Format with emoji bullet points and end with a total story count." --deliver none
 ```
 
 ### 黄金法则：自包含的 Prompt
@@ -219,8 +219,8 @@ hermes cron list
 ```
 ID          | Name              | Schedule    | Next Run           | Deliver
 ------------|-------------------|-------------|--------------------|--------
-a1b2c3d4    | Morning Briefing  | 0 8 * * *   | 2026-03-09 08:00   | telegram
-e5f6g7h8    | Evening Recap     | 0 18 * * *  | 2026-03-08 18:00   | telegram
+a1b2c3d4    | Morning Briefing  | 0 8 * * *   | 2026-03-09 08:00   | none
+e5f6g7h8    | Evening Recap     | 0 18 * * *  | 2026-03-08 18:00   | none
 ```
 
 ### 删除任务
@@ -259,7 +259,7 @@ sudo hermes gateway install --system
 
 - **[定时任务（Cron）](../user-guide/features/cron.md)** — 调度格式、重复限制和推送选项的完整参考
 - **[委托](../user-guide/features/delegation.md)** — 深入了解并行子 agent 工作流
-- **[消息推送平台](../user-guide/messaging/index.md)** — 设置 Telegram、Discord 或其他推送目标
+
 - **[Memory](../user-guide/features/memory.md)** — 跨会话的持久上下文
 - **[技巧与最佳实践](./tips.md)** — 更多 prompt 工程建议
 

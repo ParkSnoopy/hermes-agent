@@ -1,4 +1,4 @@
-"""A managed worker without a launch key (every Kanban run) resolves its route's credential the
+"""A managed worker without a launch key resolves its route's credential the
 way the in-process runner does (``_resolve_policy_agent_runtime``), so an ``anthropic_messages``
 provider other than Anthropic gets its own key instead of ``Bearer `` (#139155). The key comes from
 the worker's own profile home, never the default one, and a bound launch key still wins."""
@@ -208,35 +208,22 @@ def test_primary_auth_failure_never_borrows_a_fallback_providers_key(tmp_path, m
     assert calls and built['api_key'] is None
 
 
-def _kanban_failures():
-    from hermes_cli import kanban_db as kb
+@pytest.mark.parametrize('rate_limited', [True, False])
+def test_keyless_worker_credential_failure_does_not_build_agent(tmp_path, monkeypatch, rate_limited):
     from hermes_cli.auth import AuthError
     from hermes_cli.auth_constants import CODEX_RATE_LIMITED_CODE
-    return [(AuthError('quota', provider='openai-codex', code=CODEX_RATE_LIMITED_CODE), kb.KANBAN_RATE_LIMIT_EXIT_CODE),
-            (AuthError('relogin', provider='nous', relogin_required=True), kb.KANBAN_TERMINAL_PROVIDER_EXIT_CODE)]
-
-
-@pytest.mark.parametrize('error, expected', _kanban_failures())
-def test_keyless_worker_credential_failure_keeps_the_kanban_start_exit(tmp_path, monkeypatch, error, expected):
-    """An AuthError from the key-less worker's own route resolution goes through the worker's real
-    start-failure path (``execute`` -> ``_construct_agent`` -> ``record_start_failure``): a quota wall
-    books 75, a re-login 78, and the agent is never built."""
-    from gateway import session_kanban
-    from tests.gateway.test_kanban_result_exit import _bound_claim
-    path, context = _bound_claim(tmp_path / 'kanban', monkeypatch)
+    error = (AuthError('quota', provider='openai-codex', code=CODEX_RATE_LIMITED_CODE)
+             if rate_limited else AuthError('relogin', provider='nous', relogin_required=True))
     frame = _minimax_frame(tmp_path, monkeypatch)
-    frame = {**frame, 'policy': {**frame['policy'], 'kanban_json': json.dumps(context)}}
 
     def resolve(**kwargs):
         raise error
     monkeypatch.setattr('hermes_cli.runtime_provider_custom._resolve_named_custom_runtime', resolve)
-    # Only the HERMES_KANBAN_* environment binding is skipped (it writes os.environ directly).
-    monkeypatch.setattr(session_kanban, 'bind_worker_context', lambda frame: None)
     built = {}
     with pytest.raises(type(error)):
         _execute(frame, monkeypatch, built=built)
     assert built == {}
-    assert session_kanban.worker_exit_code(path, context) == expected
+
 
 
 FALLBACK = {'provider': 'openrouter', 'model': 'fallback-model'}
@@ -274,21 +261,15 @@ def test_primary_auth_failure_reaches_the_turns_refreshed_fallback_chain(tmp_pat
     assert built['fallback_model'] == [FALLBACK] and built['api_key'] is None
 
 
-def test_primary_auth_failure_with_an_unusable_turn_chain_keeps_the_kanban_start_exit(tmp_path, monkeypatch):
-    from gateway import session_kanban
-    from hermes_cli import kanban_db as kb
+def test_primary_auth_failure_with_an_unusable_turn_chain_does_not_build_agent(tmp_path, monkeypatch):
     from hermes_cli.auth import AuthError
-    from tests.gateway.test_kanban_result_exit import _bound_claim
-    path, context = _bound_claim(tmp_path / 'kanban', monkeypatch)
     frame = _with_turn_chain(_minimax_frame(tmp_path, monkeypatch), [FALLBACK])
-    frame = {**frame, 'policy': {**frame['policy'], 'kanban_json': json.dumps(context)}}
     _primary_auth_failure(monkeypatch, fallback_ok=False)
-    monkeypatch.setattr(session_kanban, 'bind_worker_context', lambda frame: None)
     built = {}
     with pytest.raises(AuthError):
         _execute(frame, monkeypatch, built=built)
     assert built == {}
-    assert session_kanban.worker_exit_code(path, context) == kb.KANBAN_TERMINAL_PROVIDER_EXIT_CODE
+
 
 
 def test_keyless_worker_on_a_fallback_never_sends_its_key_to_the_primary_endpoint(tmp_path, monkeypatch):

@@ -474,9 +474,9 @@ let
           dependencies — no PYTHONPATH patching or collision risk.
 
           They add to the groups `package` already ships (the default
-          package ships "messaging", "voice", "exa", ...); they never
+          package ships "voice", "exa", ...); they never
           replace them. For a smaller venv pick a smaller `package`
-          (`minimal`, `messaging`) or override its defaultDependencyGroups.
+          (`minimal`) or override its defaultDependencyGroups.
 
           Use this for optional extras already declared in hermes-agent's
           pyproject.toml (e.g. "google-meet").
@@ -512,7 +512,7 @@ let
       # connects to. They are one process, and you can run only one of them.
       # Thus this option is an enum and not two booleans.
       #
-      # The backend does not run the messaging gateway. web_server.py only
+      # The backend does not run the gateway. web_server.py only
       # controls an external gateway, with `hermes gateway restart`. It does
       # not contain a gateway.
       backend = {
@@ -524,7 +524,7 @@ let
           ];
           default = "none";
           description = ''
-            The backend process to run with the messaging gateway.
+            The backend process to run with the gateway.
 
             - "none"      — no backend
             - "serve"     — the backend without a user interface. It gives

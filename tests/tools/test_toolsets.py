@@ -96,6 +96,29 @@ class TestValidateToolset:
     def test_invalid(self):
         assert validate_toolset("nonexistent") is False
 
+    def test_retired_bundles_do_not_hide_shared_local_capabilities(self):
+        from model_tools import _AGENT_LOOP_TOOLS, get_tool_definitions
+        from tools.registry import registry
+
+        retired_bundles = ("kanban", "discord", "feishu", "hermes-telegram", "hermes-slack")
+        for name in retired_bundles:
+            assert not validate_toolset(name)
+
+        retired_tools = {"send_message", "react_to_message", "discord", "feishu_doc", "kanban_show"}
+        for bundle in ("hermes-cli", "hermes-cron", "hermes-api-server"):
+            assert validate_toolset(bundle)
+            resolved = set(resolve_toolset(bundle))
+            assert {"terminal", "web_search"} <= resolved
+            definitions = get_tool_definitions(
+                enabled_toolsets=[bundle], quiet_mode=True, skip_tool_search_assembly=True)
+            names = {item["function"]["name"] for item in definitions}
+            assert "terminal" in names
+            assert not names.intersection(retired_tools)
+            missing = {name for name in names if registry.get_entry(name) is None and name not in _AGENT_LOOP_TOOLS}
+            assert not missing
+
+        assert not set(registry.get_all_tool_names()).intersection(retired_tools)
+
     def test_mcp_alias_uses_live_registry(self, monkeypatch):
         reg = ToolRegistry()
         reg.register(

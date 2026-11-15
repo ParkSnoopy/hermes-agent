@@ -101,32 +101,29 @@ def test_a_probe_thread_that_cannot_start_does_not_park_the_check(monkeypatch):
 
 
 def test_an_uncached_check_answers_for_its_own_caller_while_another_runs(monkeypatch):
-    """``no_cache_check_fn`` probes may answer per caller context (Kanban refuses a delegated child),
+    """``no_cache_check_fn`` probes may answer per caller context,
     so a concurrent caller must never inherit another caller's verdict."""
-    from contextlib import nullcontext
-
-    from agent.delegation_context import delegated_child_context
-    from tools import kanban_tools
-
     entered, release, results = threading.Event(), threading.Event(), {}
+    caller = ContextVar("probe_caller", default="parent")
 
     def configured_profile():
-        if not entered.is_set():
+        if caller.get() == "parent":
             entered.set()
             assert release.wait(5)
-        return True
+        return caller.get() == "parent"
 
-    monkeypatch.setattr(kanban_tools, "_profile_has_kanban_toolset", configured_profile)
-    monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
     # The parent's probe is held until the child has answered: give it a budget a loaded runner
     # cannot exhaust (the file's 0.3 s default is for the wedged-probe tests).
     monkeypatch.setattr(registry_module, "_CHECK_FN_PROBE_TIMEOUT_SECONDS", 10.0)
     reg = ToolRegistry()
-    _register(reg, "kanban_probe", kanban_tools._check_kanban_mode)
+    _register(reg, "context_probe", registry_module.no_cache_check_fn(configured_profile))
 
     def build(name, child):
-        with delegated_child_context() if child else nullcontext():
-            results[name] = [d["function"]["name"] for d in reg.get_definitions({"kanban_probe"}, quiet=True)]
+        token = caller.set("child" if child else "parent")
+        try:
+            results[name] = [d["function"]["name"] for d in reg.get_definitions({"context_probe"}, quiet=True)]
+        finally:
+            caller.reset(token)
 
     parent = threading.Thread(target=build, args=("parent", False), daemon=True)
     parent.start()
@@ -136,7 +133,7 @@ def test_an_uncached_check_answers_for_its_own_caller_while_another_runs(monkeyp
     child.join(5)
     release.set()
     parent.join(5)
-    assert results == {"parent": ["kanban_probe"], "child": []}
+    assert results == {"parent": ["context_probe"], "child": []}
 
 
 def test_a_bounded_probe_keeps_scope_errors_and_contextvar_publication():

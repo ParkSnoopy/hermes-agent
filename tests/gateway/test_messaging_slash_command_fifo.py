@@ -1,7 +1,7 @@
 """A slash command that becomes a turn (``/queue``, ``/steer``, ``/plan``, a skill) joins the chat's
 durable FIFO like text, so it runs after the turns already admitted, never inside the running one.
 
-Real GatewayRunner, DiscordAdapter, SessionAuthority and drain over SQLite. The turn body
+Real GatewayRunner, a generic plugin adapter, SessionAuthority and drain over SQLite. The turn body
 (``_handle_message_with_agent``) is a stand-in; the running turn calls the real post-run drain
 step ``_run_agent_drain_pending``, so anything left in the in-process slot shows up "inside A".
 """
@@ -17,13 +17,13 @@ def _owner(monkeypatch, mode=None):
     from gateway.config import GatewayConfig, Platform, PlatformConfig
     from gateway.platforms.base import SendResult
     from gateway.run import GatewayRunner
-    from plugins.platforms.discord.adapter import DiscordAdapter
+    from tests.gateway.test_native_admission_named_refusal import make_test_transport
 
-    monkeypatch.setenv('DISCORD_ALLOWED_USERS', '42')
+    monkeypatch.setenv('GATEWAY_ALLOW_ALL_USERS', 'true')
     runner = GatewayRunner(GatewayConfig())
     if mode is not None:
         runner._busy_input_mode = mode
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token='fixture-token', typing_indicator=False))
+    adapter = make_test_transport(monkeypatch)
     sent = []
 
     async def send(chat_id, content, reply_to=None, metadata=None):
@@ -31,7 +31,7 @@ def _owner(monkeypatch, mode=None):
         return SendResult(success=True, message_id=f's{len(sent)}')
     monkeypatch.setattr(adapter, 'send', send)
     adapter.gateway_runner = runner
-    runner.adapters = {Platform.DISCORD: adapter}
+    runner.adapters = {adapter.platform: adapter}
     monkeypatch.setattr(runner, '_read_user_config', lambda: {'approvals': {'destructive_slash_confirm': False}})
     return runner, adapter, sent
 
@@ -222,50 +222,6 @@ async def test_an_admitted_turn_never_answers_a_pending_prompt(monkeypatch, prom
                               settled=lambda: answered)
     assert answered == [] and 'C' in [m for m, _ in order], (answered, order)
 
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('command', ['/queue C', '/steer C'])  # no agent can steer: the queue fallback
-async def test_queued_turn_keeps_the_relay_callback(monkeypatch, command):
-    """The rebuilt turn carries the command's authenticated relay callback, so a relay-fronted chat
-    can queue; the strict identity check in ``capture_provenance`` still holds."""
-    from pathlib import Path
-    from unittest.mock import AsyncMock
-    from gateway import session_ingress_context as ctx
-    from gateway.config import Platform
-    from gateway.platforms.event import MessageEvent, MessageType
-    from gateway.run_busy import GatewayBusySessionMixin
-    from gateway.session import SessionSource
-
-    accepted, transport, home = [], object(), Path.cwd()
-
-    class Runner(GatewayBusySessionMixin):
-        session_authority = SimpleNamespace(route_epoch=lambda route: 0)
-
-        def _peek_session_state(self, key):
-            return None
-
-        def _delivery_adapter_for(self, source):
-            return adapter
-
-        def _queue_depth(self, *args, **kwargs):
-            return 0
-    runner = Runner()
-
-    async def handler(event):  # the observer's message handler: native callback, then provenance
-        with ctx.native_callback(runner, event, home):
-            ctx.capture_provenance(runner, event)
-        accepted.append(event.text)
-    adapter = SimpleNamespace(_transport=transport, _background_tasks=set(), gateway_runner=None, name='relay',
-                              _message_handler=handler, _release_turn_marker=AsyncMock(),
-                              _unwrap_ephemeral=lambda response: (response, 0))
-    monkeypatch.setattr(ctx, '_binding', lambda *a: (adapter, home, home, {'relay': 'seal'}))
-    source = SessionSource(platform=Platform.TELEGRAM, chat_id='42', user_id='42', chat_type='dm',
-                           delivered_via_upstream_relay=True)
-    original = MessageEvent(text=command, message_type=MessageType.COMMAND, source=source, message_id='C')
-    method = runner._busy_queue_command if command.startswith('/queue') else runner._busy_steer_command
-    with ctx.relay_callback(transport, original), ctx.native_callback(runner, original, home):
-        await method(original, 'chat', source)
-    assert accepted == ['C']
 
 
 @pytest.mark.asyncio

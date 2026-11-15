@@ -66,7 +66,7 @@ export type DesktopActionId =
   | 'compress'
   | 'config'
   | 'export'
-  | 'handoff'
+
   | 'hatch'
   | 'help'
   | 'history'
@@ -226,12 +226,7 @@ const DESKTOP_COMMAND_SPECS: readonly DesktopCommandSpec[] = [
     surface: action('wake'),
     argumentMode: 'options'
   },
-  {
-    name: '/handoff',
-    description: 'Hand off this session to a messaging platform',
-    surface: action('handoff'),
-    argumentMode: 'options'
-  },
+
   { name: '/profile', description: 'Switch the active Hermes profile', surface: action('profile') },
   {
     name: '/skin',

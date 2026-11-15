@@ -1,21 +1,60 @@
 """Producer completions and heartbeats keep entering a messaging conversation after compression
 moved its route to a child and after a prior input's retained media was released."""
 import asyncio
+import time
 
 import pytest
 
 
-async def _discord_owner(tmp_path, monkeypatch):
-    from gateway.config import GatewayConfig, Platform, PlatformConfig
+def _plugin_platform(monkeypatch):
+    from gateway.config import Platform
+    from gateway.platform_registry import PlatformEntry, platform_registry
+    entry = PlatformEntry(name='test_chat', label='Test chat', adapter_factory=lambda cfg: None,
+                          check_fn=lambda: True)
+    monkeypatch.setitem(platform_registry._entries, entry.name, entry)
+    return Platform(entry.name)
+
+
+def _chat_adapter(monkeypatch):
+    from gateway.config import PlatformConfig
+    from gateway.platforms.base import BasePlatformAdapter, SendResult
+
+    class ChatAdapter(BasePlatformAdapter):
+        async def connect(self, *, is_reconnect=False):
+            return True
+
+        async def disconnect(self):
+            pass
+
+        async def send(self, chat_id, content, reply_to=None, metadata=None):
+            return SendResult(success=True, message_id='sent')
+
+        async def get_chat_info(self, chat_id):
+            return {'id': chat_id, 'type': 'dm'}
+
+    monkeypatch.setenv('GATEWAY_ALLOWED_USERS', '42')
+    return ChatAdapter(PlatformConfig(enabled=True, typing_indicator=False), _plugin_platform(monkeypatch))
+
+
+def pending(key, name):
+    from tools import async_delegation as delegation
+    evt = {'type': 'async_delegation', 'session_key': key, 'delegation_id': name,
+           'summary': name, 'status': 'completed', 'dispatched_at': time.time()}
+    delegation._persist_dispatch(evt)
+    delegation._persist_completion(evt, {'status': 'completed', 'summary': name})
+    return evt
+
+
+async def _chat_owner(tmp_path, monkeypatch):
+    from gateway.config import GatewayConfig
     from gateway.run import GatewayRunner
     from gateway.session_authority import initialize_session_authority, SessionAuthority
-    from plugins.platforms.discord.adapter import DiscordAdapter
+
 
     monkeypatch.setattr(SessionAuthority, '_schedule', lambda self, ref: None)
-    monkeypatch.setenv('DISCORD_ALLOWED_USERS', '42')
     runner = GatewayRunner(GatewayConfig())
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token='fixture-token', typing_indicator=False))
-    runner.adapters = {Platform.DISCORD: adapter}
+    adapter = _chat_adapter(monkeypatch)
+    runner.adapters = {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='owner')
     runner._wire_adapter_handlers(adapter)
     return runner, adapter, authority, adapter.build_source(chat_id='42', chat_type='dm', user_id='42')
@@ -32,16 +71,15 @@ async def _admit_human(runner, authority, event):
 async def test_completion_after_compression_admits_to_the_logical_root(tmp_path, monkeypatch):
     from gateway.platforms.event import MessageEvent
     from hermes_state_runtime import list_session_admissions
-    from tests.gateway.test_completion_admission import pending
 
-    runner, _, authority, source = await _discord_owner(tmp_path, monkeypatch)
+    runner, _, authority, source = await _chat_owner(tmp_path, monkeypatch)
     receipt = await _admit_human(runner, authority, MessageEvent(text='human', source=source, message_id='human'))
     key = runner.session_store._generate_session_key(source)
     root = receipt.ref.session_id
     db = authority.db
     db.append_message(root, 'user', 'human')
     child = root + '-child'
-    db.publish_compression_child(parent_session_id=root, child_session_id=child, source='discord',
+    db.publish_compression_child(parent_session_id=root, child_session_id=child, source=source.platform.value,
                                  messages=[{'role': 'user', 'content': 'summary'}], require_compression_lease=False)
     assert runner.session_store.advance_compression_session(key, root, child) is not None
     event = dict(pending(key, 'after-compression'), parent_session_id=child)
@@ -62,9 +100,8 @@ async def test_text_completion_after_a_released_photo_input_is_admitted(tmp_path
     from gateway.platforms.event import MessageEvent, MessageType
     from gateway.session_ingress_media import release_admission_media
     from hermes_state_runtime import claim_session_input, list_session_admissions, settle_session_input
-    from tests.gateway.test_completion_admission import pending
 
-    runner, _, authority, source = await _discord_owner(tmp_path, monkeypatch)
+    runner, _, authority, source = await _chat_owner(tmp_path, monkeypatch)
     photo = get_image_cache_dir() / 'photo.png'
     photo.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00' * 32)
     receipt = await _admit_human(runner, authority, MessageEvent(

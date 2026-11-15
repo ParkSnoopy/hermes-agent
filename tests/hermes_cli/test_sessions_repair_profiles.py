@@ -73,9 +73,7 @@ def _seed_crossings(homes):
     # 4. routing rows: beta's index row copied into beta's store (#66887) + a ghost row in the root
     beta.save_gateway_routing_entry(BETA_KEY, json.dumps({"session_key": BETA_KEY, "session_id": "beta-parent"}), scope=scope)
     root.save_gateway_routing_entry(GHOST_KEY, json.dumps({"session_key": GHOST_KEY, "session_id": "ghost"}), scope=scope)
-    # 5. profile-less topic binding + voice-mode entry for a chat only acme's bot holds
-    acme.bind_telegram_topic(chat_id="200", thread_id="7", user_id="200", session_key=ACME_KEY,
-                             session_id="ok-acme", profile_name="default")
+    # 5. voice-mode entry for a chat only acme's bot holds
     (homes["default"] / "gateway_voice_mode.json").write_text(json.dumps({
         "telegram:200": "all",        # acme's chat, unprefixed
         "telegram:100": "voice_only",  # the default bot's chat — legitimately unprefixed
@@ -135,7 +133,7 @@ def test_dry_run_names_every_crossing_and_changes_nothing(homes, capsys):
         ("unclaimed_namespace", "ghost"),
         ("wrong_store", "acme-in-beta"), ("crossed_parent", "beta-child"),
         ("routing_unclaimed", f"{GHOST_KEY} (scope {str((homes['default'] / 'sessions').resolve())!r})"),
-        ("topic_profile_less", "chat 200 thread 7"),
+
         ("voice_profile_less", "telegram:200"),
         ("sessions_json_unclaimed", GHOST_KEY),
     } <= kinds
@@ -186,9 +184,7 @@ def test_apply_settles_every_repairable_crossing_and_is_idempotent(homes, monkey
         scope = str((homes["default"] / "sessions").resolve())
         assert set(root.load_gateway_routing_entries(scope=scope)) == {ACME_KEY}
         assert set(beta.load_gateway_routing_entries(scope=scope)) == {BETA_KEY}
-        # 5. topic binding carries acme; voice key prefixed only for acme's chat
-        assert acme.get_telegram_topic_binding(chat_id="200", thread_id="7", profile_name="acme") is not None
-        assert acme.get_telegram_topic_binding(chat_id="200", thread_id="7", profile_name="default") is None
+        # 5. voice key prefixed only for acme's chat
         voice = json.loads((homes["default"] / "gateway_voice_mode.json").read_text())
         assert voice == {"acme:telegram:200": "all", "telegram:100": "voice_only"}
         # 6. ghost mirror entry dropped, the default's kept

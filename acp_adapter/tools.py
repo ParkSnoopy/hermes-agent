@@ -43,13 +43,8 @@ _POLISHED_TOOLS = {
     "browser_navigate", "browser_click", "browser_type", "browser_press", "browser_scroll",
     "browser_back", "browser_snapshot", "browser_console", "browser_get_images", "browser_vision",
     "vision_analyze", "image_generate", "text_to_speech",
-    # Schedulers / platform integrations
-    "cronjob", "send_message", "clarify", "discord", "discord_admin",
-    "feishu_doc_read", "feishu_drive_list_comments", "feishu_drive_list_comment_replies",
-    "feishu_drive_reply_comment", "feishu_drive_add_comment",
-    "kanban_create", "kanban_show", "kanban_comment", "kanban_complete",
-    "kanban_block", "kanban_request_review", "kanban_request_changes",
-    "kanban_link", "kanban_heartbeat",
+    # Scheduler and user-interaction tools
+    "cronjob", "clarify",
 }
 
 _EMPTYISH = (None, "", [], {})

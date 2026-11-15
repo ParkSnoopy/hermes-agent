@@ -15,31 +15,7 @@ import type {
   PluginAutoUpdateState,
   PluginProvidersPutRequest,
 } from "./api-plugins";
-import type {
-  WhatsAppOnboardingApplyResponse,
-  WhatsAppOnboardingStartRequest,
-  WhatsAppOnboardingStartResponse,
-  WhatsAppOnboardingStatusResponse,
-} from "./api-whatsapp";
-export type {
-  WhatsAppOnboardingApplyResponse,
-  WhatsAppOnboardingStartResponse,
-  WhatsAppOnboardingStatusResponse,
-} from "./api-whatsapp";
-import type {
-  MessagingPlatform,
-  RelayLinkCode,
-  RelayLinkCodeState,
-  RelayLinksResponse,
-} from "./api-messaging";
-export type {
-  MessagingPlatform,
-  MessagingPlatformEnvVar,
-  RelayLinkCode,
-  RelayLinkCodeState,
-  RelayLinkedAccount,
-  RelayLinksResponse,
-} from "./api-messaging";
+
 import type {
   ManagedFileReadResponse,
   ManagedFilesResponse,
@@ -135,9 +111,7 @@ const PROFILE_SCOPED_PREFIXES = [
   "/api/config",
   "/api/env",
   "/api/mcp",
-  "/api/messaging/platforms",
-  "/api/messaging/telegram/onboarding",
-  "/api/messaging/whatsapp/onboarding",
+
   // OAuth/account state is profile-owned too: status, login sessions, polling,
   // cancellation, and disconnect must all follow the selected management
   // profile rather than silently targeting the dashboard process's profile.
@@ -986,97 +960,7 @@ export const api = {
       },
     ),
 
-  // Messaging platforms (gateway channels)
-  getMessagingPlatforms: () =>
-    fetchJSON<MessagingPlatformsResponse>("/api/messaging/platforms"),
-  // `hot_served`: a live multiplexer serving the selected named profile rebuilt its adapters from the
-  // new credentials right away (no gateway restart needed).
-  updateMessagingPlatform: (id: string, body: MessagingPlatformUpdate) =>
-    fetchJSON<{ ok: boolean; platform: string; hot_served?: boolean }>(
-      `/api/messaging/platforms/${encodeURIComponent(id)}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    ),
-  getRelayLinks: () => fetchJSON<RelayLinksResponse>("/api/messaging/relay"),
-  requestRelayLink: (platform: string) =>
-    fetchJSON<RelayLinkCode>(`/api/messaging/relay/${encodeURIComponent(platform)}/link`, {
-      method: "POST",
-    }),
-  getRelayLinkState: (code: string) =>
-    fetchJSON<RelayLinkCodeState>(`/api/messaging/relay/link/${encodeURIComponent(code)}`),
-  unlinkRelayAccount: (platform: string, platformUserId: string) =>
-    fetchJSON<{ ok: boolean }>(
-      `/api/messaging/relay/${encodeURIComponent(platform)}/accounts/${encodeURIComponent(platformUserId)}`,
-      { method: "DELETE" },
-    ),
-  testMessagingPlatform: (id: string) =>
-    fetchJSON<MessagingPlatformTestResult>(
-      `/api/messaging/platforms/${encodeURIComponent(id)}/test`,
-      { method: "POST" },
-    ),
-  startTelegramOnboarding: (body: { bot_name?: string }) =>
-    fetchJSON<TelegramOnboardingStartResponse>(
-      "/api/messaging/telegram/onboarding/start",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    ),
-  getTelegramOnboardingStatus: (pairingId: string) =>
-    fetchJSON<TelegramOnboardingStatusResponse>(
-      `/api/messaging/telegram/onboarding/${encodeURIComponent(pairingId)}`,
-    ),
-  applyTelegramOnboarding: (
-    pairingId: string,
-    body: { allowed_user_ids: string[]; profile?: string },
-  ) =>
-    fetchJSON<TelegramOnboardingApplyResponse>(
-      `/api/messaging/telegram/onboarding/${encodeURIComponent(pairingId)}/apply`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    ),
-  cancelTelegramOnboarding: (pairingId: string) =>
-    fetchJSON<{ ok: boolean }>(
-      `/api/messaging/telegram/onboarding/${encodeURIComponent(pairingId)}`,
-      { method: "DELETE" },
-    ),
-  startWhatsAppOnboarding: (body: WhatsAppOnboardingStartRequest) =>
-    fetchJSON<WhatsAppOnboardingStartResponse>(
-      "/api/messaging/whatsapp/onboarding/start",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    ),
-  getWhatsAppOnboardingStatus: (pairingId: string) =>
-    fetchJSON<WhatsAppOnboardingStatusResponse>(
-      `/api/messaging/whatsapp/onboarding/${encodeURIComponent(pairingId)}`,
-    ),
-  applyWhatsAppOnboarding: (
-    pairingId: string,
-    body: { mode?: "bot" | "self-chat"; allowed_users?: string; profile?: string },
-  ) =>
-    fetchJSON<WhatsAppOnboardingApplyResponse>(
-      `/api/messaging/whatsapp/onboarding/${encodeURIComponent(pairingId)}/apply`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    ),
-  cancelWhatsAppOnboarding: (pairingId: string) =>
-    fetchJSON<{ ok: boolean }>(
-      `/api/messaging/whatsapp/onboarding/${encodeURIComponent(pairingId)}`,
-      { method: "DELETE" },
-    ),
+
 
   // Gateway / update actions
   restartGateway: () =>
@@ -1256,35 +1140,6 @@ export const api = {
       },
     ),
 
-  // ── Admin: Pairing ──────────────────────────────────────────────────
-  // The mutating endpoints read the profile off the BODY, so the query-param
-  // rewrite in withManagementProfile doesn't reach them — send it explicitly
-  // or an approval lands in the wrong profile's whitelist.
-  getPairing: () => fetchJSON<PairingResponse>("/api/pairing"),
-  approvePairing: (platform: string, request_id: string) =>
-    fetchJSON<{ ok: boolean; user: PairingUser }>("/api/pairing/approve", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        platform,
-        request_id,
-        profile: getManagementProfile() || undefined,
-      }),
-    }),
-  revokePairing: (platform: string, user_id: string) =>
-    fetchJSON<{ ok: boolean }>("/api/pairing/revoke", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        platform,
-        user_id,
-        profile: getManagementProfile() || undefined,
-      }),
-    }),
-  clearPendingPairing: () =>
-    fetchJSON<{ ok: boolean; cleared: number }>("/api/pairing/clear-pending", {
-      method: "POST",
-    }),
 
   // ── Admin: Webhooks ─────────────────────────────────────────────────
   getWebhooks: () => fetchJSON<WebhooksResponse>("/api/webhooks"),
@@ -1716,36 +1571,7 @@ export interface McpOAuthFlow {
   tools?: Array<{ name: string; description: string }>;
 }
 
-export interface MessagingPlatformsResponse {
-  env_path: string;
-  gateway_start_command: string;
-  platforms: MessagingPlatform[];
-}
 
-export interface MessagingPlatformUpdate {
-  enabled?: boolean;
-  env?: Record<string, string>;
-  clear_env?: string[];
-}
-
-export interface MessagingPlatformTestResult {
-  ok: boolean;
-  state: string;
-  message: string;
-}
-
-export interface PairingUser {
-  platform: string;
-  user_id: string;
-  user_name?: string;
-  request_id?: string;
-  age_minutes?: number;
-}
-
-export interface PairingResponse {
-  pending: PairingUser[];
-  approved: PairingUser[];
-}
 
 export interface WebhookRoute {
   name: string;
@@ -2167,33 +1993,6 @@ export interface EnvVarInfo {
   custom?: boolean;
 }
 
-export interface TelegramOnboardingStartResponse {
-  pairing_id: string;
-  suggested_username: string;
-  deep_link: string;
-  qr_payload: string;
-  expires_at: string;
-}
-
-export type TelegramOnboardingStatusResponse =
-  | { status: "waiting"; expires_at: string }
-  | {
-      status: "ready";
-      bot_username: string;
-      owner_user_id?: string;
-      expires_at: string;
-    };
-
-export interface TelegramOnboardingApplyResponse {
-  ok: boolean;
-  platform: "telegram";
-  bot_username?: string;
-  needs_restart: boolean;
-  restart_started?: boolean;
-  restart_action?: string;
-  restart_pid?: number | null;
-  restart_error?: string;
-}
 
 export interface SessionMessage {
   role: "user" | "assistant" | "system" | "tool";

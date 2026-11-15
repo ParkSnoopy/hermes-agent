@@ -39,7 +39,6 @@ async def test_reset_clears_a_persisted_override_after_restart(tmp_path, monkeyp
     runner._session_db = None
     evicted = []
     runner._evict_cached_agent = lambda k, **_kw: evicted.append(k)
-    runner._normalize_source_for_session_key = lambda s: s
     runner._session_key_for_source = lambda s: build_session_key(s)
     runner._session_state(key).conversation.one_turn_restore = {"had_override": False, "override": None}
 

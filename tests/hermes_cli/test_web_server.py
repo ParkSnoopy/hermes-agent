@@ -30,7 +30,7 @@ import hermes_cli.web_server_files as _web_server_files
 import hermes_cli.web_server_gateway as _web_server_gateway
 import hermes_cli.web_server_lifecycle as _web_server_lifecycle
 import hermes_cli.web_server_memory as _web_server_memory
-import hermes_cli.web_server_messaging as _web_server_messaging
+
 import hermes_cli.web_server_sessions as _web_server_sessions
 from datetime import UTC
 
@@ -529,48 +529,6 @@ class TestWebServerEndpoints:
 
         assert [response.status_code for response in responses] == [503] * len(paths)
 
-
-    def test_messaging_platforms_profile_scopes_gateway_reads(self, monkeypatch):
-        """?profile=<name> must resolve liveness from the profile's own home.
-
-        The gateway status readers resolve process-level paths and ignore the
-        HERMES_HOME contextvar override (#56986), so /api/messaging/platforms
-        has to pass the profile directory explicitly — otherwise it reports a
-        DIFFERENT profile's gateway as this profile's, which hides a real
-        outage behind a false "connected" (issue #71211).
-        """
-        from hermes_cli import web_server
-        from hermes_cli import profiles as profiles_mod
-
-        worker_home = profiles_mod.get_profile_dir("worker")
-        worker_home.mkdir(parents=True)
-        (worker_home / "config.yaml").touch()  # identity marker: bare dirs are not profiles
-
-        seen = {}
-
-        def _pid(pid_path=None, **kw):
-            # The served-profile probe also verifies the DEFAULT home's gateway identity; the
-            # contract here is that the worker's OWN pid file is what the scoped rung reads.
-            seen.setdefault("pid_paths", []).append(pid_path)
-
-        def _runtime(path=None):
-            seen.setdefault("status_paths", []).append(path)
-
-        def _runtime_pid(runtime=None, *, expected_home=None):
-            seen.setdefault("expected_homes", []).append(expected_home)
-
-        monkeypatch.setattr(_gw_status, "get_running_pid_cached", _pid)
-        monkeypatch.setattr(_gw_status, "get_running_pid", _pid)
-        monkeypatch.setattr(_gw_status, "read_runtime_status", _runtime)
-        monkeypatch.setattr(_gw_status, "get_runtime_status_running_pid", _runtime_pid)
-        monkeypatch.setattr(web_server, "_GATEWAY_HEALTH_URL", None)
-
-        resp = self.client.get("/api/messaging/platforms?profile=worker")
-
-        assert resp.status_code == 200
-        assert worker_home / "gateway.pid" in seen["pid_paths"]
-        assert worker_home / "gateway_state.json" in seen["status_paths"]
-        assert worker_home in seen["expected_homes"]
 
 
     def test_gateway_drain_bad_action_400(self):
@@ -1232,105 +1190,6 @@ CONFIG_SCHEMA = ProviderConfigSchema(
         assert resp.status_code == 200
 
 
-    def test_messaging_catalog_prefers_plugin_label_over_enum_pseudo_member(self):
-        """A plugin platform that leaked into Platform.__members__ as a pseudo-
-        member must still render with its plugin label, not a title-cased id.
-
-        Regression: Platform("<plugin id>") caches a pseudo-member in the enum;
-        the catalog iterated the enum FIRST and claimed the id with no plugin
-        metadata, so bundled plugin platforms (irc, ntfy, photon, …) rendered
-        as nameless "Irc"/"Ntfy" cards with empty descriptions.
-        """
-        from gateway.config import Platform
-        from gateway.platform_registry import PlatformEntry, platform_registry
-
-        entry = PlatformEntry(
-            name="pseudofake",
-            label="Pseudo Fake (plugin label)",
-            adapter_factory=lambda cfg: None,
-            check_fn=lambda: True,
-            source="plugin",
-        )
-        platform_registry.register(entry)
-        try:
-            # Materialize the enum pseudo-member the way any earlier config
-            # read would (Platform(value) on a registered plugin platform).
-            member = Platform("pseudofake")
-            assert member.value == "pseudofake"
-            assert "PSEUDOFAKE" in Platform.__members__
-
-            resp = self.client.get("/api/messaging/platforms")
-            ids = {row["id"]: row for row in resp.json()["platforms"]}
-            assert "pseudofake" in ids
-            assert ids["pseudofake"]["name"] == "Pseudo Fake (plugin label)"
-        finally:
-            platform_registry.unregister("pseudofake")
-            Platform._value2member_map_.pop("pseudofake", None)
-            Platform._member_map_.pop("PSEUDOFAKE", None)
-
-
-    def test_telegram_onboarding_apply_reports_restart_failure_after_save(
-        self, monkeypatch
-    ):
-        from hermes_cli.config import load_config, load_env
-
-        with _web_server_messaging._telegram_onboarding_lock:
-            _web_server_messaging._telegram_onboarding_pairings.clear()
-
-        def fake_request(method, path, *, body=None, bearer_token=None):
-            if method == "POST":
-                return {
-                    "pairing_id": "pair-restart-fails",
-                    "poll_token": "poll-secret",
-                    "suggested_username": "hermes_pair_restart_fails_bot",
-                    "deep_link": "https://t.me/newbot/HermesSetupBot/hermes_pair_restart_fails_bot",
-                    "qr_payload": "https://t.me/newbot/HermesSetupBot/hermes_pair_restart_fails_bot",
-                    "expires_at": "2027-05-18T00:00:00.000Z",
-                }
-            assert method == "GET"
-            assert path == "/v1/telegram/pairings/pair-restart-fails"
-            assert bearer_token == "poll-secret"
-            return {
-                "status": "ready",
-                "bot_username": "hermes_pair_restart_fails_bot",
-                "owner_user_id": 123456789,
-                "token": "123456:SECRET",
-            }
-
-        monkeypatch.setattr(_web_server_messaging, "_telegram_onboarding_request_sync", fake_request)
-        _web_server_gateway._ACTION_PROCS.pop("gateway-restart", None)
-
-        def fail_spawn_action(subcommand, name):
-            # The default home is named explicitly: a bare child would re-read the sticky active_profile.
-            assert subcommand == ["-p", "default", "gateway", "restart"]
-            assert name == "gateway-restart"
-            raise RuntimeError("supervisor unavailable")
-
-        monkeypatch.setattr(_web_server_gateway, "_spawn_hermes_action", fail_spawn_action)
-
-        start = self.client.post("/api/messaging/telegram/onboarding/start", json={})
-        assert start.status_code == 200
-        ready = self.client.get("/api/messaging/telegram/onboarding/pair-restart-fails")
-        assert ready.status_code == 200
-        assert ready.json()["status"] == "ready"
-
-        applied = self.client.post(
-            "/api/messaging/telegram/onboarding/pair-restart-fails/apply",
-            json={"allowed_user_ids": ["123456789"]},
-        )
-
-        assert applied.status_code == 200
-        applied_data = applied.json()
-        assert applied_data["ok"] is True
-        assert applied_data["needs_restart"] is True
-        assert applied_data["restart_started"] is False
-        assert "supervisor unavailable" in applied_data["restart_error"]
-        assert "token" not in applied_data
-        env = load_env()
-        assert env["TELEGRAM_BOT_TOKEN"] == "123456:SECRET"
-        assert env["TELEGRAM_ALLOWED_USERS"] == "123456789"
-        assert load_config()["platforms"]["telegram"]["enabled"] is True
-
 
     def test_unauthenticated_api_blocked(self):
         """API requests without the session token should be rejected."""
@@ -1927,21 +1786,10 @@ CONFIG_SCHEMA = ProviderConfigSchema(
             assert response.status_code == 400
             assert load_env()[key] == rotated
 
-    def test_messaging_and_custom_endpoint_reject_stale_previews(self):
-        """Invariant: preview rejection runs before any mutation (messaging clear+set),
-        and custom-endpoint display strings (``${KEY_ENV}`` / legacy plaintext preview)
+    def test_custom_endpoint_rejects_stale_previews(self):
+        """Custom-endpoint display strings (``${KEY_ENV}`` / legacy plaintext preview)
         are refused even after the entry rotated underneath them."""
-        from hermes_cli.config import load_config, load_env, save_config, save_env_value
-
-        key = "DISCORD_BOT_TOKEN"
-        real = "discord-live-secret-abcdef1234567890"
-        save_env_value(key, real)
-        response = self.client.put(
-            "/api/messaging/platforms/discord",
-            json={"clear_env": [key], "env": {key: redact_key(real)}},
-        )
-        assert response.status_code == 400
-        assert load_env()[key] == real
+        from hermes_cli.config import load_config, save_config, save_env_value
 
         save_env_value("OLD_ENDPOINT_KEY", "old-secret-1234567890")
         save_env_value("NEW_ENDPOINT_KEY", "new-secret-0987654321")
@@ -2766,43 +2614,6 @@ class TestNewEndpoints:
 
     # --- New profiles endpoints: active / description / model / describe-auto ---
 
-
-    def test_discord_toolsets_read_and_write_discord_platform(self):
-        """Platform-restricted toolsets must not be saved as successful CLI no-ops."""
-        from hermes_cli.config import load_config
-
-        listing = {t["name"]: t for t in self.client.get("/api/tools/toolsets").json()}
-        assert listing["discord"]["platform"] == "discord"
-        assert listing["discord"]["platform_label"] == "Discord"
-        assert listing["discord"]["enabled"] is False
-
-        resp = self.client.put("/api/tools/toolsets/discord", json={"enabled": True})
-        assert resp.status_code == 200
-        assert resp.json() == {
-            "ok": True,
-            "name": "discord",
-            "platform": "discord",
-            "enabled": True,
-            # Install-on-enable: no provider post_setup pending for discord.
-            "post_setup_started": None,
-        }
-
-        config = load_config()
-        assert "discord" in config["platform_toolsets"]["discord"]
-        assert "discord" not in config["platform_toolsets"].get("cli", [])
-
-        listing = {t["name"]: t for t in self.client.get("/api/tools/toolsets").json()}
-        assert listing["discord"]["enabled"] is True
-        assert listing["discord_admin"]["enabled"] is False
-
-        resp = self.client.put(
-            "/api/tools/toolsets/discord_admin", json={"enabled": True}
-        )
-        assert resp.status_code == 200
-        config = load_config()
-        assert {"discord", "discord_admin"} <= set(
-            config["platform_toolsets"]["discord"]
-        )
 
 
     def test_get_toolset_config_returns_provider_matrix(self):

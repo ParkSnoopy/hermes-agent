@@ -174,16 +174,6 @@ The doctor checks:
 - Whether the Bedrock API is reachable (ListFoundationModels)
 - Number of available models in your region
 
-## Gateway (Messaging Platforms)
-
-Bedrock works with all Hermes gateway platforms (Telegram, Discord, Slack, Feishu, etc.). Configure Bedrock as your provider, then start the gateway normally:
-
-```bash
-hermes gateway setup
-hermes gateway start
-```
-
-The gateway reads `config.yaml` and uses the same Bedrock provider configuration.
 
 ## Troubleshooting
 

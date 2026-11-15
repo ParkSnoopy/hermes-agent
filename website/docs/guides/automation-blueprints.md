@@ -19,7 +19,7 @@ For parameterized blueprints with forms instead of cron syntax, see the [Automat
 | **GitHub Event** | Fires on PR opens, pushes, issues, CI results | Webhook platform (`hermes webhook subscribe`) |
 | **API Call** | External service POSTs JSON to your endpoint | Webhook platform (config.yaml routes or `hermes webhook subscribe`) |
 
-All three support delivery to Telegram, Discord, Slack, SMS, email, GitHub comments, or local files.
+Cron jobs can save output locally. Webhook routes can log responses or post configured GitHub comments.
 :::
 
 ---
@@ -28,7 +28,7 @@ All three support delivery to Telegram, Discord, Slack, SMS, email, GitHub comme
 
 ### Nightly Backlog Triage
 
-Label, prioritize, and summarize new issues every night. Delivers a digest to your team channel.
+Label, prioritize, and summarize new issues every night, saving a digest locally.
 
 **Trigger:** Schedule (nightly)
 
@@ -46,7 +46,7 @@ hermes cron create "0 2 * * *" \
 
 Format as a clean digest. If no new issues, respond with [SILENT]." \
   --name "Nightly backlog triage" \
-  --deliver telegram
+  --deliver none
 ```
 
 ### Automatic PR Code Review
@@ -129,7 +129,7 @@ hermes cron create "0 9 * * 1" \
 
 Report any gaps where code changed but docs didn't. If everything is in sync, respond with [SILENT]." \
   --name "Docs drift detection" \
-  --deliver telegram
+  --deliver none
 ```
 
 ### Dependency Security Audit
@@ -154,7 +154,7 @@ If vulnerabilities found:
 
 If no vulnerabilities, respond with [SILENT]." \
   --name "Dependency audit" \
-  --deliver telegram
+  --deliver none
 ```
 
 ---
@@ -183,7 +183,7 @@ Run these verification steps:
 
 Report: deployment status (healthy/degraded/failed), response time, any errors found.
 If healthy, keep it brief. If degraded or failed, provide detailed diagnostics." \
-  --deliver telegram
+  --deliver log
 ```
 
 Your CI/CD pipeline triggers it:
@@ -218,8 +218,8 @@ Investigate:
    - Suggested first response steps
    - Escalation recommendation (P1-P4)
 
-Be concise. This goes to the on-call channel." \
-  --deliver slack
+Be concise." \
+  --deliver log
 ```
 
 ### Uptime Monitor
@@ -263,7 +263,7 @@ hermes cron create "every 30m" \
   "If the script reports OUTAGE DETECTED, summarize which services are down and suggest likely causes. If NO_ISSUES, respond with [SILENT]." \
   --script ~/.hermes/scripts/check-uptime.py \
   --name "Uptime monitor" \
-  --deliver telegram
+  --deliver none
 ```
 
 ---
@@ -300,7 +300,7 @@ Skip routine dependency bumps and CI fixes. If nothing notable, respond with [SI
 If there are findings, organize by repo with brief analysis of each item." \
   --skill competitive-pr-scout \
   --name "Competitor scout" \
-  --deliver telegram
+  --deliver none
 ```
 
 ### AI News Digest
@@ -325,7 +325,7 @@ Structure:
 
 Keep each item to 1-2 sentences. Include links. Total under 600 words." \
   --name "Weekly AI digest" \
-  --deliver telegram
+  --deliver none
 ```
 
 ### Paper Digest with Notes
@@ -339,7 +339,7 @@ hermes cron create "0 8 * * *" \
   "Search arXiv for the 3 most interesting papers on 'language model reasoning' OR 'tool-use agents' from the past day. For each paper, create an Obsidian note with the title, authors, abstract summary, key contribution, and potential relevance to Hermes Agent development." \
   --skill arxiv --skill obsidian \
   --name "Paper digest" \
-  --deliver local
+  --deliver none
 ```
 
 ---
@@ -466,8 +466,8 @@ For charge.dispute.created:
 For payment_intent.succeeded:
 - Brief confirmation only
 
-Keep responses concise for the ops channel." \
-  --deliver slack
+Keep responses concise." \
+  --deliver log
 ```
 
 ### Daily Revenue Summary
@@ -488,7 +488,7 @@ Search the web for:
 Format as a brief morning briefing, 3-4 bullet points max.
 Deliver as a clean, scannable message." \
   --name "Morning briefing" \
-  --deliver telegram
+  --deliver none
 ```
 
 ---
@@ -518,7 +518,7 @@ Write a security report with findings categorized by severity (Critical, High, M
 If nothing found, report a clean bill of health." \
   --skill codebase-security-audit \
   --name "Weekly security audit" \
-  --deliver telegram
+  --deliver none
 ```
 
 ### Content Pipeline
@@ -542,7 +542,7 @@ hermes cron create "0 10 * * 3" \
 
 Keep the outline to ~300 words. This is a starting point, not a finished post." \
   --name "Blog outline" \
-  --deliver local
+  --deliver none
 ```
 
 ---
@@ -565,13 +565,8 @@ Keep the outline to ~300 words. This is a starting point, not a finished post." 
 
 | Target | Flag | Notes |
 |--------|------|-------|
-| Same chat | `--deliver origin` | Default — delivers to where the job was created |
-| Local file | `--deliver local` | Saves output, no notification |
-| Telegram | `--deliver telegram` | Home channel, or `telegram:CHAT_ID` for specific |
-| Discord | `--deliver discord` | Home channel, or `discord:CHANNEL_ID` |
-| Slack | `--deliver slack` | Home channel |
-| SMS | `--deliver sms:+15551234567` | Direct to phone number |
-| Specific thread | `--deliver telegram:-100123:456` | Telegram forum topic |
+| Local cron output | `--deliver none` | Saves output under `~/.hermes/cron/output/` |
+| Webhook response | `--deliver log` | Writes the webhook response to the gateway log |
 
 ### Webhook Template Variables
 

@@ -375,26 +375,11 @@ class GatewayTurnPrepareMixin:
             logger.debug("Failed to sync gateway session model metadata", exc_info=True)
 
     async def _hmwa_resolve_session(self, event, source):
-        """Resolve ``source`` to its session entry (topic recovery, internal-route guards, Telegram
-        topic-binding heal). Returns ``(source, session_entry, session_key)`` or ``None`` to drop
+        """Resolve ``source`` to its session entry with internal-route guards.
+        Returns ``(source, session_entry, session_key)`` or ``None`` to drop
         the event."""
-        # Topic-mode DMs: rewrite a stale/foreign thread_id to the user's last-active topic so a
-        # cross-topic Reply doesn't fragment the conversation.
         event_metadata = getattr(event, "metadata", None) or {}
         expected_session_key = str(event_metadata.get("gateway_session_key") or "").strip()
-        # Plain lobby recovery here even with ``dm_topic_auto_transfer`` on: the opt-in topic transfer
-        # already ran at adapter ingress (``apply_root_dm_topic_transfer`` -> runner hook
-        # ``_transfer_telegram_root_dm``), before session keying.
-        recovered = (await asyncio.to_thread(self._recover_telegram_lobby_thread_id, source)
-                     if not expected_session_key else None)
-        if recovered is not None:
-            logger.info(
-                "telegram topic recovery: chat=%s user=%s %r -> %s",
-                source.chat_id, source.user_id, source.thread_id, recovered,
-            )
-            source = dataclasses.replace(source, thread_id=recovered)
-            with suppress(Exception):
-                event.source = source
 
         if expected_session_key:
             derived_session_key = self._session_key_for_source(source)
@@ -445,82 +430,11 @@ class GatewayTurnPrepareMixin:
                 return
             session_entry = resolved_entry
         self._cache_session_source(session_key, source)
-        if await asyncio.to_thread(self._is_telegram_topic_lane, source):
-            session_entry = await self._hmwa_heal_telegram_topic_binding(source, session_entry, session_key)
         from gateway.run_heartbeat_acceptance import resolve_heartbeat_owner
         if not await resolve_heartbeat_owner(self, event, session_entry):
             return
         return source, session_entry, session_key
 
-    async def _hmwa_heal_telegram_topic_binding(self, source, session_entry, session_key):
-        """Follow the (chat_id, thread_id) topic binding — healed to its compression tip — or record
-        a fresh one. Returns the (possibly switched) session entry."""
-        publication = self._telegram_topic_publication_token(source)
-        binding = None
-        try:
-            if self._session_db:
-                binding = await self._session_db.get_telegram_topic_binding(
-                    chat_id=str(source.chat_id), thread_id=str(source.thread_id),
-                    profile_name=self._telegram_topic_profile_name(source),
-                )
-        except Exception:
-            logger.debug("Failed to read Telegram topic binding", exc_info=True)
-        if not binding:
-            if self._telegram_topic_publication_moved(source, publication):
-                return session_entry  # the switch in flight writes the binding itself
-            try:
-                await asyncio.to_thread(self._record_telegram_topic_binding, source, session_entry)
-            except Exception:
-                logger.debug("Failed to record Telegram topic binding", exc_info=True)
-            return session_entry
-        stored_session_id = str(binding.get("session_id") or "")
-        bound_session_id = stored_session_id
-        # A binding pointing at a pre-compression parent is walked forward to the tip so the next
-        # message resumes the compressed child instead of reloading the oversized parent.
-        # Returns the input unchanged when the session isn't a compression parent, so this is cheap and
-        # safe. See #20470, #29712, #33414.
-        if bound_session_id and self._session_db is not None:
-            try:
-                canonical_session_id = await self._session_db.get_compression_tip(bound_session_id)
-            except Exception:
-                logger.debug("compression-tip lookup failed for %s", bound_session_id, exc_info=True)
-                canonical_session_id = bound_session_id
-            if canonical_session_id and canonical_session_id != bound_session_id:
-                bound_session_id = canonical_session_id
-        if bound_session_id and bound_session_id != session_entry.session_id:
-            # A binding whose sessions row is gone (deleted with foreign_keys OFF, so ON DELETE CASCADE
-            # never fired) is stale, not a resume target: switching onto it lets the next peer refresh
-            # re-create the row and the topic silently re-adopts an old transcript (#139283).
-            if self._session_db is not None and not await self._session_db.get_session(bound_session_id):
-                logger.warning("Telegram topic binding for %s points at session %s with no sessions row; "
-                               "keeping the current session and rebinding", session_key, bound_session_id)
-                try:  # CAS on the stale id: a /new that rebound the topic during the await wins
-                    await asyncio.to_thread(self._record_telegram_topic_binding, source, session_entry,
-                                            expected_session_id=stored_session_id)
-                except Exception:
-                    logger.debug("Failed to record Telegram topic binding", exc_info=True)
-                return session_entry
-            if self._telegram_topic_publication_moved(source, publication):
-                # A /resume, /branch --here or handoff is moving this topic (or moved it since the
-                # binding was read): its binding write is authoritative, and following the binding
-                # read here would switch the route back to the session it just left.
-                return session_entry
-            # Route through SessionStore so the key → id mapping persists and the previous lane
-            # session ends cleanly (in-place mutation split-brained the JSON index). The two DB
-            # awaits above are a window for /new or /resume to move the route; the CAS on the
-            # snapshot id lets that win instead of being clobbered by a stale binding.
-            switched = await self.async_session_store.switch_session(
-                session_key, bound_session_id, expected_session_id=session_entry.session_id,
-            )
-            if switched is not None:
-                session_entry = switched
-        if bound_session_id and bound_session_id != stored_session_id and (
-                not self._telegram_topic_publication_moved(source, publication)):
-            # The stored binding pointed at a parent: rewrite it to the canonical descendant.
-            await asyncio.to_thread(
-                self._sync_telegram_topic_binding, source, session_entry, reason="compression-tip-walk",
-            )
-        return session_entry
 
     async def _hmwa_open_session(self, session_entry, session_key, source):
         """Consume auto-reset / fresh-reset flags and emit ``session:start`` for new sessions.
@@ -637,10 +551,10 @@ class GatewayTurnPrepareMixin:
             self._session_state(_quick_key).turn.lease_tokens[run_generation] = _lease_token
 
     async def _hmwa_first_contact_notes(self, source, history, turn_sidecar_notes, internal=False):
-        """First-ever-message onboarding note + one-time 'no home channel' prompt (both only when
-        the session has no history). Delivered on the user message (sidecar), NOT the ephemeral
+        """First-ever-message onboarding note when the session has no history.
+        Delivered on the user message (sidecar), NOT the ephemeral
         system prompt: present-on-turn-1/absent-on-turn-2 was a guaranteed prompt diff + rebuild."""
-        from gateway.run import _gateway_config_home, _home_target_env_var, _load_gateway_config
+        from gateway.run import _gateway_config_home, _load_gateway_config
         if history or internal:  # internal = plugin/system turn: no human made first contact
             return
         # LOCAL sessions (one-shot, chat -q, ACP, TUI attach) are the classic in-process CLI's
@@ -658,49 +572,13 @@ class GatewayTurnPrepareMixin:
             if note:
                 turn_sidecar_notes.append(note)
 
-        # One-time prompt if no home channel is set (webhooks deliver to configured targets instead).
-        if not human_platform:
-            return
-        platform_name = source.platform.value
-        env_key = _home_target_env_var(platform_name)
-        # Multiplex: the home channel may live only in the profile secret scope, not os.environ.
-        home_env = ""
-        if env_key:
-            # A secondary with no home channel must not borrow the default profile's from
-            # os.environ; only an UNSCOPED single-profile read may fall back to the process env.
-            from agent.secret_scope import UnscopedSecretError, get_secret
-            try:
-                home_env = (get_secret(env_key) or "").strip()
-            except UnscopedSecretError:
-                home_env = (os.getenv(env_key) or "").strip()
-            except Exception:
-                logger.debug("Home-channel secret %s unreadable; treating it as unset", env_key, exc_info=True)
-                home_env = ""
-        # Also honor in-memory / yaml home_channel on this platform.
-        with suppress(Exception):
-            if not home_env and self.config.get_home_channel(source.platform):
-                home_env = "set"
-        # Secondary-profile platforms may only exist under that profile's config — re-read in scope.
-        if not home_env:
-            with suppress(Exception):
-                from gateway.config import load_gateway_config as _lgc
-                prof = (getattr(source, "profile", None) or "").strip()
-                if prof and prof != "default" and _lgc().get_home_channel(source.platform):
-                    home_env = "set"
-        if not home_env:
-            # Slack routes every command through the parent `/hermes`; bare `/sethome` would fail.
-            sethome_cmd = "/hermes sethome" if source.platform == Platform.SLACK else "/sethome"
-            await self._deliver_platform_notice(
-                source, t("gateway.notify.no_home_channel", platform=platform_name.title(), sethome_cmd=sethome_cmd),
-            )
 
     def _hmwa_apply_message_timestamp(self, event, message_text):
         """Capture the platform event time as message metadata and keep the persisted transcript
-        clean — strip any leading timestamp prefix and the Discord triggering-message note (a
-        model instruction, not authored text) — regardless of the toggle; only the in-context
+        clean — strip any leading timestamp prefix regardless of the toggle; only the in-context
         RENDER is gated behind gateway.message_timestamps.enabled (default OFF)."""
         from gateway.run import _load_gateway_config, _message_timestamps_enabled
-        from gateway.run_inbound import strip_discord_triggering_note
+
         persist_user_message = None
         persist_user_timestamp = None
         try:
@@ -713,7 +591,7 @@ class GatewayTurnPrepareMixin:
             _evt_tz = _get_evt_tz()
             if message_text and isinstance(message_text, str):
                 _clean_message_text, _embedded_ts = _strip_msg_ts(message_text, tz=_evt_tz)
-                persist_user_message = strip_discord_triggering_note(event, _clean_message_text)
+                persist_user_message = _clean_message_text
                 _event_epoch = _coerce_msg_ts(getattr(event, "timestamp", None), tz=_evt_tz)
                 persist_user_timestamp = _event_epoch if _event_epoch is not None else _embedded_ts
                 if _message_timestamps_enabled(_load_gateway_config()):
@@ -809,11 +687,6 @@ class GatewayTurnPrepareMixin:
 
         await self._hmwa_first_contact_notes(source, history, turn_sidecar_notes, internal=event.internal)
 
-        # Voice channel state rides the user message ONLY when changed (in the system prompt it
-        # forced a rebuild + prompt-cache re-key per message).
-        _vc_note = self._voice_channel_sidecar_note(event, source, session_key)
-        if _vc_note:
-            turn_sidecar_notes.append(_vc_note)
 
         # Auto-analyze user images so the model gets a description plus the local path.
         message_text = await self._prepare_profile_scoped_inbound_message_text(

@@ -53,7 +53,7 @@ from hermes_state_readpool import _READ_POOL_MAX, _proc_fd_targets, _read_budget
 from hermes_state_sessions import SessionSessionsMixin
 from hermes_state_fts import SessionFtsSetupMixin
 from hermes_state_portability import SessionPortabilityMixin
-from hermes_state_telegram import SessionTelegramTopicsMixin
+
 from hermes_state_profile_repair import SessionProfileRepairMixin
 from hermes_state_schema import SessionSchemaMixin
 import hermes_state_holders as _state_holders
@@ -463,7 +463,7 @@ def _foreign_state_db_holders(db_path: Path) -> list[tuple[int, str]]:
 
 class SessionDB(
     SessionSessionsMixin, SessionFtsSetupMixin, SessionSearchMixin, SessionSchemaMixin,
-    SessionPortabilityMixin, SessionTelegramTopicsMixin, SessionCompressionMixin,
+    SessionPortabilityMixin, SessionCompressionMixin,
     SessionGatewayMixin, SessionMaintenanceMixin, SessionUsageMixin, SessionTitlesMixin,
     SessionMessagesMixin, SessionPruneRewriteMixin, SessionApiContentMixin, SessionCoverageMixin, SessionRewindMixin, SessionProfileRepairMixin,
     SessionPromptRefreshMixin,
@@ -475,7 +475,7 @@ class SessionDB(
     # See #60609.  `recovered` = placeholders `hermes sessions recover` synthesizes for
     # orphaned messages (no live owner, never stamped ended_at); without it they are immortal.
     _AUTO_PRUNE_STALE_OPEN_SOURCES: tuple[str, ...] = (
-        "cli", "cron", "kanban", "acp", "api_server", "subagent", "tool", "recovered",
+        "cli", "cron", "acp", "api_server", "subagent", "tool", "recovered",
     )
 
     # ── Write-contention tuning ──
@@ -1666,50 +1666,6 @@ class SessionDB(
         else:
             self._write_sql(sql, (key, value))
 
-    def retag_kanban_worker_sessions(self, workspaces_root: str) -> int:
-        """Retag legacy kanban worker rows from ``cli`` to ``kanban`` by cwd under the board's workspaces
-        root; gated once per root via state_meta. Returns rows retagged."""
-        prefix = str(workspaces_root).rstrip("/\\")
-        if not prefix:
-            return 0
-        gate = f"kanban_worker_source_retagged:{prefix}"
-        if self.get_meta(gate) == "1":
-            return 0
-        def _do(conn):
-            esc = _escape_like(prefix)
-            cursor = conn.execute(
-                "UPDATE sessions SET source = 'kanban' "
-                "WHERE source = 'cli' AND (cwd = ? OR cwd LIKE ? ESCAPE '\\' "
-                "OR cwd LIKE ? ESCAPE '\\')",
-                (prefix, f"{esc}/%", f"{esc}\\\\%"),
-            )
-            # rowcount BEFORE set_meta reuses this cursor for its INSERT.
-            retagged = cursor.rowcount or 0
-            self.set_meta(gate, "1", cursor=cursor)
-            return retagged
-        return self._execute_write(_do)
-
-    def is_kanban_owned_session(self, session_id: str) -> bool:
-        """True when this session — or any segment of the compression lineage a resume would
-        materialize — belongs to the Kanban dispatcher (``source``/``created_source`` =
-        ``'kanban'``): the transcript of a worker run, not a human conversation (#68779).
-
-        Both columns are checked: ``source`` is live routing state the dispatcher tags
-        (``HERMES_SESSION_SOURCE=kanban``) and the legacy retag rewrites, while immutable
-        ``created_source`` survives later surface flips. The lineage is the VERIFIED
-        compression chain (``_resume_lineage_ids``) — exactly the rows a resume loads — so a
-        worker transcript stays kanban-owned across rotations, while a delegate/branch child
-        of a worker (a DIFFERENT conversation) is not swept in. Plain classification, not a
-        gate: the resume-time guard (``hermes_cli/kanban_resume_guard.py``) owns the decision
-        and the dispatcher-owned exemption."""
-        lineage = self._resume_lineage_ids(session_id)
-        if not lineage:
-            return False
-        rows = self._read_all(
-            f"SELECT 1 FROM sessions WHERE id IN ({_placeholders(lineage)}) "
-            "AND (source = 'kanban' OR created_source = 'kanban') LIMIT 1",
-            tuple(lineage))
-        return bool(rows)
 
     def list_meta_prefix(self, prefix: str) -> list[tuple[str, str]]:
         """``[(key, value), ...]`` for state_meta keys starting with the literal

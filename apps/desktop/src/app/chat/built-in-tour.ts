@@ -18,7 +18,7 @@ import { readLocalSetupEligibility } from '@/store/local-setup-offer'
 const SELECTORS = {
   capabilities: '[data-tour="sidebar-nav-capabilities"]',
   composer: '[data-tour="composer"]',
-  messaging: '[data-tour="sidebar-nav-messaging"]',
+
   model: '[data-tour="model-pill"]',
   newSession: '[data-tour="sidebar-nav-new-session"]',
   rightPane: '[data-tour="right-pane-toggle"]',
@@ -33,7 +33,7 @@ const ESSENTIALS: StopId[] = ['sessions', 'composer', 'newSession', 'model']
 
 /** Full adds what the interface mode puts on screen:
  *  Simple is for talking to Hermes, Advanced has the working pane. */
-const SIMPLE_EXTRAS: StopId[] = ['capabilities', 'messaging']
+const SIMPLE_EXTRAS: StopId[] = ['capabilities']
 const ADVANCED_EXTRAS: StopId[] = ['rightPane', 'capabilities']
 
 const PRESET_STOPS = {

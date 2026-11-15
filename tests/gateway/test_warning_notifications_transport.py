@@ -1,8 +1,4 @@
-"""Real native/relay send paths and profile-scoped effective warning policy.
-
-Only external Slack SDK/relay transport I/O is replaced; config, agent emission,
-callback classification, presentation and adapter send/edit are production code.
-"""
+"""Generic plugin warning delivery and profile-scoped effective warning policy."""
 
 import asyncio
 from types import SimpleNamespace
@@ -13,53 +9,36 @@ import pytest
 from agent.status_output import StatusOutputMixin
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.event import MessageEvent, MessageType
-from gateway.relay.adapter import RelayAdapter
-from gateway.relay.descriptor import CONTRACT_VERSION, CapabilityDescriptor
+
 from gateway.run import GatewayRunner, _load_gateway_config, _profile_runtime_scope
 from gateway.run_turn_runner import TurnRunner
 from gateway.session import SessionSource
 from gateway.turn_context import TurnContext
-from plugins.platforms.slack.adapter import SlackAdapter
-from tests.gateway.relay.stub_connector import StubConnector
 
 
-@pytest.mark.parametrize("relay", [False, True])
-@pytest.mark.parametrize("thread_id", [None, "1700.1"])
+
+
+
+@pytest.mark.parametrize("thread_id", [None, "thread"])
 @pytest.mark.parametrize("enabled", [False, True])
-def test_warning_policy_reaches_slack_transport(tmp_path, monkeypatch, relay, thread_id, enabled):
+def test_warning_policy_reaches_plugin_transport(tmp_path, monkeypatch, thread_id, enabled):
     from gateway import run
+    from tests.gateway.test_platform_reconnect import StubAdapter, register_test_platform
 
-    (tmp_path / "config.yaml").write_text(f"display: {{suppress_warning_notifications: {str(not enabled).lower()}}}")
+    (tmp_path / "config.yaml").write_text(
+        f"display: {{suppress_warning_notifications: {str(not enabled).lower()}}}")
     monkeypatch.setattr(run, "_hermes_home", tmp_path)
-    source = SessionSource(platform=Platform.SLACK, chat_id="D1", chat_type="dm", user_id="U1", thread_id=thread_id)
+    platform = register_test_platform(monkeypatch)
+    adapter = StubAdapter(platform=platform)
+    adapter.send = AsyncMock(return_value=SimpleNamespace(success=True, message_id="1"))
+    source = SessionSource(platform=platform, chat_id="chat", chat_type="dm", user_id="user", thread_id=thread_id)
     metadata = {"thread_id": thread_id} if thread_id else {}
-    pc = PlatformConfig(extra={"reply_in_thread": bool(thread_id)})
-    if relay:
-        desc = CapabilityDescriptor(contract_version=CONTRACT_VERSION, platform="slack", label="Slack",
-                                    max_message_length=4000, supports_edit=True, supports_threads=True, supports_draft_streaming=False,
-                                    markdown_dialect="mrkdwn", len_unit="chars", emoji="", platform_hint="", pii_safe=False)
-        transport = StubConnector(desc)
-        adapter = RelayAdapter(pc, desc, transport=transport)
-        adapter._capture_scope(MessageEvent(text="hello", source=source, message_type=MessageType.TEXT))
-        sent = transport.sent
-    else:
-        adapter = SlackAdapter(pc)
-        client = AsyncMock()
-        client.chat_postMessage.return_value = {"ok": True, "ts": "1700.2"}
-        client.chat_update.return_value = {"ok": True, "ts": "1700.2"}
-        adapter._app = SimpleNamespace(client=client)
-        sent = []
-        async def post(**kwargs):
-            sent.append(kwargs)
-            return {"ok": True, "ts": "1700.2"}
-        client.chat_postMessage.side_effect = post
-        client.chat_update.side_effect = post
     gateway = object.__new__(GatewayRunner)
     gateway.config = None
     gateway._delivery_adapter_for = lambda source: adapter
     gateway._thread_metadata_for_source = lambda source: metadata
     ctx = TurnContext(source=source, user_config=_load_gateway_config(), _run_still_current=lambda: True,
-                      _status_adapter=adapter, _status_chat_id="D1", _status_thread_metadata=metadata)
+                      _status_adapter=adapter, _status_chat_id="chat", _status_thread_metadata=metadata)
     turn = TurnRunner(gateway, ctx)
     monkeypatch.setattr(run, "safe_schedule_threadsafe", lambda coro, *a, **k: asyncio.run(coro))
     agent = StatusOutputMixin()
@@ -67,15 +46,11 @@ def test_warning_policy_reaches_slack_transport(tmp_path, monkeypatch, relay, th
     agent.status_callback = turn._status_callback_sync
     for _ in range(2):
         agent._emit_warning("⚠ Context is over the limit; compression blocked")
-    assert len(sent) == (2 if enabled else 0)
-    # A warning-looking real answer remains deliverable through the identical adapter.
-    result = asyncio.run(adapter.send("D1", "⚠ The requested task failed", metadata=metadata))
+    assert adapter.send.await_count == (2 if enabled else 0)
+    result = asyncio.run(adapter.send("chat", "⚠ The requested task failed", metadata=metadata))
     assert result.success
-    assert len(sent) == (2 if enabled else 0) + 1
-    if relay:
-        assert sent[-1]["metadata"].get("thread_id") == thread_id
-    else:
-        assert sent[-1].get("thread_ts") == thread_id
+    assert adapter.send.await_count == (2 if enabled else 0) + 1
+    assert adapter.send.await_args.kwargs["metadata"] == metadata
 
 
 def test_profile_config_isolated_for_callbacks_and_direct_warnings(tmp_path, monkeypatch):

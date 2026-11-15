@@ -491,10 +491,7 @@ def snapshot_automation(authority, adapter, event, identity):
     source = deepcopy(envelope['source'])
     # Never anchor the wake to the stale human message; ``to_dict`` already omits a null anchor.
     source.pop('message_id', None)
-    if 'relay' in provenance:
-        # The relay seal binds the source; restore_native verified it over the anchored source.
-        from gateway.session_ingress_context import reseal_relay
-        provenance = reseal_relay(adapter, source, provenance)
+
     # Producer timestamps and platform reply IDs change on retry. Neither belongs
     # in the identity/fingerprint of the same immutable completion.
     envelope = {'source': source, 'route': entry.session_key,
@@ -636,7 +633,8 @@ async def admit_automation(authority, adapter, event, identity, replaces=None, f
         then=admitted, ordered=True, after=partial(authority._schedule_admitted, ref))
 
 
-_ROUTE_WAKE_PRODUCERS = frozenset({'kanban-wake', 'loop-tick'})
+# Keep the legacy producer identity for queued durable admissions created before removal.
+_ROUTE_WAKE_PRODUCERS = frozenset({'background-wake', 'loop-tick'})
 
 
 def route_owner_lock(runner, session_id):

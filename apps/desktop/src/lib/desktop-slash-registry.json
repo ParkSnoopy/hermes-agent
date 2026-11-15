@@ -39,7 +39,7 @@
   "/gateway": "terminal",
   "/generate-pet": null,
   "/goal": null,
-  "/handoff": null,
+
   "/hatch": null,
   "/hb": null,
   "/heartbeat": null,
@@ -51,7 +51,7 @@
   "/init": null,
   "/insights": "advanced",
   "/journey": null,
-  "/kanban": "advanced",
+
   "/learn": null,
   "/learning": null,
   "/login": "settings",

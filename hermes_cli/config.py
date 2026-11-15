@@ -184,7 +184,8 @@ _LOAD_CONFIG_CACHE: dict[str, tuple[Any, ...]] = {}
 _RAW_CONFIG_CACHE: dict[str, tuple[Any, ...]] = {}
 
 # Env var names written to .env that aren't in OPTIONAL_ENV_VARS (managed by setup/provider
-# flows directly). Also the set reload_env() may remove from os.environ.
+# flows directly). Also the set reload_env() may remove from os.environ. Retired platform
+# names remain classified here so old credentials are handled as environment data, not YAML.
 _EXTRA_ENV_KEYS = frozenset({
     "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN",
     "DISCORD_HOME_CHANNEL", "DISCORD_HOME_CHANNEL_NAME",
@@ -621,8 +622,7 @@ from hermes_cli.config_version_stamp import (
 ENV_VARS_BY_VERSION: dict[int, list[str]] = {
     3: ["FIRECRAWL_API_KEY", "BROWSERBASE_API_KEY", "BROWSERBASE_PROJECT_ID", "FAL_KEY"],
     4: ["VOICE_TOOLS_OPENAI_KEY", "ELEVENLABS_API_KEY"],
-    5: ["WHATSAPP_ENABLED", "WHATSAPP_MODE", "WHATSAPP_ALLOWED_USERS",
-        "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_ALLOWED_USERS"],
+
     10: ["TAVILY_API_KEY"],
     11: ["TERMINAL_MODAL_MODE"]}
 
@@ -2937,10 +2937,6 @@ _OPEN_DICT_TOP_LEVEL_KEYS = frozenset({
 # Top-level keys whose sub-keys are partially schema-defined (e.g. a PlatformConfig dataclass) but
 # where users may add fields DEFAULT_CONFIG doesn't enumerate: validate the FIRST segment only.
 _SCHEMA_DEFINED_DICT_KEYS = frozenset({
-    # Platform configs — PlatformConfig dataclass + dynamic extras
-    "discord", "telegram", "slack", "whatsapp", "signal", "mattermost",
-    "matrix", "feishu", "wecom", "weixin", "bluebubbles", "qqbot",
-    "email", "sms", "dingtalk",
     # MCP server template / dynamic auth dicts
     "sessions", "checkpoints",
     # Plugin enable/disable lists + per-plugin entries; absent from DEFAULT_CONFIG.
@@ -3898,36 +3894,16 @@ def platform_manifest_secret_scan(home: Optional[Path] = None) -> tuple[frozense
     return names, not skipped
 
 
-def _inject_platform_plugin_env_vars() -> frozenset[str] | None:
-    """Populate OPTIONAL_ENV_VARS from platform plugin manifests (bundled AND user-installed) so
-    Teams / IRC / Google Chat and third-party platforms are configurable in the ``hermes config`` /
-    Desktop Gateway form without the core knowing they exist. Failures are swallowed so a
-    malformed plugin.yaml can't break CLI import. Returns the bundled manifests' secret names, or
-    None when a bundled manifest could not be read (the policy then re-reads strictly).
+def _bundled_platform_secret_envs() -> frozenset[str] | None:
+    """Classify legacy manifest secrets without exposing retired setup options.
+
+    None means discovery was incomplete and the secret policy must re-read strictly.
     """
-    bundled: list | None = []
     try:
         bundled = list(_platform_plugin_manifests(source="bundled", strict=True))
     except OSError:
-        bundled = None
-    manifests = list(bundled or [])
-    for source in ("bundled", "user") if bundled is None else ("user",):
-        try:
-            manifests += list(_platform_plugin_manifests(source=source))
-        except Exception:
-            pass
-    for dir_name, manifest in manifests:
-        label = manifest.get("label") or manifest.get("name") or dir_name
-        for name, is_secret, meta in _platform_manifest_env_entries(manifest):
-            if name in OPTIONAL_ENV_VARS:
-                continue  # hardcoded entry wins (back-compat)
-            OPTIONAL_ENV_VARS[name] = {
-                "description": meta.get("description") or f"{label} configuration",
-                "prompt": meta.get("prompt") or name,
-                "url": meta.get("url") or None,
-                "password": is_secret,
-                "category": meta.get("category") or "messaging"}
-    return _manifest_secret_envs(bundled, _STATIC_CORE_ENV_NAMES) if bundled is not None else None
+        return None
+    return _manifest_secret_envs(bundled, _STATIC_CORE_ENV_NAMES)
 
 
 # Names declared in core, before any platform manifest is read. A manifest never reclassifies
@@ -3935,7 +3911,7 @@ def _inject_platform_plugin_env_vars() -> frozenset[str] | None:
 # OPENAI_API_KEY from turning a provider key into an adapter secret. CORE_DECLARED_ENV_NAMES adds
 # the provider profiles' names on first use (module __getattr__): listing them reads config.
 _STATIC_CORE_ENV_NAMES: frozenset[str] = frozenset(dict.keys(OPTIONAL_ENV_VARS))
-BUNDLED_PLATFORM_SECRET_ENVS: frozenset[str] | None = _inject_platform_plugin_env_vars()
+BUNDLED_PLATFORM_SECRET_ENVS: frozenset[str] | None = _bundled_platform_secret_envs()
 _config_provider_env.arm(OPTIONAL_ENV_VARS, _STATIC_CORE_ENV_NAMES)
 
 

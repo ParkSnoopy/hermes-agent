@@ -12,7 +12,7 @@ What is virtual and what stays real:
 * The fire-claim heartbeat cadence is time-scaled (60 s -> ``HEARTBEAT_REAL_SECONDS``) so a
   run that spans many virtual minutes still refreshes its lease the way a real one would.
 * Fakes: the agent (``cron.scheduler.run_job``, the one function that would build an AIAgent)
-  and the platform wire (``tools.send_message_tool._send_to_platform``). Both append JSONL
+  and the platform wire (``gateway.outbound._send_to_platform``). Both append JSONL
   records. Everything between — the real ``InProcessCronScheduler.start`` ticker loop,
   ``tick()``, due scan, pending slots, fire claims, heartbeat, executions ledger, the durable
   delivery queue (``cron/deliveries.db``) and its drain, delivery routing, ``mark_job_run`` — is
@@ -203,7 +203,7 @@ class FakeAgent:
 
 
 class FakeSink:
-    """Replaces ``tools.send_message_tool._send_to_platform`` (the standalone wire)."""
+    """Replaces ``gateway.outbound._send_to_platform`` (the standalone wire)."""
 
     def __init__(self, clock: VirtualClock, control: Control):
         self.clock = clock
@@ -245,7 +245,7 @@ def install(clock: VirtualClock, control: Control, setattr_fn=setattr) -> None:
     from cron import jobs
     from cron import scheduler
     import hermes_time
-    from tools import send_message_tool
+    from gateway import outbound
 
     setattr_fn(hermes_time, "datetime", _virtual_datetime_class(clock))
     proxy = _TimeProxy(clock)
@@ -253,7 +253,7 @@ def install(clock: VirtualClock, control: Control, setattr_fn=setattr) -> None:
         setattr_fn(module, "time", proxy)
     setattr_fn(scheduler, "_RUN_CLAIM_HEARTBEAT_SECONDS", HEARTBEAT_REAL_SECONDS)
     setattr_fn(scheduler, "run_job", FakeAgent(clock, control))
-    setattr_fn(send_message_tool, "_send_to_platform", FakeSink(clock, control))
+    setattr_fn(outbound, "_send_to_platform", FakeSink(clock, control))
     # The drain sends from the housekeeping (here: driver) thread, not the run's worker thread,
     # so the sink learns WHICH execution it is sending from the queued job, not from the text.
     real_deliver_result = scheduler._deliver_result

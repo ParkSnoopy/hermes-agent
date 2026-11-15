@@ -48,7 +48,6 @@ function render(
         refreshCronJobs: noop,
         refreshCurrentModel: noop,
         refreshHermesConfig: noop,
-        refreshMessagingSessions: noop,
         refreshSessions,
         requestGateway: gatewayRequest
       })

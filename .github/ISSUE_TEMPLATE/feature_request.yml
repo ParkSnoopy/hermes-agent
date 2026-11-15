@@ -47,7 +47,7 @@ body:
         - New tool
         - New bundled skill
         - CLI improvement
-        - Gateway / messaging improvement
+        - Gateway / API improvement
         - Configuration option
         - Performance / reliability
         - Developer experience (tests, docs, CI)

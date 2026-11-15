@@ -10,7 +10,7 @@ Hermes Agent 自动将每次对话保存为一个 session。Session 支持对话
 
 ## Session 的工作原理
 
-每次对话——无论来自 CLI、Telegram、Discord、Slack、WhatsApp、Signal、Matrix、Teams 还是其他任何消息平台——都会以完整消息历史的形式存储为一个 session。Session 记录在：
+CLI、TUI、Desktop 和其他支持的入口会将对话历史存储为 session。Session 记录在：
 
 1. **SQLite 数据库**（`~/.hermes/state.db`）——包含 FTS5 全文搜索的结构化 session 元数据，以及完整消息历史
 
@@ -50,22 +50,6 @@ Hermes 存储 session 历史以便恢复对话，但不会在每次对话时重�
 | 来源 | 描述 |
 |--------|-------------|
 | `cli` | 交互式 CLI（`hermes` 或 `hermes chat`） |
-| `telegram` | Telegram 消息 |
-| `discord` | Discord 服务器/私信 |
-| `slack` | Slack 工作区 |
-| `whatsapp` | WhatsApp 消息 |
-| `signal` | Signal 消息 |
-| `matrix` | Matrix 房间和私信 |
-| `mattermost` | Mattermost 频道 |
-| `email` | 电子邮件（IMAP/SMTP） |
-| `sms` | 通过 Twilio 的短信 |
-| `dingtalk` | 钉钉消息 |
-| `feishu` | 飞书/Lark 消息 |
-| `wecom` | 企业微信 |
-| `weixin` | 微信（个人版） |
-| `bluebubbles` | 通过 BlueBubbles macOS 服务器的 Apple iMessage |
-| `qqbot` | QQ Bot（腾讯 QQ）通过官方 API v2 |
-| `homeassistant` | Home Assistant 事件（插件） |
 | `webhook` | 传入 webhook |
 | `api-server` | API 服务器请求 |
 | `acp` | ACP 编辑器集成 |
@@ -145,45 +129,6 @@ display:
 Session ID 格式为 `YYYYMMDD_HHMMSS_<hex>`——CLI/TUI session 使用 6 位十六进制后缀（例如 `20250305_091523_a1b2c3`），gateway session 使用 8 位后缀（例如 `20250305_091523_a1b2c3d4`）。可以按 ID（完整或唯一前缀）或按标题恢复——`-c` 和 `-r` 均支持两种方式。
 :::
 
-## 跨平台切换
-
-在 CLI session 中使用 `/handoff <platform>` 将实时对话转移到消息平台的主频道。Agent 会从 CLI 停止的地方精确接续——相同的 session id、完整的角色感知对话记录、工具调用一并保留。
-
-```bash
-# 在 CLI session 内
-/handoff telegram
-```
-
-执行过程：
-
-1. CLI 验证 `<platform>` 已启用且已设置主频道（在目标聊天中运行一次 `/sethome` 即可配置）。
-2. CLI 将 session 标记为待处理并**阻塞轮询 gateway**。如果 agent 正在处理轮次，则拒绝操作——请等待当前响应完成后再执行。
-3. Gateway 监视器认领切换请求，并向目标适配器请求新线程：
-   - **Telegram** — 开启新的论坛话题（如果在聊天中启用了 Bot API 9.4+ Topics 模式则为私信话题，或论坛超级群组话题）。
-   - **Discord** — 在主文字频道下创建 1440 分钟自动归档的线程。
-   - **Slack** — 发布一条种子消息并使用其 `ts` 作为线程锚点。
-   - **Matrix** — 发布一条种子消息并使用其事件 id 作为线程根（`m.thread` 关系）。
-   - **WhatsApp / Signal / SMS** — 无原生线程，回退到直接使用主频道。
-4. Gateway 将目标键重新绑定到你现有的 CLI session id，然后伪造一个合成用户轮次，要求 agent 确认并总结。回复会出现在新线程中。
-5. Gateway 确认成功后，CLI 打印 `/resume` 提示并干净退出：
-
-   ```
-   ↻ Handoff complete. The session is now active on telegram.
-     Resume it on this CLI later with: /resume my-session-title
-   ```
-
-6. 从此时起，对话在该平台上继续。在新线程中回复——该频道中任何已授权的用户共享同一 session，之后线程中任何真实用户消息都能无缝加入，因为线程 session 的键不含 `user_id`。
-
-**恢复到 CLI：** 当你想回到桌面时，只需运行 `/resume <title>`（或在 shell 中运行 `hermes -r "<title>"`），从平台停止的地方继续。
-
-**故障模式：**
-- 未配置主频道 → CLI 拒绝并提示 `/sethome`。
-- 平台未启用/gateway 未运行 → CLI 在 60 秒后超时并显示明确消息，CLI session 保持完整。
-- 线程创建失败（权限不足、话题模式未开启）→ 直接回退到主频道并仍然完成切换；没有线程隔离，但切换本身有效。
-- `adapter.send` 失败（速率限制、临时 API 错误）→ 切换标记为失败并附带原因；行被清除以便重试。
-
-**值得注意的限制：** 对于无线程能力的多用户群组主频道平台，合成轮次以私信风格 session 为键。这对自私信主频道（典型设置）有效，但对真正的共享群聊并不理想。线程支持覆盖 Telegram / Discord / Slack / Matrix——这是最常见的情况——因此大多数设置不会遇到此问题。
-
 ## Session 命名 {#session-naming}
 
 为 session 设置人类可读的标题，便于查找和恢复。
@@ -227,13 +172,6 @@ hermes sessions rename 20250305_091523_a1b2c3d4 "refactoring auth module"
 
 按名称恢复时（`hermes -c "my project"`），会自动选取谱系中最新的 session。
 
-### 在消息平台中使用 /title
-
-`/title` 命令在所有 gateway 平台（Telegram、Discord、Slack、WhatsApp）中均可使用：
-
-- `/title My Research` — 设置 session 标题
-- `/title` — 显示当前标题
-
 ## Session 管理命令
 
 Hermes 通过 `hermes sessions` 提供完整的 session 管理命令集：
@@ -245,7 +183,7 @@ Hermes 通过 `hermes sessions` 提供完整的 session 管理命令集：
 hermes sessions list
 
 # 按平台过滤
-hermes sessions list --source telegram
+hermes sessions list --source cli
 
 # 显示更多 session
 hermes sessions list --limit 50
@@ -292,7 +230,7 @@ What's the weather in Las Vegas?                    3d ago        tele   2025030
 hermes sessions export backup.jsonl
 
 # 导出特定平台的 session
-hermes sessions export telegram-history.jsonl --source telegram
+hermes sessions export cli-history.jsonl --source cli
 
 # 导出单个 session
 hermes sessions export session.jsonl --session-id 20250305_091523_a1b2c3d4
@@ -301,7 +239,7 @@ hermes sessions export session.jsonl --session-id 20250305_091523_a1b2c3d4
 hermes sessions export backup.jsonl --redact
 ```
 
-导出文件每行包含一个 JSON 对象，包含完整的 session 元数据和每一条已存储的消息，每条都带有 `active`/`compacted` 标记。其中包括原地压缩归档的轮次，以及被 rewind 或编辑移除的消息。导入该文件（dashboard 的 session 导入）时，这些行会恢复为已归档的历史，而不会成为活跃的模型上下文。CLI 和消息平台的 `/save json` 快照同样如此。请把备份视为包含该 session 曾经有过的全部内容；要分享对话，请用 `--redact` 导出显示格式（`--format md` 或 `html`，只包含 session 显示的历史）。每个 session 的备份在内存中构建，因此已存储行数超过 `sessions.max_export_messages` 的 session 会被拒绝。
+导出文件每行包含一个 JSON 对象，包含完整的 session 元数据和每一条已存储的消息，每条都带有 `active`/`compacted` 标记。其中包括原地压缩归档的轮次，以及被 rewind 或编辑移除的消息。导入该文件（dashboard 的 session 导入）时，这些行会恢复为已归档的历史，而不会成为活跃的模型上下文。CLI 的 `/save json` 快照同样如此。请把备份视为包含该 session 曾经有过的全部内容；要分享对话，请用 `--redact` 导出显示格式（`--format md` 或 `html`，只包含 session 显示的历史）。每个 session 的备份在内存中构建，因此已存储行数超过 `sessions.max_export_messages` 的 session 会被拒绝。
 
 #### HTML
 
@@ -311,8 +249,8 @@ hermes sessions export backup.jsonl --redact
 # 将一个 session 导出为独立 HTML 页面
 hermes sessions export --format html --session-id 20250305_091523_a1b2c3d4 transcript.html
 
-# 将最近一周的所有 Telegram session 导出到一个文件，并脱敏
-hermes sessions export --format html --newer-than 1w --source telegram --redact archive.html
+# 将最近一周的所有 CLI session 导出到一个文件，并脱敏
+hermes sessions export --format html --newer-than 1w --source cli --redact archive.html
 ```
 
 #### 只导出 Prompt
@@ -360,8 +298,8 @@ hermes sessions export --format md --session-id 20250305_091523_a1b2c3d4 --linea
 # 预览 90 天前已结束的 session，不写入文件
 hermes sessions export --format md --older-than 90 --dry-run
 
-# 将 2 周前已结束的 Telegram session 导出为 QMD 文件
-hermes sessions export --format qmd --older-than 2w --source telegram
+# 将 2 周前已结束的 CLI session 导出为 QMD 文件
+hermes sessions export --format qmd --older-than 2w --source cli
 
 # 导出长的 Claude session，并脱敏
 hermes sessions export --format md --model sonnet --min-messages 50 --redact
@@ -406,7 +344,7 @@ hermes sessions prune
 hermes sessions prune --older-than 30
 
 # 仅清理特定平台的 session
-hermes sessions prune --source telegram --older-than 60
+hermes sessions prune --source cli --older-than 60
 
 # 跳过确认
 hermes sessions prune --older-than 30 --yes
@@ -429,8 +367,8 @@ hermes sessions stats
 Total sessions: 142
 Total messages: 3847
   cli: 89 sessions
-  telegram: 38 sessions
-  discord: 15 sessions
+  cli: 38 sessions
+  cron: 15 sessions
 Database size: 12.4 MB
 ```
 
@@ -506,38 +444,7 @@ Agent 被提示在以下情况自动使用 session 搜索：
 
 典型触发词：「我们之前做过这个」、「还记得吗」、「上次」、「正如我提到的」，或任何当前窗口中没有的项目/人物/概念的引用。
 
-## 各平台 Session 跟踪
-
-### Gateway Session
-
-在消息平台上，session 通过从消息来源构建的确定性 session 键来标识：
-
-| 聊天类型 | 默认键格式 | 行为 |
-|-----------|--------------------|----------|
-| Telegram 私信 | `agent:main:telegram:dm:<chat_id>` | 每个私信聊天一个 session |
-| Discord 私信 | `agent:main:discord:dm:<chat_id>` | 每个私信聊天一个 session |
-| WhatsApp 私信 | `agent:main:whatsapp:dm:<canonical_identifier>` | 每个私信用户一个 session（存在映射时 LID/手机号别名合并为一个身份） |
-| 群聊 | `agent:main:<platform>:group:<chat_id>:<user_id>` | 当平台暴露用户 ID 时，群内每用户独立 session |
-| 群组线程/话题 | `agent:main:<platform>:group:<chat_id>:<thread_id>` | 所有线程参与者共享 session（默认）。设置 `thread_sessions_per_user: true` 则每用户独立。 |
-| 频道 | `agent:main:<platform>:channel:<chat_id>:<user_id>` | 当平台暴露用户 ID 时，频道内每用户独立 session |
-
-当 Hermes 无法获取共享聊天的参与者标识符时，回退为该房间共享一个 session。
-
-### 共享与隔离的群组 Session
-
-默认情况下，Hermes 在 `config.yaml` 中使用 `group_sessions_per_user: true`。这意味着：
-
-- Alice 和 Bob 可以在同一个 Discord 频道中与 Hermes 对话，而不共享对话历史
-- 一个用户的长时间工具密集型任务不会污染另一个用户的上下文窗口
-- 中断处理也保持每用户独立，因为运行中的 agent 键与隔离的 session 键匹配
-
-如果你想要一个共享的"房间大脑"，设置：
-
-```yaml
-group_sessions_per_user: false
-```
-
-这会将群组/频道恢复为每个房间一个共享 session，保留共享的对话上下文，但也共享 token 费用、中断状态和上下文增长。
+## Session 跟踪
 
 ### 会话连续性
 

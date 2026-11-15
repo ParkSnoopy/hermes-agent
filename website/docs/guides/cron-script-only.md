@@ -1,12 +1,12 @@
 ---
 sidebar_position: 13
 title: "Script-Only Cron Jobs (No LLM)"
-description: "Classic watchdog cron jobs that skip the LLM entirely — a script runs on schedule and its stdout gets delivered to your messaging platform. Memory alerts, disk alerts, CI pings, periodic health checks."
+description: "Classic watchdog cron jobs that skip the LLM entirely and save script output."
 ---
 
 # Script-Only Cron Jobs
 
-Sometimes you already know exactly what message you want to send. You don't need an agent to reason about it — you just need a script to run on a timer, and its output (if any) to land in Telegram / Discord / Slack / Signal.
+Sometimes you don't need an agent to reason about a result: you just need a script to run on a timer and save its output.
 
 Hermes calls this **no-agent mode**. It's the cron system minus the LLM.
 
@@ -20,14 +20,14 @@ Hermes calls this **no-agent mode**. It's the cron system minus the LLM.
                                           │ stdout
                                           ▼
                                  ┌──────────────────┐
-                                 │ delivery router  │
-                                 │ (telegram/disc…) │
+                                 │ saved job output │
+                                 │ (local)          │
                                  └──────────────────┘
 ```
 <!-- ascii-guard-ignore-end -->
 
 - **No LLM call.** Zero tokens, zero agent loop, zero model spend.
-- **Script is the job.** The script decides whether to alert. Emit output → message gets sent. Emit nothing → silent tick.
+- **Script is the job.** The script decides whether to emit output. An empty result is a silent tick.
 - **Bash or Python.** `.sh` / `.bash` files run under `bash` from `PATH` when available, otherwise `/bin/bash`; any other extension runs under the current Python interpreter. A Python script can also pin a **user-managed venv** via `--interpreter` (see [Using your own Python environment](#using-your-own-python-environment)). Paths must resolve inside `~/.hermes/scripts/` (relative, absolute, or `~` forms are OK if they stay in that directory). Cron scripts do **not** inherit provider credentials from the Hermes process environment.
 - **Same scheduler.** Lives in `cronjob` alongside LLM jobs — pausing, resuming, listing, logs, and delivery targeting all work the same way.
 
@@ -49,11 +49,11 @@ The real win of no-agent mode is that the agent itself can set up the watchdog f
 
 ### Example transcript
 
-> **You:** ping me on telegram if RAM is over 85% every 5 minutes
+> **You:** check RAM every 5 minutes and save a warning if usage is over 85%
 >
 > **Hermes:** *(writes `~/.hermes/scripts/memory-watchdog.sh`, then calls `cronjob(...)` with `no_agent=true`)*
 >
-> Set up. Runs every 5 min, alerts Telegram only when RAM is over 85%. Script: `memory-watchdog.sh`. Job ID: `abc123`.
+> Set up. Runs every 5 min and saves output when RAM is over 85%. Script: `memory-watchdog.sh`. Job ID: `abc123`.
 
 Under the hood, the agent makes two tool calls:
 
@@ -76,12 +76,12 @@ cronjob(
     schedule="every 5m",
     script="memory-watchdog.sh",
     no_agent=True,
-    deliver="telegram",
+    deliver="none",
     name="memory-watchdog",
 )
 ```
 
-From that point on every tick is free: the scheduler runs the script, pipes its stdout to Telegram if non-empty, and never touches a model.
+The scheduler runs the script without a model and saves its output locally.
 
 ### What the agent decides for you
 
@@ -126,7 +126,7 @@ chmod +x ~/.hermes/scripts/memory-watchdog.sh
 hermes cron create "every 5m" \
   --no-agent \
   --script memory-watchdog.sh \
-  --deliver telegram \
+  --deliver none \
   --name "memory-watchdog"
 
 # 3. Verify
@@ -141,13 +141,13 @@ That's the whole thing. No prompt, no skill, no model.
 
 | Script behavior | Result |
 |-----------------|--------|
-| Exit 0, non-empty stdout | stdout is delivered verbatim |
+| Exit 0, non-empty stdout | stdout is saved as job output |
 | Exit 0, empty stdout | Silent tick — no delivery |
 | Exit 0, stdout contains `{"wakeAgent": false}` on the last line | Silent tick (shared gate with LLM jobs) |
-| Non-zero exit code | Error alert is delivered (so a broken watchdog doesn't fail silently) |
-| Script timeout | Error alert is delivered |
+| Non-zero exit code | The run records an error |
+| Script timeout | The run records an error |
 
-The "silent when empty" behavior is the key to the classic watchdog pattern: the script is free to run every minute, but the channel only sees a message when something actually needs attention.
+Inspect saved output and run history for results and errors.
 
 ## Script Rules
 
@@ -178,7 +178,7 @@ hermes cron create "0 8 * * *" \
   --no-agent \
   --script daily-report.py \
   --interpreter ~/venvs/hermes-reporting/bin/python \
-  --deliver telegram
+  --deliver none
 ```
 
 Like `--model`, this is a user-owned setting: set it with `hermes cron create/edit`; the agent's `cronjob` tool can't.
@@ -208,19 +208,7 @@ See the [cron feature reference](../user-guide/features/cron.md) for the full sy
 
 ## Delivery Targets
 
-`--deliver` accepts everything the gateway knows about. Some common shapes:
-
-```bash
---deliver telegram                       # platform home channel
---deliver telegram:-1001234567890        # specific chat
---deliver telegram:-1001234567890:17585  # specific Telegram forum topic
---deliver discord:#ops
---deliver slack:#engineering
---deliver signal:+15551234567
---deliver local                          # just save to ~/.hermes/cron/output/
-```
-
-No running gateway is required at script-run time for bot-token platforms (Telegram, Discord, Slack, Signal, SMS, WhatsApp) — the tool calls each platform's REST endpoint directly using the credentials already in `~/.hermes/.env` / `~/.hermes/config.yaml`.
+Use `--deliver none` to save output to `~/.hermes/cron/output/` without an external delivery destination.
 
 ## Editing and Lifecycle
 
@@ -254,7 +242,7 @@ chmod +x ~/.hermes/scripts/disk-alert.sh
 hermes cron create "*/15 * * * *" \
   --no-agent \
   --script disk-alert.sh \
-  --deliver telegram \
+  --deliver none \
   --name "disk-alert"
 ```
 
@@ -266,9 +254,9 @@ Silent when both filesystems are under 90%; fires exactly one line per over-thre
 |----------|-----------|-------------|
 | `cronjob --no-agent` (this page) | Your script on Hermes' schedule | Recurring watchdogs / alerts / metrics that don't need reasoning |
 | `cronjob_manage` (default, LLM) | Agent with optional pre-check script | When the message content requires reasoning over data |
-| OS cron + `curl` to a [webhook subscription](../user-guide/messaging/webhooks.md) | Your script on the OS schedule | When Hermes might be unhealthy (the thing you're monitoring) |
+| OS cron + `curl` to a [webhook subscription](../user-guide/messaging/webhooks.md) | Your script on the OS schedule | Triggering a running Hermes webhook from an external scheduler |
 
-For critical system-health watchdogs that must fire *even when the gateway is down*, use OS-level cron with a plain `curl` to a Hermes webhook subscription (or any external alerting endpoint) — those run as independent OS processes and don't depend on Hermes being up. The in-gateway scheduler is the right choice when the thing being monitored is external.
+For critical system-health watchdogs that must fire even when Hermes is down, use OS-level cron with an independent external alerting endpoint. A Hermes webhook requires its receiving service to be running.
 
 ## Related
 

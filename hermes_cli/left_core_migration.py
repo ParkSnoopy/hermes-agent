@@ -571,13 +571,6 @@ class LeftCoreFeature:
 
 LEFT_CORE: tuple[LeftCoreFeature, ...] = (
     LeftCoreFeature(
-        plugin="homeassistant", label="Home Assistant", in_use=homeassistant_in_use,
-        unchanged="HASS_TOKEN/HASS_URL, platforms.homeassistant and the ha_* tool names are unchanged",
-        secret_env=("HASS_TOKEN",), private_env=("HASS_URL",),
-        toolsets=("homeassistant",), off_platforms=("acp", "webhook"), platform="homeassistant",
-        enable_env=("HASS_TOKEN",), channel_env_prefixes=("HASS_",),
-    ),
-    LeftCoreFeature(
         plugin="spotify", label="Spotify", in_use=spotify_in_use,
         unchanged="your Spotify login, the spotify toolset and the spotify_* tools are unchanged; "
                   "`hermes auth spotify` is now `hermes spotify login`",
@@ -632,20 +625,6 @@ LEFT_CORE: tuple[LeftCoreFeature, ...] = (
                      "COPILOT_ACP_BASE_URL"),
         launch_env=("HERMES_COPILOT_ACP_COMMAND", "HERMES_COPILOT_ACP_ARGS", "COPILOT_CLI_PATH"),
         notice=copilot_relogin_notice,
-    ),
-    LeftCoreFeature(
-        # YUANBAO_APP_KEY (the legacy App ID name) stays on local_env_policy's own short list, as core had it.
-        plugin="yuanbao", label="Yuanbao", in_use=yuanbao_in_use, plugin_key="platforms/yuanbao",
-        plugin_names=("yuanbao-platform",),
-        unchanged="YUANBAO_* settings, platforms.yuanbao, YUANBAO_HOME_CHANNEL and the yb_* tool names are unchanged",
-        secret_env=("YUANBAO_APP_SECRET",),
-        private_env=("YUANBAO_APP_ID", "YUANBAO_BOT_ID", "YUANBAO_WS_URL", "YUANBAO_API_DOMAIN", "YUANBAO_ROUTE_ENV",
-                     "YUANBAO_DM_POLICY", "YUANBAO_DM_ALLOW_FROM", "YUANBAO_GROUP_POLICY", "YUANBAO_GROUP_ALLOW_FROM",
-                     "YUANBAO_ALLOWED_USERS", "YUANBAO_ALLOW_ALL_USERS", "YUANBAO_HOME_CHANNEL",
-                     "YUANBAO_HOME_CHANNEL_NAME"),
-        toolsets=("yuanbao",), off_platforms=_YUANBAO_OFF_PLATFORMS,
-        legacy_toolsets=("hermes-yuanbao", "hermes-gateway"),
-        platform="yuanbao", enable_env=("YUANBAO_APP_ID", "YUANBAO_APP_SECRET"), notice=_yuanbao_notice,
     ),
 )
 

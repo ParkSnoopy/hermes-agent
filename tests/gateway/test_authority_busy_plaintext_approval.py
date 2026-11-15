@@ -4,13 +4,41 @@ import asyncio
 import pytest
 
 from gateway.config import GatewayConfig, Platform, PlatformConfig
-from gateway.platforms.base import SendResult
+from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent
 from gateway.run import GatewayRunner
 from gateway.session_authority import SessionAuthority, initialize_session_authority
 from hermes_state_runtime import list_session_admissions
 
-CHAT = '15551234567@s.whatsapp.net'
+CHAT = 'human-42'
+
+
+class _HumanAdapter(BasePlatformAdapter):
+    async def connect(self, *, is_reconnect=False):
+        return True
+
+    async def disconnect(self):
+        pass
+
+    async def send(self, chat_id, content, reply_to=None, metadata=None):
+        return SendResult(success=True, message_id='s')
+
+    async def get_chat_info(self, chat_id):
+        return {'name': chat_id, 'type': 'dm'}
+
+
+def _human_adapter(monkeypatch):
+    from gateway import platform_registry
+    from gateway.platform_registry import PlatformEntry, PlatformRegistry
+
+    registry = PlatformRegistry()
+    monkeypatch.setattr(platform_registry, 'platform_registry', registry)
+    registry.register(PlatformEntry(name='human_fixture', label='Human fixture',
+                                    adapter_factory=lambda config: None,
+                                    check_fn=lambda: True,
+                                    allowed_users_env='HUMAN_FIXTURE_ALLOWED_USERS'))
+    monkeypatch.setenv('HUMAN_FIXTURE_ALLOWED_USERS', CHAT)
+    return _HumanAdapter(PlatformConfig(enabled=True), Platform('human_fixture'))
 
 
 class _RunningAgent:
@@ -24,15 +52,13 @@ class _RunningAgent:
 @pytest.mark.asyncio
 @pytest.mark.parametrize('mode', ['interrupt', 'queue'])
 async def test_busy_plaintext_yes_resolves_blocking_approval_not_interrupt_or_queue(tmp_path, monkeypatch, mode):
-    from plugins.platforms.whatsapp.adapter import WhatsAppAdapter
     from tools.approval import _gateway_queues
     from tools.approval_gateway_wait import _ApprovalEntry
-    monkeypatch.setenv('WHATSAPP_ALLOWED_USERS', '15551234567')
     # No drain: an admitted "yes" would then wait on a turn, which is exactly the regression.
     monkeypatch.setattr(SessionAuthority, '_schedule', lambda self, ref: None)
     runner = GatewayRunner(GatewayConfig(sessions_dir=tmp_path / 'sessions'))
-    adapter = WhatsAppAdapter(PlatformConfig(enabled=True, extra={'session_path': str(tmp_path / 'wa')}))
-    adapter.gateway_runner, runner.adapters = runner, {Platform.WHATSAPP: adapter}
+    adapter = _human_adapter(monkeypatch)
+    adapter.gateway_runner, runner.adapters = runner, {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='approval')
     runner._wire_adapter_handlers(adapter)
     sent = []

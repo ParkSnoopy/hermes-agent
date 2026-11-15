@@ -62,7 +62,7 @@ See [Browser Automation](../user-guide/features/browser.md) for setup and usage.
 
 ## Voice & TTS Providers
 
-Text-to-speech and speech-to-text across all messaging platforms:
+Text-to-speech and speech-to-text providers:
 
 | Provider | Quality | Cost | API Key |
 |----------|---------|------|---------|
@@ -73,7 +73,7 @@ Text-to-speech and speech-to-text across all messaging platforms:
 | **xAI TTS** | Good | Paid | `XAI_API_KEY` |
 | **NeuTTS** | Good | Free | None needed |
 
-Speech-to-text supports eight providers: local faster-whisper (free, runs on-device), a local command wrapper, Groq, OpenAI Whisper API, Mistral, xAI, ElevenLabs Scribe, and DeepInfra. Voice message transcription works across Telegram, Discord, WhatsApp, and other messaging platforms. See [Voice & TTS](../user-guide/features/tts.md) and [Voice Mode](../user-guide/features/voice-mode.md) for details.
+Speech-to-text supports eight providers: local faster-whisper (free, runs on-device), a local command wrapper, Groq, OpenAI Whisper API, Mistral, xAI, ElevenLabs Scribe, and DeepInfra. See [Voice & TTS](../user-guide/features/tts.md) and [Voice Mode](../user-guide/features/voice-mode.md) for details.
 
 ## IDE & Editor Integration
 
@@ -88,27 +88,12 @@ Speech-to-text supports eight providers: local faster-whisper (free, runs on-dev
 - **[Built-in Memory](../user-guide/features/memory.md)** — Persistent, curated memory via `MEMORY.md` and `USER.md` files. The agent maintains bounded stores of personal notes and user profile data that survive across sessions.
 - **[Memory Providers](../user-guide/features/memory-providers.md)** — Plug in external memory backends for deeper personalization. Two providers ship with Hermes: RetainDB (hybrid search) and ByteRover (CLI-based); Honcho (dialectic reasoning), Hindsight (knowledge graphs), Supermemory (semantic recall), Mem0 (cloud extraction), OpenViking (tiered retrieval) and Holographic (local SQLite) are available from the plugin catalog via `hermes plugins install <name>`.
 
-## Messaging Platforms
+## Webhooks and Meetings
 
-Hermes runs as a gateway bot on 27+ messaging platforms, all configured through the same `gateway` subsystem:
+- **[Microsoft Teams Meetings](../user-guide/messaging/teams-meetings.md)**, **[Microsoft Graph Webhook](../user-guide/messaging/msgraph-webhook.md)**, **[Webhooks](../user-guide/messaging/webhooks.md)**
 
-- **[Telegram](../user-guide/messaging/telegram.md)**, **[Discord](../user-guide/messaging/discord.md)**, **[Slack](../user-guide/messaging/slack.md)**, **[WhatsApp](../user-guide/messaging/whatsapp.md)**, **[Signal](../user-guide/messaging/signal.md)**, **[Matrix](../user-guide/messaging/matrix.md)**, **[Mattermost](../user-guide/messaging/mattermost.md)**, **[Email](../user-guide/messaging/email.md)**, **[SMS](../user-guide/messaging/sms.md)**, **[DingTalk](../user-guide/messaging/dingtalk.md)**, **[Feishu/Lark](../user-guide/messaging/feishu.md)**, **[WeCom](../user-guide/messaging/wecom.md)**, **[WeCom Callback](../user-guide/messaging/wecom-callback.md)**, **[Weixin](../user-guide/messaging/weixin.md)**, **[BlueBubbles](../user-guide/messaging/bluebubbles.md)**, **[Buzz](../user-guide/messaging/buzz.md)**, **[QQ Bot](../user-guide/messaging/qqbot.md)**, **[Yuanbao](../user-guide/messaging/yuanbao.md)**, **[Home Assistant](../user-guide/messaging/homeassistant.md)** (plugin), **[Microsoft Teams](../user-guide/messaging/teams.md)**, **[Microsoft Teams Meetings](../user-guide/messaging/teams-meetings.md)**, **[Microsoft Graph Webhook](../user-guide/messaging/msgraph-webhook.md)**, **[Google Chat](../user-guide/messaging/google_chat.md)**, **[LINE](../user-guide/messaging/line.md)**, **[ntfy](../user-guide/messaging/ntfy.md)**, **[SimpleX](../user-guide/messaging/simplex.md)**, **[Open WebUI](../user-guide/messaging/open-webui.md)**, **[Webhooks](../user-guide/messaging/webhooks.md)**
+See [A2A](../user-guide/messaging/a2a.md) for agent-to-agent access.
 
-See the [Messaging Gateway overview](../user-guide/messaging/index.md) for the platform comparison table and setup guide.
-
-### Quick connect links
-
-The big platforms have a canonical "create your bot/app" URL, and some accept parameters that pre-open the right form. Skip the console-hunting and go straight there:
-
-| Platform | Direct link | What it opens |
-|----------|-------------|---------------|
-| **Telegram** | [t.me/BotFather](https://t.me/BotFather) | Chat with BotFather — send `/newbot` to mint a bot token |
-| **Discord** | [discord.com/developers/applications?new_application=true](https://discord.com/developers/applications?new_application=true) | Developer Portal with the **New Application** dialog pre-opened |
-| **Slack** | [api.slack.com/apps?new_app=1](https://api.slack.com/apps?new_app=1) | The **Create New App** dialog — pick *From an app manifest* and paste the manifest `hermes slack manifest --agent-view` generates |
-| **LINE** | [developers.line.biz/console](https://developers.line.biz/console/) | LINE Developers Console for creating a Messaging API channel |
-| **Feishu/Lark** | [open.feishu.cn/app](https://open.feishu.cn/app) | Feishu open-platform console for creating a custom app |
-
-Each platform's setup page walks through what to do once you're there.
 
 ## Collaboration Workspaces
 
@@ -116,7 +101,7 @@ Each platform's setup page walks through what to do once you're there.
 
 ## Home Automation
 
-- **[Home Assistant](../user-guide/messaging/homeassistant.md)** — Control smart home devices via four dedicated tools (`ha_list_entities`, `ha_get_state`, `ha_list_services`, `ha_call_service`) and react to real-time state changes through the gateway. Ships as the `homeassistant` catalog plugin (`hermes plugins install homeassistant`); its toolset activates automatically when `HASS_TOKEN` is configured.
+- **[Home Assistant](https://github.com/NousResearch/hermes-official-plugins/tree/main/homeassistant)** — Control smart home devices using the `homeassistant` plugin's tools.
 
 ## Plugins
 

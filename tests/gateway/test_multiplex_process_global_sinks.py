@@ -1,9 +1,5 @@
-"""Per-profile isolation for the remaining process-global sinks under gateway.multiplex_profiles:
-the config ``terminal.env_passthrough`` allowlist, and the runner-level
-Slack ignored-channel fail-safe (which only had the DEFAULT profile's GatewayConfig)."""
+"""Per-profile isolation for the config ``terminal.env_passthrough`` allowlist."""
 from __future__ import annotations
-
-import os
 
 from agent.secret_scope import reset_secret_scope, set_multiplex_active, set_secret_scope
 from hermes_constants import reset_hermes_home_override, set_hermes_home_override
@@ -35,19 +31,3 @@ def test_env_passthrough_allowlist_follows_the_active_profile(tmp_path, monkeypa
     assert ep._load_config_passthrough() == {"FOO_DEFAULT"}
     assert _under_secondary(secondary, ep._load_config_passthrough) == {"FOO_B2"}
     assert ep._load_config_passthrough() == {"FOO_DEFAULT"}
-
-
-def test_slack_ignored_channels_use_the_routed_adapters_list(monkeypatch):
-    from gateway.config import GatewayConfig, Platform, PlatformConfig
-    from gateway.run import _is_slack_ignored_channel
-
-    monkeypatch.delenv("SLACK_IGNORED_CHANNELS", raising=False)
-    default_cfg = GatewayConfig(platforms={Platform.SLACK: PlatformConfig(enabled=True, extra={"ignored_channels": ["C_DEFAULT"]})})
-
-    class SecondaryAdapter:
-        config = PlatformConfig(enabled=True, extra={"ignored_channels": ["C_B2"]})
-
-    assert _is_slack_ignored_channel(default_cfg, "C_B2", SecondaryAdapter())
-    assert not _is_slack_ignored_channel(default_cfg, "C_DEFAULT", SecondaryAdapter())
-    # No routed adapter (legacy callers): the process-level config still rules.
-    assert _is_slack_ignored_channel(default_cfg, "C_DEFAULT")

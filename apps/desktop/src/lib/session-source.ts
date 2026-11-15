@@ -41,11 +41,8 @@ const SOURCE_ALIASES: Record<string, string[]> = {
   whatsapp: ['wa']
 }
 
-// Sources that run on the local machine rather than an external messaging
-// platform. A handoff *from* one of these isn't a platform origin worth a badge.
-// Exported so the recents fetch can keep these in the main list while the
-// messaging fetch excludes them. `acp` runs as a local stdio process spawned
-// by an editor, and its rows must never land in the messaging slice either.
+// Sources that are not external messaging origins, including legacy Kanban rows.
+// They must not acquire a messaging-origin badge on archived handoffs.
 export const LOCAL_SESSION_SOURCE_IDS = [
   'acp',
   'cli',
@@ -59,9 +56,7 @@ export const LOCAL_SESSION_SOURCE_IDS = [
 ]
 const LOCAL_SOURCE_IDS = new Set(LOCAL_SESSION_SOURCE_IDS)
 
-// External messaging platforms that each get their own self-managed sidebar
-// section (fetched separately from local recents). Mirrors the gateway platform
-// adapters; keep in sync with PLATFORM_ICONS in app/messaging/platform-icon.tsx.
+// Historical external source IDs used to classify and filter stored sessions.
 export const MESSAGING_SESSION_SOURCE_IDS = [
   'telegram',
   'discord',
@@ -86,8 +81,7 @@ export const MESSAGING_SESSION_SOURCE_IDS = [
 ]
 const MESSAGING_SOURCE_IDS = new Set(MESSAGING_SESSION_SOURCE_IDS)
 
-/** True when a source id is an external messaging platform (gets its own
- *  sidebar section) rather than a local/CLI/desktop session. */
+/** True when a stored source identifies an external messaging platform. */
 export function isMessagingSource(source: null | string | undefined): boolean {
   const id = normalizeSessionSource(source)
 

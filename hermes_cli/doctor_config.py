@@ -54,45 +54,17 @@ def collect_deprecated_env_vars(env_map: dict | None) -> list[tuple[str, str]]:
             if env_map.get(name) is not None and str(env_map[name]).strip() != ""]
 
 
-def collect_relay_plugin_cutover_findings(raw_config: dict | None, env_map: dict | None) -> list[tuple[str, str]]:
-    """Return actionable findings for the removed Hermes Relay plugin."""
-    from hermes_cli.relay_plugin_cutover import (LEGACY_RELAY_EXPORT_ENV_VARS, RELAY_PLUGINS_CONFIG_ENV,
-                                                 configured_legacy_relay_env_vars, legacy_relay_plugin_keys)
-    findings: list[tuple[str, str]] = []
-    plugins = raw_config.get("plugins") if isinstance(raw_config, dict) else None
-    if isinstance(plugins, dict):
-        findings += [(f"plugins.enabled: {key}", "remove it and configure a standard user or system Relay plugins.toml; "
-                     f"use {RELAY_PLUGINS_CONFIG_ENV} for an explicit user-file override")
-                     for key in legacy_relay_plugin_keys(plugins.get("enabled"))]
-    effective_env = dict(env_map or {})
-    # Fall through to process env ONLY when no explicit env_map was given: run_doctor passes None and wants
-    # live-process vars, but an explicit map describes a complete environment (merging os.environ breaks hermeticity).
-    if env_map is None:
-        for name in (*LEGACY_RELAY_EXPORT_ENV_VARS, RELAY_PLUGINS_CONFIG_ENV):
-            if name not in effective_env and os.environ.get(name) is not None:
-                effective_env[name] = os.environ[name]
-    if not str(effective_env.get(RELAY_PLUGINS_CONFIG_ENV, "")).strip():
-        findings += [(name, f"run `hermes migrate relay` to generate relay-plugins.toml and set {RELAY_PLUGINS_CONFIG_ENV}; "
-                            "this legacy variable is now ignored and does not configure an exporter")
-                     for name in configured_legacy_relay_env_vars(effective_env)]
-    return findings
-
-
 def report_deprecated_config_and_env(raw_config: dict | None = None, env_map: dict | None = None) -> list[tuple[str, str]]:
     """Emit non-failing doctor warnings for deprecated config keys and env vars; returns the findings reported.
     Does not mutate config/env and does not append to the blocking ``issues`` list."""
     deprecated = collect_deprecated_config_keys(raw_config) + collect_deprecated_env_vars(env_map)
-    relay_cutover = collect_relay_plugin_cutover_findings(raw_config, env_map)
-    findings = deprecated + relay_cutover
+    findings = deprecated
     if not findings:
         check_ok("No deprecated config keys or env vars")
         return findings
     for legacy, replacement in deprecated:
         check_warn(f"Deprecated: {legacy}", f"(use {replacement} instead)")
         check_info(f"Replace {legacy} → {replacement} (warn-only; not auto-migrated here)")
-    for legacy, replacement in relay_cutover:
-        check_warn(f"Breaking Relay migration: {legacy}", f"({replacement})")
-        check_info(f"Migrate {legacy}: {replacement}")
     return findings
 
 

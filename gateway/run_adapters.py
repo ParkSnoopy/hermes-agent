@@ -154,23 +154,12 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
         return _ADAPTER_DISCONNECT_TIMEOUT_SECS_DEFAULT if override is None else override
 
     def _platform_connect_timeout_secs(self, platform=None, *, initial: bool = False) -> float:
-        """Per-platform connect timeout. Telegram's full 180s is NOT spent at cold start (it would
-        hold the gateway out of ``running``); the watcher retries with the full budget.
-
-        ``initial=True`` marks the cold-start connect awaited before the gateway reaches ``running``. The
-        cold-start wait is capped and the platform is handed to the reconnect watcher, which retries with
-        the full budget (and ``is_reconnect=True``, preserving the offline update queue — #46621).
-        """
-        from gateway.run import (
-            _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT, _TELEGRAM_CONNECT_TIMEOUT_SECS_DEFAULT,
-            _TELEGRAM_INITIAL_CONNECT_TIMEOUT_SECS_DEFAULT,
-        )
+        """Return the configured or default platform connection timeout."""
+        from gateway.run import _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT
         override = self._env_timeout_override("HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT")
         if override is not None:
             return override
-        if platform != Platform.TELEGRAM:
-            return _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT
-        return _TELEGRAM_INITIAL_CONNECT_TIMEOUT_SECS_DEFAULT if initial else _TELEGRAM_CONNECT_TIMEOUT_SECS_DEFAULT
+        return _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT
 
     async def _connect_adapter_with_timeout(
         self, adapter, platform, *, is_reconnect: bool = False, initial: bool = False
@@ -223,11 +212,6 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
         finally:
             adapter._platform_lock_takeover_allowed = False
 
-    async def _handle_reaction_event(self, ctx: dict[str, Any]) -> None:
-        """Fan a normalised reaction event out to the HookRegistry; errors never block the adapter."""
-        event_name = str(ctx.get("event_name") or "reaction:added")
-        with _log_suppressed(logging.DEBUG, "[Gateway] reaction hook emit failed", exc_info=True):
-            await self.hooks.emit(event_name, ctx)
 
     async def _handle_adapter_fatal_error(self, adapter: BasePlatformAdapter) -> None:
         """React to an adapter failure after startup (retryable → background reconnect queue). Runs
@@ -251,7 +235,6 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
             "config": platform_config, "attempts": attempts, "next_retry": now + delay,
             **({"queued_at": now} if queued else {}),
             "credential_claim": self._adapter_credential_claim(platform, adapter),
-            "listener_claim": self._adapter_listener_claim(platform, adapter),
             # The replaced instance: its dedup caches seed each candidate, its held inbound moves on publish.
             "predecessor": adapter,
         }
@@ -382,13 +365,10 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
             "Fatal %s adapter error (%s): %s", adapter.platform.value,
             adapter.fatal_error_code or "unknown", adapter.fatal_error_message or "unknown error",
         )
-        # relay_disabled (credential revoked by opt-out) renders "disabled", not red fatal/retrying.
+
         self._update_platform_runtime_status(
             adapter.platform.value,
-            platform_state=(
-                "disabled" if adapter.fatal_error_code == "relay_disabled"
-                else "retrying" if adapter.fatal_error_retryable else "fatal"
-            ),
+            platform_state="retrying" if adapter.fatal_error_retryable else "fatal",
             error_code=adapter.fatal_error_code,
             error_message=adapter.fatal_error_message,
         )
@@ -893,13 +873,12 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
         del self._failed_platforms[platform]
 
     def _publish_primary_adapter(self, platform, adapter) -> None:
-        """Register a connected primary adapter and wire voice mode/input (transcription without /voice join)."""
+        """Register a connected primary adapter and synchronize its voice preferences."""
         self.adapters[platform] = adapter
         if platform == Platform.API_SERVER:
             from gateway.session_api_turn import recover_api_turns
             recover_api_turns(adapter)
         self._sync_voice_mode_state_to_adapter(adapter)
-        self._bind_voice_input_callback(adapter)
 
     def _schedule_planned_restart_replay(self) -> None:
         """Replay the owed planned-restart notice after a reconnect, in the background: notification delivery
@@ -1034,19 +1013,16 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
         return connected
 
     def _primary_resource_claims(self, active: str) -> dict[tuple, str]:
-        """Resource claim -> owning profile for every live or queued primary adapter (credential:
-        one account polled once; listener: one bind+port). A queued retryable primary owns both."""
+        """Credential claim -> owning profile for every live or queued primary adapter."""
         claimed: dict[tuple, str] = {}
         for _plat, _ad in self.adapters.items():
             fp = self._adapter_credential_fingerprint(_ad)
-            for claim in ((_plat, fp) if fp is not None else None, self._adapter_listener_claim(_plat, _ad)):
-                if claim is not None:
-                    claimed[claim] = active
+            if fp is not None:
+                claimed[(_plat, fp)] = active
         for retry_info in getattr(self, "_failed_platforms", {}).values():
-            for claim_name in ("credential_claim", "listener_claim"):
-                retry_claim = retry_info.get(claim_name)
-                if isinstance(retry_claim, tuple):
-                    claimed[retry_claim] = active
+            retry_claim = retry_info.get("credential_claim")
+            if isinstance(retry_claim, tuple):
+                claimed[retry_claim] = active
         return claimed
 
     def _record_served_profiles(self, active: str, profile_homes) -> None:
@@ -1207,69 +1183,6 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
         )
         return True
 
-    def _note_unserved_secondary_platform(self, profile_name: str, platform: Platform) -> None:
-        """Report unpaired WhatsApp or secondary-only Relay. Log the reason and remedy and stamp a
-        ``<profile>:<platform>`` status entry so ``hermes gateway status --profile X`` and the
-        dashboard show *why* the channel is dead instead of nothing at all.
-
-        A shared-ingress platform the default profile runs is not unserved: the secondary is reached
-        through the default's adapter, so it gets no status entry. An error entry there would read as
-        a broken platform to every health reader, though nothing is wrong and the owner has nothing to
-        fix (a hosted instance stamps ``GATEWAY_RELAY_URL`` into every profile's env)."""
-        noted = getattr(self, "_unserved_secondary_platforms", None)
-        if noted is None:
-            noted = self._unserved_secondary_platforms = set()
-        if (profile_name, platform) in noted:
-            return
-        noted.add((profile_name, platform))
-        pv = platform.value
-        if platform is not Platform.WHATSAPP and self._default_owns_platform(platform):
-            logger.info(
-                "[MULTIPLEX] Profile '%s': %s is served through the default profile's shared adapter",
-                profile_name, pv,
-            )
-            return
-        if platform is Platform.WHATSAPP:
-            message = f"WhatsApp is not paired; pair it: hermes -p {profile_name} whatsapp"
-            logger.info("[MULTIPLEX] Profile '%s': %s", profile_name, message)
-            self._update_platform_runtime_status(
-                f"{profile_name}:{pv}", platform_state="disabled",
-                error_code="whatsapp_unpaired", error_message=message,
-            )
-            return
-        logger.info(
-            "[MULTIPLEX] Profile '%s': %s is enabled but not served — %s is process-level shared ingress "
-            "owned by the default profile under multiplex. Enable and configure %s on the default profile "
-            "(it serves every profile), or disable it in profile '%s'.",
-            profile_name, pv, pv, pv, profile_name,
-        )
-        self._update_platform_runtime_status(
-            f"{profile_name}:{pv}", platform_state="disabled", error_code="multiplex_shared_ingress",
-            error_message="not served under multiplex (shared ingress owned by default)",
-        )
-
-    def _default_owns_platform(self, platform: Platform) -> bool:
-        """The default profile runs ``platform`` (live, or queued for reconnect with its own status)."""
-        return platform in self.adapters or platform in (getattr(self, "_failed_platforms", None) or {})
-
-    def _unserved_shared_ingress_warnings(self) -> list:
-        """Loud ``not being served`` lines for shared-ingress platforms secondaries enabled while
-        NO profile (default included) actually runs them; empty when the default serves the platform."""
-        noted = getattr(self, "_unserved_secondary_platforms", None) or ()
-        lines = []
-        for platform in sorted({p for _n, p in noted}, key=lambda p: p.value):
-            if platform is Platform.WHATSAPP:
-                continue  # unpaired sessions have their own per-profile remedy
-            if self._default_owns_platform(platform):
-                continue  # the default owns it: secondaries ARE served through the shared adapter
-            profiles = sorted(n for n, p in noted if p is platform)
-            lines.append(
-                f"{platform.value} is enabled in profile(s) {', '.join(profiles)} but not on the default "
-                f"profile — the platform is not being served. Under multiplex {platform.value} is shared "
-                "ingress: enable and configure it on the default profile, or disable it in those profiles."
-            )
-        return lines
-
     async def _start_one_profile_adapters(
         self, profile_name: str, profile_home: Path, claimed: dict[tuple, str]
     ) -> int:
@@ -1300,17 +1213,12 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
             with _profile_runtime_scope(profile_home, hydrate_secrets=False):
                 has_credential = _platform_has_bot_credential(platform, platform_config)
             if multiplex and not has_credential:
-                if platform is Platform.WHATSAPP:
-                    self._note_unserved_secondary_platform(profile_name, platform)
                 logger.info(
                     "[MULTIPLEX] Profile '%s': skipping %s - no bot credential "
                     "in this profile's secrets", profile_name, platform.value,
                 )
                 continue
-            # Relay still uses process-level shared ingress; WhatsApp owns a session per profile.
-            if multiplex and platform is Platform.RELAY:
-                self._note_unserved_secondary_platform(profile_name, platform)
-                continue
+
             # api_server / webhook: the default's listener already mirrors them at /p/<profile>/; a second
             # instance here would fight the default for the port (#100397).
             if multiplex and platform.value in SHARED_LISTENER_MIRROR_PLATFORMS:
@@ -1377,19 +1285,12 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
         busy_text_mode: Optional[str] = None, busy_text_timing: Optional[tuple[float, float]] = None,
         human_delay: Optional[tuple[int, int]] | object = _UNSET,
     ) -> None:
-        """Install the runner callbacks every adapter needs (defaults = primary handlers;
-        secondary wiring passes profile-scoped variants). ``set_reaction_handler`` is optional."""
+        """Install the runner callbacks every adapter needs, scoped to its profile."""
         adapter.set_message_handler(message_handler or self._primary_message_handler())
         adapter.set_fatal_error_handler(fatal_error_handler or self._handle_adapter_fatal_error)
         adapter.set_session_store(self.session_store)
         adapter.set_busy_session_handler(busy_session_handler or self._primary_busy_session_handler())
-        _set_reaction = getattr(adapter, "set_reaction_handler", None)
-        if callable(_set_reaction):
-            _set_reaction(self._handle_reaction_event)
-        adapter.set_topic_recovery_fn(self._recover_telegram_topic_thread_id)
-        _set_transfer = getattr(adapter, "set_topic_transfer_fn", None)
-        if callable(_set_transfer):
-            _set_transfer(self._transfer_telegram_root_dm)
+
         adapter.set_authorization_check(
             authorization_check or self._make_adapter_auth_check(adapter.platform)
         )
@@ -1432,8 +1333,7 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
             busy_text_timing=(timings.get(profile_name) if isinstance(timings, dict) else None),
             human_delay=(delays.get(profile_name, _UNSET) if isinstance(delays, dict) else _UNSET),
         )
-        # Voice transcripts from this bot's channels dispatch through THIS adapter.
-        self._bind_voice_input_callback(adapter)
+
         # Secondary adapters carry their profile so prune paths namespace topic bindings correctly.
         # See #76423.
         adapter._hermes_profile_name = profile_name
@@ -1718,18 +1618,6 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
         fingerprint = GatewayRunner._adapter_credential_fingerprint(adapter)
         return None if fingerprint is None else (platform, fingerprint)
 
-    @staticmethod
-    def _adapter_listener_claim(platform: Platform, adapter: Any) -> Optional[tuple]:
-        """Exclusive listener claim (Photon sidecar bind+port): distinct credentials still cannot
-        share a port, so the later adapter is rejected before connect() disturbs the first."""
-        bind = getattr(adapter, "_sidecar_bind", None)
-        if getattr(platform, "value", None) != "photon" or not isinstance(bind, str) or not bind.strip():
-            return None
-        try:
-            port = int(getattr(adapter, "_sidecar_port", None))
-        except (TypeError, ValueError, OverflowError):
-            return None
-        return ("listener", "photon", bind.strip().lower(), port)
 
     @staticmethod
     def _adapter_credential_fingerprint(adapter: Any) -> Optional[str]:

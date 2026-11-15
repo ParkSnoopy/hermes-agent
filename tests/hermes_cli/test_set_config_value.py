@@ -82,20 +82,20 @@ class TestGatewayPlatformsPrefixRedirect:
 
     def test_set_lands_on_top_level_platforms_block_the_loader_reads(self, _isolated_hermes_home, capsys):
         (_isolated_hermes_home / "config.yaml").write_text(
-            "platforms:\n  telegram:\n    enabled: false\n", encoding="utf-8")
-        set_config_value("gateway.platforms.telegram.enabled", "true")
+            "platforms:\n  webhook:\n    enabled: false\n", encoding="utf-8")
+        set_config_value("gateway.platforms.webhook.enabled", "true")
         out = capsys.readouterr().out
-        assert "saved as platforms.telegram.enabled" in out
+        assert "saved as platforms.webhook.enabled" in out
         loaded = yaml.safe_load(_read_config(_isolated_hermes_home))
-        assert loaded["platforms"]["telegram"]["enabled"] is True
+        assert loaded["platforms"]["webhook"]["enabled"] is True
         assert "gateway" not in loaded
         from gateway.config import Platform, load_gateway_config
-        assert load_gateway_config().platforms[Platform.TELEGRAM].enabled is True
+        assert load_gateway_config().platforms[Platform.WEBHOOK].enabled is True
 
     def test_nested_display_setting_still_reaches_display_platforms(self):
         from hermes_cli.config import _redirect_platform_display_key
-        key, _ = _redirect_platform_display_key("gateway.platforms.telegram.streaming")
-        assert key == "display.platforms.telegram.streaming"
+        key, _ = _redirect_platform_display_key("gateway.platforms.webhook.streaming")
+        assert key == "display.platforms.webhook.streaming"
 
     def test_get_and_unset_still_reach_a_legacy_nested_only_value(self, _isolated_hermes_home, capsys):
         """A config whose value lives ONLY under ``gateway.platforms`` is still honoured by the gateway
@@ -103,19 +103,19 @@ class TestGatewayPlatformsPrefixRedirect:
         reporting "not set" while the gateway keeps the platform enabled."""
         from hermes_cli.config import get_config_value, unset_config_value
 
-        legacy = "gateway:\n  platforms:\n    telegram:\n      enabled: true\n"
+        legacy = "gateway:\n  platforms:\n    webhook:\n      enabled: true\n"
         (_isolated_hermes_home / "config.yaml").write_text(legacy, encoding="utf-8")
-        get_config_value("gateway.platforms.telegram.enabled")
+        get_config_value("gateway.platforms.webhook.enabled")
         assert capsys.readouterr().out.strip().lower() == "true"
 
-        unset_config_value("gateway.platforms.telegram.enabled")
+        unset_config_value("gateway.platforms.webhook.enabled")
         assert "gateway" not in (yaml.safe_load(_read_config(_isolated_hermes_home)) or {})
 
         # set on top of a nested-only value leaves one source of truth, not a shadowed duplicate
         (_isolated_hermes_home / "config.yaml").write_text(legacy, encoding="utf-8")
-        set_config_value("gateway.platforms.telegram.enabled", "false")
+        set_config_value("gateway.platforms.webhook.enabled", "false")
         loaded = yaml.safe_load(_read_config(_isolated_hermes_home))
-        assert loaded == {"platforms": {"telegram": {"enabled": False}}}
+        assert loaded == {"platforms": {"webhook": {"enabled": False}}}
 
 
 class TestConfigYamlRouting:
@@ -348,7 +348,7 @@ class TestListNavigation:
     def test_deeper_nesting_through_list(self, _isolated_hermes_home):
         """Navigation path mixing dict → list → dict → scalar."""
         self._write_config(_isolated_hermes_home, (
-            "telegram:\n"
+            "custom:\n"
             "  allowlist:\n"
             "    - name: alice\n"
             "      role: admin\n"
@@ -356,15 +356,11 @@ class TestListNavigation:
             "      role: user\n"
         ))
 
-        # NOTE: original test path was ``platforms.telegram.allowlist.1.role``,
-        # which #34067 schema validation correctly rejects (platform configs
-        # live at the top level, not under a ``platforms`` namespace). Use
-        # the canonical path.
-        set_config_value("telegram.allowlist.1.role", "admin")
+        set_config_value("custom.allowlist.1.role", "admin", force=True)
 
         import hermes_yaml as yaml
         reloaded = yaml.safe_load(_read_config(_isolated_hermes_home))
-        allowlist = reloaded["telegram"]["allowlist"]
+        allowlist = reloaded["custom"]["allowlist"]
         assert isinstance(allowlist, list)
         assert allowlist[0] == {"name": "alice", "role": "admin"}
         assert allowlist[1] == {"name": "bob", "role": "admin"}
@@ -469,14 +465,14 @@ class TestSecretRedactionInDisplay:
 class TestSchemaValidation:
     """#34067 / #112003 / #114107: only a WRONG-PREFIX path under a known section is provably a typo
     and refused before anything is written (headline case
-    ``gateway.discord.gateway_restart_notification``, correct path
-    ``discord.gateway_restart_notification``). Every other unknown path — unseeded runtime-read keys
+    ``gateway.terminal.backend``, correct path
+    ``terminal.backend``). Every other unknown path — unseeded runtime-read keys
     and same-section misspellings alike — is written with a post-write notice, because
     DEFAULT_CONFIG is not a complete registry of what the runtime reads.
     """
 
     @pytest.mark.parametrize("key,suggestion", [
-        ("gateway.discord.gateway_restart_notification", "discord.gateway_restart_notification"),
+        ("gateway.terminal.backend", "terminal.backend"),
         # The stray middle segment ``gateway`` fuzzy-matches the sibling ``agent.gateway_timeout``;
         # the structural wrong-prefix match must win so the path is refused, not written with
         # a misleading did-you-mean.
@@ -558,7 +554,7 @@ class TestValidateConfigKey:
 
     @pytest.mark.parametrize("key", [
         "agent.max_turns",
-        "discord.gateway_restart_notification",
+        "terminal.backend",
         "mcp_servers.foo.command",
         "providers.openrouter.api_key",
         "gateway.platforms.my_platform.extra.token",
@@ -573,8 +569,8 @@ class TestValidateConfigKey:
         assert is_known, f"Expected {key!r} to validate as known"
 
     @pytest.mark.parametrize("key,expected_in_suggestion", [
-        ("gateway.discord.gateway_restart_notification", "discord.gateway_restart_notification"),
-        ("disco", "discord"),
+        ("gateway.terminal.backend", "terminal.backend"),
+        ("terminl", "terminal"),
         ("agent.max_turn", "agent.max_turns"),
         # A typo of an _EXTRA_KNOWN_ROOT_KEYS root points at the real root, not a near-miss.
         ("platform_toolset.cli", "platform_toolsets.cli"),

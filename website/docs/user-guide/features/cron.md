@@ -662,7 +662,7 @@ When scheduling jobs, you specify where the output goes:
 | `"mattermost"` | Mattermost home channel | |
 | `"email"` | Email | |
 | `"sms"` | SMS via Twilio | |
-| `"homeassistant"` | Home Assistant (plugin) | Uses `HASS_HOME_CHANNEL`; requires the [`homeassistant` plugin](../messaging/homeassistant.md) |
+| `"homeassistant"` | Home Assistant (plugin) | Uses `HASS_HOME_CHANNEL`; requires the `homeassistant` plugin |
 | `"dingtalk"` | DingTalk | |
 | `"feishu"` | Feishu/Lark | |
 | `"wecom"` | WeCom | |

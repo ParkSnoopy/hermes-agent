@@ -53,28 +53,11 @@ hermes cron list   # 将 next_run 时间与本地时间对比
 
 ---
 
-## 投递失败
+## 本地输出问题
 
 ### 检查 1：确认投递目标正确
 
-投递目标区分大小写，且要求对应平台已正确配置。目标配置错误会静默丢弃响应。
-
-| 目标 | 所需配置 |
-|--------|----------|
-| `telegram` | `~/.hermes/.env` 中的 `TELEGRAM_BOT_TOKEN` |
-| `discord` | `~/.hermes/.env` 中的 `DISCORD_BOT_TOKEN` |
-| `slack` | `~/.hermes/.env` 中的 `SLACK_BOT_TOKEN` |
-| `whatsapp` | 已配置 WhatsApp gateway |
-| `signal` | 已配置 Signal gateway |
-| `matrix` | 已配置 Matrix homeserver |
-| `email` | `config.yaml` 中已配置 SMTP |
-| `sms` | 已配置 SMS 提供商 |
-| `local` | 对 `~/.hermes/cron/output/` 有写权限 |
-| `origin` | 投递到创建该任务的聊天会话 |
-
-其他支持的平台包括 `mattermost`、`homeassistant`（插件）、`dingtalk`、`feishu`、`wecom`、`weixin`、`bluebubbles`、`qqbot` 和 `webhook`。你也可以使用 `platform:chat_id` 语法指定特定聊天（例如 `telegram:-1001234567890`）。
-
-若投递失败，任务仍会执行——只是不会发送到任何地方。检查 `hermes cron list` 中的 `last_error` 字段（如有）。
+使用 `--deliver none` 仅保存本地输出，确认 `~/.hermes/cron/output/` 有写权限。检查 `hermes cron list` 中的 `last_error` 字段及对应任务的输出文件。
 
 ### 检查 2：检查 `[SILENT]` 的使用
 
@@ -82,13 +65,6 @@ hermes cron list   # 将 next_run 时间与本地时间对比
 
 若 prompt 中写有"如果没有变化则回复 [SILENT]"，非空响应也可能被静默吞掉。请检查你的条件逻辑。
 
-### 检查 3：平台 token 权限
-
-每个消息平台的 bot 需要特定权限才能发送消息。若投递静默失败：
-
-- **Telegram**：Bot 必须是目标群组/频道的管理员
-- **Discord**：Bot 必须有目标频道的发送权限
-- **Slack**：Bot 必须已加入工作区并拥有 `chat:write` scope
 
 ### 检查 4：响应包装
 

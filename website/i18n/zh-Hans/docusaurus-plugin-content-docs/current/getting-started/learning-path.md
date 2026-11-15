@@ -23,7 +23,7 @@ Hermes Agent 功能丰富——CLI 助手、Telegram/Discord 机器人、任务�
 | 水平 | 目标 | 推荐阅读 | 预计时间 |
 |---|---|---|---|
 | **初级** | 快速上手，进行基本对话，使用内置工具 | [安装](./installation.md) → [快速入门](./quickstart.md) → [CLI 用法](../user-guide/cli.md) → [配置](../user-guide/configuration.md) | 约 1 小时 |
-| **中级** | 搭建消息机器人，使用记忆、cron 任务、技能等高级功能 | [会话](../user-guide/sessions.md) → [消息](../user-guide/messaging/index.md) → [工具](../user-guide/features/tools.md) → [技能](../user-guide/features/skills.md) → [记忆](../user-guide/features/memory.md) → [Cron](../user-guide/features/cron.md) | 约 2–3 小时 |
+| **中级** | 使用记忆、cron 任务、技能等高级功能 | [会话](../user-guide/sessions.md) → [工具](../user-guide/features/tools.md) → [技能](../user-guide/features/skills.md) → [记忆](../user-guide/features/memory.md) → [Cron](../user-guide/features/cron.md) | 约 2–3 小时 |
 | **高级** | 构建自定义工具、创建技能、使用强化学习训练模型、参与项目贡献 | [架构](../developer-guide/architecture.md) → [添加工具](../developer-guide/adding-tools.md) → [创建技能](../developer-guide/creating-skills.md) → [贡献指南](../developer-guide/contributing.md) | 约 4–6 小时 |
 
 ## 按使用场景
@@ -51,16 +51,13 @@ Hermes Agent 功能丰富——CLI 助手、Telegram/Discord 机器人、任务�
 
 1. [安装](./installation.md)
 2. [配置](../user-guide/configuration.md)
-3. [消息概览](../user-guide/messaging/index.md)
-4. [Telegram 配置](../user-guide/messaging/telegram.md)
-5. [Discord 配置](../user-guide/messaging/discord.md)
-6. [语音模式](../user-guide/features/voice-mode.md)
-7. [在 Hermes 中使用语音模式](../guides/use-voice-mode-with-hermes.md)
-8. [安全](../user-guide/security.md)
+3. [语音模式](../user-guide/features/voice-mode.md)
+4. [在 Hermes 中使用语音模式](../guides/use-voice-mode-with-hermes.md)
+5. [安全](../user-guide/security.md)
 
 完整项目示例请参阅：
 - [每日简报机器人](../guides/daily-briefing-bot.md)
-- [团队 Telegram 助手](../guides/team-telegram-assistant.md)
+
 
 ### "我想自动化任务"
 

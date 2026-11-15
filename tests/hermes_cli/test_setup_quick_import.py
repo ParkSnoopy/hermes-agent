@@ -47,7 +47,7 @@ def test_quick_setup_keeps_imported_model_unless_user_switches(switch, nous_runs
             patch("hermes_cli.setup.prompt_choice", side_effect=answer), \
             patch("hermes_cli.model_setup_flows._model_flow_nous", side_effect=_fake_nous_flow) as nous, \
             patch("hermes_cli.setup.setup_terminal_backend"), \
-            patch("hermes_cli.setup.setup_gateway") as gateway, \
+            patch("hermes_cli.gateway_setup_service.ensure_gateway_service") as gateway, \
             patch("hermes_cli.setup._print_setup_summary"), \
             patch("hermes_cli.setup._record_setup_completed"):
         run_setup_wizard(Namespace(non_interactive=False, section=None, reset=False,

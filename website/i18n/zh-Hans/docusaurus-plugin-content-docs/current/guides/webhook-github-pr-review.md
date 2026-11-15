@@ -230,27 +230,9 @@ platforms:
 
 ---
 
-## 将响应发送到 Slack 或 Discord
+## 响应目标
 
-将路由中的 `deliver` 和 `deliver_extra` 字段替换为你的目标平台：
-
-```yaml
-# 在 platforms.webhook.extra.routes.<route-name> 内部：
-
-# Slack
-deliver: slack
-deliver_extra:
-  chat_id: "C0123456789"   # Slack 频道 ID（省略则使用配置的默认频道）
-
-# Discord
-deliver: discord
-deliver_extra:
-  chat_id: "987654321012345678"  # Discord 频道 ID（省略则使用默认频道）
-```
-
-目标平台也必须在 gateway 中启用并连接。如果省略 `chat_id`，响应将发送到该平台配置的默认频道。
-
-有效的 `deliver` 值：`log` · `github_comment` · `telegram` · `discord` · `slack` · `signal` · `sms`
+使用 `deliver: log` 将结果写入日志，或使用 `deliver: github_comment` 发布 GitHub 评论。
 
 ---
 
@@ -315,7 +297,7 @@ platforms:
           events: []            # [] = 接受所有；否则列出 X-GitHub-Event 值
           prompt: ""            # {field} / {nested.field} 从 payload 中解析
           skills: []            # 加载第一个匹配的 skill（仅一个）
-          deliver: "log"        # log | github_comment | telegram | discord | slack | signal | sms
+          deliver: "log"        # log | github_comment
           deliver_extra: {}     # github_comment 需要 repo + pr_number；其他平台需要 chat_id
 ```
 

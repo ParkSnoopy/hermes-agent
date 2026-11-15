@@ -236,7 +236,7 @@ class Soak:
         from cron.jobs import create_job
 
         job = create_job(prompt=f"soak {name}", schedule=schedule, name=name, repeat=repeat,
-                         deliver=f"telegram:{chat}")
+                         deliver=f"api_server:{chat}")
         self.ids[name] = job["id"]
         t = self.now()
         from cron.jobs import parse_schedule
@@ -586,7 +586,7 @@ def _run_scenario(sc: Scenario, soak_env) -> dict[str, int]:
     tmp_path, hermes_home, monkeypatch = soak_env
     monkeypatch.setenv("TZ", sc.process_tz)
     time.tzset()
-    lines = ["platforms:", "  telegram:", "    enabled: true", "    token: fake-soak-token"]
+    lines = ["platforms:", "  api_server:", "    enabled: true", "    token: fake-soak-token"]
     if sc.hermes_tz:
         lines.insert(0, f"timezone: {sc.hermes_tz}")
     (hermes_home / "config.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -642,7 +642,7 @@ def test_two_replicas_contend_for_every_fire(soak_env):
     monkeypatch.setenv("TZ", "UTC")
     time.tzset()
     (hermes_home / "config.yaml").write_text(
-        "platforms:\n  telegram:\n    enabled: true\n    token: fake-soak-token\n", encoding="utf-8")
+        "platforms:\n  api_server:\n    enabled: true\n    token: fake-soak-token\n", encoding="utf-8")
     control = H.Control(tmp_path / "control").ensure()
     from cron import jobs
 
@@ -656,7 +656,7 @@ def test_two_replicas_contend_for_every_fire(soak_env):
     names = {}
     for name, schedule in (("hourly", "0 * * * *"), ("every-45m", "every 45m")):
         names[name] = jobs.create_job(prompt=f"replica {name}", schedule=schedule, name=name,
-                                      deliver="telegram:2000")["id"]
+                                      deliver="api_server:2000")["id"]
     provider = H.replica_scheduler()
     peer = H.ReplicaHost(control, env, REPO_ROOT)
     peer.start()

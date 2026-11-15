@@ -41,14 +41,6 @@ logger = logging.getLogger("gateway.run")
 # _load_turn_history escalates the lag line from WARNING to ERROR (#114266: 11 days of WARNING).
 _TRANSCRIPT_LAG_ESCALATION_TURNS = 3
 
-# Exact refusals retained for older adapters/connectors without destination preflight.
-# Substring matching would also silence transient thread-resolution errors.
-_CARD_DESTINATION_REFUSALS = {
-    "No Slack thread target",
-    "slack task_card requires a thread anchor",
-    "slack task_card requires a thread anchor (Slack streams are thread replies)",
-}
-
 
 def _renders_exec_approval_buttons(adapter_cls: type) -> bool:
     """True when the adapter class renders native approval buttons. BasePlatformAdapter subclasses
@@ -280,7 +272,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                         or bool(getattr(adapter, "SUPPORTS_NATIVE_STREAMING", False))
                     )
                     consumer_stream_deltas = want_stream_deltas and supports_incremental_stream
-                    consumer_cfg, pause_typing_before_finalize = self._runner._build_stream_consumer_config(
+                    consumer_cfg = self._runner._build_stream_consumer_config(
                         ctx.source, scfg, adapter,
                         # A complete commentary message needs no edit cursor.  Keeping it on the
                         # consumer records what reached non-editable platforms, so an interim
@@ -293,7 +285,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                         on_new_message=(
                             (lambda: ctx.progress_queue.put(("__reset__",))) if ctx.progress_queue is not None else None
                         ),
-                        on_before_finalize=pause_typing_before_finalize,
+
                         initial_reply_to_id=ctx.event_message_id, run_still_current=ctx._run_still_current,
                     )
                     ctx.stream_consumer_holder[0] = stream_consumer
@@ -478,13 +470,8 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         # ALWAYS attached (never gated to None): its body gates each event class, and subagent-
         # failure notices must fire even with tool_progress/thinking off.
         agent.tool_progress_callback = ctx.progress_callback
-        # Discord's one-time voice ack and Slack's task cards both ride the authoritative start
-        # callback, so neither infers identity from tool names.
-        agent.tool_start_callback = (
-            (ctx.native_tool_start_callback or ctx.voice_ack_callback)
-            if (ctx._voice_ack_guild[0] is not None or ctx._native_slack_task_cards) else None
-        )
-        agent.tool_complete_callback = ctx.native_tool_complete_callback if ctx._native_slack_task_cards else None
+        agent.tool_start_callback = None
+        agent.tool_complete_callback = None
         if self._approval_owner is not None:
             agent.tool_start_callback = self.combined_tool_start_callback
             agent.tool_complete_callback = self.combined_tool_complete_callback
@@ -1113,22 +1100,6 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         except TypeError:
             stream_consumer.finish()
 
-    def _restore_telegram_thread_id_after_split(self, agent_session_id) -> None:
-        """Telegram DM whose source.thread_id was lost in the session split (synthetic/recovered
-        event): restore it from the binding so _thread_metadata_for_source yields the right
-        message_thread_id instead of the General thread (non-fatal)."""
-        ctx = self._ctx
-        try:
-            # run_sync is off-loop (executor); sync DB is fine.
-            binding = self._runner._session_db._db.get_telegram_topic_binding_by_session(session_id=agent_session_id)
-            if binding and binding.get("thread_id"):
-                ctx.source.thread_id = str(binding["thread_id"])
-                logger.debug(
-                    "Restored source.thread_id=%s from binding after session split %s → %s",
-                    ctx.source.thread_id, ctx.session_id, agent_session_id,
-                )
-        except Exception:
-            logger.debug("Failed to restore thread_id from binding after session split", exc_info=True)
 
     def _sync_session_after_run(self, agent_history):
         """Sync session_id right after run_conversation(): compression can rotate before a follow-up
@@ -1145,7 +1116,6 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         if session_was_split:
             logger.info("Session split detected: %s → %s (compression)", ctx.session_id, agent_session_id)
             entry = runner.session_store._entries.get(ctx.session_key)
-            persisted = False
             if entry:
                 entry_session_id = getattr(entry, "session_id", None)
                 if not ctx._run_still_current():
@@ -1154,30 +1124,17 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                         "generation %s is no longer current",
                         ctx.session_key or "?", ctx.run_generation,
                     )
-                elif entry_session_id == agent_session_id:
-                    persisted = True
-                elif entry_session_id != ctx.session_id:
+                elif entry_session_id not in (ctx.session_id, agent_session_id):
                     logger.info(
                         "Skipping session split sync for %s because the "
                         "session binding moved from %s to %s before "
                         "compression finished",
                         ctx.session_key or "?", ctx.session_id, entry_session_id,
                     )
-                else:
+                elif entry_session_id != agent_session_id:
                     entry.session_id = agent_session_id
                     runner.session_store._save()
                     runner.session_store._record_gateway_session_peer(agent_session_id, ctx.session_key, ctx.source)
-                    persisted = True
-            # Only after this run published its split — a stale /stop→/new predecessor must not
-            # mutate routing state.
-            if persisted:
-                src = ctx.source
-                if (
-                    getattr(src, "platform", None) == Platform.TELEGRAM and getattr(src, "chat_type", None) == "dm"
-                    and getattr(src, "thread_id", None) is None and runner._session_db is not None
-                ):
-                    self._restore_telegram_thread_id_after_split(agent_session_id)
-                runner._sync_telegram_topic_binding(src, entry, reason="agent-run-compression")
         from gateway.session_cli_turn import cli_turn
         if not cli_turn(ctx.inbound_message_id).get("model_override"):
             # A `/model --once` / `/moa` turn ran another route for this admission only: the row keeps

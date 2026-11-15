@@ -1483,60 +1483,6 @@
       }
     },
     {
-      "name": "handoff.fail",
-      "summary": "Fail a not-yet-claimed handoff (client poll timeout); CAS against the watcher.",
-      "params": [
-        {
-          "name": "params",
-          "schema": {
-            "$ref": "#/components/schemas/HandoffFailParams"
-          }
-        }
-      ],
-      "result": {
-        "name": "result",
-        "schema": {
-          "$ref": "#/components/schemas/HandoffFailResult"
-        }
-      }
-    },
-    {
-      "name": "handoff.request",
-      "summary": "Queue a handoff to a messaging platform's home channel; the gateway watcher claims it.",
-      "params": [
-        {
-          "name": "params",
-          "schema": {
-            "$ref": "#/components/schemas/HandoffRequestParams"
-          }
-        }
-      ],
-      "result": {
-        "name": "result",
-        "schema": {
-          "$ref": "#/components/schemas/HandoffRequestResult"
-        }
-      }
-    },
-    {
-      "name": "handoff.state",
-      "summary": "Poll the handoff row for this session.",
-      "params": [
-        {
-          "name": "params",
-          "schema": {
-            "$ref": "#/components/schemas/SessionParams"
-          }
-        }
-      ],
-      "result": {
-        "name": "result",
-        "schema": {
-          "$ref": "#/components/schemas/HandoffStateResult"
-        }
-      }
-    },
-    {
       "name": "i18n.catalog",
       "summary": "Pack + overlay messages for one language and surface; the renderer merges them over its bundled catalog.",
       "params": [
@@ -21144,149 +21090,6 @@
         "title": "GroupsStopResult",
         "type": "object"
       },
-      "HandoffFailParams": {
-        "additionalProperties": false,
-        "properties": {
-          "session_id": {
-            "title": "Session Id",
-            "type": "string"
-          },
-          "profile": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Profile"
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Error"
-          }
-        },
-        "required": [
-          "session_id"
-        ],
-        "title": "HandoffFailParams",
-        "type": "object"
-      },
-      "HandoffFailResult": {
-        "additionalProperties": false,
-        "description": "``failed`` false when the watcher already claimed the row; ``state`` is what it is now.",
-        "properties": {
-          "failed": {
-            "title": "Failed",
-            "type": "boolean"
-          },
-          "state": {
-            "title": "State",
-            "type": "string"
-          }
-        },
-        "required": [
-          "failed",
-          "state"
-        ],
-        "title": "HandoffFailResult",
-        "type": "object"
-      },
-      "HandoffRequestParams": {
-        "additionalProperties": false,
-        "properties": {
-          "session_id": {
-            "title": "Session Id",
-            "type": "string"
-          },
-          "profile": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Profile"
-          },
-          "platform": {
-            "title": "Platform",
-            "type": "string"
-          }
-        },
-        "required": [
-          "session_id",
-          "platform"
-        ],
-        "title": "HandoffRequestParams",
-        "type": "object"
-      },
-      "HandoffRequestResult": {
-        "additionalProperties": false,
-        "properties": {
-          "queued": {
-            "title": "Queued",
-            "type": "boolean"
-          },
-          "session_key": {
-            "title": "Session Key",
-            "type": "string"
-          },
-          "platform": {
-            "title": "Platform",
-            "type": "string"
-          },
-          "home_name": {
-            "title": "Home Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "queued",
-          "session_key",
-          "platform",
-          "home_name"
-        ],
-        "title": "HandoffRequestResult",
-        "type": "object"
-      },
-      "HandoffStateResult": {
-        "additionalProperties": false,
-        "description": "``state`` is pending | running | completed | failed, or '' when nothing was requested.",
-        "properties": {
-          "state": {
-            "title": "State",
-            "type": "string"
-          },
-          "platform": {
-            "title": "Platform",
-            "type": "string"
-          },
-          "error": {
-            "title": "Error",
-            "type": "string"
-          }
-        },
-        "required": [
-          "state",
-          "platform",
-          "error"
-        ],
-        "title": "HandoffStateResult",
-        "type": "object"
-      },
       "HeartbeatSnapshot": {
         "additionalProperties": false,
         "properties": {
@@ -22162,65 +21965,6 @@
         ],
         "title": "InterruptStatus",
         "type": "string"
-      },
-      "KanbanRunParams": {
-        "additionalProperties": false,
-        "properties": {
-          "board": {
-            "title": "Board",
-            "type": "string"
-          },
-          "task_id": {
-            "title": "Task Id",
-            "type": "string"
-          },
-          "run_id": {
-            "title": "Run Id",
-            "type": "integer"
-          },
-          "claim_lock": {
-            "title": "Claim Lock",
-            "type": "string"
-          },
-          "db": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Db"
-          }
-        },
-        "required": [
-          "board",
-          "task_id",
-          "run_id",
-          "claim_lock"
-        ],
-        "title": "KanbanRunParams",
-        "type": "object"
-      },
-      "KanbanRunResult": {
-        "additionalProperties": false,
-        "properties": {
-          "session_id": {
-            "title": "Session Id",
-            "type": "string"
-          },
-          "receipt": {
-            "$ref": "#/components/schemas/AdmissionStatus"
-          }
-        },
-        "required": [
-          "session_id",
-          "receipt"
-        ],
-        "title": "KanbanRunResult",
-        "type": "object"
       },
       "LanguageOption": {
         "additionalProperties": false,
@@ -30670,7 +30414,7 @@
       },
       "ProfileWorkerSession": {
         "additionalProperties": false,
-        "description": "Newest kanban/tool worker row, so rosters can show a profile as working.",
+        "description": "Newest tool worker row, so rosters can show a profile as working.",
         "properties": {
           "id": {
             "title": "Id",
@@ -31921,7 +31665,7 @@
       },
       "ProjectTreeLane": {
         "additionalProperties": false,
-        "description": "One branch / worktree / kanban lane inside a repo; ``sessions`` is empty unless hydrated.",
+        "description": "One branch / worktree lane inside a repo; ``sessions`` is empty unless hydrated.",
         "properties": {
           "id": {
             "title": "Id",
@@ -31946,11 +31690,6 @@
           "isMain": {
             "default": false,
             "title": "Ismain",
-            "type": "boolean"
-          },
-          "isKanban": {
-            "default": false,
-            "title": "Iskanban",
             "type": "boolean"
           },
           "isGit": {
@@ -50059,24 +49798,6 @@
         "name": "result",
         "schema": {
           "$ref": "#/components/schemas/CanonicalAttachedImageResult"
-        }
-      }
-    },
-    {
-      "name": "kanban.run",
-      "summary": "Native-owner only: admit the dispatcher's current claim on a kanban task.",
-      "params": [
-        {
-          "name": "params",
-          "schema": {
-            "$ref": "#/components/schemas/KanbanRunParams"
-          }
-        }
-      ],
-      "result": {
-        "name": "result",
-        "schema": {
-          "$ref": "#/components/schemas/KanbanRunResult"
         }
       }
     },

@@ -590,10 +590,8 @@ class GatewayModelCommandsMixin:
             with contextlib.suppress(Exception):
                 from hermes_cli.models import clear_provider_models_cache
                 clear_provider_models_cache()
-        # Normalize like a message turn (Telegram DM topic recovery) before deriving the override
-        # key, so the override lands under the key the next turn reads.
         # Check for session override. See #30479.
-        source = await asyncio.to_thread(self._normalize_source_for_session_key, event.source)
+        source = event.source
         session_key = self._session_key_for_source(source)
         ctx = _ModelSwitchContext(
             # Gateway routing columns — forward ALL of them at CREATE time, same fix as the
@@ -729,7 +727,7 @@ class GatewayModelCommandsMixin:
                 async def _on_choice(_chat_id: str, value: str) -> str:
                     if generation is not None and self._usage_limit_offer_is_stale(session_key, generation):
                         # A newer turn ran since the refusal: /retry would re-run that one, not the refused one.
-                        return t("platform.discord.picker.choice_expired")
+                        return "This choice has expired."
                     return await self._accept_usage_limit_switch(
                         event, value, offer=None if generation is None else (session_key, generation))
 
@@ -759,7 +757,7 @@ class GatewayModelCommandsMixin:
         """The tap: switch this session to *model_id* on Nous, then re-send the refused message.
         ``offer`` is the refused turn's ``(session_key, run_generation)``."""
         from gateway.run import _hermes_home
-        source = await asyncio.to_thread(self._normalize_source_for_session_key, event.source)
+        source = event.source
         session_key = self._session_key_for_source(source)
         profile_home = None
         if getattr(getattr(self, "config", None), "multiplex_profiles", False):
@@ -956,9 +954,7 @@ class GatewayModelCommandsMixin:
 
         raw_args = event.get_command_args().strip()
         args, persist_global = self._parse_reasoning_command_args(raw_args)
-        # Normalize (Telegram DM topic recovery) so the override key matches the next turn's.
-        # See #30479.
-        _reasoning_source = await asyncio.to_thread(self._normalize_source_for_session_key, event.source)
+        _reasoning_source = event.source
         session_key = self._session_key_for_source(_reasoning_source)
         self._show_reasoning = self._load_show_reasoning()
         from gateway.session_setting_commands import local_live
@@ -1051,9 +1047,8 @@ class GatewayModelCommandsMixin:
 
         # The /reasoning parser strips --global (any position) and normalizes unicode dashes.
         args, persist_global = self._parse_reasoning_command_args(event.get_command_args().strip().lower())
-        # Normalized like /model and /reasoning (#30479): the tier override must land under the key
-        # the next turn reads, and the eligibility check must see that turn's route.
-        source = await asyncio.to_thread(self._normalize_source_for_session_key, event.source)
+        # The tier override must land under the key the next turn reads.
+        source = event.source
         session_key = self._session_key_for_source(source)
         self._service_tier = self._resolve_session_service_tier(session_key=session_key)
         user_config = _load_gateway_config()

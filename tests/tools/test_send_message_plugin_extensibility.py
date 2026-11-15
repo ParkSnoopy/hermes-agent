@@ -13,7 +13,7 @@ import pytest
 
 from gateway.config import Platform
 from gateway.platform_registry import PlatformEntry, platform_registry
-from tools.send_message_tool import resolve_send_target, send_message_tool
+from gateway.outbound import resolve_send_target, send_outbound
 
 
 @pytest.fixture
@@ -139,7 +139,7 @@ def test_host_send_honors_sync_and_async_plugin_handlers(plugin_platform, async_
     with patch("gateway.config.load_gateway_config", return_value=config), \
          patch("tools.interrupt.is_interrupted", return_value=False), \
          patch("gateway.mirror.mirror_to_session", return_value=True):
-        result = json.loads(send_message_tool({
+        result = json.loads(send_outbound({
             "target": f"{name}:@Alice@Example.COM",
             "message": "hello",
             "subject": "greeting",
@@ -187,6 +187,19 @@ def test_cli_and_cron_share_plugin_target_normalization(plugin_platform, monkeyp
     }
 
 
+def test_cron_standalone_delivers_through_registered_plugin(plugin_platform):
+    from cron.scheduler_delivery import _deliver_result
+
+    name, _entry, seen = plugin_platform
+    _platform, _pconfig, config = _config_for(name)
+    job = {"id": "plugin-job", "deliver": f"{name}:@Alice@Example.COM"}
+    with patch("gateway.config.load_gateway_config", return_value=config), \
+         patch("cron.scheduler.load_config", return_value={"cron": {"wrap_response": False}}), \
+         patch("cron.scheduler_delivery._record_delivery_verification"):
+        assert _deliver_result(job, "scheduled report") is None
+    assert seen[-1]["chat_id"] == "@alice@example.com"
+
+
 
 
 def test_force_reload_unregisters_profile_owned_platform(plugin_platform, monkeypatch):
@@ -231,7 +244,7 @@ from unittest.mock import patch
 from hermes_cli.plugins import discover_plugins
 from gateway.config import Platform
 from tools.registry import registry
-from tools.send_message_tool import send_message_tool
+from gateway.outbound import send_outbound
 
 discover_plugins()
 platform = Platform("fmsg")
@@ -240,7 +253,7 @@ config = SimpleNamespace(platforms={platform: pconfig}, get_home_channel=lambda 
 with patch("gateway.config.load_gateway_config", return_value=config), \
      patch("tools.interrupt.is_interrupted", return_value=False), \
      patch("gateway.mirror.mirror_to_session", return_value=True):
-    host_send = json.loads(send_message_tool({"target": "fmsg:@Alice@Example.COM",
+    host_send = json.loads(send_outbound({"target": "fmsg:@Alice@Example.COM",
                                               "message": "hello", "subject": "hi"}))
 from cron.scheduler_delivery import _resolve_single_delivery_target
 cron = _resolve_single_delivery_target({}, "fmsg:@Alice@Example.COM")
@@ -250,7 +263,7 @@ print(json.dumps({"host_send": host_send, "cron": cron,
     env = dict(os.environ)
     env.update({
         "HERMES_HOME": str(home),
-        "HERMES_KANBAN_TASK": "fixture",
+
         "PYTHONPATH": os.getcwd(),
     })
     completed = subprocess.run(
@@ -273,7 +286,7 @@ def test_declared_target_syntax_and_standalone_policy_drive_send_routing():
     import asyncio
 
     from gateway.platforms.send_targets import NOT_EXPLICIT, StandaloneSendPolicy
-    from tools.send_message_tool import _send_to_platform
+    from gateway.outbound import _send_to_platform
 
     calls: list[dict] = []
 

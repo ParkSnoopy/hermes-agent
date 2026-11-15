@@ -26,14 +26,7 @@ export const frAuxTasks: AuxTaskCopyMap = {
     hint: 'Sous-agent de révision /review'
   },
   voice_chat: { label: 'Chat vocal', hint: 'Réponses parlées du mode vocal' },
-  triage_specifier: {
-    label: 'Précision du triage',
-    hint: 'Détail des spécifications Kanban'
-  },
-  kanban_decomposer: {
-    label: 'Décomposition Kanban',
-    hint: 'Décomposition des tâches'
-  },
+
   profile_describer: {
     label: 'Description de profil',
     hint: 'Descriptions automatiques des profils'

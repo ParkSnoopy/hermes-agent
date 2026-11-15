@@ -38,7 +38,7 @@ hermes teams-pipeline maintain-subscriptions
 启用会议流水线前，请确保已具备：
 
 - 可正常运行的 Hermes 安装
-- 若需要 Teams 出站投递，需完成现有的 [Microsoft Teams bot 配置](./teams.md)
+- 若需要 Teams 摘要投递，需准备 Teams incoming webhook 或 Graph 聊天/频道目标
 - 具备订阅所需会议资源权限的 Microsoft Graph 应用凭据
 - Microsoft Graph 可调用的公网 HTTPS URL，用于 webhook 投递
 - 若需要录音加 STT 回退，需安装 `ffmpeg`
@@ -82,7 +82,9 @@ https://ops.example.com/msgraph/webhook
 
 ## 第三步：配置 Teams 投递与流水线行为
 
-会议流水线从现有的 `teams` 平台条目读取运行时配置。流水线专属参数位于 `teams.extra.meeting_pipeline` 下。Teams 出站投递仍使用常规 Teams 平台配置。
+会议流水线读取 `platforms.msgraph_webhook.extra.meeting_pipeline`。
+将 `platforms.msgraph_webhook.extra.meeting_pipeline.teams_delivery.enabled` 设为 `true` 以启用 Teams 摘要投递。
+`teams_delivery` 中的配置值优先于相应的 `TEAMS_*` 环境变量回退值。
 
 `~/.hermes/config.yaml` 示例：
 
@@ -96,24 +98,17 @@ platforms:
       accepted_resources:
         - "communications/onlineMeetings"
 
-  teams:
-    enabled: true
-    extra:
-      client_id: "your-teams-client-id"
-      client_secret: "your-teams-client-secret"
-      tenant_id: "your-teams-tenant-id"
-
-      # outbound summary delivery
-      delivery_mode: "graph" # or incoming_webhook
-      team_id: "team-id"
-      channel_id: "channel-id"
-      # incoming_webhook_url: "https://..."
-
       meeting_pipeline:
         transcript_min_chars: 80
         transcript_required: false
         transcription_fallback: true
         ffmpeg_extract_audio: true
+        teams_delivery:
+          enabled: true
+          delivery_mode: "graph" # 或 incoming_webhook
+          team_id: "team-id"
+          channel_id: "channel-id"
+          # incoming_webhook_url: "https://..."
         notion:
           enabled: false
         linear:
@@ -122,7 +117,7 @@ platforms:
 
 ## Teams 投递模式
 
-流水线在现有 Teams 插件内支持两种 Teams 摘要投递模式。
+会议流水线支持两种 Teams 摘要投递模式。
 
 ### `incoming_webhook`
 
@@ -132,11 +127,14 @@ platforms:
 
 ```yaml
 platforms:
-  teams:
+  msgraph_webhook:
     enabled: true
     extra:
-      delivery_mode: "incoming_webhook"
-      incoming_webhook_url: "https://..."
+      meeting_pipeline:
+        teams_delivery:
+          enabled: true
+          delivery_mode: "incoming_webhook"
+          incoming_webhook_url: "https://..."
 ```
 
 ### `graph`
@@ -146,18 +144,21 @@ platforms:
 支持的目标：
 - `chat_id`
 - `team_id` + `channel_id`
-- 现有 Teams 平台的 `team_id` + `home_channel` 回退
+
 
 示例：
 
 ```yaml
 platforms:
-  teams:
+  msgraph_webhook:
     enabled: true
     extra:
-      delivery_mode: "graph"
-      team_id: "team-id"
-      channel_id: "channel-id"
+      meeting_pipeline:
+        teams_delivery:
+          enabled: true
+          delivery_mode: "graph"
+          team_id: "team-id"
+          channel_id: "channel-id"
 ```
 
 ## 第四步：启动 Gateway
@@ -229,5 +230,5 @@ hermes teams-pipeline subscriptions
 
 ## 相关文档
 
-- [Microsoft Teams bot 配置](./teams.md)
+- [Microsoft Graph 应用注册](../../guides/microsoft-graph-app-registration.md)
 - [运维 Teams 会议流水线](../../guides/operate-teams-meeting-pipeline.md)

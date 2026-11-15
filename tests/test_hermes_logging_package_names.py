@@ -14,7 +14,7 @@ from hermes_cli.logs import _line_matches_component
 from hermes_logging import COMPONENT_PREFIXES, _ComponentFilter
 
 SAMPLES = {
-    "gateway": ("gateway.run", "plugins.platforms.telegram.adapter", "agent.memory_caller_scope"),
+    "gateway": ("gateway.run", "plugins.platforms.a2a.adapter", "agent.memory_caller_scope"),
     "agent": ("agent.conversation_loop", "run_agent"),
     "tools": ("tools.file_tools",),
     "cli": ("hermes_cli.update_cmd", "cli"),
@@ -44,10 +44,10 @@ def test_gateway_diagnostics_keep_their_subsystem_under_the_package_name(package
     events = []
     monkeypatch.setattr(emitter, "get_emitter", lambda: type("Sink", (), {"emit": staticmethod(events.append)})())
     handler = GatewayDiagnosticLogHandler()
-    for name in ("gateway.platforms.slack", "gateway.relay.egress", "gateway.run"):
+    for name in ("gateway.platforms.api_server", "gateway.platforms.webhook", "gateway.run"):
         handler.emit(logging.LogRecord(f"{package}{name}", logging.ERROR, __file__, 1, "boom", (), None))
     assert [(e.subsystem, e.source_logger) for e in events] == [
-        ("platform.slack", "gateway.platforms.slack"),
-        ("platform.relay", "gateway.relay.egress"),
+        ("platform.api_server", "gateway.platforms.api_server"),
+        ("platform.webhook", "gateway.platforms.webhook"),
         ("gateway", "gateway.run"),
     ]

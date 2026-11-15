@@ -50,9 +50,8 @@ _AUDIO_EXTS = frozenset(_AUDIO_MIME_TYPES)
 # Outbound dispatch partition for MEDIA/local files (image batch vs send_video).
 _VIDEO_EXTS = frozenset({".mp4", ".mov", ".avi", ".mkv", ".webm", ".3gp"})
 _IMAGE_EXTS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".gif"})
-# Telegram sendAudio accepts only MP3 / M4A; others go via sendVoice (Opus/OGG) or as a document.
-_TELEGRAM_AUDIO_ATTACHMENT_EXTS = frozenset({'.mp3', '.m4a'})
-_TELEGRAM_VOICE_EXTS = frozenset({'.ogg', '.opus'})
+
+
 
 
 def transcode_to_ogg_opus(path: str, *, bitrate: str = "32k", timeout: int = 60,
@@ -117,26 +116,11 @@ DEFAULT_BUSY_TEXT_HARD_CAP_SECONDS = 1.0
 
 
 def _thread_metadata_for_source(source, reply_to_message_id: str | None = None) -> dict | None:
-    """Platform-aware thread metadata for adapter sends. Telegram DM topics route with
-    ``message_thread_id`` + a reply anchor; anchorless synthetic/resumed sends fall back to
-    ``direct_messages_topic_id`` when supported."""
+    """Thread and profile metadata for adapter sends."""
     thread_id = getattr(source, "thread_id", None)
-    platform = _platform_name(getattr(source, "platform", None))
     metadata = {"thread_id": thread_id} if thread_id is not None else {}
-    # Slack workspace identity is routing state: carry it so a multi-workspace Socket Mode
-    # gateway never falls back to its primary WebClient.
-    scope_id = getattr(source, "scope_id", None) if platform == "slack" else None
-    if scope_id:
-        metadata["slack_team_id"] = str(scope_id)
     if not metadata:
         return None
-    if platform == "telegram" and getattr(source, "chat_type", None) == "dm":
-        metadata["telegram_dm_topic_reply_fallback"] = True
-        if str(thread_id) not in {"", "1"}:
-            metadata["direct_messages_topic_id"] = str(thread_id)
-        anchor = reply_to_message_id or getattr(source, "message_id", None)
-        if anchor is not None:
-            metadata["telegram_reply_to_message_id"] = str(anchor)
     # Routed profile (multiplex / profile_routes): outbound prune paths must not assume the
     # adapter's static profile stamp.
     profile = str(getattr(source, "profile", None) or "").strip()
@@ -162,23 +146,9 @@ def _reply_anchor_for_event(event) -> str | None:
     override = getattr(event, "reply_anchor_override", None)
     if override is not None:
         return override  # the turn was redirected onto another message (#115001)
-    source = getattr(event, "source", None)
-    platform = _platform_name(getattr(source, "platform", None))
-    thread_id = getattr(source, "thread_id", None)
-    raw_message = getattr(event, "raw_message", None)
-    if getattr(event, "internal", False) or (platform == "slack" and isinstance(raw_message, dict)
-                                             and raw_message.get("_hermes_no_thread_response")):
-        # A synthetic wake's message_id is its producer identity, not a platform id (Telegram int()s
-        # it; #52694). A Slack reaction handoff is a new top-level message, not a thread reply.
+    if getattr(event, "internal", False):
+        # A synthetic wake's message_id is its producer identity, not a platform id.
         return None
-    if platform == "telegram" and thread_id:
-        # Forum topics route by topic metadata (no reply); DM-topic lanes reply to the triggering
-        # message — replying to the topic seed/anchor can render outside the active lane.
-        if getattr(source, "chat_type", None) != "dm":
-            return None
-        return getattr(event, "message_id", None) or getattr(event, "reply_to_message_id", None)
-    if platform == "feishu" and thread_id and getattr(event, "reply_to_message_id", None):
-        return getattr(event, "reply_to_message_id", None)
     return getattr(event, "message_id", None)
 
 
@@ -194,16 +164,8 @@ def _media_failure_text(kind: str, file_name: str | None = None) -> str:
 
 
 def should_send_media_as_audio(platform, ext: str, is_voice: bool = False) -> bool:
-    """True when a media file should use the platform's audio sender. Telegram: explicit
-    ``is_voice`` ([[audio_as_voice]]) routes ANY format to the voice sender (adapter transcodes
-    non-Opus); otherwise only sendAudio's MP3/M4A qualify — a plain Opus/OGG attachment is never
-    turned into a voice bubble, everything else → document. Other platforms: any audio ext."""
-    normalized_ext = (ext or "").lower()
-    if normalized_ext not in _AUDIO_EXTS:
-        return False
-    if _platform_name(platform) != "telegram":
-        return True
-    return is_voice or normalized_ext in _TELEGRAM_AUDIO_ATTACHMENT_EXTS
+    """True when a media file should use the platform's audio sender."""
+    return (ext or "").lower() in _AUDIO_EXTS
 
 
 def build_auto_tts_output_path(platform) -> str:
@@ -1853,11 +1815,8 @@ class BasePlatformAdapter(ABC):
         self.platform = platform
         self._message_handler: Optional[MessageHandler] = None
         self._no_message_handler_logged: bool = False
-        self._reaction_handler: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None
         # Runner-owned boundary for normalized events: auth/profile state never lives in an adapter.
         self._platform_event_handler: Optional[Callable[[dict[str, Any], Any], Awaitable[None]]] = None
-        # Rewrites ``event.source.thread_id`` before session keying (Telegram DM topics).
-        self._topic_recovery_fn: Optional[Callable[[Any], Optional[str]]] = None
         self._running, self._fatal_error_retryable = False, True
         self._fatal_error_code: Optional[str] = None
         self._fatal_error_message: Optional[str] = None
@@ -2264,41 +2223,11 @@ class BasePlatformAdapter(ABC):
         closed."""
         self._platform_event_handler = handler
 
-    def set_topic_recovery_fn(self, fn: Optional[Callable[[Any], Optional[str]]]) -> None:
-        """Install a thread_id-recovery hook (Telegram DM topic mode): called with ``event.source``
-        before session keying; a non-None return replaces ``source.thread_id``. ``None`` clears
-        it."""
-        self._topic_recovery_fn = fn
-
-    def _apply_topic_recovery(self, event: MessageEvent) -> None:
-        """Rewrite ``event.source.thread_id`` in place if the hook returns one."""
-        recover = getattr(self, "_topic_recovery_fn", None)
-        source = getattr(event, "source", None)
-        if recover is None or source is None:
-            return
-        try:
-            recovered = recover(source)
-            if recovered is None or str(recovered) == str(source.thread_id or ""):
-                return
-        except Exception:
-            logger.debug("topic recovery hook failed", exc_info=True)
-            return
-        try:
-            from gateway.session_identity import replace_source
-            event.source = replace_source(source, thread_id=str(recovered))  # keeps the pinned identity
-        except Exception:
-            logger.debug("topic recovery rewrite failed", exc_info=True)
 
     def set_busy_session_handler(self, handler: Optional[Callable[[MessageEvent, str], Awaitable[bool]]]) -> None:
         """Set an optional handler for messages arriving during active sessions."""
         self._busy_session_handler = handler
 
-    def set_reaction_handler(self, handler: Optional[Callable[[dict[str, Any]], Awaitable[None]]]) -> None:
-        """Set the handler for platform-native emoji-reaction events: a normalised dict
-        (``platform``, ``event_name`` "reaction:added"/"reaction:removed", ``reaction``,
-        ``user_id``, ``item_user_id``, ``channel_id``, ``message_ts``, ``event_ts``, ``raw_event``)
-        fanned out via ``HookRegistry.emit``."""
-        self._reaction_handler = handler
 
     def set_authorization_check(
         self, callback: Optional[Callable[[str, Optional[str], Optional[str]], bool]]) -> None:
@@ -3396,36 +3325,11 @@ class BasePlatformAdapter(ABC):
         self._post_delivery_callbacks.pop(session_key, None)
         return callback if callable(callback) else None
 
-    # ── Processing lifecycle hooks (Discord 👀/✅/❌ reactions). Adapters exposing
-    # ``_add_reaction(chat_id, message_id, emoji)`` / ``_remove_reaction(chat_id, message_id)``
-    # can just set the emoji attributes; left ``None`` the hook is a no-op.
-    _ACK_EMOJI: Optional[str] = None
-    _OK_EMOJI: Optional[str] = None
-    _FAIL_EMOJI: Optional[str] = None
-
     async def on_processing_start(self, event: MessageEvent) -> None:
         """Hook called when background processing begins."""
 
     async def on_processing_complete(self, event: MessageEvent, outcome: ProcessingOutcome) -> None:
-        """Hook called when background processing completes. Default: opt-in reaction ack — with
-        ``_OK_EMOJI``/``_FAIL_EMOJI`` set and ``_add_reaction``/``_remove_reaction`` present, swap
-        the in-progress reaction for the outcome one. Remove-then-add is deterministic whether the
-        platform replaces or stacks a sender's reactions. CANCELLED leaves it unreacted."""
-        if self._OK_EMOJI is None and self._FAIL_EMOJI is None:
-            return
-        add: Any = getattr(self, "_add_reaction", None)
-        remove: Any = getattr(self, "_remove_reaction", None)
-        enabled = getattr(self, "_reactions_enabled", None)
-        chat_id = getattr(event.source, "chat_id", None)
-        message_id = getattr(event, "message_id", None)
-        if (not callable(add) or not callable(remove) or (callable(enabled) and not enabled())
-                or not chat_id or not message_id):
-            return
-        await remove(chat_id, message_id)
-        emoji = {ProcessingOutcome.SUCCESS: self._OK_EMOJI,
-                 ProcessingOutcome.FAILURE: self._FAIL_EMOJI}.get(outcome)
-        if emoji:
-            await add(chat_id, message_id, emoji)
+        """Hook called when background processing completes."""
 
     async def _run_processing_hook(self, hook_name: str, *args: Any, **kwargs: Any) -> None:
         """Run a lifecycle hook without letting failures break message flow."""
@@ -3932,11 +3836,7 @@ class BasePlatformAdapter(ABC):
         if self._drop_unresolved(event):
             return
         expected_session_key = str((event.metadata or {}).get("gateway_session_key") or "").strip()
-        # Explicitly routed events already name their destination; recovering a
-        # different topic would redirect them and yield before the session claim.
-        if (not expected_session_key and getattr(self, "_topic_recovery_fn", None) is not None
-                and event.source.platform == Platform.TELEGRAM and event.source.chat_type == "dm"):
-            await asyncio.to_thread(self._apply_topic_recovery, event)
+
         session_key = self._event_session_key(event)
         if expected_session_key and session_key != expected_session_key:
             logger.warning("Dropping internally routed event: expected session=%s derived=%s",
@@ -4123,15 +4023,11 @@ class BasePlatformAdapter(ABC):
     async def _play_tts_file(
         self, event: MessageEvent, text_content: str, tts_path: str, first: bool,
         metadata: dict[str, Any], record_delivery: Callable) -> bool:
-        """Play one synthesized TTS file. Returns True when the ORIGINAL reply text rode
-        along as a Telegram caption (first file, ≤1024 chars) so the text send is skipped."""
-        caption = None
-        if first and self.platform == Platform.TELEGRAM and text_content and text_content[:1024] == text_content:
-            caption = text_content
+        """Play one synthesized TTS file; text remains a separate delivery."""
         tts_result = await self.play_tts(
-            chat_id=event.source.chat_id, audio_path=tts_path, caption=caption, metadata=metadata)
+            chat_id=event.source.chat_id, audio_path=tts_path, caption=None, metadata=metadata)
         record_delivery(tts_result)
-        return bool(caption and getattr(tts_result, "success", False))
+        return False
 
     async def _record_delivery_obligation(
         self, event: MessageEvent, session_key: str, text_content: str,

@@ -333,19 +333,39 @@ def test_a_closing_day_keeps_a_peak_reached_just_before_midnight(tmp_path, monke
 
 
 async def _real_runner(monkeypatch):
-    """Real GatewayRunner busy dispatch, real DiscordAdapter, real authority over a real SessionDB;
+    """Real GatewayRunner busy dispatch, generic adapter, real authority over a real SessionDB;
     the drain is not scheduled, so a queued row waits until the test runs or cancels it."""
     from gateway.config import GatewayConfig, PlatformConfig
     from gateway.platforms.base import SendResult
     from gateway.run import GatewayRunner
     from gateway.session_authority import SessionAuthority, initialize_session_authority
-    from plugins.platforms.discord.adapter import DiscordAdapter
+    from gateway.platform_registry import PlatformEntry, platform_registry
+
+    class Adapter(BasePlatformAdapter):
+        def __init__(self, config):
+            super().__init__(config, Platform("metrics_peer"))
+
+        async def connect(self, *, is_reconnect=False):
+            return True
+
+        async def disconnect(self):
+            pass
+
+        async def send(self, chat_id, content, reply_to=None, metadata=None):
+            return SendResult(success=True)
+
+        async def get_chat_info(self, chat_id):
+            return {"id": chat_id}
+
+    monkeypatch.setitem(platform_registry._entries, "metrics_peer", PlatformEntry(
+        name="metrics_peer", label="Metrics peer", adapter_factory=Adapter, check_fn=lambda: True,
+        allowed_users_env="METRICS_PEER_ALLOWED_USERS"))
 
     monkeypatch.setattr(SessionAuthority, "_schedule", lambda self, ref: None)
-    monkeypatch.setenv("DISCORD_ALLOWED_USERS", "42")
+    monkeypatch.setenv("METRICS_PEER_ALLOWED_USERS", "42")
     runner = GatewayRunner(GatewayConfig())
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token="fixture-token", typing_indicator=False))
-    runner.adapters = {Platform.DISCORD: adapter}
+    adapter = Adapter(PlatformConfig(enabled=True, token="fixture-token", typing_indicator=False))
+    runner.adapters = {adapter.platform: adapter}
     sent = []
 
     async def send(chat_id, content, **_kwargs):
@@ -411,7 +431,7 @@ async def test_a_busy_message_cancelled_before_admission_reads_its_row_counts_as
 
     runner, authority, source, _key = await _real_runner(monkeypatch)
     follow_up = MessageEvent(text="B", source=source, message_id="B")
-    busy.stamp_busy_arrival(runner.adapters[Platform.DISCORD], follow_up)
+    busy.stamp_busy_arrival(runner.adapters[source.platform], follow_up)
     busy.note_busy_admitting(follow_up)
     commit = authority.admit_native
 

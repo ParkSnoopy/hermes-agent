@@ -294,7 +294,7 @@ has no no-argument mode. The Node product parsers expose no `--help` flag.
 ```sh
 python -m pm.build_env --source /work/source \
   --python /work/tools/python --out /work/venv --sealed \
-  --extra all --extra messaging
+  --extra all
 ```
 
 | Argument | Contract |

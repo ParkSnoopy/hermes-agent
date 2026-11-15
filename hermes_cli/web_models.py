@@ -58,31 +58,6 @@ class CustomEndpointUpdate(BaseModel):
     models: Optional[list[str]] = None
     model_details: Optional[list[CustomEndpointModelDetail]] = None
 
-class MessagingPlatformUpdate(BaseModel):
-    enabled: Optional[bool] = None
-    env: dict[str, str] = {}
-    clear_env: list[str] = []
-    # Explicit body profile beats the switcher's query param (same as other scoped writes).
-    profile: Optional[str] = None
-
-class TelegramOnboardingStart(BaseModel):
-    bot_name: Optional[str] = None
-
-class TelegramOnboardingApply(BaseModel):
-    allowed_user_ids: list[str]
-    profile: Optional[str] = None
-
-class WhatsAppOnboardingStart(BaseModel):
-    mode: Optional[str] = "bot"
-    allowed_users: Optional[str] = ""
-    profile: Optional[str] = None
-    reset_session: bool = False
-
-class WhatsAppOnboardingApply(BaseModel):
-    mode: Optional[str] = None
-    allowed_users: Optional[str] = None
-    profile: Optional[str] = None
-
 class AudioTranscriptionRequest(BaseModel):
     data_url: str
     mime_type: Optional[str] = None

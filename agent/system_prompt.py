@@ -17,13 +17,12 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from agent.delegation_context import owned_kanban_task
 from agent.prompt_cache_scope import conversation_id
 from agent.prompt_builder import (
     DEFAULT_AGENT_IDENTITY, EXECUTION_GUIDANCE_MODELS, GOOGLE_MODEL_OPERATIONAL_GUIDANCE,
-    HERMES_AGENT_HELP_GUIDANCE, HERMES_AGENT_HELP_GUIDANCE_NO_SKILLS, KANBAN_GUIDANCE,
+    HERMES_AGENT_HELP_GUIDANCE, HERMES_AGENT_HELP_GUIDANCE_NO_SKILLS,
     PARALLEL_TOOL_CALL_GUIDANCE, PLATFORM_HINTS, SESSION_SEARCH_GUIDANCE,
-    SKILLS_GUIDANCE, STEER_CHANNEL_NOTE, TASK_COMPLETION_GUIDANCE, TELEGRAM_RICH_MESSAGES_HINT,
+    SKILLS_GUIDANCE, STEER_CHANNEL_NOTE, TASK_COMPLETION_GUIDANCE,
     TOOL_USE_ENFORCEMENT_GUIDANCE, TOOL_USE_ENFORCEMENT_MODELS, drain_truncation_warnings,
 )
 from agent import prompt_builder as _pb
@@ -290,16 +289,11 @@ def _tool_guidance_block(agent: Any) -> Optional[str]:
             getattr(agent, "_user_profile_enabled", True),
             skill_manage_available="skill_manage" in names,
         )
-    # Kanban lifecycle: resolved once at __init__ (_kanban_worker_guidance);
-    # fallback paths must also limit task protocol guidance to dispatcher workers.
-    _kanban_guidance = getattr(agent, "_kanban_worker_guidance", None)
-    if _kanban_guidance is None and "kanban_show" in names and owned_kanban_task():
-        _kanban_guidance = KANBAN_GUIDANCE
     tool_guidance = [
         memory_guidance,
         SESSION_SEARCH_GUIDANCE if "session_search" in names else None,
         SKILLS_GUIDANCE if "skill_manage" in names else None,
-        _kanban_guidance,
+
     ]
     return " ".join(g for g in tool_guidance if g) or None
 
@@ -437,8 +431,6 @@ def _default_platform_hint(platform_key: str, tool_names: Any = ()) -> str:
                 hint = " ".join([hint.rstrip(), *_notes])
         except Exception:
             pass
-    if platform_key == "telegram" and hint and _telegram_rich_messages_enabled():
-        hint = hint.rstrip() + " " + TELEGRAM_RICH_MESSAGES_HINT
     return hint
 
 
@@ -446,9 +438,8 @@ def _cron_delivery_hint(agent: Any) -> str:
     """The destination channel's hint (default + its ``platform_hints`` override) for a cron agent.
 
     A cron agent runs as platform ``cron`` but its final response lands on the job's ``deliver``
-    channel, so without this the model never learns that MEDIA: tags become Slack/Telegram
-    attachments or that tables do not render there — and a user's ``platform_hints.slack.append``
-    never reached scheduled jobs at all. The scheduler publishes the primary auto-deliver target
+    channel, so the destination's plugin hint and user override must also reach scheduled jobs.
+    The scheduler publishes the primary auto-deliver target
     into the session ContextVar before the agent runs (same seam ``send_message`` routes by).
     """
     from gateway.session_context import get_session_env
@@ -461,8 +452,8 @@ def _cron_delivery_hint(agent: Any) -> str:
 
 
 def platform_hint(agent: Any) -> str:
-    """Built-in/plugin platform hint + Telegram rich-messages opt-in + config
-    override + desktop TUI clarifier; cron agents also carry their delivery channel's hint."""
+    """Built-in/plugin platform hint, config override and desktop TUI clarifier;
+    cron agents also carry their delivery channel's hint."""
     platform_key = (agent.platform or "").lower().strip()
     _effective_hint = _resolve_platform_hint(
         agent, platform_key, _default_platform_hint(platform_key, getattr(agent, "valid_tool_names", ())))
@@ -473,21 +464,6 @@ def platform_hint(agent: Any) -> str:
         if _delivery:
             _effective_hint = f"{_effective_hint}\n\n{_delivery}".strip()
     return _effective_hint
-
-
-def _telegram_rich_messages_enabled() -> bool:
-    """``rich_messages`` from the Telegram ``extra`` config; same precedence the
-    adapter uses (top-level ``platforms.telegram.extra`` overrides
-    ``gateway.platforms.telegram.extra`` at the leaf). False on any read failure."""
-    try:
-        from hermes_cli.config import load_config_readonly
-        _cfg = load_config_readonly()
-        _gw = (((_cfg.get("gateway") or {}).get("platforms") or {}).get("telegram") or {}).get("extra")
-        _top = ((_cfg.get("platforms") or {}).get("telegram") or {}).get("extra")
-        merged = {**(_gw if isinstance(_gw, dict) else {}), **(_top if isinstance(_top, dict) else {})}
-        return bool(merged.get("rich_messages"))
-    except Exception:
-        return False
 
 
 def _zone_bits(now: Any, tz: Any) -> list[str]:

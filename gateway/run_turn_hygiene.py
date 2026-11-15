@@ -555,9 +555,7 @@ class GatewayTurnHygieneMixin:
                 # The held turn lease follows the rotation (alias keys still serialize on this turn).
                 self._rebind_turn_lease(_quick_key, run_generation, _hyg_new_sid)
                 await self.async_session_store._save()
-                await asyncio.to_thread(
-                    self._sync_telegram_topic_binding, source, session_entry, reason="hygiene-compression",
-                )
+
 
         if _hyg_rotated or _hyg_in_place:
             # Persisted (rotation) or persisted by archive_and_compact() (in-place): reset token count.

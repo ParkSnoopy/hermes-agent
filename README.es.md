@@ -16,15 +16,15 @@
   <a href="README.ur-pk.md"><img src="https://img.shields.io/badge/Lang-اردو-green?style=for-the-badge" alt="اردو"></a>
 </p>
 
-**El agente de IA con mejora continua creado por [Nous Research](https://nousresearch.com).** Es el único agente con un bucle de aprendizaje integrado: crea habilidades a partir de la experiencia, las mejora durante el uso, se impulsa a sí mismo a persistir el conocimiento, busca en sus propias conversaciones pasadas y construye un modelo cada vez más profundo de quién eres a lo largo de las sesiones. Ejecútalo en un VPS de $5, un clúster de GPUs o infraestructura sin servidor que cuesta casi nada cuando está inactivo. No está atado a tu laptop — habla con él desde Telegram mientras trabaja en una VM en la nube.
+**El agente de IA con mejora continua creado por [Nous Research](https://nousresearch.com).** Crea habilidades a partir de la experiencia, conserva conocimiento y busca en conversaciones anteriores. Ejecútalo localmente o en infraestructura remota.
 
 Usa cualquier modelo que quieras — [Nous Portal](https://portal.nousresearch.com), [OpenRouter](https://openrouter.ai) (más de 200 modelos), [NovitaAI](https://novita.ai), [NVIDIA NIM](https://build.nvidia.com) (Nemotron), [Xiaomi MiMo](https://platform.xiaomimimo.com), [z.ai/GLM](https://z.ai), [Kimi/Moonshot](https://platform.moonshot.ai), [MiniMax](https://www.minimax.io), [Hugging Face](https://huggingface.co), OpenAI, o tu propio endpoint. Cambia con `hermes model` — sin cambios de código, sin dependencias.
 
 <table>
 <tr><td><b>Una interfaz de terminal real</b></td><td>TUI completa con edición multilínea, autocompletado de comandos, historial de conversaciones, interrupción y redirección, y salida de herramientas en streaming.</td></tr>
-<tr><td><b>Vive donde tú vives</b></td><td>Telegram, Discord, Slack, WhatsApp, Signal y CLI — todo desde un único proceso gateway. Transcripción de notas de voz, continuidad de conversación entre plataformas.</td></tr>
+<tr><td><b>Interfaces</b></td><td>CLI, TUI y escritorio, además de acceso mediante API y A2A.</td></tr>
 <tr><td><b>Un bucle de aprendizaje cerrado</b></td><td>Memoria curada por el agente con recordatorios periódicos. Creación autónoma de habilidades tras tareas complejas. Las habilidades mejoran solas durante el uso. Búsqueda FTS5 de sesiones con resumención por LLM para recuperación entre sesiones. Modelado de usuario dialéctico <a href="https://github.com/plastic-labs/honcho">Honcho</a>. Compatible con el estándar abierto de <a href="https://agentskills.io">agentskills.io</a>.</td></tr>
-<tr><td><b>Automatizaciones programadas</b></td><td>Planificador cron integrado con entrega a cualquier plataforma. Informes diarios, copias de seguridad nocturnas, auditorías semanales — todo en lenguaje natural, ejecutándose de forma autónoma.</td></tr>
+<tr><td><b>Automatizaciones programadas</b></td><td>Planificador cron integrado para informes diarios, copias de seguridad nocturnas y auditorías semanales.</td></tr>
 <tr><td><b>Delega y paraleliza</b></td><td>Lanza subagentes aislados para flujos de trabajo paralelos. Escribe scripts de Python que llaman a herramientas vía RPC, convirtiendo pipelines de múltiples pasos en turnos de coste cero de contexto.</td></tr>
 <tr><td><b>Funciona en cualquier lugar, no solo en tu laptop</b></td><td>Seis backends de terminal — local, Docker, SSH, Singularity, Modal y Daytona. Daytona y Modal ofrecen persistencia sin servidor — el entorno de tu agente hiberna cuando está inactivo y se activa bajo demanda, costando casi nada entre sesiones. Ejecútalo en un VPS de $5 o un clúster de GPUs.</td></tr>
 <tr><td><b>Listo para investigación</b></td><td>Generación de trayectorias en lote, compresión de trayectorias para entrenar la próxima generación de modelos de llamadas a herramientas.</td></tr>
@@ -75,7 +75,7 @@ hermes              # CLI interactiva — inicia una conversación
 hermes model        # Elige tu proveedor y modelo LLM
 hermes tools        # Configura qué herramientas están habilitadas
 hermes config set   # Establece valores de configuración individuales
-hermes gateway      # Inicia el gateway de mensajería (Telegram, Discord, etc.)
+
 hermes setup        # Ejecuta el asistente de configuración completo
 hermes claw migrate # Migra desde OpenClaw (si vienes de OpenClaw)
 hermes update       # Actualiza a la última versión
@@ -105,23 +105,9 @@ Puedes seguir usando tus propias claves por herramienta cuando quieras — el ga
 
 ---
 
-## Referencia rápida: CLI vs Mensajería
+## Referencia rápida de CLI
 
-Hermes tiene dos puntos de entrada: inicia la interfaz de terminal con `hermes`, o ejecuta el gateway y habla con él desde Telegram, Discord, Slack, WhatsApp, Signal o Email. Una vez en una conversación, muchos comandos de barra son compartidos entre ambas interfaces.
-
-| Acción                              | CLI                                           | Plataformas de mensajería                                                         |
-| ----------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------- |
-| Empezar a chatear                   | `hermes`                                      | Ejecuta `hermes gateway setup` + `hermes gateway start`, luego envía un mensaje al bot |
-| Nueva conversación                  | `/new` o `/reset`                             | `/new` o `/reset`                                                                 |
-| Cambiar modelo                      | `/model [proveedor:modelo]`                   | `/model [proveedor:modelo]`                                                       |
-| Establecer personalidad             | `/personality [nombre]`                       | `/personality [nombre]`                                                           |
-| Reintentar o deshacer último turno  | `/retry`, `/undo`                             | `/retry`, `/undo`                                                                 |
-| Comprimir contexto / ver uso        | `/compress`, `/usage`, `/insights [--days N]` | `/compress`, `/usage`, `/insights [days]`                                         |
-| Explorar habilidades                | `/skills` o `/<nombre-habilidad>`             | `/<nombre-habilidad>`                                                             |
-| Interrumpir trabajo actual          | `Ctrl+C` o enviar un nuevo mensaje            | `/stop` o enviar un nuevo mensaje                                                 |
-| Estado específico de plataforma     | `/platforms`                                  | `/status`, `/sethome`                                                             |
-
-Para las listas de comandos completas, consulta la [guía de CLI](https://hermes-agent.nousresearch.com/docs/user-guide/cli) y la [guía del Gateway de Mensajería](https://hermes-agent.nousresearch.com/docs/user-guide/messaging).
+Inicia una conversación con `hermes`. Consulta la [guía de CLI](https://hermes-agent.nousresearch.com/docs/user-guide/cli) para ver los comandos disponibles.
 
 ---
 
@@ -134,13 +120,12 @@ Toda la documentación está en **[hermes-agent.nousresearch.com/docs](https://h
 | [Inicio rápido](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart)              | Instalar → configurar → primera conversación en 2 minutos   |
 | [Uso de CLI](https://hermes-agent.nousresearch.com/docs/user-guide/cli)                             | Comandos, atajos de teclado, personalidades, sesiones        |
 | [Configuración](https://hermes-agent.nousresearch.com/docs/user-guide/configuration)               | Archivo de configuración, proveedores, modelos, todas las opciones |
-| [Gateway de Mensajería](https://hermes-agent.nousresearch.com/docs/user-guide/messaging)           | Telegram, Discord, Slack, WhatsApp, Signal, Home Assistant   |
-| [Seguridad](https://hermes-agent.nousresearch.com/docs/user-guide/security)                        | Aprobación de comandos, emparejamiento por DM, aislamiento en contenedor |
+| [Seguridad](https://hermes-agent.nousresearch.com/docs/user-guide/security)                        | Aprobación de comandos y aislamiento en contenedor |
 | [Herramientas y Toolsets](https://hermes-agent.nousresearch.com/docs/user-guide/features/tools)   | Más de 40 herramientas, sistema de toolsets, backends de terminal |
 | [Sistema de Habilidades](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills)   | Memoria procedimental, Skills Hub, creación de habilidades   |
 | [Memoria](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory)                   | Memoria persistente, perfiles de usuario, mejores prácticas  |
 | [Integración MCP](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp)              | Conecta cualquier servidor MCP para capacidades extendidas   |
-| [Programación Cron](https://hermes-agent.nousresearch.com/docs/user-guide/features/cron)           | Tareas programadas con entrega a plataforma                  |
+| [Programación Cron](https://hermes-agent.nousresearch.com/docs/user-guide/features/cron)           | Tareas programadas                  |
 | [Archivos de Contexto](https://hermes-agent.nousresearch.com/docs/user-guide/features/context-files) | Contexto de proyecto que da forma a cada conversación      |
 | [Arquitectura](https://hermes-agent.nousresearch.com/docs/developer-guide/architecture)            | Estructura del proyecto, bucle del agente, clases principales |
 | [Contribuir](https://hermes-agent.nousresearch.com/docs/developer-guide/contributing)              | Configuración de desarrollo, proceso de PR, estilo de código |
@@ -171,8 +156,8 @@ Qué se importa:
 - **Memorias** — entradas de MEMORY.md y USER.md
 - **Habilidades** — habilidades creadas por el usuario → `~/.hermes/skills/openclaw-imports/`
 - **Lista de comandos permitidos** — patrones de aprobación
-- **Configuración de mensajería** — configuración de plataformas, usuarios permitidos, directorio de trabajo
-- **Claves API** — secretos en lista de permitidos (Telegram, OpenRouter, OpenAI, Anthropic, ElevenLabs)
+
+- **Claves API** — secretos en lista de permitidos (OpenRouter, OpenAI, Anthropic, ElevenLabs)
 - **Assets de TTS** — archivos de audio del espacio de trabajo
 - **Instrucciones del espacio de trabajo** — AGENTS.md (con `--workspace-target`)
 

@@ -346,38 +346,6 @@ export interface SubagentSteerResult {
   text: string
 }
 export type SteerStatus = 'queued' | 'rejected'
-export interface HandoffRequestParams {
-  session_id: string
-  profile?: string | null
-  platform: string
-}
-export interface HandoffRequestResult {
-  queued: boolean
-  session_key: string
-  platform: string
-  home_name: string
-}
-/** Any method addressed at one live session. */
-export interface SessionParams {
-  session_id: string
-  profile?: string | null
-}
-/** ``state`` is pending | running | completed | failed, or '' when nothing was requested. */
-export interface HandoffStateResult {
-  state: string
-  platform: string
-  error: string
-}
-export interface HandoffFailParams {
-  session_id: string
-  profile?: string | null
-  error?: string | null
-}
-/** ``failed`` false when the watcher already claimed the row; ``state`` is what it is now. */
-export interface HandoffFailResult {
-  failed: boolean
-  state: string
-}
 /** ``row_id`` is ``messages.id``; a not-yet-persisted live message names ``newest_role`` instead. ``emoji`` null clears; the same emoji again retracts. */
 export interface MessageReactParams {
   session_id: string
@@ -2120,7 +2088,7 @@ export interface ProfileSessionPreview {
   message_count?: number
   live_message_count?: number | null
 }
-/** Newest kanban/tool worker row, so rosters can show a profile as working. */
+/** Newest tool worker row, so rosters can show a profile as working. */
 export interface ProfileWorkerSession {
   id: string
   source?: string
@@ -2439,6 +2407,11 @@ export interface SessionForeignImportResult {
   session_id: string
   already_imported?: boolean
 }
+/** Any method addressed at one live session. */
+export interface SessionParams {
+  session_id: string
+  profile?: string | null
+}
 /** ``delegations``: recently failed async delegation tasks for the session (durable store), newest first. */
 export interface SubagentListResult {
   subagents?: SubagentSnapshot[]
@@ -2670,13 +2643,12 @@ export interface ProjectTreeRepo {
   groups?: ProjectTreeLane[]
   sessionCount?: number
 }
-/** One branch / worktree / kanban lane inside a repo; ``sessions`` is empty unless hydrated. */
+/** One branch / worktree lane inside a repo; ``sessions`` is empty unless hydrated. */
 export interface ProjectTreeLane {
   id: string
   label: string
   path?: string | null
   isMain?: boolean
-  isKanban?: boolean
   isGit?: boolean
   sessions?: ProjectTreeSession[]
 }
@@ -5007,17 +4979,6 @@ export interface CronAdmissionParams {
 export interface CronCancelResult {
   ok: boolean
 }
-export interface KanbanRunParams {
-  board: string
-  task_id: string
-  run_id: number
-  claim_lock: string
-  db?: string | null
-}
-export interface KanbanRunResult {
-  session_id: string
-  receipt: AdmissionStatus
-}
 export interface A2aForwardParams {
   agent: string
   tenant: string
@@ -6435,12 +6396,6 @@ export interface RpcMethods {
   'groups.state': { params: GroupsStateParams; result: GroupsStateResult }
   /** Durably cancel queued or running work for one hosted room. */
   'groups.stop': { params: GroupsStopParams; result: GroupsStopResult }
-  /** Fail a not-yet-claimed handoff (client poll timeout); CAS against the watcher. */
-  'handoff.fail': { params: HandoffFailParams; result: HandoffFailResult }
-  /** Queue a handoff to a messaging platform's home channel; the gateway watcher claims it. */
-  'handoff.request': { params: HandoffRequestParams; result: HandoffRequestResult }
-  /** Poll the handoff row for this session. */
-  'handoff.state': { params: SessionParams; result: HandoffStateResult }
   /** Pack + overlay messages for one language and surface; the renderer merges them over its bundled catalog. */
   'i18n.catalog': { params: I18nCatalogParams; result: I18nCatalogResult }
   /** Every language some layer supplies (bundled ∪ user overlay ∪ plugin packs), en first. */
@@ -6880,9 +6835,6 @@ export const RPC_METHODS = [
   'groups.send',
   'groups.state',
   'groups.stop',
-  'handoff.fail',
-  'handoff.request',
-  'handoff.state',
   'i18n.catalog',
   'i18n.languages',
   'image.attach',
@@ -7102,8 +7054,6 @@ export interface CanonicalRpcMethods {
   'groups.peer.revoke': { params: CanonicalGroupsPeerRevokeParams; result: GroupsPeerRevokeResult }
   'groups.retry': { params: CanonicalRoomAttemptParams; result: GroupsRetryResult }
   'image.attach_bytes': { params: ImageAttachBytesParams; result: CanonicalAttachedImageResult }
-  /** Native-owner only: admit the dispatcher's current claim on a kanban task. */
-  'kanban.run': { params: KanbanRunParams; result: KanbanRunResult }
   'profiles.list': { params: CanonicalProfilesParams; result: CanonicalProfilesResult }
   /** Retire a queued admission; a started one is interrupted in the same call. */
   'prompt.cancel': { params: PromptCancelParams; result: AdmissionStatus }
@@ -7178,7 +7128,6 @@ export const CANONICAL_RPC_METHODS = [
   'groups.peer.revoke',
   'groups.retry',
   'image.attach_bytes',
-  'kanban.run',
   'profiles.list',
   'prompt.cancel',
   'prompt.receipt',

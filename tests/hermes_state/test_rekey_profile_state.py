@@ -167,31 +167,20 @@ class TestRekeyProfileState:
             "SELECT session_key FROM sessions WHERE id = ?", ("bystander",)
         )["session_key"] == "agent:fooXbar:telegram:dm:b"
 
-    def test_rekeys_origin_json_and_telegram_topic_state(self, db):
+    def test_rekeys_origin_json(self, db):
         db.create_session(
             "sess_old", "telegram", session_key="agent:oldname:telegram:dm:chatA",
             profile_name="oldname", chat_id="chatA", chat_type="dm")
         db._write_sql(
             "UPDATE sessions SET origin_json = ? WHERE id = ?",
             (json.dumps({"platform": "telegram", "profile": "oldname"}), "sess_old"))
-        db.enable_telegram_topic_mode(
-            chat_id="chatA", user_id="userA", profile_name="oldname")
-        db.bind_telegram_topic(
-            chat_id="chatA", thread_id="threadA", user_id="userA",
-            session_key="agent:oldname:telegram:dm:chatA", session_id="sess_old",
-            profile_name="oldname")
+
         counts = db.rekey_profile_state("oldname", "newname")
         row = db._read_one("SELECT origin_json FROM sessions WHERE id = ?", ("sess_old",))
         assert json.loads(row["origin_json"])["profile"] == "newname"
         assert counts["sessions_origin_json"] == 1
-        binding = db._read_one(
-            "SELECT profile_name, session_key FROM telegram_dm_topic_bindings "
-            "WHERE chat_id = ? AND thread_id = ?", ("chatA", "threadA"))
-        assert binding["profile_name"] == "newname"
-        assert binding["session_key"] == "agent:newname:telegram:dm:chatA"
-
-    def test_rekeys_legacy_v2_topic_binding_by_session_key(self, db):
-        """Legacy v2 tables have no profile_name, but bindings retain profile namespaces."""
+    def test_preserves_legacy_v2_topic_binding_on_rekey(self, db):
+        """Retired topic data remains untouched when renaming a profile."""
         db.create_session(
             "sess_old", "telegram", session_key="agent:oldname:telegram:dm:chatA",
             profile_name="oldname", chat_id="chatA", chat_type="dm")
@@ -216,10 +205,10 @@ class TestRekeyProfileState:
 
         counts = db.rekey_profile_state("oldname", "newname")
 
-        assert counts["telegram_dm_topic_bindings_session_key"] == 1
+        assert "telegram_dm_topic_bindings_session_key" not in counts
         assert db._read_one(
             "SELECT session_key FROM telegram_dm_topic_bindings WHERE chat_id = ?", ("chatA",)
-        )["session_key"] == "agent:newname:telegram:dm:chatA"
+        )["session_key"] == "agent:oldname:telegram:dm:chatA"
         assert db._read_one(
             "SELECT session_key FROM telegram_dm_topic_bindings WHERE chat_id = ?", ("chatB",)
         )["session_key"] == "agent:keepme:telegram:dm:chatB"

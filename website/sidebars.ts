@@ -110,11 +110,9 @@ const sidebars: SidebarsConfig = {
             'user-guide/features/cron',
             'reference/automation-blueprints-catalog',
             'user-guide/features/delegation',
-            'user-guide/features/kanban',
+
             'user-guide/features/codex-app-server-runtime',
-            'user-guide/features/kanban-tutorial',
-            'user-guide/features/kanban-worker-lanes',
-            'user-guide/features/kanban-multi-gateway',
+
             'user-guide/features/goals',
             'user-guide/features/heartbeat',
             'user-guide/features/loops',
@@ -206,15 +204,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/bundled/creative/creative-songwriting-and-ai-music',
                   ],
                 },
-                {
-                  type: 'category',
-                  label: 'devops',
-                  key: 'skills-bundled-devops',
-                  collapsed: true,
-                  items: [
-                    'user-guide/skills/bundled/devops/devops-sdlc-review',
-                  ],
-                },
+
                 {
                   type: 'category',
                   label: 'email',
@@ -373,7 +363,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/optional/creative/creative-hyperframes',
                     'user-guide/skills/optional/creative/creative-impeccable',
                     'user-guide/skills/optional/creative/creative-ip-as-logo',
-                    'user-guide/skills/optional/creative/creative-kanban-video-orchestrator',
+
                     'user-guide/skills/optional/creative/creative-meme-generation',
                     'user-guide/skills/optional/creative/creative-mono-color',
                     'user-guide/skills/optional/creative/creative-pixel-art',
@@ -637,67 +627,13 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Messaging Platforms',
+      label: 'API and integrations',
       collapsed: true,
       items: [
-        'user-guide/messaging/index',
-        {
-          type: 'category',
-          label: 'Popular',
-          items: [
-            'user-guide/messaging/telegram',
-            'user-guide/messaging/discord',
-            'user-guide/messaging/slack',
-            'user-guide/messaging/whatsapp',
-            'user-guide/messaging/whatsapp-cloud',
-            'user-guide/messaging/signal',
-            'user-guide/messaging/email',
-            'user-guide/messaging/sms',
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Microsoft 365',
-          items: [
-            'user-guide/messaging/teams',
-            'user-guide/messaging/teams-meetings',
-            'user-guide/messaging/msgraph-webhook',
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Chinese platforms',
-          items: [
-            'user-guide/messaging/dingtalk',
-            'user-guide/messaging/feishu',
-            'user-guide/messaging/wecom',
-            'user-guide/messaging/wecom-callback',
-            'user-guide/messaging/weixin',
-            'user-guide/messaging/qqbot',
-            'user-guide/messaging/yuanbao',
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Other',
-          items: [
-            'user-guide/messaging/a2a',
-            'user-guide/messaging/homeassistant',
-            'user-guide/messaging/mattermost',
-            'user-guide/messaging/matrix',
-            'user-guide/messaging/bluebubbles',
-            'user-guide/messaging/buzz',
-            'user-guide/messaging/photon',
-            'user-guide/messaging/google_chat',
-            'user-guide/messaging/line',
-            'user-guide/messaging/simplex',
-            'user-guide/messaging/ntfy',
-            'user-guide/messaging/irc',
-            'user-guide/messaging/open-webui',
-            'user-guide/messaging/relay',
-            'user-guide/messaging/webhooks',
-          ],
-        },
+        'user-guide/messaging/a2a',
+        'user-guide/messaging/teams-meetings',
+        'user-guide/messaging/msgraph-webhook',
+        'user-guide/messaging/webhooks',
       ],
     },
     {
@@ -727,7 +663,7 @@ const sidebars: SidebarsConfig = {
         'guides/secure-hermes-on-a-work-machine',
         'guides/local-llm-on-mac',
         'guides/daily-briefing-bot',
-        'guides/team-telegram-assistant',
+
         'guides/python-library',
         'guides/use-mcp-with-hermes',
         'guides/manage-hermes-cloud-with-mcp',
@@ -832,7 +768,7 @@ const sidebars: SidebarsConfig = {
             'developer-guide/chronos-managed-cron-contract',
             'developer-guide/egress-internals',
             'developer-guide/gateway-monitoring',
-            'developer-guide/relay-connector-contract',
+
             'developer-guide/relay-shared-metrics',
             'developer-guide/streaming-tts',
             'developer-guide/billing-lifecycle',

@@ -14,16 +14,16 @@ For the full feature reference, see [Scheduled Tasks (Cron)](../user-guide/featu
 Cron jobs run in fresh agent sessions with no memory of your current chat. Prompts must be **completely self-contained** — include everything the agent needs to know.
 :::
 
-:::tip Don't need the LLM? You have two zero-token options.
+:::tip Don't need the LLM?
 - **Recurring watchdog** where the script already produces the exact message (memory alerts, disk alerts, heartbeats): use [script-only cron jobs](./cron-script-only.md). Same scheduler, no LLM. You can ask Hermes to set one up for you in chat — the `cronjob_manage` tool knows when to pick `no_agent=True` and writes the script for you.
-- **One-shot from a script that's already running** (CI step, post-commit hook, deploy script, externally-scheduled monitor): use [`hermes send`](./pipe-script-output.md) to pipe stdout or a file straight to Telegram / Discord / Slack / etc. without setting up a cron entry.
+
 :::
 
 ---
 
 ## Pattern 1: Website Change Monitor
 
-Watch a URL for changes and get notified only when something is different.
+Watch a URL for changes and save a summary when something is different.
 
 The `script` parameter is the secret weapon here. A Python script runs before each execution, and its stdout becomes context for the agent. The script handles the mechanical work (fetching, diffing); the agent handles the reasoning (is this change interesting?).
 
@@ -67,22 +67,19 @@ else:
 Set up the cron job:
 
 ```bash
-/cron add "every 1h" "If the script output says CHANGE DETECTED, summarize what changed on the page and why it might matter. If it says NO_CHANGE, respond with just [SILENT]." --script ~/.hermes/scripts/watch-site.py --name "Pricing monitor" --deliver telegram
+/cron add "every 1h" "If the script output says CHANGE DETECTED, summarize what changed on the page and why it might matter. If it says NO_CHANGE, respond with just [SILENT]." --script ~/.hermes/scripts/watch-site.py --name "Pricing monitor" --deliver none
 ```
 
 :::tip The [SILENT] Trick
-For cron monitoring jobs, instruct the agent to respond with only `[SILENT]` when nothing changed. Cron delivery treats `[SILENT]` as the quiet marker, so you only get notified when something actually happens — no spam on quiet hours.
+For cron monitoring jobs, instruct the agent to respond with only `[SILENT]` when nothing changed. Cron delivery treats `[SILENT]` as the quiet marker; output is still saved locally.
 :::
 
-:::tip Keeping failure notices out of shared channels
-`[SILENT]` only applies to successful runs — when a job hard-fails, the engine posts a `⚠️ Cron 'X' failed…` notice to the job's delivery target. For jobs that deliver into busy shared channels, set `--failure-deliver local` to suppress those notices entirely (run state stays visible in `hermes cron list` and run history), or point failures at an ops channel with `--failure-deliver slack:C_OPS`. Same grammar as `--deliver`; omit it and failures follow `--deliver` as before.
-:::
 
 ---
 
 ## Pattern 2: Weekly Report
 
-Compile information from multiple sources into a formatted summary. This runs once a week and delivers to your home channel.
+Compile information from multiple sources into a formatted summary, saved once a week.
 
 ```bash
 /cron add "0 9 * * 1" "Generate a weekly report covering:
@@ -92,7 +89,7 @@ Compile information from multiple sources into a formatted summary. This runs on
 3. Check Hacker News for the most discussed AI/ML posts
 
 Format as a clean summary with sections for each source. Include links.
-Keep it under 500 words — highlight only what matters." --name "Weekly AI digest" --deliver telegram
+Keep it under 500 words — highlight only what matters." --name "Weekly AI digest" --deliver none
 ```
 
 From the CLI:
@@ -101,7 +98,7 @@ From the CLI:
 hermes cron create "0 9 * * 1" \
   "Generate a weekly report covering the top AI news, trending ML GitHub repos, and most-discussed HN posts. Format with sections, include links, keep under 500 words." \
   --name "Weekly AI digest" \
-  --deliver telegram
+  --deliver none
 ```
 
 The `0 9 * * 1` is a standard cron expression: 9:00 AM every Monday.
@@ -123,7 +120,7 @@ Use the terminal to run gh commands:
   gh pr list --repo NousResearch/hermes-agent --state all --json number,title,author,createdAt,mergedAt --limit 10
 
 Filter to only items from the last 6 hours. If nothing new, respond with [SILENT].
-Otherwise, provide a concise summary of the activity." --name "Repo watcher" --deliver discord
+Otherwise, provide a concise summary of the activity." --name "Repo watcher" --deliver none
 ```
 
 :::warning Self-Contained Prompts
@@ -175,7 +172,7 @@ If prices are flat and nothing notable, respond with [SILENT].
 If there's a significant move, explain what happened." \
   --script ~/.hermes/scripts/collect-prices.py \
   --name "Price tracker" \
-  --deliver telegram
+  --deliver none
 ```
 
 The script does the mechanical collection; the agent adds the reasoning layer.
@@ -203,7 +200,7 @@ cronjob(
     prompt="Search arXiv for papers on 'language model reasoning' from the past day. Save the top 3 as Obsidian notes.",
     schedule="0 8 * * *",
     name="Paper digest",
-    deliver="local"
+    deliver="none"
 )
 ```
 
@@ -239,39 +236,7 @@ Skills are loaded in order — `arxiv` first (teaches the agent how to search pa
 
 ## Delivery Targets
 
-The `--deliver` flag controls where results go:
-
-| Target | Example | Use case |
-|--------|---------|----------|
-| `origin` | `--deliver origin` | Same chat that created the job (default) |
-| `local` | `--deliver local` | Save to local file only |
-| `telegram` | `--deliver telegram` | Your Telegram home channel |
-| `discord` | `--deliver discord` | Your Discord home channel |
-| `slack` | `--deliver slack` | Your Slack home channel |
-| Specific chat | `--deliver telegram:-1001234567890` | A specific Telegram group |
-| Threaded | `--deliver telegram:-1001234567890:17585` | A specific Telegram topic thread |
-| Bot Chat | `--deliver bot-chat` | Inject output into this profile's canonical Bot Chat — the bot reads it and responds |
-| Bot Chat (named) | `--deliver bot-chat:research` | Another local profile's Bot Chat |
-
-### Bot Chat delivery
-
-`bot-chat` targets deliver the job's output **into a profile's canonical "Bot
-Chat" session as a real message** — the bot receives it like any other message,
-acts on anything that needs action, and responds in that chat. This is the
-target to use when you want a bot to *see and react to* scheduled output
-instead of just having it archived in Run history.
-
-Things to know:
-
-- **Machine-local.** The profile must exist on the machine running the
-  scheduler (`hermes profile list`). Names are validated at create time;
-  profiles on other gateways/machines cannot be targeted.
-- **Costs a bot turn.** Each delivery runs a full agent turn in the target
-  bot's Bot Chat — budget accordingly for high-frequency jobs.
-- **Combinable.** `--deliver bot-chat,telegram` posts to the bot AND your
-  Telegram home channel. The `all` token never expands to bot-chat targets.
-- The delivered message is prefixed so the bot knows it came from a scheduled
-  job, not from you.
+Use `--deliver none` to save output under `~/.hermes/cron/output/` without an external delivery destination.
 
 ---
 

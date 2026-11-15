@@ -328,7 +328,7 @@ Common examples:
 
 For the full built-in CLI and messaging lists, see [Slash Commands Reference](../reference/slash-commands.md).
 
-For setup, providers, silence tuning, and messaging/Discord voice usage, see [Voice Mode](features/voice-mode.md).
+For voice setup and providers, see [Use Voice Mode with Hermes](../guides/use-voice-mode-with-hermes.md).
 
 :::tip
 Commands are case-insensitive — `/HELP` works the same as `/help`. Installed skills also become slash commands automatically.

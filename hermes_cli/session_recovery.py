@@ -368,11 +368,10 @@ def inspect_session_database(source_path: Path, *, work_dir: Optional[Path] = No
         temp_dir.cleanup()
 
 
-def _fresh_destination(output: Path, *, topic_tables: bool = False) -> sqlite3.Connection:
+def _fresh_destination(output: Path) -> sqlite3.Connection:
     """Initialize a current-schema database at ``output`` and open it with foreign keys off."""
-    with SessionDB(db_path=output) as destination_db:
-        if topic_tables:
-            destination_db.apply_telegram_topic_migration()
+    with SessionDB(db_path=output):
+        pass
     conn = _connect(output)
     conn.execute("PRAGMA foreign_keys=OFF")
     return conn
@@ -864,7 +863,7 @@ def _verify_row_counts(
             verification["errors"].append(message)
     counts = {table: _count_rows(conn, table) for table in _INVENTORY_TABLES if _table_columns(conn, table)}
     verification["table_counts"] = counts
-    for table in ("sessions", "messages", *_AUXILIARY_TABLES):
+    for table in ("sessions", "messages", *_TOPIC_TABLES, *_AUXILIARY_TABLES):
         expected = expected_counts.get(table)
         if expected is not None and counts.get(table) != expected:
             flag(f"{table} count is {counts.get(table)}, expected {expected}", soft=allow_partial)
@@ -1250,9 +1249,7 @@ def _recover_session_database_output(
         source_conn.execute("PRAGMA writable_schema=ON")
         destination_conn: Optional[sqlite3.Connection] = None
         try:
-            destination_conn = _fresh_destination(
-                output, topic_tables=any(inspection["tables"][table].get("available") for table in _TOPIC_TABLES),
-            )
+            destination_conn = _fresh_destination(output)
             copy_report: dict[str, dict[str, Any]] = {}
             for table in (*_CANONICAL_TABLES, "state_meta", *_TOPIC_TABLES, *_AUXILIARY_TABLES):
                 if table not in _CANONICAL_TABLES and not inspection["tables"][table].get("available"):
@@ -1260,6 +1257,13 @@ def _recover_session_database_output(
                     continue
                 if table in _AUXILIARY_TABLES:  # lazy gateway table: create it or the copy reports "missing"
                     _AUXILIARY_TABLE_SCHEMAS[table](destination_conn)
+                if table in _TOPIC_TABLES:
+                    # Preserve the original legacy schema, including older variants.
+                    schema = source_conn.execute(
+                        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+                    ).fetchone()
+                    if schema and schema[0]:
+                        destination_conn.execute(schema[0])
                 copy_report[table] = _copy_table(
                     source_conn, destination_conn, table, salvage=allow_partial, chunk_size=chunk_size,
                     progress_cb=progress_cb, source_rows=inspection["tables"][table].get("rows"),
@@ -1272,7 +1276,7 @@ def _recover_session_database_output(
                 destination_conn.close()
         expected_counts = {
             table: inspection["tables"][table].get("rows")
-            for table in (*_CANONICAL_TABLES, *_AUXILIARY_TABLES)
+            for table in (*_CANONICAL_TABLES, *_TOPIC_TABLES, *_AUXILIARY_TABLES)
             if table in _CANONICAL_TABLES or inspection["tables"].get(table, {}).get("available")
         }
         verification = _verify_recovered_database(

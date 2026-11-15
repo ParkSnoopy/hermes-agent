@@ -839,9 +839,7 @@ export default function EnvPage() {
       setting: t.app.nav.config,
     };
     const CATEGORY_META_HINTS: Record<string, string | undefined> = {
-      messaging:
-        t.common.gatewayHint ??
-        "Messaging platforms, the API server and webhooks are configured on the Channels page. These are gateway-wide settings (proxy/relay mode and the global allowlist).",
+      messaging: "Gateway-wide settings for the API server and webhooks.",
     };
     const otherCategories = ["tool", "messaging", "setting"];
     const nonProvider = otherCategories.map((cat) => {

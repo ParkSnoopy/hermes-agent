@@ -20,7 +20,6 @@ from contextlib import suppress
 from pathlib import Path
 
 from agent.i18n import t
-from gateway.config import Platform
 from gateway.platforms.base import EphemeralReply
 from gateway.platforms.event import MessageEvent, MessageType, clean_attachment_filename
 from gateway.run_busy import approval_input_words
@@ -48,30 +47,7 @@ if TYPE_CHECKING:  # string annotations only; never imported at runtime (cycle)
 # Log-record parity with the origin module.
 logger = logging.getLogger("gateway.run")
 
-# ``RelayMediaClient.download`` temp-file prefix: the rest of such a basename is random, not a name.
-_RELAY_MEDIA_PREFIX = "relay_media_"
-_UNKNOWN_ATTACHMENT_NAME = "(original filename unknown)"
 
-
-def discord_triggering_note(message_id: Any) -> str:
-    """Model-facing routing note for a Discord turn (rides the API-bound user message only)."""
-    return (
-        f"[Triggering message id: `{message_id}` — use as `message_id` for reply/react/pin "
-        f"via the discord tools.]"
-    )
-
-
-def strip_discord_triggering_note(event: Any, message_text: Any) -> Any:
-    """Authored text for the durable user row: peel off exactly the note
-    ``_prepend_inbound_reply_context`` added for THIS event, if present. The note is a
-    model instruction, not something the user wrote — persisted as ``content`` it renders
-    verbatim in every transcript surface and pollutes FTS/memory (#71304, #114719). It
-    keeps riding ``message_text`` (and the replay-only ``api_content`` sidecar)."""
-    message_id = getattr(event, "message_id", None)
-    if not message_id or not isinstance(message_text, str):
-        return message_text
-    prefix = f"{discord_triggering_note(message_id)}\n\n"
-    return message_text.removeprefix(prefix)
 
 
 class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionMixin, GatewayPluginInjectionMixin):
@@ -151,7 +127,6 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
     ) -> Optional[tuple[MessageEvent, SessionSource, bool]]:
         """Ingress gates for ``_handle_message``; None when dropped, else ``(event, source, is_internal)``
         (the ``pre_gateway_dispatch`` hook may have rewritten ``event``)."""
-        from gateway.run import _is_slack_ignored_channel
         source = event.source
         # getattr(self, ...) throughout: bare test runners build GatewayRunner via object.__new__.
         _config = getattr(self, "config", None)
@@ -181,22 +156,6 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
 
         is_internal = bool(getattr(event, "internal", False))  # e.g. background-process notifications
 
-        # Ignored-channel guard runs FIRST — before startup-restore queueing, plugin hooks, auth,
-        # and session setup — so an ignored channel can never reach pairing/auth/session state.
-        _chat_id = getattr(source, "chat_id", None)
-        if not is_internal and getattr(source, "platform", None) == Platform.SLACK:
-            # The routed adapter's extra carries a secondary profile's own list; ``_config`` is the default's.
-            _slack_adapter = None
-            with suppress(Exception):
-                _slack_adapter = self._intake_adapter_for(source)
-        if (
-            # See #51899.
-            not is_internal
-            and getattr(source, "platform", None) == Platform.SLACK
-            and _is_slack_ignored_channel(_config, _chat_id, _slack_adapter)
-        ):
-            logger.info("Dropping Slack message from configured ignored channel %s", _chat_id)
-            return None
 
         # An admission the authority is executing is already ordered by its durable FIFO; parking it
         # here would settle the row with no turn and replay the input outside it (GW-2).
@@ -215,9 +174,6 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         if getattr(event, "_fifo_only", False):  # a slash command's queued turn: its command passed ingress
             return event, source, False
 
-        # scale-to-zero: only real user-originated inbound stamps the last-inbound clock;
-        # counting internal/system events would keep a genuinely idle gateway awake.
-        self._scale_to_zero_note_real_inbound()
         event = await self._hm_pre_gateway_dispatch_hook(event, source)
         if event is None:
             return None
@@ -697,35 +653,6 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             with suppress(RuntimeStoreError):
                 await authority.interrupt(actor, ref, handle.execution_generation)
 
-    def _hm_busy_telegram_grace_queue(
-        self, event: MessageEvent, source: SessionSource, _quick_key: str, effective_busy_input_mode: str
-    ) -> bool:
-        """Queue a Telegram text follow-up that lands within the post-start grace window.
-
-        Invalid or empty ``HERMES_TELEGRAM_FOLLOWUP_GRACE_SECONDS`` falls back to 3.0
-        via ``_float_env`` — a config typo must not crash the inbound handler.
-        """
-        from gateway.run import _float_env
-        _grace = _float_env("HERMES_TELEGRAM_FOLLOWUP_GRACE_SECONDS", 3.0)
-        _grace_state = self._peek_session_state(_quick_key)
-        _started_at = _grace_state.turn.started_ts if _grace_state else 0
-        if not (
-            source.platform == Platform.TELEGRAM and event.message_type == MessageType.TEXT
-            and _grace > 0 and _started_at and (time.time() - _started_at) <= _grace
-        ):
-            return False
-        logger.debug(
-            "Telegram follow-up arrived %.2fs after run start for %s — queueing without interrupt",
-            time.time() - _started_at, _quick_key,
-        )
-        if effective_busy_input_mode != "queue":
-            self._hm_merge_pending_for_source(source, _quick_key, event, merge_text=True)
-        else:
-            adapter = self._delivery_adapter_for(source)
-            if adapter:
-                self._enqueue_fifo(_quick_key, event, adapter)
-        return True
-
     @staticmethod
     def _hm_text_only(event: MessageEvent) -> bool:
         return event.message_type == MessageType.TEXT and not event.media_urls and not event.media_types
@@ -816,8 +743,6 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
 
         effective_busy_input_mode = ("interrupt" if self._clarify_takeover(event, _quick_key)
                                      else self._effective_busy_input_mode(source))
-        if self._hm_busy_telegram_grace_queue(event, source, _quick_key, effective_busy_input_mode):
-            return None
 
         _ra_state = self._peek_session_state(_quick_key)
         running_agent = _ra_state.turn.agent if _ra_state else None
@@ -916,16 +841,12 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         )
 
     async def _hm_cmd_new(self, event, source, _quick_key):
-        if await asyncio.to_thread(self._is_telegram_topic_root_lobby, source):
-            return True, self._telegram_topic_root_new_message()
+
         return await self._hm_confirm_destructive(
             event, "new", t("gateway.confirm.detail_new"),
             self._handle_reset_command,
         )
 
-    async def _hm_cmd_start(self, event, source, _quick_key):
-        logger.info("Ignoring /start platform ping for session %s", _quick_key)
-        return True, ""
 
     async def _hm_cmd_egress(self, event, source, _quick_key):
         from hermes_cli.proxy_cli import format_status_text
@@ -1058,7 +979,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
     # Idle-path built-ins with bespoke flow (confirmations, prompt rewrites, one-shot MoA), each
     # handled by ``_hm_cmd_<name>`` → ``(handled, result)``; ``(False, None)`` falls through to the agent.
     _HM_CANONICAL_COMMANDS = frozenset({
-        "new", "start", "egress", "learn", "plan", "init", "blueprint", "undo", "queue", "steer", "moa",
+        "new", "egress", "learn", "plan", "init", "blueprint", "undo", "queue", "steer", "moa",
     })
 
     async def _hm_dispatch_canonical_command(
@@ -1364,11 +1285,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         # Pending exec approvals go through /approve and /deny only — no bare-text matching, or a
         # conversational "yes" would execute a dangerous command.
         if not is_internal:
-            if await asyncio.to_thread(self._is_telegram_topic_root_lobby, source):
-                # Debounced so a user who forgets about topic mode doesn't get ten reminders.
-                if self._should_send_telegram_lobby_reminder(source):
-                    return self._telegram_topic_root_lobby_message()
-                return None
+
             # External-drain new-turn gate: when NAS engaged an external drain (.drain_request.json,
             # seen by _drain_control_watcher), refuse to START new turns so the in-flight set can
             # only fall to zero. Reversible.
@@ -1472,11 +1389,6 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             # Display names are attacker-influenceable: neutralize newlines/control chars or a
             # hostile name masquerades as a fake markdown section (mirrors build_session_context_prompt).
             _safe_user_name = neutralize_untrusted_inline_text(source.user_name)
-            # Slack: expose the CURRENT speaker's verifiable `<@U...>` id so "mention me again" has a
-            # trusted target (display names are ambiguous). user_id comes from the envelope, not user-editable.
-            # See #17916.
-            if source.platform == Platform.SLACK and source.user_id:
-                _safe_user_name = f"{_safe_user_name} | Slack user <@{source.user_id}>"
             message_text = f"[{_safe_user_name}] {message_text}"
         # After the sender-prefix so the prefix applies only to the trigger message, not the backfill.
         if getattr(event, "channel_context", None):
@@ -1578,8 +1490,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         from tools.credential_files import to_agent_visible_cache_path
         basename = os.path.basename(path)
         name = clean_attachment_filename(original_name)
-        if not name and basename.startswith(_RELAY_MEDIA_PREFIX):
-            return _UNKNOWN_ATTACHMENT_NAME, to_agent_visible_cache_path(path)
+
         if not name:
             parts = basename.split("_", 2)
             name = parts[2] if len(parts) >= 3 else basename
@@ -1652,7 +1563,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
 
     @staticmethod
     def _prepend_inbound_reply_context(event: MessageEvent, source: SessionSource, message_text: str) -> str:
-        """Prepend the reply-to pointer, then the Discord triggering-message note (outermost)."""
+        """Prepend the reply-to pointer to the inbound message."""
         if getattr(event, "reply_to_text", None) and event.reply_to_message_id:
             # Always inject the reply-to pointer even when the quoted text is already in history:
             # it's disambiguation (*which* prior message), not deduplication.
@@ -1662,18 +1573,6 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             _who = " your previous message" if getattr(event, "reply_to_is_own_message", False) else ""
             message_text = f'[Replying to{_who}: "{reply_text}"]\n\n{message_text}'
 
-        # Discord: the triggering message id goes on the per-turn user message, never the cached
-        # system prompt — it changes every turn and would bust the agent-cache signature. It is
-        # the OUTERMOST prefix so strip_discord_triggering_note can peel exactly it off the
-        # persisted transcript row without touching the reply pointer.
-        if (
-            source is not None
-            and getattr(source, "platform", None) == Platform.DISCORD
-            and getattr(event, "message_id", None)
-        ):
-            from gateway.session import _discord_tools_loaded as _disc_tools_loaded
-            if _disc_tools_loaded():
-                message_text = f"{discord_triggering_note(event.message_id)}\n\n{message_text}"
         return message_text
 
     async def _inbound_model_context_length(self, source: SessionSource, session_key: str) -> int:

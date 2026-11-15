@@ -256,15 +256,11 @@ class TestRunSingleChildSchemaValidation:
         assert entry["schema_valid"] is True and len(child.calls) == 1
 
 
-    def test_retry_turn_runs_in_delegated_child_context(self, monkeypatch):
-        """The retry is a second run_conversation on the child, issued from the parent's
-        thread where HERMES_KANBAN_TASK is set. Unwrapped it carries the worker's identity,
-        so the kanban stop guard nudges the child toward a board tool it does not have
-        (#109735 / #87671)."""
+    def test_retry_turn_runs_in_delegated_child_context(self):
+        """A schema retry retains child identity and restores the parent's context."""
         from agent.delegation_context import is_delegated_child_context
         from tools.delegate_tool_child_run import _validate_child_output_schema
 
-        monkeypatch.setenv("HERMES_KANBAN_TASK", "t_parent")
         seen: list = []
 
         class _Child(_StubChild):

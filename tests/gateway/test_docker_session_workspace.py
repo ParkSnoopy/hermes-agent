@@ -355,7 +355,7 @@ def test_named_launch_profiles_side_agent_keeps_its_sessions_workspace_container
 
 def test_managed_worker_turn_runs_in_its_sessions_workspace(home, tmp_path, monkeypatch):
     # Review (@kshitijk4poor S2): out-of-process (managed worker) turns never bound the workspace.
-    from gateway import session_kanban
+    from gateway import session_worker_turns
     from gateway.session_policy import policy_scope
     ws1 = tmp_path / 'ws1'
     ws1.mkdir()
@@ -371,14 +371,14 @@ def test_managed_worker_turn_runs_in_its_sessions_workspace(home, tmp_path, monk
     frame = {'policy': asdict(policy), 'text': 'hi', 'route': 'agent:main:local:dm:worker-s1',
              'scope': {'session_id': 'worker-s1'}}
     with policy_scope(policy):  # agent/managed_worker.py: policy_scope(policy), no session key bound
-        session_kanban.run_worker_turns(Agent(), frame, [])
+        session_worker_turns.run_worker_turns(Agent(), frame, [])
     assert seen['task_id'] == 'worker-s1'
     assert ':ws:' in seen['plan'][0]
     assert seen['plan'][1] == str(ws1)
 
 
 def test_secondary_profiles_managed_worker_turn_keys_its_own_workspace_container(home, tmp_path, monkeypatch):
-    from gateway import session_kanban
+    from gateway import session_worker_turns
     from gateway.session_policy import policy_scope
     from tools.terminal_tool import workspace_key_for
     ws1 = tmp_path / 'ws1'
@@ -397,7 +397,7 @@ def test_secondary_profiles_managed_worker_turn_keys_its_own_workspace_container
     frame = {'home': str(beta), 'policy': asdict(policy), 'text': 'hi', 'route': 'agent:beta:local:dm:worker-s1',
              'scope': {'session_id': 'worker-s1'}}
     with policy_scope(policy):
-        session_kanban.run_worker_turns(Agent(), frame, [])
+        session_worker_turns.run_worker_turns(Agent(), frame, [])
     # The key beta's in-gateway turns and side agents use, not the `default:ws:` one.
     assert seen['key'] == f'profile:beta:ws:{workspace_key_for(str(ws1))}'
 
@@ -405,7 +405,7 @@ def test_secondary_profiles_managed_worker_turn_keys_its_own_workspace_container
 def test_named_launch_profiles_managed_worker_turn_keeps_its_sessions_workspace_container(home, tmp_path, monkeypatch):
     # `hermes -p beta gateway` (a named profile never multiplexes): its routes are `agent:main`, its
     # in-process turns and side agents bind no profile, and its worker turns must key the same container.
-    from gateway import session_kanban
+    from gateway import session_worker_turns
     from gateway.session_policy import policy_scope
     ws1 = tmp_path / 'ws1'
     ws1.mkdir()
@@ -425,5 +425,5 @@ def test_named_launch_profiles_managed_worker_turn_keeps_its_sessions_workspace_
     frame = {'home': str(beta), 'policy': asdict(policy), 'text': 'hi', 'route': 'agent:main:local:dm:worker-s1',
              'scope': {'session_id': 'worker-s1'}}
     with policy_scope(policy):
-        session_kanban.run_worker_turns(Agent(), frame, [])
+        session_worker_turns.run_worker_turns(Agent(), frame, [])
     assert seen['key'] == session_key

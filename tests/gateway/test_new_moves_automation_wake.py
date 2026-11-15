@@ -1,6 +1,6 @@
 """Messaging /new keeps a queued automation wake and runs it on the fresh session, as main's #114456
 kept a parked internal wake across /new; it is never stranded queued on the abandoned owner (N83).
-Real GatewayRunner, DiscordAdapter, SessionAuthority and drain over SQLite; the turn is a stand-in."""
+Real GatewayRunner, a generic adapter, SessionAuthority and drain over SQLite; the turn is a stand-in."""
 import asyncio
 
 import pytest
@@ -12,24 +12,40 @@ from tests.waiting import async_wait_until
 @pytest.mark.parametrize('settles_mid_reset', [False, True])
 async def test_new_moves_a_queued_wake_to_the_fresh_session(monkeypatch, settles_mid_reset):
     from gateway.config import GatewayConfig, Platform, PlatformConfig
-    from gateway.platforms.base import SendResult
+    from gateway.platforms.base import BasePlatformAdapter, SendResult
     from gateway.platforms.event import MessageEvent
     from gateway.run import GatewayRunner
     from gateway.session_authority import initialize_session_authority
     from gateway.session_automation import admit_route_wake
     from gateway.session_results import execution_result
     from hermes_state_runtime import list_session_admissions
-    from plugins.platforms.discord.adapter import DiscordAdapter
+    from gateway.platform_registry import PlatformEntry, platform_registry
 
-    monkeypatch.setenv('DISCORD_ALLOWED_USERS', '42')
+    class Adapter(BasePlatformAdapter):
+        async def connect(self, *, is_reconnect=False):
+            return True
+
+        async def disconnect(self):
+            pass
+
+        async def send(self, chat_id, content, reply_to=None, metadata=None):
+            return SendResult(success=True, message_id='sent')
+
+        async def get_chat_info(self, chat_id):
+            return {}
+
+    platform_registry.register(PlatformEntry(name='wakeprobe', label='Wake probe',
+        adapter_factory=lambda cfg: Adapter(cfg, Platform('wakeprobe')), check_fn=lambda: True,
+        allowed_users_env='WAKEPROBE_ALLOWED_USERS'))
+    monkeypatch.setenv('WAKEPROBE_ALLOWED_USERS', '42')
     runner = GatewayRunner(GatewayConfig())
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token='fixture-token', typing_indicator=False))
+    adapter = Adapter(PlatformConfig(enabled=True, token='fixture-token', typing_indicator=False), Platform('wakeprobe'))
 
     async def send(chat_id, content, reply_to=None, metadata=None):
         return SendResult(success=True, message_id='sent')
     monkeypatch.setattr(adapter, 'send', send)
     adapter.gateway_runner = runner
-    runner.adapters = {Platform.DISCORD: adapter}
+    runner.adapters = {Platform('wakeprobe'): adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='owner')
     runner._wire_adapter_handlers(adapter)
     source = adapter.build_source(chat_id='42', chat_type='dm', user_id='42')
@@ -55,7 +71,7 @@ async def test_new_moves_a_queued_wake_to_the_fresh_session(monkeypatch, settles
     await adapter.handle_message(MessageEvent(text='A', source=source, message_id='A'))
     await asyncio.wait_for(running.wait(), 10)
     old = runner.session_store.peek_session_id(key)
-    assert await admit_route_wake(runner, adapter, source, 'WAKE', 'kanban-wake')
+    assert await admit_route_wake(runner, adapter, source, 'WAKE', 'loop-tick')
     if settles_mid_reset:
         # The old turn settles after the rotation, before the wake moves: its drain wakes up there.
         live = authority.sessions[authority.logical_owner(old)]

@@ -1,41 +1,43 @@
-"""The ``/approve`` text fallback on an adapter whose ``send`` caps a split message (Discord's
-``MAX_SPLIT_MESSAGES``) or cannot report a lost chunk (the relay): the uncut command must not push the
-answer instructions and the deadline past what is delivered (#62359)."""
+"""Approval fallback must preserve instructions when delivery cannot prove the whole command."""
 from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+
 
 import pytest
 
-from gateway.config import PlatformConfig
+from gateway.config import Platform, PlatformConfig
+from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.run_turn_runner import TurnRunner
 from tools import approval
 from tools.approval_gateway_wait import _ApprovalEntry
 
-SESSION = "agent:main:discord:dm:555"
+SESSION = "agent:main:test:dm:555"
 TAIL = "&& rm -rf ~ # TAIL_MARKER"
 
 
-def _discord():
-    from plugins.platforms.discord.adapter import DiscordAdapter
+class CaptureAdapter(BasePlatformAdapter):
+    MAX_MESSAGE_LENGTH = 2000
+    MAX_SPLIT_MESSAGES = 5
+    splits_long_messages = True
 
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token="***"))
-    sent = []
+    def __init__(self):
+        super().__init__(PlatformConfig(enabled=True), Platform.LOCAL)
+        self.sent = []
 
-    async def fake_send(**kwargs):
-        sent.append(kwargs.get("content", ""))
-        return SimpleNamespace(id=len(sent))
+    async def connect(self, *, is_reconnect=False):
+        return True
 
-    channel = SimpleNamespace(send=AsyncMock(side_effect=fake_send))
-    adapter._client = SimpleNamespace(get_channel=lambda _chat_id: channel, fetch_channel=AsyncMock())
+    async def disconnect(self):
+        pass
 
-    async def card_fails(**_kwargs):  # the button card could not be sent: the text fallback answers
-        raise RuntimeError("card send failed")
-    adapter.send_exec_approval = card_fails
-    adapter.pause_typing_for_chat = lambda _c: None
-    return adapter, sent
+    async def get_chat_info(self, chat_id):
+        return {}
+
+    async def send(self, chat_id, content, **kwargs):
+        self.sent.extend(self.truncate_message(self.format_message(content), self.MAX_MESSAGE_LENGTH)[:self.MAX_SPLIT_MESSAGES])
+        return SendResult(success=True, message_id='sent')
 
 
 def _render(adapter, command: str) -> None:
@@ -62,31 +64,25 @@ def pending():
         approval._gateway_queues.clear()
 
 
-def test_discord_fallback_past_the_chunk_cap_keeps_instructions_and_offers_only_deny(pending):
-    adapter, sent = _discord()
+def test_fallback_past_the_chunk_cap_keeps_instructions_and_offers_only_deny(pending):
+    adapter = CaptureAdapter()
     _render(adapter, "echo " + "A" * 20000 + " " + TAIL)
-    delivered = "".join(sent)
+    delivered = "".join(adapter.sent)
     assert "/deny" in delivered and "it will NOT run" in delivered  # instructions and deadline survive
     assert TAIL not in delivered and "/approve" not in delivered  # an unseen tail is never offered for approval
-    assert len(sent) <= adapter.MAX_SPLIT_MESSAGES
+    assert len(adapter.sent) <= adapter.MAX_SPLIT_MESSAGES
 
 
-def test_relay_fallback_longer_than_one_message_keeps_instructions_and_offers_only_deny(pending):
-    from tests.gateway.relay.test_relay_full_command_proof import _Connector, _relay
-
-    connector = _Connector()
-    adapter = _relay(connector)
-
-    async def card_fails(**_kwargs):
-        raise RuntimeError("card send failed")
-    adapter.send_exec_approval, adapter.pause_typing_for_chat = card_fails, lambda _c: None
+def test_unproven_partial_delivery_offers_only_deny(pending):
+    adapter = CaptureAdapter()
+    adapter.reports_partial_delivery = False
     _render(adapter, "echo " + "A" * 6000 + " " + TAIL)
-    assert len(connector.sends) == 1 and len(connector.sends[0]) <= 2000  # nothing left for the connector to split
-    assert "/deny" in connector.sends[0] and "/approve" not in connector.sends[0] and TAIL not in connector.sends[0]
+    assert len(adapter.sent) == 1 and len(adapter.sent[0]) <= 2000
+    assert "/deny" in adapter.sent[0] and "/approve" not in adapter.sent[0] and TAIL not in adapter.sent[0]
 
 
-def test_discord_fallback_within_the_chunk_cap_keeps_every_choice(pending):
-    adapter, sent = _discord()
+def test_fallback_within_the_chunk_cap_keeps_every_choice(pending):
+    adapter = CaptureAdapter()
     _render(adapter, "echo " + "A" * 5000 + " " + TAIL)
-    delivered = "".join(sent)
+    delivered = "".join(adapter.sent)
     assert TAIL in delivered and "/approve" in delivered and "/deny" in delivered

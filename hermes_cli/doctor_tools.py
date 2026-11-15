@@ -84,24 +84,11 @@ def _run_ok(cmd: list[str], timeout: int, **kw) -> bool:
 
 _TERMUX_INSTALL_ALL_FALLBACK_NOTES = (
     "Termux uses the Hermes APT package: pkg install hermes-agent.",
-    "Matrix E2EE extra is excluded on Termux (python-olm currently fails to build).",
+
     "Local faster-whisper extra is excluded on Termux (ctranslate2/av build path unavailable).",
     "STT fallback: use Groq Whisper (set GROQ_API_KEY) or OpenAI Whisper (set VOICE_TOOLS_OPENAI_KEY).",
 )
 
-
-def _is_kanban_worker_env_gate(item: dict) -> bool:
-    """Return True when Kanban is unavailable only because this is not a worker process."""
-    tools = item.get("tools") or []
-    return (item.get("name") == "kanban" and not os.environ.get("HERMES_KANBAN_TASK")
-            and bool(tools) and all(str(tool).startswith("kanban_") for tool in tools))
-
-
-def _doctor_tool_availability_detail(toolset: str) -> str:
-    """Optional explanatory suffix for toolsets whose doctor status needs context."""
-    if toolset == "kanban" and not os.environ.get("HERMES_KANBAN_TASK"):
-        return "(runtime-gated; loaded only for dispatcher-spawned workers)"
-    return ""
 
 
 def _doctor_web_capability_rows() -> list[tuple[str, str, str]]:
@@ -133,16 +120,6 @@ def _doctor_web_capability_rows() -> list[tuple[str, str, str]]:
                     else ("warn", capability, f"({name} selected; provider not configured)"))
     return rows
 
-
-def _apply_doctor_tool_availability_overrides(available: list[str], unavailable: list[dict]) -> tuple[list[str], list[dict]]:
-    """Adjust runtime-gated tool availability for doctor diagnostics."""
-    updated_available, updated_unavailable = list(available), []
-    for item in unavailable:
-        if not _is_kanban_worker_env_gate(item):
-            updated_unavailable.append(item)
-        elif "kanban" not in updated_available:
-            updated_available.append("kanban")
-    return updated_available, updated_unavailable
 
 
 def _enabled_cli_toolsets_for_doctor() -> set[str] | None:
@@ -438,32 +415,21 @@ def _audit_one(tool: str, cwd, label: str, audit_extra: list[str], manual_issues
 
 @doctor_check()
 def _check_npm_audit(should_fix: bool, f: Finding) -> None:
-    """pnpm audit per installed workspace (root, web, ui-tui); npm audit for the WhatsApp bridge.
+    """pnpm audit per installed workspace (root, web, ui-tui).
 
     The workspaces are audited one --filter each, so the desktop app's tree (Electron, node-pty, ...) is
-    never part of a routine check (#38772). The WhatsApp bridge may live under a writable HERMES_HOME
-    mirror rather than the (possibly read-only) Docker install tree, hence the shared resolver.
+    never part of a routine check (#38772).
     """
     from hermes_cli.doctor import PROJECT_ROOT
-    staged = _pm_tool_path("npm")
-    npm_bin = str(staged) if staged else (_safe_which("npm") if _is_termux() else None)
+
     # Termux has no pnpm: nothing installs the JS workspaces on device.
     pnpm_bin = _pm_tool_path("pnpm")
-    try:
-        # The WhatsApp bridge may live under a writable HERMES_HOME mirror instead of the (possibly
-        # read-only) install tree in Docker — resolve it through the shared helper so we audit the dir
-        # that actually holds node_modules. See #49561.
-        from gateway.platforms.whatsapp_common import resolve_whatsapp_bridge_dir
-        whatsapp_bridge_dir = resolve_whatsapp_bridge_dir()
-    except Exception:
-        whatsapp_bridge_dir = PROJECT_ROOT / "scripts" / "whatsapp-bridge"
     for tool, tree, label, audit_extra in (
         # The root package.json itself (js-yaml, semver, eslint tooling). See #122223.
         (pnpm_bin, PROJECT_ROOT, "Root npm package", ["--filter", "."]),
         # `{./X}...`: the workspace and the sibling workspaces it depends on (apps/shared, hermes-ink).
         (pnpm_bin, PROJECT_ROOT / "web", "web workspace", ["--filter", "{./web}..."]),
         (pnpm_bin, PROJECT_ROOT / "ui-tui", "ui-tui workspace", ["--filter", "{./ui-tui}..."]),
-        (npm_bin, whatsapp_bridge_dir, "WhatsApp bridge", []),
     ):
         # Only installed trees: pnpm links each installed workspace's own node_modules.
         if tool and (tree / "node_modules").exists():
@@ -480,7 +446,7 @@ def _check_tool_availability(should_fix: bool, f: Finding) -> None:
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
     from model_tools import check_tool_availability, TOOLSET_REQUIREMENTS
-    available, unavailable = _apply_doctor_tool_availability_overrides(*check_tool_availability())
+    available, unavailable = check_tool_availability()
     # Web is split into search/extract readiness rows so an explicitly
     # selected but unconfigured backend cannot look healthy.
     web_rows = []
@@ -491,7 +457,7 @@ def _check_tool_availability(should_fix: bool, f: Finding) -> None:
             available = [tid for tid in available if tid != "web"]
             unavailable = [item for item in unavailable if item.get("name") != "web"]
     for tid in available:
-        check_ok(TOOLSET_REQUIREMENTS.get(tid, {}).get("name", tid), _doctor_tool_availability_detail(tid))
+        check_ok(TOOLSET_REQUIREMENTS.get(tid, {}).get("name", tid))
     for status, label, detail in web_rows:
         (check_ok if status == "ok" else check_warn)(label, detail)
     for item in unavailable:

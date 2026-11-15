@@ -16,7 +16,7 @@ Cron 任务在全新的 agent 会话中运行，不保留当前对话的任何�
 
 :::tip 不需要 LLM？你有两种零 token 方案。
 - **循环看门狗**：脚本本身已能生成精确消息（内存告警、磁盘告警、心跳）时，使用 [纯脚本 cron 任务](./cron-script-only.md)。相同的调度器，无需 LLM。你可以在对话中让 Hermes 帮你设置——`cronjob` 工具知道何时选择 `no_agent=True` 并为你编写脚本。
-- **已在运行的脚本发起的一次性通知**（CI 步骤、post-commit hook、部署脚本、外部调度的监控）：使用 [`hermes send`](./pipe-script-output.md) 将 stdout 或文件直接推送到 Telegram / Discord / Slack 等，无需设置 cron 条目。
+
 :::
 
 ---
@@ -67,7 +67,7 @@ else:
 设置 cron 任务：
 
 ```bash
-/cron add "every 1h" "If the script output says CHANGE DETECTED, summarize what changed on the page and why it might matter. If it says NO_CHANGE, respond with just [SILENT]." --script ~/.hermes/scripts/watch-site.py --name "Pricing monitor" --deliver telegram
+/cron add "every 1h" "If the script output says CHANGE DETECTED, summarize what changed on the page and why it might matter. If it says NO_CHANGE, respond with just [SILENT]." --script ~/.hermes/scripts/watch-site.py --name "Pricing monitor" --deliver none
 ```
 
 :::tip `[SILENT]` 技巧
@@ -88,7 +88,7 @@ else:
 3. Check Hacker News for the most discussed AI/ML posts
 
 Format as a clean summary with sections for each source. Include links.
-Keep it under 500 words — highlight only what matters." --name "Weekly AI digest" --deliver telegram
+Keep it under 500 words — highlight only what matters." --name "Weekly AI digest" --deliver none
 ```
 
 通过 CLI：
@@ -97,7 +97,7 @@ Keep it under 500 words — highlight only what matters." --name "Weekly AI dige
 hermes cron create "0 9 * * 1" \
   "Generate a weekly report covering the top AI news, trending ML GitHub repos, and most-discussed HN posts. Format with sections, include links, keep under 500 words." \
   --name "Weekly AI digest" \
-  --deliver telegram
+  --deliver none
 ```
 
 `0 9 * * 1` 是标准 cron 表达式：每周一上午 9:00。
@@ -119,7 +119,7 @@ Use the terminal to run gh commands:
   gh pr list --repo NousResearch/hermes-agent --state all --json number,title,author,createdAt,mergedAt --limit 10
 
 Filter to only items from the last 6 hours. If nothing new, respond with [SILENT].
-Otherwise, provide a concise summary of the activity." --name "Repo watcher" --deliver discord
+Otherwise, provide a concise summary of the activity." --name "Repo watcher" --deliver none
 ```
 
 :::warning 自包含的 Prompt
@@ -171,7 +171,7 @@ If prices are flat and nothing notable, respond with [SILENT].
 If there's a significant move, explain what happened." \
   --script ~/.hermes/scripts/collect-prices.py \
   --name "Price tracker" \
-  --deliver telegram
+  --deliver none
 ```
 
 脚本负责机械性的数据采集；agent 在此之上添加推理层。
@@ -199,7 +199,7 @@ cronjob(
     prompt="Search arXiv for papers on 'language model reasoning' from the past day. Save the top 3 as Obsidian notes.",
     schedule="0 8 * * *",
     name="Paper digest",
-    deliver="local"
+    deliver="none"
 )
 ```
 
@@ -239,13 +239,7 @@ Skill 按顺序加载——先加载 `arxiv`（教 agent 如何搜索论文）�
 
 | 目标 | 示例 | 使用场景 |
 |--------|---------|----------|
-| `origin` | `--deliver origin` | 创建该任务的对话（默认） |
-| `local` | `--deliver local` | 仅保存到本地文件 |
-| `telegram` | `--deliver telegram` | 你的 Telegram 主频道 |
-| `discord` | `--deliver discord` | 你的 Discord 主频道 |
-| `slack` | `--deliver slack` | 你的 Slack 主频道 |
-| 指定对话 | `--deliver telegram:-1001234567890` | 特定 Telegram 群组 |
-| 线程投递 | `--deliver telegram:-1001234567890:17585` | 特定 Telegram 话题线程 |
+| `none` | `--deliver none` | 仅保存结果到本地文件 |
 
 ---
 

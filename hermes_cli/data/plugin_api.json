@@ -67,7 +67,7 @@
         "agent.tts_provider",
         "cron.execution_identity",
         "hermes_cli.dashboard_auth",
-        "hermes_cli.platform_actions",
+
         "hermes_cli.plugins:PluginContext",
         "hermes_cli.plugins_ledger:PluginRegistration",
         "hermes_cli.plugins_state:PluginState"
@@ -100,11 +100,6 @@
         "tools.url_safety:is_safe_url",
         "tools.url_safety:create_ssrf_safe_async_client",
         "gateway.platforms._http_client_limits:platform_httpx_limits",
-        "hermes_cli.gateway_setup_wizard:print_setup_header",
-        "hermes_cli.gateway_setup_wizard:confirm_reconfigure",
-        "hermes_cli.gateway_setup_wizard:offer_home_channel",
-        "hermes_cli.gateway_setup_wizard:save_env_values",
-        "hermes_cli.gateway_setup_wizard:prompt_csv",
         "hermes_cli.setup:prompt",
         "hermes_cli.setup:prompt_choice",
         "hermes_cli.setup:prompt_yes_no",

@@ -81,11 +81,6 @@ _PLATFORM_PLUGIN_SEAMS = (
     ("tools.url_safety", "create_ssrf_safe_async_client"),
     ("tools.url_safety", "is_safe_url"),
     ("gateway.platforms._http_client_limits", "platform_httpx_limits"),
-    ("hermes_cli.gateway_setup_wizard", "print_setup_header"),
-    ("hermes_cli.gateway_setup_wizard", "confirm_reconfigure"),
-    ("hermes_cli.gateway_setup_wizard", "offer_home_channel"),
-    ("hermes_cli.gateway_setup_wizard", "save_env_values"),
-    ("hermes_cli.gateway_setup_wizard", "prompt_csv"),
 )
 
 

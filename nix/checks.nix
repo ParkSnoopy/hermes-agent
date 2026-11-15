@@ -1394,7 +1394,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           viaFunctionGroup = hermes-agent.override (prev: {
             extraDependencyGroups = prev.extraDependencyGroups ++ [ newGroup ];
           });
-          viaOverlayShipped = hermes-agent.override { extraDependencyGroups = [ "messaging" ]; };
+          viaOverlayShipped = hermes-agent.override { extraDependencyGroups = [ "anthropic" ]; };
 
           # A custom `package` that already carries extras of its own: the
           # module's extras must land on top of them, not replace them.
@@ -1517,18 +1517,6 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           echo "ok" > $out/result
         '';
 
-        # Regression guard: messaging deps live outside [all], so the
-        # #messaging variant must actually ship discord.py — otherwise
-        # `nix profile install .#messaging` regresses to the broken default.
-        messaging-variant = pkgs.runCommand "hermes-messaging-variant" { } ''
-          set -e
-          echo "=== Checking discord.py importable from messaging variant ==="
-          ${self'.packages.messaging.hermesVenv}/bin/python3 -c \
-            "import discord; print(discord.__version__)"
-          echo "PASS: discord.py importable from messaging variant venv"
-          mkdir -p $out
-          echo "ok" > $out/result
-        '';
 
         # A fresh declarative install must be current to the Hermes it ships
         # with. Hermes cannot stamp config.yaml in managed mode, so an

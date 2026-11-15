@@ -360,8 +360,6 @@ function CronJobFormFields({
   ) => {
     onChange({ ...form, [key]: next });
   };
-  const onlyLocalAvailable =
-    deliveryTargets.filter((target) => target.id !== "local").length === 0;
 
   const deliveryOptions = selectOptions(
     form.deliver,
@@ -413,12 +411,7 @@ function CronJobFormFields({
         >
           {deliveryOptions}
         </Select>
-        {onlyLocalAvailable && (
-          <p className="text-xs text-muted-foreground">
-            {t.cron.delivery.noneConfigured ??
-              "No messaging platforms configured. Set one up under Channels to deliver reports."}
-          </p>
-        )}
+
       </div>
 
       <div className="grid gap-2">

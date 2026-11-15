@@ -810,8 +810,6 @@ $ hermes model
 [ ] title_generation     currently: openrouter / google/gemini-3-flash-preview
 [ ] compression          currently: auto / main model
 [ ] approval             currently: auto / main model
-[ ] triage_specifier     currently: auto / main model
-[ ] kanban_decomposer    currently: auto / main model
 [ ] profile_describer    currently: auto / main model
 ```
 
@@ -899,17 +897,6 @@ auxiliary:
     api_key: ""
     timeout: 30
 
-  # Kanban 分类规格说明器 —— `hermes kanban specify <id>`（或
-  # 仪表板上 Triage 列卡片的 ✨ Specify 按钮）使用此
-  # 槽位将单行描述扩展为具体规格并将
-  # 任务提升到 `todo`。便宜快速的模型在这里效果很好；规格扩展
-  # 很短，不需要推理深度。
-  triage_specifier:
-    provider: "auto"
-    model: ""
-    base_url: ""
-    api_key: ""
-    timeout: 120
 ```
 
 :::tip
@@ -1203,6 +1190,23 @@ tts:
 
 ## 显示设置
 
+`display.tool_progress_grouping` 可设为 `accumulate`（默认，更新同一条进度消息）或 `separate`（每个工具单独一条消息）。
+`display.reasoning_style` 控制 gateway 投递界面的推理格式，可选 `code`（默认）、`blockquote` 或 `subtext`。
+`display.status_phrases` 通过 `path` 或 `paths` 指定 profile 相对路径的短语目录，并用 `mode: append` 或 `mode: replace` 控制合并方式。
+状态短语不会插入模型草稿或工具参数。
+
+`gateway.message_timestamps.enabled` 默认为 `false`；启用时仅在发送给模型的用户内容前加入发送时间，不改写已存储的对话记录。
+自动消息的循环保护使用以下 profile 级配置：
+
+| 配置项 | 默认值 | 行为 |
+|--------|--------|------|
+| `gateway.bot_loop_guard.enabled` | `true` | 启用入站自动消息预算。 |
+| `gateway.bot_loop_guard.max_events` | `20` | 每个对话在滑动窗口内最多接收的机器人消息数。 |
+| `gateway.bot_loop_guard.window_seconds` | `300` | 滑动窗口长度，单位为秒。 |
+| `gateway.bot_loop_guard.cooldown_seconds` | `600` | 预算耗尽后拒绝机器人消息的冷却时间，单位为秒。 |
+| `gateway.bot_loop_guard.max_hops` | `4` | 限制机器人交互链的跳数。 |
+| `gateway.bot_loop_guard.bot_replies_expect_reply` | `false` | 默认不再次回应机器人对已有回复的答复。 |
+
 ```yaml
 display:
   tool_progress: all      # off | new | all | verbose
@@ -1261,7 +1265,7 @@ display:
 | `all` | 每次工具调用附带简短预览（默认） |
 | `verbose` | 完整参数、结果和调试日志 |
 
-在 CLI 中，使用 `/verbose` 循环切换这些模式。要在消息平台（Telegram、Discord、Slack 等）中使用 `/verbose`，请在上方的 `display` 部分设置 `tool_progress_command: true`。该命令将循环切换模式并保存到配置。
+在 CLI 中，使用 `/verbose` 循环切换这些模式。
 
 ### 运行时元数据页脚（仅限 gateway）
 
@@ -1276,33 +1280,13 @@ display:
 
 `/footer` 斜杠命令在任何会话中运行时切换此功能。
 
-附加到 Telegram/Discord/Slack 回复的示例页脚：
+运行时页脚示例：
 
 ```
 — claude-opus-4.7 · 12 tool calls · 2m 14s · $0.042
 ```
 
 只有轮次的**最终**消息获得页脚；中间更新保持干净。
-
-### 每平台进度覆盖
-
-不同平台有不同的详细程度需求。例如，Signal 无法编辑消息，因此每次进度更新都会成为单独的消息 —— 很嘈杂。使用 `display.platforms` 设置每平台模式：
-
-```yaml
-display:
-  tool_progress: all          # 全局默认
-  platforms:
-    signal:
-      tool_progress: 'off'    # 在 Signal 上静默进度
-    telegram:
-      tool_progress: verbose  # 在 Telegram 上详细进度
-    slack:
-      tool_progress: 'off'    # 在共享 Slack 工作区中保持安静
-```
-
-没有覆盖的平台回退到全局 `tool_progress` 值。有效平台键：`telegram`、`discord`、`slack`、`signal`、`whatsapp`、`matrix`、`mattermost`、`email`、`sms`、`dingtalk`、`feishu`、`wecom`、`weixin`、`bluebubbles`、`qqbot`，以及任意插件平台的名称（例如 Home Assistant 插件的 `homeassistant`）。旧版 `display.tool_progress_overrides` 键仍可加载以向后兼容，但已弃用，并在首次加载时迁移到 `display.platforms`。
-
-`interim_assistant_messages` 仅限 gateway。启用后，Hermes 将已完成的轮次中 assistant 更新作为单独的聊天消息发送。这与 `tool_progress` 无关，不需要 gateway 流式传输。
 
 ## 隐私
 
@@ -1315,13 +1299,12 @@ privacy:
 
 | 字段 | 处理方式 |
 |-------|-----------|
-| 电话号码（WhatsApp/Signal 上的用户 ID） | 哈希为 `user_<12-char-sha256>` |
+| 电话号码 | 哈希为 `user_<12-char-sha256>` |
 | 用户 ID | 哈希为 `user_<12-char-sha256>` |
-| 聊天 ID | 数字部分哈希，保留平台前缀（`telegram:<hash>`） |
+| 聊天 ID | 数字部分哈希，保留平台前缀（`platform:<hash>`） |
 | 主频道 ID | 数字部分哈希 |
 | 用户名/昵称 | **不受影响**（用户选择的，公开可见） |
 
-**平台支持：** 删除适用于 WhatsApp、Signal 和 Telegram。Discord 和 Slack 被排除，因为它们的提及系统（`<@user_id>`）需要 LLM 上下文中的真实 ID。
 
 哈希是确定性的 —— 同一用户始终映射到同一哈希，因此模型仍然可以在群聊中区分用户。路由和传递在内部使用原始值。
 
@@ -1382,30 +1365,6 @@ display:
 
 启用后，响应在流式传输框内逐 token 出现。工具调用仍然静默捕获。如果 provider 不支持流式传输，它会自动回退到正常显示。
 
-### Gateway 流式传输（Telegram、Discord、Slack）
-
-```yaml
-streaming:
-  enabled: true           # 启用渐进式消息编辑
-  transport: edit         # "edit"（渐进式消息编辑）或 "off"
-  edit_interval: 0.3      # 消息编辑之间的秒数
-  buffer_threshold: 40    # 强制编辑刷新前的字符数
-  cursor: " ▉"            # 流式传输期间显示的光标
-  fresh_final_after_seconds: 0    # 预览超过此时间时选择发送新的最终消息（Telegram）
-```
-
-启用后，bot 在第一个 token 时发送消息，然后随着更多 token 到来渐进式编辑它。不支持消息编辑的平台（Signal、Email、Home Assistant）在第一次尝试时自动检测 —— 该会话的流式传输被优雅地禁用，不会产生大量消息。
-
-对于不带渐进式 token 编辑的独立自然轮次中 assistant 更新，请设置 `display.interim_assistant_messages: true`。
-
-**溢出处理：** 如果流式传输的文本超过平台的消息长度限制（约 4096 字符），当前消息被最终化，新消息自动开始。
-
-**新的最终消息（Telegram）：** Telegram 的 `editMessageText` 保留原始消息时间戳，因此长时间运行的流式回复即使在完成后也会保留第一个 token 的时间戳。设置 `fresh_final_after_seconds > 0` 可选择将旧预览作为全新的最终消息传递，并尽力删除旧预览。默认值为 `0`，始终就地最终化流式回复，避免某些客户端短暂显示重复消息再删除其中一条。
-
-:::note
-主开关 `streaming.enabled` 默认为 `false`——在你启用之前不会有任何流式传输。启用后，是否流式传输按**平台**决定：Telegram 默认带有 `display.platforms.telegram.streaming: true`（流式传输），Discord 为 `display.platforms.discord.streaming: false`（不流式传输）。因此启用流式传输后，Telegram 开箱即用地流式传输，Discord 在你修改其开关之前仍使用整条消息回复。你可以在仪表盘的 **Channels** 开关中或直接在 `~/.hermes/config.yaml` 中调整这些按平台的开关。
-:::
-
 ## 群聊会话隔离
 
 控制共享聊天是每个房间保持一个对话还是每个参与者一个对话：
@@ -1414,31 +1373,16 @@ streaming:
 group_sessions_per_user: true  # true = 群组/频道中每用户隔离，false = 每个聊天一个共享会话
 ```
 
-- `true` 是默认和推荐设置。在 Discord 频道、Telegram 群组、Slack 频道和类似共享上下文中，当平台提供用户 ID 时，每个发送者获得自己的会话。
+- `true` 是默认和推荐设置。在共享上下文中，当平台提供用户 ID 时，每个发送者获得自己的会话。
 - `false` 恢复到旧的共享房间行为。如果您明确希望 Hermes 将频道视为一个协作对话，这可能有用，但这也意味着用户共享上下文、token 成本和中断状态。
 - 私信不受影响。Hermes 仍然像往常一样通过聊天/DM ID 键入 DM。
 - 线程与其父频道保持隔离；使用 `true` 时，每个参与者在线程内也获得自己的会话。
 
-有关行为详情和示例，请参阅[会话](./sessions.md)和 [Discord 指南](./messaging/discord.md)。
-
-## 未授权 DM 行为
-
-控制当未知用户发送私信时 Hermes 的行为：
-
-```yaml
-unauthorized_dm_behavior: pair
-
-whatsapp:
-  unauthorized_dm_behavior: ignore
-```
-
-- `pair` 是默认值。Hermes 拒绝访问，但在 DM 中回复一次性配对码。
-- `ignore` 静默丢弃未授权的 DM。
-- 平台部分覆盖全局默认值，因此您可以在广泛范围内保持配对启用，同时使一个平台更安静。
+有关行为详情和示例，请参阅[会话](./sessions.md)。
 
 ## 快速命令
 
-定义自定义命令，这些命令要么在不调用 LLM 的情况下运行 shell 命令，要么将一个斜杠命令别名为另一个。Exec 快速命令是零 token 的，对于从消息平台（Telegram、Discord 等）进行快速服务器检查或实用脚本很有用。
+定义自定义命令，这些命令要么在不调用 LLM 的情况下运行 shell 命令，要么将一个斜杠命令别名为另一个。Exec 快速命令是零 token 的，对于在 CLI 中进行快速服务器检查或实用脚本很有用。
 
 ```yaml
 quick_commands:
@@ -1465,20 +1409,9 @@ quick_commands:
 - **优先级** —— 快速命令在技能命令之前检查，因此您可以覆盖技能名称
 - **自动补全** —— 快速命令在调度时解析，不显示在内置斜杠命令自动补全表中
 - **类型** —— 支持的类型为 `exec` 和 `alias`；其他类型显示错误
-- **到处可用** —— CLI、Telegram、Discord、Slack、WhatsApp、Signal、Email、Home Assistant
+- **适用于 CLI**
 
 仅字符串的 prompt 快捷方式不是有效的快速命令。对于可重用的 prompt 工作流，请创建技能或别名到现有斜杠命令。
-
-## 人类延迟
-
-在消息平台中模拟类人响应节奏：
-
-```yaml
-human_delay:
-  mode: "off"                  # off | natural | custom
-  min_ms: 800                  # 最小延迟（自定义模式）
-  max_ms: 2500                 # 最大延迟（自定义模式）
-```
 
 ## 代码执行
 
@@ -1581,21 +1514,6 @@ timezone: "America/New_York"   # IANA 时区（默认："" = 服务器本地时�
 支持的值：任何 IANA 时区标识符（例如 `America/New_York`、`Europe/London`、`Asia/Kolkata`、`UTC`）。留空或省略以使用服务器本地时间。
 
 代理时钟、cron 调度和时间相关工具在所有操作系统上都遵循此时区。通过 `execute_code` 运行的代码在 Linux 和 macOS 上也会以 `TZ` 的形式继承它；在 Windows 上这些子进程保留操作系统配置的时区（Windows C 运行时只解析 POSIX 形式的 `TZ` 字符串，IANA 名称会产生错误的 UTC 偏移量），因此若子脚本必须以此时区显示本地时间，请直接设置 Windows 系统时区。
-
-## Discord
-
-为消息 gateway 配置 Discord 特定行为：
-
-```yaml
-discord:
-  require_mention: true          # 在服务器频道中需要 @提及才能响应
-  free_response_channels: ""     # 逗号分隔的频道 ID，bot 在这些频道无需 @提及即可响应
-  auto_thread: true              # 在频道中 @提及时自动创建线程
-```
-
-- `require_mention` —— 为 `true`（默认）时，bot 仅在服务器频道中被 `@BotName` 提及时响应。DM 始终无需提及即可工作。
-- `free_response_channels` —— 逗号分隔的频道 ID 列表，bot 在这些频道对每条消息响应，无需提及。
-- `auto_thread` —— 为 `true`（默认）时，频道中的提及会自动为对话创建线程，保持频道整洁（类似 Slack 线程）。
 
 ## 安全
 
@@ -1739,12 +1657,14 @@ Hermes 使用两种不同的上下文范围：
 | 上下文 | 默认值 |
 |---------|---------|
 | **CLI（`hermes`）** | 运行命令的当前目录 |
-| **消息 gateway** | 主目录 `~`（用 `MESSAGING_CWD` 覆盖） |
+| **Gateway / cron** | `~/.hermes/config.yaml` 中的 `terminal.cwd`；未设置时为主目录 `~` |
 | **Docker / Singularity / Modal / SSH** | 容器或远程机器内用户的主目录 |
 
 覆盖工作目录：
-```bash
-# 在 ~/.hermes/.env 或 ~/.hermes/config.yaml 中：
-MESSAGING_CWD=/home/myuser/projects    # Gateway 会话
-TERMINAL_CWD=/workspace                # 所有终端会话
+```yaml
+# 在 ~/.hermes/config.yaml 中：
+terminal:
+  cwd: /path/to/project
 ```
+
+`MESSAGING_CWD` 和 `.env` 中的 `TERMINAL_CWD` 仅作为旧版兼容回退；新配置应使用 `terminal.cwd`。

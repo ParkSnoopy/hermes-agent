@@ -320,6 +320,15 @@ def test_manifest_scan_follows_plugin_discovery_and_sees_mtime_preserving_edits(
     assert platform_manifest_stamp(tmp_path) != before
 
 
+def test_legacy_platform_manifests_classify_secrets_without_exposing_setup(monkeypatch):
+    import hermes_cli.config as cfg
+
+    manifest = {"requires_env": [{"name": "RETIRED_CHAT_TOKEN"}]}
+    monkeypatch.setattr(cfg, "_platform_plugin_manifests", lambda **kwargs: iter([("retired", manifest)]))
+    assert cfg._bundled_platform_secret_envs() == {"RETIRED_CHAT_TOKEN"}
+    assert "RETIRED_CHAT_TOKEN" not in cfg.OPTIONAL_ENV_VARS
+
+
 def test_unreadable_bundled_manifest_fails_the_policy_instead_of_dropping_it(monkeypatch):
     """The import-time read keeps the bundled secret set only when every bundled manifest was
     read; otherwise the policy's strict re-read raises rather than building without them."""
@@ -333,9 +342,7 @@ def test_unreadable_bundled_manifest_fails_the_policy_instead_of_dropping_it(mon
             raise PermissionError(13, "Permission denied", str(file))
         return real_open(file, *args, **kwargs)
 
-    monkeypatch.setattr(cfg, "OPTIONAL_ENV_VARS", dict(cfg.OPTIONAL_ENV_VARS))
     monkeypatch.setattr(builtins, "open", denying_open)
-    assert cfg._inject_platform_plugin_env_vars() is None
     monkeypatch.setattr(cfg, "BUNDLED_PLATFORM_SECRET_ENVS", None)
     with pytest.raises(PermissionError):
         cfg.platform_manifest_secret_envs(source="bundled", strict=True)

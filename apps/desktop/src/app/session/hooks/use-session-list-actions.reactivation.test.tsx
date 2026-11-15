@@ -33,7 +33,7 @@ const row = (id: string): SessionInfo =>
 const page = (sessions: SessionInfo[]): SidebarSessionsResponse => ({
   recents: { sessions },
   cron: { sessions: [] },
-  messaging: { sessions: [] }
+
 })
 
 afterEach(() => setSessions([]))

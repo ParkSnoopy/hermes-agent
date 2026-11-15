@@ -7,7 +7,7 @@ import type { ProjectInfo, SessionInfo } from '@/types/hermes'
 import {
   baseName,
   excludeProjectSessions,
-  kanbanWorktreeDir,
+
   laneSwitchTarget,
   liveSessionProjectId,
   mergeRepoWorktreeGroups,
@@ -66,27 +66,13 @@ describe('laneSwitchTarget (#108694)', () => {
   })
 })
 
-describe('kanbanWorktreeDir', () => {
-  it('matches a kanban task worktree (t_<hex>) and returns its .worktrees dir', () => {
-    expect(kanbanWorktreeDir('/repo/.worktrees/t_aaaaaaaa')).toBe('/repo/.worktrees')
-  })
-
-  it('does NOT match a user-named "New worktree" under .worktrees/ (its own lane)', () => {
-    expect(kanbanWorktreeDir('/repo/.worktrees/test-gui-stuff')).toBeNull()
-  })
-
-  it('returns null for non-kanban paths', () => {
-    expect(kanbanWorktreeDir('/repo/src')).toBeNull()
-    expect(kanbanWorktreeDir('/repo')).toBeNull()
-  })
-})
 
 describe('sortWorktreeGroups', () => {
   it('pins trunk to the top, sinks kanban to the bottom, and orders the rest by recency', () => {
     const at = (t: number) => [makeCwdSession('/x', { last_active: t })]
 
     const groups = [
-      lane({ id: 'k', label: 'kanban', isKanban: true, sessions: at(999) }),
+
       lane({ id: 'stale', label: 'stale-branch', isMain: true, sessions: at(10) }),
       lane({ id: 'wt', label: 'busy-worktree', isMain: false, sessions: at(500) }),
       lane({ id: 'main', label: 'main', isMain: true, sessions: at(1) })
@@ -94,7 +80,7 @@ describe('sortWorktreeGroups', () => {
 
     // main (trunk) first despite being least recent; kanban last despite being
     // most recent; busy-worktree ahead of stale-branch by activity.
-    expect(sortWorktreeGroups(groups).map(g => g.label)).toEqual(['main', 'busy-worktree', 'stale-branch', 'kanban'])
+    expect(sortWorktreeGroups(groups).map(g => g.label)).toEqual(['main', 'busy-worktree', 'stale-branch'])
   })
 
   it('pins the live home checkout above trunk, even when it has no sessions yet', () => {
@@ -132,7 +118,7 @@ describe('mergeRepoWorktreeGroups (visual enhancer)', () => {
     expect(merged.find(g => g.label === 'feature')?.sessions).toEqual([])
   })
 
-  it('never spawns a lane per kanban task worktree', () => {
+  it('includes each discovered worktree', () => {
     const repo = {
       id: '/repo',
       path: '/repo',
@@ -144,7 +130,7 @@ describe('mergeRepoWorktreeGroups (visual enhancer)', () => {
       { branch: 'wt/t_bbbbbbbb', detached: false, isMain: false, locked: false, path: '/repo/.worktrees/t_bbbbbbbb' }
     ]
 
-    expect(mergeRepoWorktreeGroups(repo, discovered).map(g => g.label)).toEqual(['main'])
+    expect(mergeRepoWorktreeGroups(repo, discovered).map(g => g.label)).toEqual(['main', 'wt/t_aaaaaaaa', 'wt/t_bbbbbbbb'])
   })
 
   it('does not duplicate a lane already present from the backend (by id/path)', () => {
@@ -522,8 +508,7 @@ describe('liveSessionProjectId', () => {
 
   it('skips cwd-less, kanban-task, and out-of-tree (sibling) worktree sessions', () => {
     expect(liveSessionProjectId(makeCwdSession(null), [])).toBeNull()
-    // Kanban task worktree → folds into the kanban bucket, not a project preview.
-    expect(liveSessionProjectId(makeCwdSession('/repo/.worktrees/t_aaaaaaaa'), [])).toBeNull()
+
     // Sibling worktree OUTSIDE the repo root → project can't be derived from the row.
     expect(liveSessionProjectId(makeCwdSession('/elsewhere/wt', { git_repo_root: '/repo' }), [])).toBeNull()
   })
@@ -844,7 +829,7 @@ describe('overlayLiveLanes', () => {
     expect(lane?.sessions.map(s => s.id)).toEqual(['fresh'])
   })
 
-  it('folds a kanban-task worktree session into the kanban lane', () => {
+  it('places a task-named worktree session in its own lane', () => {
     const project = projectNode({
       id: '/www/app',
       isAuto: true,
@@ -854,9 +839,9 @@ describe('overlayLiveLanes', () => {
     const live = [makeCwdSession('/www/app/.worktrees/t_abc12345', { id: 'k' })]
 
     const overlaid = overlayLiveLanes(project, live)
-    const lane = overlaid.repos[0].groups.find(g => g.isKanban)
+    const lane = overlaid.repos[0].groups.find(g => g.id === '/www/app/.worktrees/t_abc12345')
 
-    expect(lane?.id).toBe('/www/app::kanban')
+    expect(lane?.id).toBe('/www/app/.worktrees/t_abc12345')
     expect(lane?.sessions.map(s => s.id)).toEqual(['k'])
   })
 

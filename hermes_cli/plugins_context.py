@@ -91,14 +91,6 @@ class PluginContext(PluginCapabilityCtxMixin):
         """This plugin's profile-scoped durable JSON state facade."""
         return _facade().PluginState(self.plugin_id, self.manifest.data_namespace)
 
-    @cached_property
-    def platform_actions(self):
-        """Capability-gated platform action facade (``add_reaction``, ``set_thread_title``). Every call
-        re-checks ``gateway.platform_actions`` (legacy ``plugins.entries.<id>.allow_platform_actions``,
-        default OFF) and returns ``{"ok": bool, ...}`` — verbs never raise into hook dispatch; no adapter
-        handles or raw SDK objects."""
-        from hermes_cli.platform_actions import PlatformActions
-        return PlatformActions(self.plugin_id)
 
     def _wrong_type(self, obj: Any, base_class: type, label: str, article: str = "a") -> bool:
         """Warn-and-ignore gate shared by every registrar that requires a base class."""

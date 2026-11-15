@@ -241,13 +241,13 @@ class ProjectTreeSession(StoredSessionRow):
 
 
 class ProjectTreeLane(Result):
-    """One branch / worktree / kanban lane inside a repo; ``sessions`` is empty unless hydrated."""
+    """One branch / worktree lane inside a repo; ``sessions`` is empty unless hydrated."""
 
     id: str
     label: str
     path: str | None = None
     isMain: bool = False
-    isKanban: bool = False
+
     # True only when the placement saw git (probe or persisted repo root). The
     # path-only heuristic lane for a non-git folder is isMain but isGit=False,
     # so the renderer never offers `git switch` on it (#61362).

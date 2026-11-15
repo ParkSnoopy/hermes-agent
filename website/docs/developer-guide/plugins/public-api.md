@@ -70,7 +70,6 @@ with a name allows that one name only.
 | `agent.tts_provider` | whole module | PluginContext (hermes_cli/plugins_context.py) |
 | `cron.execution_identity` | whole module | PluginContext (hermes_cli/plugins_context.py) |
 | `hermes_cli.dashboard_auth` | whole module | PluginContext (hermes_cli/plugins_context.py) |
-| `hermes_cli.platform_actions` | whole module | PluginContext (hermes_cli/plugins_context.py) |
 | `hermes_cli.plugins` | `PluginContext` | PluginContext (hermes_cli/plugins_context.py) |
 | `hermes_cli.plugins_ledger` | `PluginRegistration` | PluginContext (hermes_cli/plugins_context.py) |
 | `hermes_cli.plugins_state` | `PluginState` | PluginContext (hermes_cli/plugins_context.py) |
@@ -93,11 +92,6 @@ with a name allows that one name only.
 | `tools.url_safety` | `is_safe_url` | adding-platform-adapters.md § Public helpers for platform plugins |
 | `tools.url_safety` | `create_ssrf_safe_async_client` | adding-platform-adapters.md § Public helpers for platform plugins |
 | `gateway.platforms._http_client_limits` | `platform_httpx_limits` | adding-platform-adapters.md § Public helpers for platform plugins |
-| `hermes_cli.gateway_setup_wizard` | `print_setup_header` | adding-platform-adapters.md § Public helpers for platform plugins |
-| `hermes_cli.gateway_setup_wizard` | `confirm_reconfigure` | adding-platform-adapters.md § Public helpers for platform plugins |
-| `hermes_cli.gateway_setup_wizard` | `offer_home_channel` | adding-platform-adapters.md § Public helpers for platform plugins |
-| `hermes_cli.gateway_setup_wizard` | `save_env_values` | adding-platform-adapters.md § Public helpers for platform plugins |
-| `hermes_cli.gateway_setup_wizard` | `prompt_csv` | adding-platform-adapters.md § Public helpers for platform plugins |
 | `hermes_cli.setup` | `prompt` | adding-platform-adapters.md § Public helpers for platform plugins |
 | `hermes_cli.setup` | `prompt_choice` | adding-platform-adapters.md § Public helpers for platform plugins |
 | `hermes_cli.setup` | `prompt_yes_no` | adding-platform-adapters.md § Public helpers for platform plugins |

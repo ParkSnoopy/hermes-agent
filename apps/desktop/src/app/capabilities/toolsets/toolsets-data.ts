@@ -37,7 +37,7 @@ export type ToolsetThemeId = 'work' | 'create' | 'recall' | 'connect' | 'more'
 export const TOOLSET_THEMES: ReadonlyArray<{ id: Exclude<ToolsetThemeId, 'more'>; names: readonly string[] }> = [
   {
     id: 'work',
-    names: ['browser', 'computer_use', 'web', 'terminal', 'file', 'code_execution', 'cronjob', 'kanban', 'delegation', 'todo', 'clarify']
+    names: ['browser', 'computer_use', 'web', 'terminal', 'file', 'code_execution', 'cronjob', 'delegation', 'todo', 'clarify']
   },
   {
     id: 'create',
@@ -49,7 +49,7 @@ export const TOOLSET_THEMES: ReadonlyArray<{ id: Exclude<ToolsetThemeId, 'more'>
   },
   {
     id: 'connect',
-    names: ['connections', 'a2a', 'homeassistant', 'x_search', 'messaging', 'spotify']
+    names: ['connections', 'a2a', 'homeassistant', 'x_search', 'spotify']
   }
 ]
 

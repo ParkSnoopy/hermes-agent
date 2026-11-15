@@ -19,9 +19,15 @@ LEGACY_CREATION_SOURCES = {'desktop': 'gui'}
 # Labels a routeless row can carry that never name a chat app: automation and recovery rows, a
 # retired platform, and a third-party WebUI that runs its own agent on this state.db (adopting its rows
 # would legitimise a second writer, so they stay read-only: gateway/session_history_mount.py).
-NOT_CLIENT_LABELS = frozenset({'cron', 'subagent', 'kanban', 'bot_room', 'a2a', 'webhook', 'api_server',
-                               'import', 'recovered', 'curator', 'batch', 'homeassistant', 'webui',
-                               'local', 'unknown'})
+_RETIRED_PLATFORMS = frozenset({'telegram', 'discord', 'whatsapp', 'whatsapp_cloud', 'slack', 'signal',
+                                'mattermost', 'matrix', 'email', 'sms', 'dingtalk', 'msgraph_webhook',
+                                'feishu', 'wecom', 'wecom_callback', 'weixin', 'bluebubbles', 'qqbot',
+                                'relay', 'buzz', 'google_chat', 'irc', 'line', 'ntfy', 'photon', 'raft',
+                                'simplex', 'teams'})
+NOT_CLIENT_LABELS = (frozenset({'cron', 'subagent', 'kanban', 'bot_room', 'a2a', 'webhook', 'api_server',
+                                'import', 'recovered', 'curator', 'batch', 'homeassistant', 'webui',
+                                'local', 'unknown'}) | _RETIRED_PLATFORMS
+                     | {f'{name}-platform' for name in _RETIRED_PLATFORMS})
 
 
 @functools.lru_cache(maxsize=1)

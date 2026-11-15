@@ -80,17 +80,15 @@ Camofox 反检测浏览器以目录插件形式提供：`hermes plugins install 
 - **[内置记忆](../user-guide/features/memory.md)** — 通过 `MEMORY.md` 和 `USER.md` 文件实现持久化、精选记忆。Agent 维护有界的个人笔记和用户画像数据存储，跨会话保留。
 - **[记忆提供商](../user-guide/features/memory-providers.md)** — 接入外部记忆后端以实现更深度的个性化。支持八个提供商：Honcho（辩证推理）、OpenViking（分层检索）、Mem0（云端提取）、Hindsight（知识图谱）、Holographic（本地 SQLite）、RetainDB（混合搜索）、ByteRover（基于 CLI）和 Supermemory。
 
-## 消息平台
+## Webhooks 与会议
 
-Hermes 可作为 gateway（网关）机器人运行于 19+ 个消息平台，均通过同一 `gateway` 子系统配置：
+- **[Teams Meetings](../user-guide/messaging/teams-meetings.md)**、**[Microsoft Graph Webhook](../user-guide/messaging/msgraph-webhook.md)**、**[Webhooks](../user-guide/messaging/webhooks.md)**
 
-- **[Telegram](../user-guide/messaging/telegram.md)**、**[Discord](../user-guide/messaging/discord.md)**、**[Slack](../user-guide/messaging/slack.md)**、**[WhatsApp](../user-guide/messaging/whatsapp.md)**、**[Signal](../user-guide/messaging/signal.md)**、**[Matrix](../user-guide/messaging/matrix.md)**、**[Mattermost](../user-guide/messaging/mattermost.md)**、**[Email](../user-guide/messaging/email.md)**、**[SMS](../user-guide/messaging/sms.md)**、**[DingTalk](../user-guide/messaging/dingtalk.md)**、**[Feishu/Lark](../user-guide/messaging/feishu.md)**、**[WeCom](../user-guide/messaging/wecom.md)**、**[WeCom Callback](../user-guide/messaging/wecom-callback.md)**、**[Weixin](../user-guide/messaging/weixin.md)**、**[BlueBubbles](../user-guide/messaging/bluebubbles.md)**、**[QQ Bot](../user-guide/messaging/qqbot.md)**、**[Yuanbao](../user-guide/messaging/yuanbao.md)**、**[Home Assistant](../user-guide/messaging/homeassistant.md)**（插件）、**[Microsoft Teams](../user-guide/messaging/teams.md)**、**[Webhooks](../user-guide/messaging/webhooks.md)**
-
-平台对比表和配置指南详见[消息 Gateway 概览](../user-guide/messaging/index.md)。
+代理间访问请参阅 [A2A](../user-guide/messaging/a2a.md)。
 
 ## 家庭自动化
 
-- **[Home Assistant](../user-guide/messaging/homeassistant.md)** — 通过四个专用工具（`ha_list_entities`、`ha_get_state`、`ha_list_services`、`ha_call_service`）控制智能家居设备，并通过 gateway 响应实时状态变更。以插件目录中的 `homeassistant` 插件形式提供（`hermes plugins install homeassistant`）；配置 `HASS_TOKEN` 后，其工具集将自动激活。
+- **[Home Assistant](https://github.com/NousResearch/hermes-official-plugins/tree/main/homeassistant)** — 使用 `homeassistant` 插件工具控制智能家居设备。
 
 ## 插件
 

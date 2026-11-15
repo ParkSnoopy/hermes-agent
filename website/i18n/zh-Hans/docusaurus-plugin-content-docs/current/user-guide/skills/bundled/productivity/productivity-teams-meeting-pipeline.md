@@ -115,7 +115,7 @@ Microsoft Graph 将 webhook 订阅上限设为 72 小时，且**不会自动续�
 ## 其他注意事项
 
 - **转录文本尚未就绪。** Teams 在会议结束后需要一段时间才能生成转录制品。对刚结束的会议执行 `fetch --meeting-id` 可能返回空结果。等待 2-5 分钟后重试，或让 Graph webhook 自然驱动采集。
-- **投递模式不匹配。** 如果摘要已生成（`list` 显示成功）但 Teams 中未收到任何内容，检查 `platforms.teams.extra.delivery_mode` 及对应的目标配置（`incoming_webhook_url` 或 `chat_id` 或 `team_id`+`channel_id`）。写入器从 config.yaml 或 `TEAMS_*` 环境变量中读取这些配置。
+- **投递模式不匹配。** 如果摘要已生成（`list` 显示成功）但 Teams 中未收到任何内容，检查 `platforms.msgraph_webhook.extra.meeting_pipeline.teams_delivery.enabled` 是否为 `true`，以及 `teams_delivery.delivery_mode` 和对应目标（`incoming_webhook_url`、`chat_id` 或 `team_id`+`channel_id`）。显式配置的值优先于对应的 `TEAMS_*` 环境变量。
 - **Graph 应用权限。** token 获取正常（`token-health` 通过），但 Graph API 调用返回 401/403，原因是权限已添加但未重新授予管理员同意。请用户重新进入 Azure 门户中的应用注册页面，再次点击"授予管理员同意"。
 
 ## 相关文档

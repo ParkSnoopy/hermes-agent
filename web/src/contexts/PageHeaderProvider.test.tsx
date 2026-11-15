@@ -5,14 +5,14 @@ import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PageHeaderProvider } from "./PageHeaderProvider";
 import { usePageHeader } from "./usePageHeader";
-import ChannelsPage from "@/pages/ChannelsPage";
+
 import FilesPage from "@/pages/FilesPage";
 
 vi.mock("@/i18n", () => ({ useI18n: () => ({ t: { common: { cancel: "Cancel", delete: "Delete" } } }) }));
 vi.mock("@/lib/resolve-page-title", () => ({ resolvePageTitle: (path: string) => path }));
 vi.mock("@/lib/api", () => ({
   api: {
-    getMessagingPlatforms: vi.fn(async () => ({ platforms: [] })),
+
     listFiles: vi.fn(async () => ({
       root: "/srv/files", path: "/srv/files", parent: null, locked_root: null, can_change_path: false, entries: [],
     })),
@@ -27,7 +27,7 @@ let root: Root;
 function Navigate() {
   const navigate = useNavigate();
   return <nav>
-    <button onClick={() => navigate("/channels")}>Channels</button>
+
     <button onClick={() => navigate("/other")}>Other</button>
     <button onClick={() => navigate("/empty")}>Empty</button>
     <button onClick={() => navigate("/delayed")}>Delayed</button>
@@ -57,7 +57,7 @@ async function renderAt(path: string) {
       <Navigate />
       <PageHeaderProvider pluginTabs={[]}>
         <Routes>
-          <Route path="/channels" element={<ChannelsPage />} />
+
           <Route path="/other" element={<OtherPage />} />
           <Route path="/empty" element={<div>Empty page</div>} />
           <Route path="/delayed" element={<DelayedPage />} />
@@ -86,35 +86,30 @@ afterEach(async () => {
 });
 
 describe("page header ownership", () => {
-  it("keeps the actual Channels restart action on a direct load", async () => {
-    await renderAt("/channels");
-    expect(header().textContent).toContain("Restart gateway");
-  });
-
   it("replaces all slots on navigation and clears them for an empty route", async () => {
-    await renderAt("/channels");
+    await renderAt("/files");
     await click("Other");
     expect(header().textContent).toContain("Other page");
     expect(header().textContent).toContain("Other detail");
     expect(header().textContent).toContain("Other action");
-    expect(header().textContent).not.toContain("Restart gateway");
+    expect(header().textContent).not.toContain("/srv/files");
     await click("Empty");
     expect(header().textContent).toBe("/empty");
-    await click("Channels");
-    expect(header().textContent).toContain("Restart gateway");
+    await click("Files");
+    expect(header().textContent).toContain("/srv/files");
     expect(header().textContent).not.toContain("Other action");
   });
 
   it("keeps the incoming page's actions when the outgoing page clears its slots", async () => {
     await renderAt("/files");
     expect(header().textContent).toContain("/srv/files");
-    await click("Channels");
-    expect(header().textContent).toContain("Restart gateway");
+    await click("Other");
+    expect(header().textContent).toContain("Other action");
     expect(header().textContent).not.toContain("/srv/files");
   });
 
   it("accepts a page that mounts after the route changes", async () => {
-    await renderAt("/channels");
+    await renderAt("/files");
     await click("Delayed");
     expect(header().textContent).toBe("/delayed");
     await click("Mount page");

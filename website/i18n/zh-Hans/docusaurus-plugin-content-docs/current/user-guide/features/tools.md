@@ -31,7 +31,7 @@ Hermes 内置了丰富的工具注册表，涵盖网页搜索、浏览器自动�
 | **Agent 编排** | `todo`, `clarify`, `execute_code`, `delegate_task` | 规划、澄清、代码执行及子 Agent 委托。 |
 | **记忆与召回** | `memory`, `session_search` | 持久化记忆与会话搜索。 |
 | **自动化与投递** | `cronjob`, `send_message` | 支持创建/列出/更新/暂停/恢复/运行/删除操作的定时任务，以及出站消息投递。 |
-| **集成** | MCP server 工具、插件工具 | MCP 及插件集成，例如 Home Assistant（`ha_*`，来自[插件目录中的 `homeassistant` 插件](../messaging/homeassistant.md)）。 |
+| **集成** | MCP server 工具、插件工具 | MCP 及插件集成，例如 Home Assistant（`ha_*`，来自插件目录中的 `homeassistant` 插件）。 |
 
 如需查看由代码派生的权威注册表，请参阅 [内置工具参考](../../reference/tools-reference.md) 和 [工具集参考](../../reference/toolsets-reference.md)。
 

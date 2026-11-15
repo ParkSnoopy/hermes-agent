@@ -619,25 +619,25 @@ def test_p2_real_cli_env_setting_changes_exactly_one_env_line_and_no_config_byte
     case = gen_case(407)
     env, cfg = _cli_home(tmp_path, case)
     env_file = cfg.with_name(".env")
-    env_before = "# hand-written\nC18_KEEP=one\nexport C18_OTHER=\"two # not comment\"\nTELEGRAM_HOME_CHANNEL=5\n"
+    env_before = "# hand-written\nC18_KEEP=one\nexport C18_OTHER=\"two # not comment\"\nOPENROUTER_API_KEY=old-key\n"
     env_file.write_text(env_before, encoding="utf-8")
-    r = _cli(env, "config", "set", "TELEGRAM_HOME_CHANNEL", "4242")
+    r = _cli(env, "config", "set", "OPENROUTER_API_KEY", "new-key")
     assert r.returncode == 0, r.stdout + r.stderr
     assert _read(cfg) == case.text, "an env-routed `config set` rewrote config.yaml"
     touched, inserted = _line_diff(env_before, _read(env_file))
     assert touched == {3} and sum(map(len, inserted)) == 1, _udiff(env_before, _read(env_file))
-    assert "TELEGRAM_HOME_CHANNEL=4242" in _read(env_file).splitlines()
+    assert "OPENROUTER_API_KEY=new-key" in _read(env_file).splitlines()
 
 
-@pytest.mark.parametrize("key", ["DEEPSEEK_API_KEY", "TELEGRAM_HOME_CHANNEL"])
+@pytest.mark.parametrize("key", ["DEEPSEEK_API_KEY", "OPENROUTER_API_KEY"])
 def test_p2_env_lock_refusal_is_not_reported_as_success(key, tmp_path):
     """exit 0 ⇔ the write happened; a refused key leaves .env AND config.yaml byte-identical."""
     managed = tmp_path / "managed"
     managed.mkdir()
-    (managed / ".env").write_text("DEEPSEEK_API_KEY=sk-admin\nTELEGRAM_HOME_CHANNEL=111\n", encoding="utf-8")
+    (managed / ".env").write_text("DEEPSEEK_API_KEY=sk-admin\nOPENROUTER_API_KEY=admin-key\n", encoding="utf-8")
     env = isolated_env(tmp_path / "cli", pythonpath=WORKTREE, extra={"HERMES_MANAGED_DIR": str(managed)})
     hh = Path(env["HERMES_HOME"])
-    (hh / ".env").write_text("DEEPSEEK_API_KEY=sk-old\nTELEGRAM_HOME_CHANNEL=5\n", encoding="utf-8")
+    (hh / ".env").write_text("DEEPSEEK_API_KEY=sk-old\nOPENROUTER_API_KEY=old-key\n", encoding="utf-8")
     cfg_text = "model:\n  default: deepseek-chat\n  api_key: sk-old\n"
     _write_file(hh / "config.yaml", cfg_text)
     env_before = _read(hh / ".env")
@@ -1117,7 +1117,7 @@ def gen_legacy(version: int | None, seed: int) -> tuple[str, dict[tuple, Any]]:
         _set(tree, path, val)
     structural = [
         (("stt",), {"provider": "local", "model": "base"}),
-        (("display", "tool_progress_overrides"), {"telegram": "all"}),
+        (("display", "tool_progress_overrides"), {"cli": "all"}),
         (("compression", "summary_model"), "c18/summary"),
         (("plugins", "disabled"), ["c18-off"]),
         (("memory", "write_mode"), "approve"),
@@ -1220,7 +1220,7 @@ def test_p6_null_section_survives_every_surface(section, web_app, home, monkeypa
         assert isinstance(effective.get(section), dict), f"[{ctx}] load_config()[{section!r}] = {effective.get(section)!r}"
     load_user_config_effective(cfg)
     raw = C.read_user_config_raw(cfg)
-    for platform in ("telegram", "discord", "cli"):
+    for platform in ("cli", "api_server", "webhook"):
         resolve_display_setting(raw, platform, "tool_progress")
         resolve_tool_progress(raw, platform)
 

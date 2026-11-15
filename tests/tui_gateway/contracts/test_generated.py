@@ -92,3 +92,14 @@ def test_catalog_covers_the_whole_wire():
     from tui_gateway.contracts import registry
 
     registry.assert_complete(server._methods, emitted_event_names(), sent_server_requests())
+
+
+def test_retired_messaging_handoffs_are_absent():
+    from tui_gateway import server
+    from tui_gateway.contracts import registry
+
+    retired = {"handoff.request", "handoff.state", "handoff.fail"}
+    assert retired.isdisjoint(server._methods)
+    assert retired.isdisjoint(registry.METHODS)
+    assert "message.react" in registry.METHODS
+    assert "message.reaction" in registry.EVENTS

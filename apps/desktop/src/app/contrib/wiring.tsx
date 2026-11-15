@@ -439,7 +439,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     [dispatchSessionRpc]
   )
 
-  const { loadMoreMessagingForPlatform, loadMoreSessions, refreshCronJobs, refreshMessagingSessions, refreshSessions } =
+  const { loadMoreSessions, refreshCronJobs, refreshSessions } =
     useSessionListActions({ profileScope })
 
   const { changeSessionCwd, refreshProjectBranch } = useCwdActions({
@@ -944,7 +944,6 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     refreshCronJobs,
     refreshCurrentModel,
     refreshHermesConfig,
-    refreshMessagingSessions,
     refreshSessions,
     requestGateway,
     updateSessionState
@@ -1103,7 +1102,6 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     onDeleteSession: sessionId => void removeSession(sessionId),
     onDismissError: dismissError,
     onEdit: editMessage,
-    onLoadMoreMessaging: loadMoreMessagingForPlatform,
     onLoadMoreSessions: loadMoreSessions,
     onRetrySessions: () => refreshSessions().catch(() => undefined),
     onManageCronJob: jobId => {

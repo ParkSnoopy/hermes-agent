@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from agent.i18n import t
-from gateway.config import HomeChannel, Platform, PlatformConfig, persist_home_channel
+from gateway.config import Platform
 from gateway.platforms.base import EphemeralReply
 from gateway.platforms.event import MessageEvent
 from gateway.session import AsyncSessionStore
@@ -159,18 +159,6 @@ def _spawn_detached_update(hermes_cmd, output_path, exit_code_path) -> None:
     subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
-def _home_thread_from_source(source) -> Optional[str]:
-    """The thread id /sethome should persist on the home target, or None.  Slack thread-per-message
-    keying stamps a top-level message's own id as ``source.thread_id`` (a session key, not a
-    location); persisting it would pin HOME to that ephemeral thread.  A thread id equal to the
-    message's own id is synthetic and dropped; a real thread (id = parent's) is kept."""
-    thread_id = getattr(source, "thread_id", None)
-    if not thread_id:
-        return None
-    synthetic = (getattr(source, "platform", None) == Platform.SLACK and getattr(source, "message_id", None)
-                 and str(thread_id) == str(source.message_id))
-    return None if synthetic else str(thread_id)
-
 
 class GatewaySlashCommandsMixin(
     GatewayLoginCommandsMixin,
@@ -228,9 +216,6 @@ class GatewaySlashCommandsMixin(
             return None, None
         return self._delivery_adapter_for(event.source), self._session_key_for_source(event.source)
 
-    def _telegramized_command_reply(self, event: MessageEvent, text: str) -> str:
-        from gateway.run import _telegramize_command_mentions
-        return _telegramize_command_mentions(text, getattr(getattr(event, "source", None), "platform", None))
 
     def _checkpoint_manager(self, source=None):
         """A CheckpointManager from a local session's frozen policy, else gateway config; None when disabled."""
@@ -349,83 +334,6 @@ class GatewaySlashCommandsMixin(
         runnable_str = ", ".join(f"/{c}" for c in runnable) if runnable else t("gateway.shared.none_marker")
         return head + t("gateway.whoami.tier_user", commands=runnable_str)
 
-    async def _handle_kanban_command(self, event: MessageEvent) -> str:
-        """Handle /kanban — delegate to the shared kanban CLI (DB work in a thread pool). Allowed
-        while an agent runs: the board is profile-agnostic and never touches agent state."""
-        from hermes_cli.kanban import run_slash
-
-        # Strip the leading "/kanban" (with or without slash), leaving args.
-        text = (event.text or "").strip().lstrip("/")
-        if text.startswith("kanban"):
-            text = text[len("kanban"):].lstrip()
-        requested_board = action = None
-        tokens = iter(shlex.split(text) if text else [])
-        for tok in tokens:  # leading --board/--board=<b> options, then the action verb
-            if tok == "--board":
-                requested_board = next(tokens, requested_board)
-            elif tok.startswith("--board="):
-                requested_board = tok.split("=", 1)[1]
-            else:
-                action = tok
-                break
-        try:
-            output = await asyncio.to_thread(run_slash, text)
-        except Exception as exc:  # pragma: no cover - defensive
-            return t("gateway.kanban.error_prefix", error=exc)
-
-        # Auto-subscribe on create, parsing the task id from the CLI's standard success line
-        # ("Created t_abcd  (ready, ...)"). With --json there is no such line, so a scripting user
-        # gets no subscription and can call /kanban notify-subscribe explicitly.
-        m = re.search(r"Created\s+(t_[0-9a-f]+)\b", output) if action == "create" and output else None
-        if m:
-            task_id = m.group(1)
-            try:
-                if await self._kanban_auto_subscribe(event, task_id, requested_board):
-                    output = output.rstrip() + "\n" + t("gateway.kanban.subscribed_suffix", task_id=task_id)
-            except Exception as exc:
-                logger.warning("kanban create auto-subscribe failed: %s", exc)
-
-        # Gateway messages have practical length caps; truncate long listings.
-        if len(output) > 3800:
-            output = output[:3800] + "\n" + t("gateway.kanban.truncated_suffix")
-        return output or t("gateway.kanban.no_output")
-
-    async def _kanban_auto_subscribe(self, event: MessageEvent, task_id: str, requested_board) -> bool:
-        """Subscribe the event's chat to *task_id* notifications (notify+wake). False when the
-        source has no platform/chat to route back to."""
-        source = event.source
-
-        def _field(name: str) -> Optional[str]:
-            return str(getattr(source, name, "") or "") or None
-        platform = getattr(source, "platform", None)
-        platform_str = (platform.value if hasattr(platform, "value") else str(platform or "")).lower()
-        chat_id, chat_type = _field("chat_id"), _field("chat_type")
-        delivery_metadata = self._reply_metadata(event) or None
-        if isinstance(delivery_metadata, dict) and chat_type:
-            delivery_metadata.setdefault("chat_type", chat_type)
-        if not (platform_str and chat_id):
-            return False
-
-        def _sub():
-            from hermes_cli import kanban_db as _kb
-            from hermes_cli import kanban_db_connect as _kbc
-            from hermes_cli import kanban_db_notify as _kbn
-            conn = _kbc.connect(board=requested_board)
-            try:
-                _kbn.add_notify_sub(
-                    conn, task_id=task_id, platform=platform_str, chat_id=chat_id, chat_type=chat_type,
-                    thread_id=_field("thread_id"), user_id=_field("user_id"),
-                    # Also persist the stable alt id (Signal UUID, Feishu union_id): build_session_key
-                    # keys the participant on ``user_id_alt or user_id``, so a replayed wake rebuilds
-                    # the same session key only when the alt id survives the round-trip.
-                    user_id_alt=_field("user_id_alt"),
-                    notifier_profile=_field("profile") or getattr(self, "_kanban_notifier_profile", None) or self._active_profile_name(),
-                    # Subscribing from chat: deliver the passive message and wake the destination agent.
-                    delivery_mode="notify+wake", delivery_metadata=delivery_metadata)
-            finally:
-                conn.close()
-        await asyncio.to_thread(_sub)
-        return True
 
     async def _handle_stop_command(self, event: MessageEvent) -> str | EphemeralReply:
         """Handle /stop command - interrupt a running agent.  A truly hung agent (blocked thread
@@ -495,64 +403,11 @@ class GatewaySlashCommandsMixin(
             logger.debug("Failed to clear typing on /stop with no active agent", exc_info=True)
         return t("gateway.stop.no_active")
 
-    async def _handle_platform_command(self, event: MessageEvent) -> str:
-        """Handle ``/platform list|pause|resume [name]`` — inspect and manually control failed/paused
-        adapters (pause stops the reconnect watcher; resume re-queues for retry)."""
-        # Strip the leading "/platform" (or "/PLATFORM") token if present
-        parts = (getattr(event, "content", "") or "").strip().split(maxsplit=2)
-        if parts and parts[0].lower().lstrip("/").startswith("platform"):
-            parts = parts[1:]
-        action = (parts[0] if parts else "list").lower()
-        target = parts[1].lower() if len(parts) > 1 else ""
-        failed = getattr(self, "_failed_platforms", {}) or {}
-        if action == "list":
-            connected = ", ".join(sorted(p.value for p in self.adapters)) or t("gateway.shared.none_marker")
-            lines = [t("gateway.platform.header"), t("gateway.platform.connected", platforms=connected)]
-            for p, info in failed.items():
-                if info.get("paused"):
-                    reason = info.get("pause_reason") or t("gateway.platform.reason_default")
-                    lines.append(t("gateway.platform.item_paused", name=p.value, reason=reason))
-                else:
-                    lines.append(t("gateway.platform.item_retrying", name=p.value, attempts=info.get("attempts", 0)))
-            return "\n".join(lines + ([] if failed else [t("gateway.platform.none_failed")]))
-        if action not in {"pause", "resume"}:
-            return t("gateway.platform.usage")
-        if not target:
-            return t("gateway.platform.usage_action", action=action)
-        # Resolve platform name (case-insensitive, value match)
-        platform = next((p for p in Platform.__members__.values() if p.value.lower() == target), None)
-        if platform is None:
-            return t("gateway.platform.unknown", name=target)
-        name = platform.value
-        queued = platform in failed
-        paused = queued and bool(failed[platform].get("paused"))
-        if action == "pause":
-            if not queued:
-                return t("gateway.platform.not_queued_pause", name=name)
-            if paused:
-                return t("gateway.platform.already_paused", name=name)
-            self._pause_failed_platform(platform, reason=t("gateway.platform.reason_manual"))
-            return t("gateway.platform.paused", name=name)
-        if not queued:
-            return t("gateway.platform.not_queued_resume", name=name)
-        if not paused:
-            return t("gateway.platform.already_retrying", name=name)
-        self._resume_paused_platform(platform)
-        return t("gateway.platform.resumed", name=name)
 
     async def _handle_restart_command(self, event: MessageEvent) -> str | EphemeralReply | None:
         """Handle /restart command - drain active work, then restart the gateway."""
         from gateway.run import _hermes_home
-        # Idempotency check: if the previous gateway process recorded this same /restart (platform +
-        # update_id) and we see it *again*, it's a redelivery from PTB's graceful-shutdown get_updates
-        # ACK failing on the way out. Ignoring it prevents a loop where every fresh gateway re-restarts.
-        if self._is_stale_restart_redelivery(event):
-            src = event.source
-            logger.info("Ignoring redelivered /restart (platform=%s, update_id=%s) — "
-                        "already processed by a previous gateway instance.",
-                        src.platform.value if src and src.platform else "?",
-                        event.platform_update_id)
-            return ""
+
         if self._restart_requested or self._draining:
             count = self._running_agent_count()
             return t("gateway.draining", count=count) if count else EphemeralReply(t("gateway.restart.in_progress"))
@@ -572,20 +427,10 @@ class GatewaySlashCommandsMixin(
                 self._restart_command_source = event.source
             return data
 
-        def _dedup_payload() -> dict:
-            # Platform + update_id of the triggering /restart, for redelivery detection.
-            data = {"platform": event.source.platform.value if event.source.platform else None,
-                    "requested_at": time.time()}
-            if event.platform_update_id is not None:
-                data["update_id"] = event.platform_update_id
-            return data
 
         # Save the requester's routing info so the new gateway process can notify them once back.
         await _write_marker(".restart_notify.json", _notify_payload, "notify file")
-        # Record the triggering platform + update_id in a dedicated dedup marker. Unlike
-        # .restart_notify.json (unlinked once the new gateway sends its notification) this persists
-        # so a delayed Telegram redelivery is still detectable. Overwritten on every /restart.
-        await _write_marker(".restart_last_processed.json", _dedup_payload, "dedup marker")
+
         active_agents = self._running_agent_count()
         # Idle: teardown is immediate and a RETURNED ack raced the adapter disconnect (lost on a real
         # Bot API round trip, #65057), so deliver it first. Draining: the drain waits, the reply lands.
@@ -628,60 +473,16 @@ class GatewaySlashCommandsMixin(
 
     async def _handle_help_command(self, event: MessageEvent) -> str:
         """Handle /help command - list available commands."""
-        return self._telegramized_command_reply(
-            event, _execute("help", options=self._catalog_options(event)).text)
+        return _execute("help", options=self._catalog_options(event)).text
 
     async def _handle_commands_command(self, event: MessageEvent) -> str:
-        # Page size is a surface parameter (Telegram messages are shorter).
-        page_size = 15 if event.source.platform == Platform.TELEGRAM else 20
-        options = {"page_size": page_size, **self._catalog_options(event)}
+        options = {"page_size": 20, **self._catalog_options(event)}
         reply = _execute("commands", args=event.get_command_args(), options=options)
-        return self._telegramized_command_reply(event, reply.text)
+        return reply.text
 
-    async def _handle_set_home_command(self, event: MessageEvent) -> str:
-        """Handle /sethome command -- set the current chat as the platform's home channel."""
-        from gateway.run import _home_target_env_var, _home_thread_env_var
-        source = event.source
-        platform_name = source.platform.value if source.platform else "unknown"
-        chat_id = source.chat_id
-        chat_name = source.chat_name or chat_id
-        if source.platform is None:
-            return t("gateway.set_home.save_failed", error=t("gateway.set_home.err_missing_platform"))
-        via_relay = getattr(source, "delivered_via_upstream_relay", False) is True
-        if via_relay:
-            adapter_for_source = getattr(self, "_intake_adapter_for", None)
-            relay_adapter = adapter_for_source(source) if callable(adapter_for_source) else None
-            fronts_platform = getattr(relay_adapter, "fronts_platform", None)
-            if (source.platform in {None, Platform.LOCAL, Platform.RELAY}
-                    or not getattr(source, "user_id", None)
-                    or not callable(fronts_platform) or not fronts_platform(source.platform)):
-                return t("gateway.set_home.save_failed", error=t("gateway.set_home.err_relay_unauthenticated"))
-        thread_id = _home_thread_from_source(source)
-        home = HomeChannel(
-            platform=source.platform, chat_id=str(chat_id), name=chat_name, thread_id=thread_id,
-            user_id=str(source.user_id) if getattr(source, "user_id", None) else None,
-            scope_id=str(source.scope_id) if getattr(source, "scope_id", None) else None)
-        # config.yaml is canonical because it can persist the authenticated logical-target
-        # provenance required by Relay after a restart.
-        try:
-            persist_home_channel(home, enabled_if_new=not via_relay)
-        except Exception as e:
-            return t("gateway.set_home.save_failed", error=e)
-        # Preserve legacy home env vars for existing cron/setup consumers.
-        try:
-            from hermes_cli.config import save_env_value
-            save_env_value(_home_target_env_var(platform_name), str(chat_id))
-            save_env_value(_home_thread_env_var(platform_name), str(thread_id or ""))
-        except Exception as e:
-            logger.warning("Home config saved but legacy env persistence failed: %s", e)
-        # Keep the running gateway config in sync too. The pre-restart notification path reads
-        # self.config before the process reloads config.
-        platform_config = self.config.platforms.setdefault(source.platform, PlatformConfig(enabled=not via_relay))
-        platform_config.home_channel = home
-        return t("gateway.set_home.success", name=chat_name, chat_id=chat_id)
 
     async def _handle_voice_command(self, event: MessageEvent) -> str:
-        """Handle /voice [on|off|tts|channel|leave|status] command."""
+        """Handle /voice [on|off|tts|status] command."""
         args = event.get_command_args().strip().lower()
         chat_id = event.source.chat_id
         # Voice state belongs to the (bot, chat) pair: resolve the adapter that received the
@@ -707,33 +508,19 @@ class GatewaySlashCommandsMixin(
             mode, reply_key = _VOICE_MODE_BY_ARG[args]
             _set_mode(mode)
             return t(reply_key)
-        if args in {"channel", "join"}:
-            return await self._handle_voice_channel_join(event)
-        if args == "leave":
-            return await self._handle_voice_channel_leave(event)
+        if args in {"channel", "join", "leave"}:
+            return "Voice channels are no longer supported."
         if args == "status":
             mode = self._voice_mode.get(voice_key, "off")
             label = t(f"gateway.voice.label_{mode}") if mode in ("off", "voice_only", "all") else mode
             lines = [t("gateway.voice.status_mode", label=label)]
-            guild_id = self._get_guild_id(event)  # append voice channel info if connected
-            info = adapter.get_voice_channel_info(guild_id) if guild_id and hasattr(adapter, "get_voice_channel_info") else None
-            if info:
-                lines += [t("gateway.voice.status_channel", channel=info['channel_name']),
-                          t("gateway.voice.status_participants", count=info['member_count'])]
-                for m in info["members"]:
-                    status = t("gateway.voice.speaking") if m.get("is_speaking") else ""
-                    lines.append(t("gateway.voice.status_member", name=m['display_name'], status=status))
             return "\n".join(lines)
 
         # Toggle: off → on, on/all → off
         turning_on = self._voice_mode.get(voice_key, "off") == "off"
         _set_mode("voice_only" if turning_on else "off")
         toggle_line = t("gateway.voice.enabled_short" if turning_on else "gateway.voice.disabled_short")
-        # Bare /voice still toggles, but append an explainer so users discover the on/off/tts/status
-        # subcommands (and, on Discord, live voice-channel join/leave). Toggle result shows first.
-        supports_voice_channels = adapter is not None and hasattr(adapter, "join_voice_channel")
-        channels = t("gateway.voice.help_channels") if supports_voice_channels else ""
-        return t("gateway.voice.help", toggle=toggle_line, channels=channels)
+        return t("gateway.voice.help", toggle=toggle_line, channels="")
 
     async def _handle_rollback_command(self, event: MessageEvent) -> str:
         """Handle /rollback command — list or restore filesystem checkpoints."""

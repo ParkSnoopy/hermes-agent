@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 
 async def fences(runner, authority, adapter, guild, event, peer, mode):
-    from gateway.config import Platform
+
     from gateway.session_ingress_context import native_callback
     from hermes_state_runtime import RuntimeStoreError, cancel_session_input, list_session_admissions
 
@@ -50,7 +50,7 @@ async def fences(runner, authority, adapter, guild, event, peer, mode):
         other = type(adapter)(adapter.config)
         other.gateway_runner = runner
         other._client = adapter._client
-        guild.hook = lambda: runner.adapters.__setitem__(Platform.DISCORD, other)
+        guild.hook = lambda: runner.adapters.__setitem__(adapter.platform, other)
         try:
             await accept(event('wrong-connector'))
         except RuntimeStoreError as exc:
@@ -59,7 +59,7 @@ async def fences(runner, authority, adapter, guild, event, peer, mode):
             raise AssertionError('connector replaced during fetch was accepted')
         finally:
             guild.hook = None
-            runner.adapters[Platform.DISCORD] = adapter
+            runner.adapters[adapter.platform] = adapter
         before_drain = rows(second.ref.session_id)
         guild.hook = lambda: setattr(runner, '_draining', True)
         try:

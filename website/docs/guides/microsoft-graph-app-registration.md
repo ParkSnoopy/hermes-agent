@@ -74,7 +74,7 @@ The pipeline uses a minimum-viable set of application permissions. Add only what
 
 ### Required for outbound summary delivery (Graph mode only)
 
-If `platforms.teams.extra.delivery_mode` is `graph`, the pipeline posts summaries into a Teams channel or chat via the Graph API. Skip these if you use `incoming_webhook` delivery mode instead.
+If `platforms.msgraph_webhook.extra.meeting_pipeline.teams_delivery.enabled` is true and its `delivery_mode` is `graph`, the pipeline posts summaries into a Teams channel or chat via the Graph API. Skip these permissions if you use `incoming_webhook` delivery mode instead. Configured values take precedence over corresponding `TEAMS_*` environment variables.
 
 | Permission | What it lets the app do |
 |------------|--------------------------|

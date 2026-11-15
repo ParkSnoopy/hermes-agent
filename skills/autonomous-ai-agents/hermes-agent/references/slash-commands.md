@@ -1,7 +1,7 @@
 # Slash Commands (In-Session)
 
 Registry of record: `hermes_cli/commands.py` (`COMMAND_REGISTRY`) — every
-consumer (autocomplete, `/help`, Telegram menu, Slack mapping) derives from
+consumer (autocomplete and `/help`) derives from
 it. New commands land often; `/help` in-session is always authoritative.
 (CLI) = interactive CLI/TUI only. (GW) = gateway platforms only.
 
@@ -67,7 +67,6 @@ it. New commands land often; `/help` in-session is always authoritative.
 /suggestions (/suggest)  Review suggested automations
 /blueprint (/bp) [name]  Set up an automation from a blueprint
 /curator [sub]           Skill maintenance (status, run, pin, archive, …)
-/kanban [sub]            Multi-profile collaboration board
 /moa <prompt>            One prompt through the Mixture-of-Agents preset
 /reload                  Reload .env into the running session (CLI)
 /reload-mcp              Reload MCP servers
@@ -82,7 +81,6 @@ it. New commands land often; `/help` in-session is always authoritative.
 /deny [all] [reason]       Deny a pending dangerous command (GW)
 /restart                   Restart gateway after draining active runs (GW)
 /sethome                   Set current chat as home channel (GW)
-/topic [off|help]          Telegram DM topic sessions (GW)
 /platform <pause|resume|list> Pause/resume a failing platform (GW)
 /commands [page]           Browse all commands, paginated (GW)
 ```

@@ -4,17 +4,6 @@ from pathlib import Path
 import subprocess
 import sys
 
-import importlib.machinery
-
-import pytest
-
-# The probe is a fresh interpreter driving the real Discord adapter; tests/gateway/conftest.py's
-# in-process MagicMock ``discord`` shadows sys.modules here, so ask the path finder for the REAL
-# distribution (a `messaging` extra absent from the CI venv) instead of the import cache.
-if importlib.machinery.PathFinder.find_spec("discord") is None:
-    pytest.skip("discord.py not installed (messaging extra)", allow_module_level=True)
-
-
 def _probe(tmp_path, mode):
     tmp_path.mkdir(exist_ok=True)
     repo = Path(__file__).resolve().parents[2]
@@ -30,7 +19,7 @@ def _probe(tmp_path, mode):
     print(result.stdout)
 
 
-def test_discord_role_membership_reaches_real_authority_and_model(tmp_path):
+def test_role_membership_reaches_real_authority_and_model(tmp_path):
     _probe(tmp_path / 'positive', 'positive')
     _probe(tmp_path / 'multiplex', 'multiplex')
 

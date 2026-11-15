@@ -643,157 +643,6 @@ class CLICommandsMixin(CLICommandsSessionToolsMixin):
                     print(f"  {_t('import.wrapper_created', path=wrapper_path)}")
         print(f"  {_t('import.use_it', name=imported)}")
 
-    # ---- /handoff -------------------------------------------------------------------------
-
-    _HANDOFF_PENDING_TIMEOUT = 60.0
-    _HANDOFF_RUNNING_TIMEOUT = 900.0  # full synthetic agent turn + delivery
-    _HANDOFF_HEARTBEAT_EVERY = 30.0
-
-    @staticmethod
-    def _handoff_keep(*lines: str) -> bool:
-        """Print ``lines`` and keep the CLI session (the True verdict of /handoff)."""
-        _cp(*lines)
-        return True
-
-    def _handle_handoff_command(self, cmd_original: str) -> bool:
-        """Handle ``/handoff <platform>`` — transfer this CLI session to a gateway platform.
-
-        Validate target → prepare session row → mark pending → block-poll (see ``_handoff_wait``).
-        Returns False only on ``completed`` (caller exits like /quit); True keeps the session."""
-        platform_name = _command_arg(cmd_original).lower()
-        if not platform_name:
-            return self._handoff_keep(
-                f"  {_t('handoff.usage')}", f"  {_t('handoff.usage_detail_1')}",
-                f"  {_t('handoff.usage_detail_2')}")
-        home = self._handoff_validate_target(platform_name)
-        if home is None:
-            return True
-        session_title = self._handoff_prepare_session()
-        if session_title is None:
-            return True
-        if not self._session_db.request_handoff(self.session_id, platform_name):
-            return self._handoff_keep(f"  {_t('handoff.already_in_flight')}")
-        _cp(f"  {_t('handoff.queued', title=session_title, platform=platform_name, home=home.name)}",
-            f"  {_t('handoff.waiting')}")
-        return self._handoff_wait(platform_name, session_title)
-
-    def _handoff_validate_target(self, platform_name: str):
-        """Resolve the destination home channel via the live gateway config; None (after printing
-        the reason) when the platform is unknown, disabled, or has no home channel."""
-        try:
-            from gateway.config import load_gateway_config, Platform
-        except Exception as exc:  # pragma: no cover — gateway pkg always shipped
-            return _cp(f"  {_t('handoff.config_load_failed', error=exc)}")
-        try:
-            platform = Platform(platform_name)
-        except (ValueError, KeyError):
-            return _cp(f"  {_t('handoff.unknown_platform', platform=platform_name)}")
-        try:
-            gw_config = load_gateway_config()
-        except Exception as exc:
-            return _cp(f"  {_t('handoff.config_load_failed', error=exc)}")
-        pcfg = gw_config.platforms.get(platform)
-        if not pcfg or not pcfg.enabled:
-            # Relay aliasing: a relay-fronted gateway has only a RELAY block yet /handoff discord
-            # is deliverable. UX pre-check only — the gateway watcher re-checks before dispatch.
-            relay_fronts = False
-            with suppress(Exception):
-                from gateway.relay import relay_platform_identities
-                relay_cfg = gw_config.platforms.get(Platform.RELAY)
-                if relay_cfg and relay_cfg.enabled:
-                    relay_fronts = platform_name in {p for p, _ in relay_platform_identities()}
-            if not relay_fronts:
-                return _cp(f"  {_t('handoff.platform_not_enabled', platform=platform_name)}")
-        home = gw_config.get_home_channel(platform)
-        if not home or not home.chat_id:
-            return _cp(f"  {_t('handoff.no_home_channel', platform=platform_name)}",
-                       f"  {_t('handoff.set_home_hint')}")
-        return home
-
-    def _handoff_prepare_session(self):
-        """Refuse mid-turn, make sure a SessionDB handle + session row exist, and return the
-        display title (None after printing why the handoff cannot start)."""
-        # An in-flight agent run would race the gateway's switch_session and the synthetic turn.
-        if getattr(self, "_agent_running", False):
-            return _cp(f"  {_t('shared.agent_busy', command='/handoff')}")
-        if not self._session_db:
-            with suppress(Exception):
-                from hermes_state_registry import acquire
-                self._session_db = acquire()
-        if not self._session_db:
-            return _cp(_db_unavailable_line())
-        # Ensure the session row exists (an empty session has flushed nothing yet): the gateway
-        # needs a row to switch_session onto; set_session_title's INSERT OR IGNORE creates it.
-        try:
-            if not self._session_db.get_session(self.session_id):
-                self._session_db.set_session_title(self.session_id, f"handoff-{self.session_id[:8]}")
-        except Exception as exc:
-            return _cp(f"  {_t('handoff.session_row_failed', error=exc)}")
-        session_title = ""
-        with suppress(Exception):
-            session_title = (self._session_db.get_session(self.session_id) or {}).get("title") or ""
-        return session_title or self.session_id[:8]
-
-    def _handoff_wait(self, platform_name: str, session_title: str) -> bool:
-        """Two-phase 0.5s poll. PENDING (unclaimed): 60s, then CAS-fail the row so the user can
-        retry (a claim racing this instant wins). RUNNING (claimed): the gateway replays the
-        transcript via a synthetic turn (routinely >60s) — wait 15 min with heartbeats and on
-        timeout do NOT touch the row; failing it here was the split-brain bug."""
-        pending_deadline = time.time() + self._HANDOFF_PENDING_TIMEOUT
-        running_deadline = None
-        next_heartbeat = None
-        last_state = "pending"
-        while True:
-            try:
-                state_row = self._session_db.get_handoff_state(self.session_id)
-            except Exception:
-                state_row = None
-            current = (state_row or {}).get("state") or "pending"
-            if current != last_state:
-                if current == "running":
-                    _cp(f"  {_t('handoff.picked_up')}")
-                    running_deadline = time.time() + self._HANDOFF_RUNNING_TIMEOUT
-                    next_heartbeat = time.time() + self._HANDOFF_HEARTBEAT_EVERY
-                last_state = current
-            if current == "completed":
-                _cp("", f"  {_t('handoff.complete', platform=platform_name)}",
-                    f"  {_t('handoff.resume_hint', title=session_title)}", "")
-                # _run_cleanup must NOT finalize the row on exit: the gateway owns it now, and an
-                # end_reason set under it would drop the handoff leg from session history/search.
-                # See #88234.
-                from cli import _handed_off_session_ids
-                _handed_off_session_ids.add(self.session_id)
-                self._should_exit = True  # same exit semantics as /quit
-                return False
-            if current == "failed":
-                err = (state_row or {}).get("error") or _t("handoff.unknown_error")
-                return self._handoff_keep(
-                    f"  {_t('handoff.failed', error=err)}", f"  {_t('handoff.session_intact_retry')}")
-            now = time.time()
-            if current == "pending":
-                if now >= pending_deadline:
-                    break
-            else:  # running
-                if next_heartbeat is not None and now >= next_heartbeat:
-                    _cp(f"  {_t('handoff.still_transferring')}")
-                    next_heartbeat = now + self._HANDOFF_HEARTBEAT_EVERY
-                if running_deadline is not None and now >= running_deadline:
-                    # Do NOT fail the row: the gateway owns it (split-brain bug otherwise).
-                    return self._handoff_keep(
-                        f"  {_t('handoff.taking_long')}",
-                        f"  {_t('handoff.check_platform', platform=platform_name)}",
-                        f"  {_t('handoff.no_longer_waiting')}", f"  {_t('handoff.retry_when_settled')}")
-            time.sleep(0.5)
-        try:  # pending timed out: CAS-clear so the user can retry
-            self._session_db.fail_handoff(
-                self.session_id, "timed out waiting for gateway", only_states=("pending",))
-        except TypeError:
-            # Older SessionDB without only_states (mixed installs): legacy unconditional fail.
-            with suppress(Exception):
-                self._session_db.fail_handoff(self.session_id, "timed out waiting for gateway")
-        except Exception:
-            pass
-        return self._handoff_keep(f"  {_t('handoff.timed_out')}", f"  {_t('handoff.session_intact')}")
 
     # ---- /resume, /sessions, /branch ------------------------------------------------------
     def _handle_resume_command(self, cmd_original: str) -> None:
@@ -825,13 +674,7 @@ class CLICommandsMixin(CLICommandsSessionToolsMixin):
         if resolved is None:
             return
         target_id, session_meta = resolved
-        # A Kanban worker transcript must not become this chat's write-capable continuation
-        # (#68779): the resumed conversation would be a writer the Kanban board cannot
-        # observe, and unblocking the card could dispatch a competing worker. Keep the
-        # CURRENT session instead of switching.
-        from hermes_cli.kanban_resume_guard import kanban_resume_refusal
-        if (kanban_refusal := kanban_resume_refusal(self._session_db, target_id)):
-            return _cp(f"  {kanban_refusal}")
+
         # One session.resume, before anything changes: it subscribes the target and names its receipt
         # owner; a target the gateway refuses this viewer stops the switch, so the current session is
         # neither ended nor swapped for one whose next prompt would be refused.
@@ -917,7 +760,7 @@ class CLICommandsMixin(CLICommandsSessionToolsMixin):
         full history so a different approach can be explored without losing the original."""
         # An in-flight agent run would flush through the rotating session identity: the branch
         # ends the parent row and repoints agent.session_id (_sync_agent_to_session), so the
-        # turn's remaining messages land on the branch. Refuse mid-turn like /handoff does.
+        # turn's remaining messages land on the branch. Refuse mid-turn.
         if getattr(self, "_agent_running", False):
             return _cp(f"  {_t('shared.agent_busy', command='/branch')}")
         from cli import _sync_process_session_id
@@ -1240,18 +1083,6 @@ class CLICommandsMixin(CLICommandsSessionToolsMixin):
         except Exception as exc:
             print(_t("curator.failed", error=exc))
 
-    def _handle_kanban_command(self, cmd: str):
-        """Handle /kanban — strip the leading ``/kanban`` and hand the rest to ``kanban.run_slash``."""
-        from hermes_cli.kanban import run_slash
-        rest = cmd.strip().lstrip("/")
-        if rest.startswith("kanban"):
-            rest = rest[len("kanban"):].lstrip()
-        try:
-            output = run_slash(rest)
-        except Exception as exc:  # pragma: no cover - defensive
-            output = _t("kanban.failed", error=exc)
-        if output:
-            print(output)
 
     def _handle_skills_command(self, cmd: str):
         """Handle /skills slash command — delegates to hermes_cli.skills_hub, after intercepting the

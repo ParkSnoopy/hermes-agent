@@ -1,12 +1,12 @@
 ---
 sidebar_position: 7
 title: "Gateway 内部机制"
-description: "消息 gateway 如何启动、授权用户、路由会话以及投递消息"
+description: "Gateway 如何管理会话、入口和定时任务"
 ---
 
 # Gateway 内部机制
 
-消息 gateway 是一个长期运行的进程，通过统一架构将 Hermes 连接到 20 余个外部消息平台。
+Gateway 管理共享会话、本地客户端、定时任务以及已配置的 API、A2A、webhook 和 Microsoft Graph 入口。
 
 ## 关键文件
 
@@ -15,14 +15,12 @@ description: "消息 gateway 如何启动、授权用户、路由会话以及投
 | `gateway/run.py` | `GatewayRunner` — 主循环、斜杠命令、消息分发（大文件；请查看 git 获取当前行数） |
 | `gateway/session.py` | `SessionStore` — 会话持久化与会话键构造 |
 | `gateway/delivery.py` | 向目标平台/频道投递出站消息 |
-| `gateway/pairing.py` | 用于用户授权的 DM 配对流程 |
 | `gateway/channel_directory.py` | 将聊天 ID 映射为可读名称，用于 cron 投递 |
 | `gateway/hooks.py` | Hook（钩子）发现、加载与生命周期事件分发 |
 | `gateway/mirror.py` | 为 `send_message` 提供跨会话消息镜像 |
 | `gateway/status.py` | 面向 profile 范围的 gateway 实例的 token 锁管理 |
-| `gateway/platform_registry.py` | 适配器注册表、工厂，以及对捆绑平台插件的延迟（惰性）加载 |
-| `plugins/platforms/<name>/` | 捆绑的消息适配器（多数平台：`adapter.py` + `plugin.yaml`） |
-| `gateway/platforms/` | 共享的 `base.py` 与遗留/直接适配器（Signal、API server、webhooks 等） |
+| `gateway/platform_registry.py` | 适配器注册表、工厂和插件适配器加载 |
+| `gateway/platforms/` | 共享的 `base.py` 与 API/webhook 适配器 |
 
 ## 架构概览
 
@@ -31,7 +29,7 @@ description: "消息 gateway 如何启动、授权用户、路由会话以及投
 │                  GatewayRunner                  │
 │                                                 │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
-│  │ Telegram │  │ Discord  │  │  Slack   │       │
+│  │   API    │  │ Webhook  │  │ MS Graph │       │
 │  │ Adapter  │  │ Adapter  │  │ Adapter  │       │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘       │
 │       │             │             │             │
@@ -74,9 +72,7 @@ description: "消息 gateway 如何启动、授权用户、路由会话以及投
 agent:main:{platform}:{chat_type}:{chat_id}
 ```
 
-示例：`agent:main:telegram:private:123456789`
-
-支持线程的平台（Telegram 论坛话题、Discord 线程、Slack 线程）可能在 chat_id 部分包含线程 ID。**切勿手动构造会话键** — 请始终使用 `gateway/session.py` 中的 `build_session_key()`。
+**切勿手动构造会话键**：请使用 `gateway/session.py` 中的 `build_session_key()`。
 
 ### 两级消息守卫
 
@@ -90,24 +86,7 @@ agent:main:{platform}:{chat_type}:{chat_id}
 
 ## 授权
 
-Gateway 使用多层授权检查，按顺序评估：
-
-1. **平台级全量放行标志**（如 `TELEGRAM_ALLOW_ALL_USERS`）— 若设置，该平台所有用户均被授权
-2. **平台白名单**（如 `TELEGRAM_ALLOWED_USERS`）— 逗号分隔的用户 ID
-3. **DM 配对** — 已认证用户可通过配对码为新用户授权
-4. **全局放行标志**（`GATEWAY_ALLOW_ALL_USERS`）— 若设置，所有平台的所有用户均被授权
-5. **默认：拒绝** — 未授权用户被拒绝
-
-### DM 配对流程
-
-```text
-Admin: /pair
-Gateway: "Pairing code: ABC123. Share with the user."
-New user: ABC123
-Gateway: "Paired! You're now authorized."
-```
-
-配对状态持久化于 `gateway/pairing.py`，重启后仍然有效。
+身份验证和授权取决于配置的入口。请使用相应的 API 或 webhook 安全设置。
 
 ## 斜杠命令分发
 
@@ -136,7 +115,7 @@ Gateway 从多个来源读取配置：
 
 | 来源 | 提供内容 |
 |--------|-----------------|
-| `~/.hermes/.env` | API 密钥、bot token、平台凭据 |
+| `~/.hermes/.env` | API 密钥和入口凭据 |
 | `~/.hermes/config.yaml` | 模型设置、工具配置、显示选项 |
 | 环境变量 | 覆盖上述任意配置 |
 
@@ -144,46 +123,15 @@ Gateway 从多个来源读取配置：
 
 ## 平台适配器
 
-所有消息平台都以插件适配器形式位于 `plugins/platforms/<name>/`；`gateway/platforms/` 只保留基类和 HTTP 入站适配器（`api_server`、`webhook`、`msgraph_webhook`）。它们都继承 `gateway/platforms/base.py` 中的 `BasePlatformAdapter`：
+`gateway/platforms/` 包含共享的 `base.py` 和 HTTP 入口：
 
 ```text
-plugins/platforms/                  # 插件打包的适配器（每个一个目录）
-├── telegram/adapter.py     # Telegram Bot API（长轮询或 webhook）
-├── discord/adapter.py      # Discord bot（通过 discord.py）
-├── slack/adapter.py        # Slack Socket Mode
-├── whatsapp/adapter.py     # WhatsApp（通过本地 Baileys 桥接）
-├── whatsapp_cloud/adapter.py # WhatsApp Business Cloud API
-├── matrix/adapter.py       # Matrix（通过 mautrix，可选 E2EE）
-├── mattermost/adapter.py   # Mattermost WebSocket API
-├── email/adapter.py        # 电子邮件（通过 IMAP/SMTP）
-├── sms/adapter.py          # 短信（通过 Twilio）
-├── dingtalk/adapter.py     # 钉钉 WebSocket
-├── feishu/adapter.py       # 飞书/Lark WebSocket 或 webhook
-├── wecom/adapter.py        # 企业微信（WeCom）回调
-├── line/adapter.py         # LINE Messaging API
-├── teams/adapter.py        # Microsoft Teams
-├── signal/adapter.py       # Signal（通过 signal-cli HTTP 守护进程，SSE + JSON-RPC）
-├── irc/adapter.py          # IRC（作用域锁的标准示例）
-├── bluebubbles/adapter.py  # Apple iMessage（通过 BlueBubbles macOS 服务端）
-├── weixin/adapter.py       # 微信（个人版，通过 iLink Bot API）
-├── qqbot/                  # QQ Bot（腾讯 QQ，通过官方 API v2）
-└── …                       # google_chat、ntfy、photon、raft、simplex 等
-
-gateway/platforms/                  # 核心 base 与 HTTP 入站适配器
-├── base.py              # BasePlatformAdapter — 所有平台的共享逻辑
-├── msgraph_webhook.py   # Microsoft Graph 变更通知 webhook（Teams、Outlook 等）
-├── webhook.py           # 入站/出站 webhook 适配器
-└── api_server.py        # REST API 服务器适配器
+gateway/platforms/
+├── base.py              # 共享适配器逻辑
+├── api_server.py        # REST API
+├── webhook.py           # Webhook 入口
+└── msgraph_webhook.py   # Microsoft Graph 通知
 ```
-
-适配器实现统一接口：
-- `connect()` / `disconnect()` — 生命周期管理
-- `send_message()` — 出站消息投递
-- `on_message()` — 入站消息规范化 → `MessageEvent`
-
-### Token 锁
-
-使用唯一凭据连接的适配器在 `connect()` 中调用 `acquire_scoped_lock()`，在 `disconnect()` 中调用 `release_scoped_lock()`。这可防止两个 profile 同时使用同一 bot token。
 
 ## 投递路径
 
@@ -191,7 +139,7 @@ gateway/platforms/                  # 核心 base 与 HTTP 入站适配器
 
 - **直接回复** — 将响应发回原始聊天
 - **主频道投递** — 将 cron 任务输出和后台结果路由至已配置的主频道
-- **显式目标投递** — `send_message` 工具指定 `telegram:-1001234567890`，或通过 [`hermes send` CLI](../guides/pipe-script-output.md) 封装同一工具供 shell 脚本使用
+
 - **跨平台投递** — 投递至与原始消息不同的平台
 
 Cron 任务投递**不会**镜像到 gateway 会话历史中 — 它们仅存在于各自的 cron 会话中。这是有意为之的设计选择，以避免消息交替违规。
@@ -262,4 +210,3 @@ Gateway 作为长期运行进程运行，管理方式如下：
 - [Cron 内部机制](./cron-internals.md)
 - [ACP 内部机制](./acp-internals.md)
 - [Agent 循环内部机制](./agent-loop.md)
-- [消息 Gateway（用户指南）](../user-guide/messaging/index.md)

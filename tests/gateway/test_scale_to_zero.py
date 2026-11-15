@@ -377,14 +377,6 @@ class _FakeResponse:
         return False
 
 
-def test_brokered_timeout_outlasts_the_broker_and_fits_the_redial_hold():
-    """Cross-repo deadline chain."""
-    from gateway.relay.ws_transport import REDIAL_HOLD_MAX_S
-    from gateway.scale_to_zero import BROKERED_SUSPEND_TIMEOUT_S
-
-    NAS_ROUTE_MAX_DURATION_S = 30.0  # mirrors the sleep route's maxDuration
-    assert NAS_ROUTE_MAX_DURATION_S < BROKERED_SUSPEND_TIMEOUT_S
-    assert BROKERED_SUSPEND_TIMEOUT_S < REDIAL_HOLD_MAX_S
 
 
 def test_request_brokered_suspend_posts_the_signed_url():

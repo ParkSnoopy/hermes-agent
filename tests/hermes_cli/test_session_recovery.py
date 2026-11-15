@@ -50,7 +50,14 @@ def _make_source(path: Path) -> dict[str, int]:
                 )
 
         db.set_meta("goal:recovery-session-0", '{"status":"active"}')
-        db.apply_telegram_topic_migration()
+        # Model legacy persisted tables without reviving the retired adapter.
+        db._conn.execute("""CREATE TABLE telegram_dm_topic_mode (
+            chat_id TEXT PRIMARY KEY, user_id TEXT, enabled INTEGER,
+            activated_at REAL, updated_at REAL)""")
+        db._conn.execute("""CREATE TABLE telegram_dm_topic_bindings (
+            chat_id TEXT, thread_id TEXT, user_id TEXT, session_key TEXT,
+            session_id TEXT, managed_mode TEXT, linked_at REAL, updated_at REAL,
+            PRIMARY KEY (chat_id, thread_id))""")
         db._conn.execute(
             """
             INSERT INTO telegram_dm_topic_mode (
@@ -753,6 +760,8 @@ def test_recovery_regenerates_rather_than_copies_derived_fts_meta(tmp_path: Path
     conn = sqlite3.connect(str(output))
     try:
         keys = {row[0] for row in conn.execute("SELECT key FROM state_meta")}
+        assert conn.execute("SELECT chat_id, user_id FROM telegram_dm_topic_mode").fetchall() == [("chat-1", "user-1")]
+        assert conn.execute("SELECT session_id FROM telegram_dm_topic_bindings").fetchall() == [("recovery-session-0",)]
     finally:
         conn.close()
     assert "goal:recovery-session-0" in keys

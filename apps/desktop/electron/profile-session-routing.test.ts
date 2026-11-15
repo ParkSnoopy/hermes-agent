@@ -117,18 +117,15 @@ test('remote sidebar slices all follow the selected profile', () => {
       recents_profile: 'work-vps',
       recents_limit: '30',
       cron_limit: '40',
-      messaging_limit: '50',
       recents_exclude: 'cron,signal',
-      messaging_exclude: 'desktop,cron'
     })
   )
 
   assert.equal(slices.recents.get('profile'), 'work-vps')
   assert.equal(slices.cron.get('profile'), 'work-vps')
-  assert.equal(slices.messaging.get('profile'), 'work-vps')
   assert.equal(slices.recents.get('exclude_sources'), 'cron,signal')
   assert.equal(slices.cron.get('source'), 'cron')
-  assert.equal(slices.messaging.get('exclude_sources'), 'desktop,cron')
+  assert.equal('messaging' in slices, false)
 })
 
 test('remote sidebar slices preserve the explicit all-profiles scope', () => {
@@ -136,7 +133,7 @@ test('remote sidebar slices preserve the explicit all-profiles scope', () => {
 
   assert.deepEqual(
     Object.values(slices).map(params => params.get('profile')),
-    ['all', 'all', 'all']
+    ['all', 'all']
   )
 })
 
@@ -146,7 +143,7 @@ test('remote sidebar slices fall back to the all-profiles scope', () => {
 
     assert.deepEqual(
       Object.values(slices).map(params => params.get('profile')),
-      ['all', 'all', 'all']
+      ['all', 'all']
     )
   }
 })
@@ -249,13 +246,11 @@ test('reassembled sidebar slices keep each slice errors', () => {
 
   const result = assembleSidebarSessionSlices(
     { sessions: [], total: 0, profile_totals: {}, errors: failed },
-    { sessions: [{ id: 'cron-1' }], total: 1 },
-    { sessions: [], total: 0, errors: failed }
+    { sessions: [{ id: 'cron-1' }], total: 1 }
   )
 
   assert.deepEqual(result.recents.errors, failed)
   assert.equal(result.cron.errors, undefined)
-  assert.deepEqual(result.messaging.errors, failed)
   assert.deepEqual(result.cron.sessions, [{ id: 'cron-1' }])
 })
 
@@ -1134,7 +1129,6 @@ test('registry-pinned session responses retain their owning connection', () => {
     {
       recents: { sessions: [{ id: 'remote-chat', profile: 'default' }] },
       cron: { sessions: [{ id: 'remote-cron', profile: 'default' }] },
-      messaging: { sessions: [] }
     },
     'test-amnezia'
   ) as any
@@ -1536,7 +1530,6 @@ test('all-profiles sidebar is merged from one batched read per profile', async (
         profiles_usage: { default: { cost_usd: 1, tokens: 10 } }
       },
       cron: { sessions: [{ id: 'dc', profile: 'default', started_at: 3 }] },
-      messaging: { sessions: [{ id: 'dm', profile: 'default', last_active: 2 }], total: 1 },
       errors: [],
       storage: {}
     },
@@ -1547,14 +1540,12 @@ test('all-profiles sidebar is merged from one batched read per profile', async (
         profiles_usage: { work: { cost_usd: 2, tokens: 20 } }
       },
       cron: { sessions: [] },
-      messaging: { sessions: [{ id: 'wm', profile: 'work', last_active: 4 }], total: 3 },
       errors: [],
       storage: {}
     },
     broken: {
       recents: { failed: true, retry: true, errors: [{ profile: 'broken', error: 'database is locked' }] },
       cron: { failed: true, retry: true, errors: [{ profile: 'broken', error: 'database is locked' }] },
-      messaging: { failed: true, retry: true, errors: [{ profile: 'broken', error: 'database is locked' }], total: 0 },
       errors: [{ profile: 'broken', error: 'database is locked' }],
       storage: {}
     }
@@ -1563,7 +1554,7 @@ test('all-profiles sidebar is merged from one batched read per profile', async (
   const reads: string[] = []
 
   const result = (await fetchAllProfilesSessionsPerProfile(
-    '/api/profiles/sessions/sidebar?recents_profile=all&recents_limit=40&cron_limit=5&messaging_limit=5',
+    '/api/profiles/sessions/sidebar?recents_profile=all&recents_limit=40&cron_limit=5',
     ['default', 'work', 'broken'],
     async (profile, path) => {
       reads.push(path)
@@ -1572,11 +1563,10 @@ test('all-profiles sidebar is merged from one batched read per profile', async (
     }
   )) as any
 
-  assert.ok(reads.includes('/api/profiles/sessions/sidebar?recents_profile=work&recents_limit=40&cron_limit=5&messaging_limit=5'))
+  assert.ok(reads.includes('/api/profiles/sessions/sidebar?recents_profile=work&recents_limit=40&cron_limit=5'))
   assert.deepEqual(result.recents.sessions.map((s: any) => s.id), ['w1', 'd1'])
   assert.deepEqual(result.cron.sessions.map((s: any) => s.id), ['dc'])
-  assert.deepEqual(result.messaging.sessions.map((s: any) => s.id), ['wm', 'dm'])
-  assert.equal(result.messaging.total, 4)
+  assert.equal('messaging' in result, false)
   assert.deepEqual(result.recents.profiles_truncated, { default: false, work: true })
   assert.deepEqual(result.recents.profiles_usage, {
     default: { cost_usd: 1, tokens: 10 },
@@ -1598,7 +1588,6 @@ test('all-profiles sidebar reads name only the profile they read, even on a regi
     async (_profile, path) => {
       reads.push(path)
 
-      return { recents: { sessions: [] }, cron: { sessions: [] }, messaging: { sessions: [], total: 0 } }
     }
   )
 

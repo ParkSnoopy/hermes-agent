@@ -166,8 +166,8 @@ export async function listAllProfileSessions(
 }
 
 // Batched sidebar slices in one request: recents (scoped to the active profile),
-// cron, and messaging. The backend opens each profile's state.db once and runs
-// all three filtered queries, replacing three separate listAllProfileSessions
+// and cron. The backend opens each profile's state.db once and runs
+// both filtered queries, replacing separate listAllProfileSessions
 // calls that each reopened + re-counted every profile DB per refresh. Electron
 // splices remote profiles per slice (see interceptSessionRequestForRemote).
 export interface SidebarSessionSlice {
@@ -212,7 +212,6 @@ function profilesTruncatedFrom(sessions: SessionInfo[], cap: number): Record<str
 export interface SidebarSessionsResponse {
   recents: SidebarSessionSlice
   cron: SidebarSessionSlice
-  messaging: SidebarSessionSlice
   errors?: Array<{ profile: string; error: string }>
   /** Profiles that failed while another profile's rows are still in the slices. */
   profiles_failed?: Record<string, { failed?: boolean; retry?: boolean; error?: string }>
@@ -226,15 +225,13 @@ export interface SidebarSessionsRequest {
   recentsLimit: number
   recentsExclude: string[]
   cronLimit: number
-  messagingLimit: number
-  messagingExclude: string[]
 }
 
 // The batched /sidebar endpoint shipped later than the per-slice route, so a
 // newer desktop can meet an older backend that 404s it ("No such API
 // endpoint"). Endpoint-missing is a capability signal, not a transient
 // failure: remember it and serve every subsequent refresh straight from the
-// three proven per-slice calls instead of re-probing a known-dead route once
+// two proven per-slice calls instead of re-probing a known-dead route once
 // per turn/broadcast. It is a fact about ONE backend, so it is keyed by the
 // connection the request rode: a gateway pick re-scopes requests in place
 // (no reload, no list wipe), and the next gateway may well have the route.
@@ -248,27 +245,22 @@ export function resetSidebarBatchCapability() {
   sidebarBatchEndpointMissing.clear()
 }
 
-// Compatibility fallback: reassemble the three sidebar slices from the
+// Compatibility fallback: reassemble the sidebar slices from the
 // per-slice endpoint, mirroring the batched route's semantics (min_messages=1,
 // archived excluded, recency order; every slice scoped to the caller's profile).
 // Rides the same Electron remote-splice
 // interception as the pre-batching desktop, so remote profiles stay correct.
 async function listSidebarSessionsLegacy(req: SidebarSessionsRequest): Promise<SidebarSessionsResponse> {
-  const [recents, cron, messaging] = await Promise.all([
+  const [recents, cron] = await Promise.all([
     listAllProfileSessions(req.recentsLimit, 1, 'exclude', 'recent', req.recentsProfile, {
       excludeSources: req.recentsExclude
     }),
-    listAllProfileSessions(req.cronLimit, 1, 'exclude', 'recent', req.recentsProfile, { source: 'cron' }),
-    listAllProfileSessions(req.messagingLimit, 1, 'exclude', 'recent', req.recentsProfile, {
-      excludeSources: req.messagingExclude
-    })
+    listAllProfileSessions(req.cronLimit, 1, 'exclude', 'recent', req.recentsProfile, { source: 'cron' })
   ])
 
   const recentsErrors = recents.errors ?? []
   const cronErrors = cron.errors ?? []
-  const messagingErrors = messaging.errors ?? []
-
-  const storage = { ...recents.storage, ...cron.storage, ...messaging.storage }
+  const storage = { ...recents.storage, ...cron.storage }
 
   const response: SidebarSessionsResponse = {
     recents: {
@@ -279,10 +271,6 @@ async function listSidebarSessionsLegacy(req: SidebarSessionsRequest): Promise<S
     cron: {
       sessions: cron.sessions,
       ...(cronErrors.length ? { errors: cronErrors } : {})
-    },
-    messaging: {
-      sessions: messaging.sessions,
-      ...(messagingErrors.length ? { errors: messagingErrors } : {})
     }
   }
 
@@ -320,16 +308,11 @@ export async function listSidebarSessions(req: SidebarSessionsRequest): Promise<
   const params = new URLSearchParams({
     recents_profile: req.recentsProfile,
     recents_limit: String(Math.max(1, req.recentsLimit)),
-    cron_limit: String(Math.max(1, req.cronLimit)),
-    messaging_limit: String(Math.max(1, req.messagingLimit))
+    cron_limit: String(Math.max(1, req.cronLimit))
   })
 
   if (req.recentsExclude.length) {
     params.set('recents_exclude', req.recentsExclude.join(','))
-  }
-
-  if (req.messagingExclude.length) {
-    params.set('messaging_exclude', req.messagingExclude.join(','))
   }
 
   let result: SidebarSessionsResponse
@@ -362,11 +345,6 @@ export async function listSidebarSessions(req: SidebarSessionsRequest): Promise<
     cron: {
       ...result.cron,
       sessions: stampActiveConnectionOwner(result.cron?.sessions ?? []),
-      ...(result.errors?.length ? { errors: result.errors } : {})
-    },
-    messaging: {
-      ...result.messaging,
-      sessions: stampActiveConnectionOwner(result.messaging?.sessions ?? []),
       ...(result.errors?.length ? { errors: result.errors } : {})
     },
     errors: result.errors,

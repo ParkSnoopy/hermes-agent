@@ -3,18 +3,19 @@
 Under session authority every busy follow-up is admitted to the durable FIFO, so clearing the
 adapter's pending slot no longer reached it: /stop let the drain RUN the message the user meant
 to cancel, and /new stranded it queued on the abandoned session. Real GatewayRunner busy
-dispatch, real DiscordAdapter, real authority over a real SessionDB; only the turn executor is
+dispatch, a test transport, and real authority over a real SessionDB; only the turn executor is
 recorded.
 """
 import asyncio
 
 import pytest
+from tests.gateway.test_messaging_stop_owner_turn import TestTransport, test_transport
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('command', ['/stop', '/new'])
-async def test_busy_stop_and_new_cancel_the_queued_messaging_followup(tmp_path, monkeypatch, command):
-    from gateway.config import GatewayConfig, Platform, PlatformConfig
+async def test_busy_stop_and_new_cancel_the_queued_messaging_followup(tmp_path, monkeypatch, command, test_transport):
+    from gateway.config import GatewayConfig
     from gateway.platforms.event import MessageEvent
     from gateway.run import GatewayRunner
     from gateway.session_authority import SessionAuthority, initialize_session_authority
@@ -22,13 +23,12 @@ async def test_busy_stop_and_new_cancel_the_queued_messaging_followup(tmp_path, 
     from gateway.session_ingress_context import native_callback
     from hermes_constants import get_hermes_home
     from hermes_state_runtime import list_session_admissions
-    from plugins.platforms.discord.adapter import DiscordAdapter
+
 
     monkeypatch.setattr(SessionAuthority, '_schedule', lambda self, ref: None)
-    monkeypatch.setenv('DISCORD_ALLOWED_USERS', '42')
     runner = GatewayRunner(GatewayConfig())
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token='fixture-token', typing_indicator=False))
-    runner.adapters = {Platform.DISCORD: adapter}
+    adapter = TestTransport()
+    runner.adapters = {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='owner')
     runner._wire_adapter_handlers(adapter)
     source = adapter.build_source(chat_id='42', chat_type='dm', user_id='42')

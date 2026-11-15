@@ -273,7 +273,7 @@ export function useSlashCompletions(options: {
           )
           .map(item => ({
             ...item,
-            // Arg suggestions (e.g. `/handoff <platform>`) live under one
+            // Argument suggestions live under one
             // header; otherwise split skills out from built-in commands.
             // Kind comes from the backend — the desktop table is a visibility
             // gate (`isDesktopSlashSuggestion`), not a classifier.

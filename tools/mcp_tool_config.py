@@ -212,9 +212,7 @@ def _build_safe_env(user_env: Optional[dict]) -> dict:
         value = get_secret(key)
         if value is not None:
             env[key] = value
-    for key in ("HERMES_KANBAN_DB", "HERMES_KANBAN_BOARD"):
-        if key in os.environ:
-            env[key] = os.environ[key]
+
     # Pin the ACTIVE (served) profile's home so a stdio child never falls back to the
     # platform-default home (issue #18594). Without it a child spawned by a multiplexed host
     # or a dashboard/desktop backend serving ``--open-profile`` resolves HERMES_HOME to the

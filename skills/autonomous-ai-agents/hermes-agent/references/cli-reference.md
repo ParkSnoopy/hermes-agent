@@ -40,7 +40,7 @@ hermes chat [flags]
 ### Configuration
 
 ```
-hermes setup [section]      Wizard (model|tts|terminal|gateway|tools|agent)
+hermes setup [section]      Wizard (model|tts|terminal|tools|telemetry|agent)
 hermes model                Interactive model/provider picker
 hermes fallback [add|remove|list]  Fallback provider chain
 hermes config [show|edit|get|set|unset|path|env-path|check|migrate]
@@ -71,15 +71,6 @@ hermes mcp configure NAME             Toggle tool selection
 hermes mcp-serve                      Run Hermes as an MCP server (mcp-serve plugin)
 ```
 Details (transport, tool discovery, catalog): `references/native-mcp.md`.
-
-### Gateway (Messaging Platforms)
-
-```
-hermes gateway run|install|start|stop|restart|status|setup
-```
-
-20+ platforms: Telegram, Discord, Slack, WhatsApp (Baileys + Business Cloud API), iMessage (Photon — `hermes photon setup`), Signal, Email, SMS, Matrix, Mattermost, Teams, LINE, SimpleX, ntfy, Google Chat, Home Assistant, DingTalk, Feishu, WeCom, Weixin, API Server, Webhooks. Open WebUI connects via the API Server adapter. Most adapters ship under `plugins/platforms/`.
-Docs: https://hermes-agent.nousresearch.com/docs/user-guide/messaging/
 
 ### Sessions
 
@@ -120,7 +111,6 @@ hermes desktop / gui        Native desktop app
 hermes dashboard            Web admin panel + embedded chat (--stop / --status)
 hermes proxy                OpenAI-compatible local proxy backed by an OAuth provider
 hermes portal               Quick setup / sign in via Nous Portal
-hermes kanban <verb>        Multi-agent work-queue board
 hermes project              Named multi-folder workspaces (see references/projects-and-folders.md)
 hermes skin list|use|set    Switch/tweak skins (see references/themes.md)
 hermes pets <verb>          Pet mascots (see references/petdex.md)
@@ -129,8 +119,8 @@ hermes secrets bitwarden|onepassword   External secret stores
 hermes moa                  Mixture-of-Agents slots
 hermes hooks / security / backup / import / checkpoints / console
 hermes logs [-f] [errors]   View agent/error logs
-hermes send                 One-off message through a gateway platform
-hermes pairing / plugins / insights / journey / computer-use
+
+hermes plugins / insights / journey / computer-use
 hermes acp                  ACP server (IDE integration)
 hermes completion bash|zsh|fish
 hermes update / uninstall

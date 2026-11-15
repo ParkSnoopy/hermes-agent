@@ -32,7 +32,7 @@ High-level categories:
 | **Agent orchestration** | `todo`, `clarify`, `execute_code`, `delegate_task` | Planning, clarification, code execution, and subagent delegation. |
 | **Memory & recall** | `memory`, `session_search` | Persistent memory and session search. |
 | **Automation** | `cronjob` | Scheduled tasks with create/list/update/pause/resume/run/remove actions. Outbound delivery is handled by cron's own delivery, the `hermes send` CLI, and the gateway notifier — not by an agent-callable tool. |
-| **Integrations** | MCP server tools, plugin tools | MCP and plugin integrations, e.g. Home Assistant (`ha_*`, from the [`homeassistant` catalog plugin](../messaging/homeassistant.md)). |
+| **Integrations** | MCP server tools, plugin tools | MCP and plugin integrations, e.g. Home Assistant (`ha_*`, from the `homeassistant` catalog plugin). |
 
 For the authoritative code-derived registry, see [Built-in Tools Reference](../../reference/tools-reference.md) and [Toolsets Reference](../../reference/toolsets-reference.md).
 

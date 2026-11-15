@@ -42,20 +42,18 @@ async def _no_call_record(*args, **kwargs):
     return None
 
 
-def test_runtime_config_uses_existing_teams_platform_settings():
+def test_runtime_config_uses_graph_webhook_settings():
     from plugins.teams_pipeline.runtime import build_pipeline_runtime_config
 
     gateway_config = GatewayConfig(
         platforms={
-            Platform("teams"): PlatformConfig(
+            Platform.MSGRAPH_WEBHOOK: PlatformConfig(
                 enabled=True,
                 extra={
-                    "delivery_mode": "graph",
-                    "team_id": "team-1",
-                    "channel_id": "channel-1",
                     "meeting_pipeline": {
                         "transcript_min_chars": 120,
                         "notion": {"enabled": True, "database_id": "db-1"},
+                        "teams_delivery": {"enabled": True, "mode": "graph", "team_id": "team-1", "channel_id": "channel-1"},
                     },
                 },
             )
@@ -72,6 +70,96 @@ def test_runtime_config_uses_existing_teams_platform_settings():
         "team_id": "team-1",
         "channel_id": "channel-1",
     }
+
+
+def test_runtime_constructs_enabled_delivery_without_teams_platform(monkeypatch, tmp_path):
+    from plugins.teams_pipeline import runtime
+    from plugins.teams_pipeline.summary_writer import TeamsSummaryWriter
+
+    monkeypatch.setattr(runtime, "build_graph_client", lambda: FakeGraphClient())
+    monkeypatch.setattr(runtime, "resolve_teams_pipeline_store_path", lambda: tmp_path / "store.json")
+    config = GatewayConfig(platforms={Platform.MSGRAPH_WEBHOOK: PlatformConfig(
+        enabled=True, extra={"meeting_pipeline": {"teams_delivery": {"enabled": True, "chat_id": "chat-1"}}})})
+    pipeline = runtime.build_pipeline_runtime(SimpleNamespace(config=config))
+    assert isinstance(pipeline.teams_sender, TeamsSummaryWriter)
+    assert pipeline.config.teams_delivery["chat_id"] == "chat-1"
+
+
+@pytest.mark.anyio
+async def test_summary_writer_delivers_webhook_and_graph_and_deduplicates():
+    import httpx
+    from plugins.teams_pipeline.summary_writer import TeamsSummaryWriter
+
+    requests = []
+    def handle(request):
+        requests.append(request)
+        return httpx.Response(200, json={"id": "message-1"})
+
+    payload = SimpleNamespace(title="Review <meeting>", summary="Summary & notes", key_decisions=["Ship"], action_items=[], risks=[])
+    writer = TeamsSummaryWriter(transport=httpx.MockTransport(handle))
+    record = await writer.write_summary(payload, {"incoming_webhook_url": "https://example.test/hook"})
+    assert record["delivered"] is True
+    assert b"Summary & notes" in requests[0].content
+    assert await writer.write_summary(payload, {}, existing_record=record) == record
+    assert len(requests) == 1
+
+    class Graph:
+        async def post_json(self, path, *, json_body):
+            assert path == "/chats/chat%2F1/messages"
+            assert "Review &lt;meeting&gt;" in json_body["body"]["content"]
+            return {"id": "message-1"}
+
+    result = await TeamsSummaryWriter(graph_client=Graph()).write_summary(payload, {"chat_id": "chat/1"})
+    assert result["message_id"] == "message-1"
+
+
+@pytest.mark.parametrize("language,expected", [("en", "No summary available."), ("zh", "暂无摘要。")])
+@pytest.mark.anyio
+async def test_summary_writer_uses_pipeline_translations(monkeypatch, language, expected):
+    import json
+    import httpx
+    from plugins.teams_pipeline.summary_writer import TeamsSummaryWriter
+
+    monkeypatch.setenv("HERMES_LANGUAGE", language)
+
+    def handle(request):
+        assert expected in json.loads(request.content)["text"]
+        return httpx.Response(200)
+
+    writer = TeamsSummaryWriter(transport=httpx.MockTransport(handle))
+    result = await writer.write_summary(SimpleNamespace(), {"incoming_webhook_url": "https://example.test/hook"})
+    assert result["delivered"] is True
+
+
+def test_validate_uses_graph_webhook_delivery_and_accepts_chat_target(monkeypatch, tmp_path, capsys):
+    import json
+    from plugins.teams_pipeline import cli
+
+    for key in ("TENANT_ID", "CLIENT_ID", "CLIENT_SECRET"):
+        monkeypatch.setenv(f"MSGRAPH_{key}", "configured")
+    config = GatewayConfig(platforms={Platform.MSGRAPH_WEBHOOK: PlatformConfig(
+        enabled=True, extra={"meeting_pipeline": {"teams_delivery": {"enabled": True, "mode": "graph", "chat_id": "chat-1"}}})})
+    monkeypatch.setattr(cli, "load_gateway_config", lambda: config)
+    cli._cmd_validate(SimpleNamespace(store_path=str(tmp_path / "store.json")))
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is True
+    assert result["teams_enabled"] is True
+    assert result["teams_delivery_mode"] == "graph"
+
+
+def test_validate_reports_enabled_delivery_with_missing_target(monkeypatch, tmp_path, capsys):
+    import json
+    from plugins.teams_pipeline import cli
+
+    for key in ("TENANT_ID", "CLIENT_ID", "CLIENT_SECRET"):
+        monkeypatch.setenv(f"MSGRAPH_{key}", "configured")
+    config = GatewayConfig(platforms={Platform.MSGRAPH_WEBHOOK: PlatformConfig(
+        enabled=True, extra={"meeting_pipeline": {"teams_delivery": {"enabled": True, "mode": "graph"}}})})
+    monkeypatch.setattr(cli, "load_gateway_config", lambda: config)
+    cli._cmd_validate(SimpleNamespace(store_path=str(tmp_path / "store.json")))
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert "Graph delivery requires chat_id or both team_id and channel_id." in result["issues"]
 
 
 @pytest.mark.anyio

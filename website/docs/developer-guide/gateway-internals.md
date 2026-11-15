@@ -1,12 +1,12 @@
 ---
 sidebar_position: 7
 title: "Gateway Internals"
-description: "How the messaging gateway boots, authorizes users, routes sessions, and delivers messages"
+description: "How the gateway coordinates sessions, ingress, and scheduled work"
 ---
 
 # Gateway Internals
 
-The messaging gateway is the long-running process that connects Hermes to 20+ external messaging platforms through a unified architecture.
+The gateway owns shared sessions, local client coordination, scheduled work, and configured API, A2A, webhook and Microsoft Graph ingress.
 
 ## Canonical group metadata and profile discovery
 
@@ -70,7 +70,7 @@ not enabled by these read projections.
 
 `session.resume` returns each pending admission with its original `input_id` and
 committed public `text`, alongside the canonical `admission_id`, sequence and status.
-This includes native messaging inputs and local-client inputs. Snapshots do not expose
+This includes local-client and supported ingress inputs. Snapshots do not expose
 private native routing, source, or authorization envelopes. Submission and receipt
 ACKs retain their existing shape. Clients must use `admission_id` for cancellation
 and receipt queries rather than assuming it equals the original input ID.
@@ -93,18 +93,11 @@ row is refused with `stale_generation`. Desktop shows such a row in the queue pa
 discard closes it with a Hermes notice (like a failed turn), so it is never merged into the
 follower's model request.
 
-A messaging user (Telegram, Discord, ...) whose session is paused this way is told once per
-pause episode, through the adapter's ordinary reply path, that the conversation is paused and
-that `/reset` starts a fresh one; later messages onto the same pause are admitted silently and
-stay queued. Their delivery waiters are released with the pause reason instead of parking the
-adapter loop. `/reset` rotates the route to a new session (the lost turn and its followers stay
-on the old one); the operator can alternatively resolve the unknown row from Desktop or the CLI.
-
 ## Shared authority prompt attachments
 
 `prompt.submit` accepts an optional `attachments: [{path, mime}]` list beside `text`.
 The client stages image bytes in the profile image cache (`cache/images/` under the
-served `HERMES_HOME`, the same place messaging adapters stage downloads); paths must be
+served `HERMES_HOME`); paths must be
 regular files directly in that directory, `mime` must be an image type
 (`image/png`, `image/jpeg`, `image/gif`, `image/webp`), at most 10 per submission, each
 under `gateway.max_inbound_media_bytes`. The authority copies the bytes into its
@@ -133,8 +126,8 @@ queue or bypass an unknown pause. Completed inputs are not reinferred on restart
 Under `gateway.multiplex_profiles` the bootstrap builds one session authority per
 served profile home (the default plus every directory under `profiles/`), each bound
 to that home's `state.db` and entered under that profile's runtime scope. Every
-admission path (bot message, `/p/<profile>/` API and webhook, cron fire, kanban
-dispatch, native CLI/Desktop/ACP attach) resolves its authority from the routed
+admission path (`/p/<profile>/` API and webhook, cron fire,
+CLI/Desktop/ACP attach) resolves its authority from the routed
 profile's home, so recovery, FIFO order and exactly-once settlement hold per profile
 and a secondary's rows never land in the default's ledger. A served secondary's
 clients discover the multiplexer through the default home's descriptor
@@ -163,7 +156,7 @@ admission ACK. The authority's durable FIFO owns retries and execution, and skil
 content remains a user message without changing the cached system prefix.
 
 `type: exec` quick commands and plugin slash commands require `session:control` and run
-through the messaging gateway's own quick/plugin dispatch (slash access policy,
+through the gateway's own quick/plugin dispatch (slash access policy,
 sanitized-env exec with a 30 s cap and redacted output, plugin session env).
 
 Other commands return `unsupported_command`: bundles, configuration/runtime changes,
@@ -363,29 +356,27 @@ including top-level one-shot launches. It does not become a process-wide option.
 | `gateway/run.py` | `GatewayRunner` facade — composes the `gateway/run_*.py` sibling mixins (startup, adapters, inbound, turn, busy, goals, notifications, shutdown, …) and `gateway/slash_commands_*.py` handlers |
 | `gateway/session.py` | `SessionStore` — conversation persistence and session key construction |
 | `gateway/delivery.py` | Outbound message delivery to target platforms/channels |
-| `gateway/pairing.py` | DM pairing flow for user authorization |
 | `gateway/channel_directory.py` | Maps chat IDs to human-readable names for cron delivery |
 | `gateway/hooks.py` | Hook discovery, loading, and lifecycle event dispatch |
 | `gateway/mirror.py` | Cross-session message mirroring for `send_message` |
 | `gateway/status.py` | Token lock management for profile-scoped gateway instances |
 | `gateway/platform_registry.py` | Adapter registry, factories, and deferred (lazy) loaders for bundled platform plugins |
-| `plugins/platforms/<name>/` | Bundled messaging adapters (most platforms: `adapter.py` + `plugin.yaml`) |
-| `gateway/platforms/` | Shared `base.py` plus legacy/direct adapters (Signal, API server, webhooks, …) |
+| `gateway/platforms/` | Shared `base.py` and API/webhook adapters |
 
 ## Optional service installation
 
 A running gateway and an installed OS service are different things. `hermes gateway run`
-works without a service, including with no messaging platforms configured.
+works without an installed service.
 
 `hermes setup`, quick setup, and `hermes gateway setup` ask interactive users once:
 
-> Install the gateway service so Hermes starts automatically at login and keeps scheduled jobs and messaging available?
+> Install the gateway service so Hermes starts automatically at login and keeps scheduled jobs available?
 
 The profile's `gateway.service_install_choice` stores `null`, `install`, or `decline`.
 An unset value is not permission to install. Declining records `decline` without creating,
 enabling, or removing a service. In the gateway wizard, choosing **Start now** but declining
 service installation launches an unmanaged gateway; it does not create a disabled service.
-Without service persistence, messaging and scheduled work stop at logout/reboot. Jobs cannot
+Without service persistence, scheduled work stops at logout/reboot. Jobs cannot
 run while the host is off.
 
 Noninteractive setup and imports do not install a missing service, even when the imported
@@ -460,7 +451,7 @@ Remove the extra write bit (`chmod o-w,g-w`) before retrying local attachment.
 
 A service start command or process creation is not a readiness acknowledgement.
 A gateway that has not exposed the session-authority capability can remain
-`starting` until the deadline even while its messaging adapters work. Do not treat
+`starting` until the deadline even while ingress adapters work. Do not treat
 exit `5` as permission to replace that owner. On Windows, a Startup-folder-only
 installation requires login rather than an unmanaged fallback; failure to detach
 from a parent job is reported instead of retried with weaker process isolation.
@@ -592,7 +583,7 @@ When no service is installed, `attach` starts an unmanaged gateway with the idle
 itself once no client, adapter or job needs it, and the next `attach --start` starts a new one. An
 installed service that `attach` starts keeps running, as with `ensure`. A restart's after-turn
 wait (`draining`/`restart_wait`) is attachable, so a client can still answer a parked prompt.
-Launch policy (model, provider, toolsets, cwd, Kanban board) belongs in `session.create`; the
+Launch policy (model, provider, toolsets, cwd) belongs in `session.create`; the
 command removes those variables from its own environment before it can start a daemon.
 
 Success (exit `0`) prints one JSON line: `ensure`'s fields (`state`, `reason_code`, `detail`,
@@ -635,7 +626,7 @@ repair command, in `detail`; run `attach` again. Invalid arguments exit `2` with
 │                  GatewayRunner                  │
 │                                                 │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
-│  │ Telegram │  │ Discord  │  │  Slack   │       │
+│  │   API    │  │ Webhook  │  │ MS Graph │       │
 │  │ Adapter  │  │ Adapter  │  │ Adapter  │       │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘       │
 │       │             │             │             │
@@ -678,11 +669,7 @@ Session keys encode the full routing context:
 agent:{namespace}:{platform}:{chat_type}:{chat_id}
 ```
 
-For example: `agent:main:telegram:private:123456789` for the default profile, or
-`agent:work:telegram:private:123456789` when the multiplexer routes that chat to profile `work`
-(`gateway/session.py::_session_key_namespace`; a profile literally named `main` is marked `main~`).
-
-Thread-aware platforms (Telegram forum topics, Discord threads, Slack threads) may include thread IDs in the chat_id portion. **Never construct session keys manually** — always use `build_session_key()` from `gateway/session.py`.
+**Never construct session keys manually** — use `build_session_key()` from `gateway/session.py`.
 
 ### Two-Level Message Guard
 
@@ -696,24 +683,7 @@ Commands that must reach the runner while the agent is blocked (like `/approve`)
 
 ## Authorization
 
-The gateway uses a multi-layer authorization check, evaluated in order:
-
-1. **Per-platform allow-all flag** (e.g., `TELEGRAM_ALLOW_ALL_USERS`) — if set, all users on that platform are authorized
-2. **Platform allowlist** (e.g., `TELEGRAM_ALLOWED_USERS`) — comma-separated user IDs
-3. **DM pairing** — authenticated users can pair new users via a pairing code
-4. **Global allow-all** (`GATEWAY_ALLOW_ALL_USERS`, or `gateway.allow_all_users` in `config.yaml`, bridged to the env var by `gateway/config_loader.py::bridge_core_env_settings`) — if set, all users across all platforms are authorized
-5. **Default: deny** — unauthorized users are rejected
-
-### DM Pairing Flow
-
-```text
-Admin: /pair
-Gateway: "Pairing code: ABC123. Share with the user."
-New user: ABC123
-Gateway: "Paired! You're now authorized."
-```
-
-Pairing state is persisted in `gateway/pairing.py` and survives restarts.
+Authentication and authorization depend on the configured ingress. Use the relevant API or webhook security settings and the [local control socket contract](#local-control-socket-public-client-contract) for local clients.
 
 ## Slash Command Dispatch
 
@@ -738,7 +708,7 @@ The gateway reads configuration from multiple sources:
 
 | Source | What it provides |
 |--------|-----------------|
-| `~/.hermes/.env` | API keys, bot tokens, platform credentials |
+| `~/.hermes/.env` | API keys and configured ingress credentials |
 | `~/.hermes/config.yaml` | Model settings, tool configuration, display options |
 | Environment variables | Override any of the above |
 
@@ -746,41 +716,15 @@ Unlike the CLI (which uses `load_cli_config()` with hardcoded defaults), the gat
 
 ## Platform Adapters
 
-Every messaging platform ships as a plugin adapter under `plugins/platforms/<name>/`; `gateway/platforms/` keeps the base class and the HTTP ingress adapters (`api_server`, `webhook`, `msgraph_webhook`). All extend `BasePlatformAdapter` from `gateway/platforms/base.py`:
+The shared adapter base and HTTP ingress adapters live under `gateway/platforms/`:
 
 ```text
-plugins/platforms/                  # plugin-packaged adapters (one dir each)
-├── telegram/adapter.py     # Telegram Bot API (long polling or webhook)
-├── discord/adapter.py      # Discord bot via discord.py
-├── slack/adapter.py        # Slack Socket Mode
-├── whatsapp/adapter.py     # WhatsApp via the local Baileys bridge
-├── whatsapp_cloud/adapter.py # WhatsApp Business Cloud API
-├── matrix/adapter.py       # Matrix via mautrix (optional E2EE)
-├── mattermost/adapter.py   # Mattermost WebSocket API
-├── email/adapter.py        # Email via IMAP/SMTP
-├── sms/adapter.py          # SMS via Twilio
-├── dingtalk/adapter.py     # DingTalk WebSocket
-├── feishu/adapter.py       # Feishu/Lark WebSocket or webhook
-├── wecom/adapter.py        # WeCom (WeChat Work) callback
-├── line/adapter.py         # LINE Messaging API
-├── teams/adapter.py        # Microsoft Teams
-├── signal/adapter.py       # Signal via signal-cli HTTP daemon (SSE + JSON-RPC)
-├── irc/adapter.py          # IRC (canonical scoped-lock example)
-├── bluebubbles/adapter.py  # Apple iMessage via BlueBubbles macOS server
-├── weixin/adapter.py       # Weixin (personal WeChat) via iLink Bot API
-├── qqbot/                  # QQ Bot (Tencent QQ) via Official API v2
-└── …                       # google_chat, ntfy, photon, raft, simplex, …
-
-gateway/platforms/                  # core base + HTTP ingress adapters
-├── base.py              # BasePlatformAdapter — shared logic for all platforms
-├── msgraph_webhook.py   # Microsoft Graph change-notification webhook (Teams, Outlook, etc.)
-├── webhook.py           # Inbound/outbound webhook adapter
-└── api_server.py        # REST API server adapter
+gateway/platforms/
+├── base.py              # Shared adapter logic
+├── msgraph_webhook.py   # Microsoft Graph change notifications
+├── webhook.py           # Webhook ingress
+└── api_server.py        # REST API ingress
 ```
-
-**Deferred loading:** Bundled `kind: platform` plugins register cheap `register_deferred` loaders in `gateway/platform_registry.py` (via `hermes_cli/plugins.py`) so platform SDKs import only when the gateway starts, delivers, or runs setup/status — not on plain `hermes chat`. Resolution loads one adapter on lookup; full enumeration runs pending loaders only on paths that need every platform.
-
-Experimental connector-backed platforms use the generic relay adapter in `gateway/relay/` instead of a direct platform module. When `GATEWAY_RELAY_URL` or `gateway.relay_url` is configured, the gateway registers the `relay` platform, dials the connector over an outbound WebSocket, and receives `descriptor`, `inbound`, and `interrupt_inbound` frames on that same socket. The connector advertises a `CapabilityDescriptor`; Hermes can send normal outbound replies, token-less `follow_up` operations, and interrupt frames back through the relay. The source-grounded wire contract lives in [Relay ↔ Connector contract](relay-connector-contract.md).
 
 Adapters implement a common interface:
 - `connect()` / `disconnect()` — lifecycle management
@@ -797,19 +741,13 @@ not equate a consumed/dropped callback with acceptance. This receipt is separate
 from heartbeat execution accounting and does not bypass authorization, emergency
 stop, or later turn-preparation gates.
 
-### Token Locks
-
-Adapters that connect with unique credentials call `acquire_scoped_lock()` in `connect()` and `release_scoped_lock()` in `disconnect()`. This prevents two profiles from using the same bot token simultaneously.
-
-A lock conflict is emitted as `{scope}_lock` with `retryable=True` so a **mid-run** reconnect can recover once the other holder exits. At **startup**, though, a live foreign holder is a configuration conflict: `gateway/restart.py::is_global_startup_conflict()` recognizes the `*_lock` / `lock_conflict` code families and the startup router parks the platform `fatal` instead of retry-queueing it. With nothing else connected the gateway exits `78` (`EX_CONFIG`, `gateway_state=startup_failed`) so the supervisor stops restarting it: systemd via `RestartPreventExitStatus=78`, s6 via finish→125, launchd via `KeepAlive.SuccessfulExit=false` after the stderr wrapper maps 78→0. Alongside a genuinely transient peer failure the gateway stays alive and only the peer retries.
-
 ## Delivery Path
 
 Outgoing deliveries (`gateway/delivery.py`) handle:
 
 - **Direct reply** — send response back to the originating chat
 - **Home channel delivery** — route cron job outputs and background results to a configured home channel
-- **Explicit target delivery** — the send engine specifying `telegram:-1001234567890`, exposed via the [`hermes send` CLI](../guides/pipe-script-output.md) for shell scripts and via cron `deliver:` targets
+
 - **Cross-platform delivery** — deliver to a different platform than the originating message
 
 Cron job deliveries are NOT mirrored into gateway session history — they live in their own cron session only. This is a deliberate design choice to avoid message alternation violations.
@@ -898,7 +836,7 @@ async completions remain durable delivery rows, never autonomous new model turns
 `admit_internal_event` receipt for completion/watch injection: a handler returning None is not
 acceptance. Refused admission refunds every claimed batch sibling without spending an attempt;
 actual delivery errors keep their bounded retry policy. Recognized raw API routes resolve after
-persisted messaging origins and defer quietly when unavailable; malformed routes still warn.
+persisted origins and defer quietly when unavailable; malformed routes still warn.
 
 Completions that land while the session is busy fold into ONE queued turn
 (`session_automation.py::_admit_folded_completion`): a completion whose route already has a
@@ -907,43 +845,11 @@ every producer identity, a "N background process results" header), cancelling th
 the same transaction. Only the tail folds, so a prompt queued after a completion keeps its place
 between them; a waiting row claimed first leaves the new completion to queue alone.
 
-Cron execution has its own session. Eligible continuable deliveries may mirror or seed the
+Cron execution has its own session. Eligible continuable deliveries may mirror the
 reply-facing conversation: origin, origin-less home fallback, user-written bare-platform home,
 or opted-in explicit targets. `all` expansions do not gain home mirror eligibility. Mirrored
 briefs are labelled user turns appended at a turn boundary, preserving role alternation
 (`cron/AGENTS.md`).
-
-## `/login` (off-turn, paired DM only)
-
-`/login` is registered in `hermes_cli/commands.py` with `busy_policy="dispatch"` and
-`desktop="settings"`, listed in `run_busy.py::_PLAIN_COMMANDS`, and handled by
-`GatewayLoginCommandsMixin` (`gateway/slash_commands_login.py`). It refuses outside a paired DM:
-`chat_type in {"dm","private"}`, a truthy `chat_id`, and a platform whose `"dm"` really is a paired
-conversation — ntfy, raft and a2a all report `chat_type="dm"` for a broadcast topic, a channel and
-an agent peer, so posting a sign-in link and code there would publish them.
-
-**It binds the whole install.** The sign-in writes the singleton `providers.nous`, so whoever
-approves the code owns this gateway's inference and connectors for every chat it serves. Slash
-gating is opt-in (`gateway/slash_access.py`): with no `allow_admin_from` set, every user allowed to
-DM the bot can run it. Operators of shared gateways must set it.
-
-The handler returns its ack at once and drains `anon_auth.run_sign_in` on a **private single-worker
-executor** (`_login_executor`), never the shared 10-thread gateway pool — the token poll can last
-the code's full expiry, and a live worker in the shared pool makes shutdown skip the SessionDB
-close/checkpoint. One attempt per process, stamped with the identity that started it: the same
-identity's second `/login` cancels the first (the loser ends with the cancelled copy pushed into its
-own chat); a different identity is refused. `task.cancel()` cannot interrupt a blocking poll inside
-a worker thread, so shutdown and the replacement both work through `attempt.cancelled`, which the
-token poll checks on a ≤1 s tick and once more before the save. A cancelled attempt saves nothing.
-A shutdown-cancelled attempt pushes nothing — the task is dying and its adapters may already be
-gone. The completion copy carries what the free tier's handoff moved.
-
-On completion the handler **evicts** every cached agent still on `nous/welcome` and clears any
-session model override pinned to it. It does not switch agents in place and does not write a model
-override: `settle_after_upgrade` already moved `model.default`/`model.base_url` in the config, every
-turn re-resolves the config and the credentials, and `_agent_config_signature` already forces a
-rebuild when the route changes — so an in-place swap buys no cache warmth and an override would pin
-an expiring access token that nothing refreshes.
 
 ## Multiplexed profiles
 
@@ -956,10 +862,10 @@ With `gateway.multiplex_profiles: true` one process serves the default profile p
 | Shutdown | `gateway/run_shutdown.py::_finalize_session` |
 | Post-turn media delivery | `gateway/platforms/base.py::_media_delivery_scope` |
 | Cron tick | `cron/scheduler_provider.py::_profile_cron_scope(home)` (one ticker, profiles in sequence) |
-| Child processes (`hermes -p X` workers, relay turns, browser drivers) | `tools/environments/local.py::served_profile_child_env` |
+| Child processes (`hermes -p X` workers, browser drivers) | `tools/environments/local.py::served_profile_child_env` |
 | Background threads | `agent/memory_provider.py::spawn_context_thread` |
 
-Secret reads fail closed (`agent.secret_scope.get_secret` raises `UnscopedSecretError`) only after `set_multiplex_active(True)`, which the gateway, cron, `gateway migrate` and the Desktop/dashboard `serve` backend set. Adapter YAML never reaches `os.environ` under multiplex: `gateway/platforms/_shared.py::apply_yaml_bridge` seeds `PlatformConfig.extra` and skips the environ write under a secondary's scope; gates read through `platform_gate_env`. Shared-ingress platforms (WhatsApp bridge, Relay) run on the default profile only; a secondary that enables one is logged once and stamped into runtime status (`run_adapters.py::_note_unserved_secondary_platform`). Per-profile isolation as the user sees it: [Multi-profile gateways § What is isolated per profile](../user-guide/multi-profile-gateways.md#what-is-isolated-per-profile).
+Secret reads fail closed (`agent.secret_scope.get_secret` raises `UnscopedSecretError`) only after `set_multiplex_active(True)`, which the gateway, cron, `gateway migrate` and the Desktop/dashboard `serve` backend set. Adapter YAML never reaches `os.environ` under multiplex: `gateway/platforms/_shared.py::apply_yaml_bridge` seeds `PlatformConfig.extra` and skips the environ write under a secondary's scope; gates read through `platform_gate_env`. Per-profile isolation as the user sees it: [Multi-profile gateways § What is isolated per profile](../user-guide/multi-profile-gateways.md#what-is-isolated-per-profile).
 
 ## Mid-run plugin loading
 
@@ -973,9 +879,7 @@ Plugins that load after the adapters connected (install/enable from the CLI, Des
   loop with `call_soon_threadsafe`.
 - **Idempotent re-wire** — `BasePlatformAdapter.rewire_plugin_handlers()` re-reads
   `get_platform_handler_factories(platform)` and runs only factories not yet wired on the live native
-  client (keyed `(plugin, qualname)` because a force reload hands back new function objects). Telegram
-  hoists the added handlers ahead of core's catch-alls; Slack also re-registers missing
-  `register_slack_action_handler` callbacks once per `AsyncApp`.
+  client (keyed `(plugin, qualname)` because a force reload hands back new function objects).
 - **`reload-plugins` control verb** — other processes (`hermes plugins install`, `hermes serve`) ask the
   running gateway to force-rescan the requested (served) home; the answer carries `plugins`, per-plugin
   `activations` and `adapters_rewired`, so the caller can say "active now" truthfully.
@@ -988,4 +892,3 @@ Plugins that load after the adapters connected (install/enable from the CLI, Des
 - [Cron Internals](./cron-internals.md)
 - [ACP Internals](./acp-internals.md)
 - [Agent Loop Internals](./agent-loop.md)
-- [Messaging Gateway (User Guide)](../user-guide/messaging/index.md)

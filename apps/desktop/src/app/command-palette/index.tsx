@@ -96,7 +96,7 @@ import {
   CAPABILITIES_ROUTE,
   COMMAND_CENTER_ROUTE,
   CRON_ROUTE,
-  MESSAGING_ROUTE,
+
   navigateToWorkspacePage,
   NEW_CHAT_ROUTE,
   PROFILES_ROUTE,
@@ -856,13 +856,7 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
             label: cc.nav.capabilities.title,
             run: go(CAPABILITIES_ROUTE)
           },
-          {
-            action: 'nav.messaging',
-            icon: MessageCircle,
-            id: 'nav-messaging',
-            label: cc.nav.messaging.title,
-            run: go(MESSAGING_ROUTE)
-          },
+
           {
             action: 'nav.artifacts',
             icon: Package,

@@ -28,7 +28,7 @@ it('says a /reasoning level typed while a reply streams applies from the next me
       appendSessionTextMessage,
       branchCurrentSession: async () => true,
       handleSkinCommand: () => '',
-      handoffSession: async () => ({ ok: true }),
+
       openMemoryGraph: vi.fn(),
       refreshSessions: async () => undefined,
       startFreshSessionDraft: vi.fn()

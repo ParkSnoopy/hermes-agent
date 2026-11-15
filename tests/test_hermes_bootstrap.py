@@ -236,11 +236,11 @@ else:
 def test_library_imports_of_dual_use_entry_modules_stay_side_effect_free(tmp_path):
     # The codex hermes-tools MCP server and the compute host are ``python -m`` entry points
     # that agent/gateway code and tests also import; there the bootstrap exported TMPDIR and
-    # HERMES_SCRATCH_DIR into every importer (gateway.relay's read-only routing included).
+    # HERMES_SCRATCH_DIR into every importer.
     code = textwrap.dedent("""
         import json, os, sys
         before = dict(os.environ)
-        import agent.auxiliary_client, gateway.relay, tui_gateway.compute_host  # noqa: F401
+        import agent.auxiliary_client, tui_gateway.compute_host  # noqa: F401
         changed = sorted(k for k in before.keys() | os.environ.keys() if before.get(k) != os.environ.get(k))
         print(json.dumps({"bootstrapped": "hermes_bootstrap" in sys.modules, "changed": changed}))
     """)
@@ -293,7 +293,7 @@ print('reached-pm')
 @pytest.mark.parametrize("path", [
     "hermes_cli/main.py", "run_agent.py", "acp_adapter/entry.py",
     "gateway/run.py", "batch_runner.py", "cli.py",
-    "agent/managed_worker.py", "hermes_cli/kanban_worker_client.py",
+    "agent/managed_worker.py",
 ])
 @pytest.mark.parametrize("bootstrap,expected", [
     (None, "proceeded"),
@@ -644,7 +644,7 @@ class TestNeverFreeEnviron:
         """)], check=True, cwd=str(Path(__file__).resolve().parents[1]), timeout=120)
 
     def test_set_del_churn_of_the_same_names_keeps_memory_bounded(self):
-        # Kanban ticks, the spinner pause and _restore_env set and pop the same names forever.
+        # The spinner pause and _restore_env set and pop the same names forever.
         subprocess.run([sys.executable, "-c", textwrap.dedent("""
             import os, tracemalloc, hermes_bootstrap
             def churn(cycles):

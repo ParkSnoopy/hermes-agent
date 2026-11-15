@@ -56,7 +56,7 @@ The same subscription unlocks the [Tool Gateway](../user-guide/features/tool-gat
 |------|---------|--------------|
 | **Web search & extract** | Nous-managed | Agent-grade search and full-page extraction. No search API key, no rate limit babysitting. |
 | **Image generation** | FAL | Nine models under one endpoint: FLUX 2 Klein 9B, FLUX 2 Pro, Z-Image Turbo, Nano Banana Pro (Gemini 3 Pro Image), GPT Image 1.5, GPT Image 2, Ideogram V3, Recraft V4 Pro, Qwen Image. |
-| **Text-to-speech** | OpenAI TTS | High-quality TTS without a separate OpenAI key. Enables [voice mode](../user-guide/features/voice-mode.md) across messaging platforms. |
+| **Text-to-speech** | OpenAI TTS | High-quality TTS without a separate OpenAI key. Enables [voice mode](../user-guide/features/voice-mode.md). |
 | **Cloud browser automation** | Browser Use | Headless cloud Chromium sessions that `browser_exec` drives over CDP. No Browserbase account needed. |
 | **Cloud terminal sandbox** | Modal | Serverless terminal sandboxes for code execution (optional add-on). |
 

@@ -13,7 +13,7 @@ curates *order and grouping*, never membership: a page nobody curated still
 gets indexed, under the section its path belongs to. That distinction is the
 reason this file was rewritten — when the section list also decided membership,
 it silently drifted to 53% coverage, and Bot Mode, the desktop app, computer
-use, web search, and 22 messaging platforms were absent from the index every
+use and web search were absent from the index every
 LLM reads to learn what Hermes does.
 
 Both publish at:
@@ -82,8 +82,7 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str | None]]]] = [
     ("Automation", [
         ("user-guide/features/cron", "Cron Jobs", None),
         ("user-guide/features/delegation", "Delegation", None),
-        ("user-guide/features/kanban", "Kanban Multi-Agent", None),
-        ("user-guide/features/kanban-tutorial", "Kanban Tutorial", None),
+
         ("user-guide/features/goals", "Persistent Goals", None),
         ("user-guide/features/code-execution", "Code Execution", None),
         ("user-guide/features/hooks", "Hooks", None),
@@ -96,18 +95,10 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str | None]]]] = [
         ("user-guide/features/image-generation", "Image Generation", None),
         ("user-guide/features/tts", "Text-to-Speech", None),
     ]),
-    ("Messaging Platforms", [
-        ("user-guide/messaging", "Overview", None),
-        ("user-guide/messaging/telegram", "Telegram", None),
-        ("user-guide/messaging/discord", "Discord", None),
-        ("user-guide/messaging/slack", "Slack", None),
-        ("user-guide/messaging/whatsapp", "WhatsApp", None),
-        ("user-guide/messaging/signal", "Signal", None),
-        ("user-guide/messaging/email", "Email", None),
-        ("user-guide/messaging/sms", "SMS", None),
-        ("user-guide/messaging/matrix", "Matrix", None),
-        ("user-guide/messaging/mattermost", "Mattermost", None),
-        ("user-guide/messaging/homeassistant", "Home Assistant", None),
+    ("API and integrations", [
+        ("user-guide/messaging/a2a", "Agent-to-Agent", None),
+        ("user-guide/messaging/teams-meetings", "Teams Meetings", None),
+        ("user-guide/messaging/msgraph-webhook", "Microsoft Graph Webhook", None),
         ("user-guide/messaging/webhooks", "Webhooks", None),
     ]),
     ("Integrations", [
@@ -125,7 +116,7 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str | None]]]] = [
         ("guides/tips", "Tips & Best Practices", None),
         ("guides/local-llm-on-mac", "Local LLMs on Mac", None),
         ("guides/daily-briefing-bot", "Daily Briefing Bot", None),
-        ("guides/team-telegram-assistant", "Team Telegram Assistant", None),
+
         ("guides/python-library", "Use Hermes as a Python Library", None),
         ("guides/use-mcp-with-hermes", "Use MCP with Hermes", None),
         ("guides/use-voice-mode-with-hermes", "Use Voice Mode with Hermes", None),
@@ -178,7 +169,7 @@ SKILL_CATALOG = ("user-guide/skills/bundled", "user-guide/skills/optional")
 # MISC_SECTION — no path can drop a page out of the index.
 ABSORB: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Getting Started", ("getting-started",)),
-    ("Messaging Platforms", ("user-guide/messaging",)),
+    ("API and integrations", ("user-guide/messaging",)),
     ("Core Features", ("user-guide/features",)),
     ("Using Hermes", ("user-guide",)),
     ("Integrations", ("integrations",)),
@@ -297,9 +288,7 @@ def emit_llms_index() -> str:
     lines.append(
         "> The self-improving AI agent built by Nous Research. A terminal-native "
         "autonomous coding and task agent with persistent memory, agent-created skills, "
-        "and a messaging gateway that lives on 21+ messaging platforms — 19 native to "
-        "the gateway plus IRC and Microsoft Teams via plugins (Telegram, Discord, Slack, "
-        "SMS, Matrix, ...). Runs on local, Docker, SSH, Daytona, Modal, Vercel Sandbox or plugin "
+        "with CLI, TUI and Desktop interfaces. Runs on local, Docker, SSH, Daytona, Modal, Vercel Sandbox or plugin "
         "backends. Works with Nous Portal, OpenRouter, OpenAI, Anthropic, Google, or any "
         "OpenAI-compatible endpoint."
     )
@@ -341,7 +330,7 @@ def emit_llms_full() -> str:
         (
             "This file is the entire Hermes Agent documentation concatenated for LLM "
             "context ingestion. Section order reflects docs-site navigation: Getting "
-            "Started, Using Hermes, Features, Messaging, Integrations, Guides, "
+            "Started, Using Hermes, Features, API and integrations, Guides, "
             "Developer Guide, Reference, then everything else.\n"
         ),
         "Canonical site: https://hermes-agent.nousresearch.com/docs\n",

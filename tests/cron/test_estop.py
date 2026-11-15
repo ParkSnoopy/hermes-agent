@@ -128,18 +128,6 @@ def test_cron_tick_resumes_after_disengage(hermes_home, monkeypatch):
     assert calls == [1], "resume must restore normal cron dispatch"
 
 
-# ── kanban dispatcher integration ───────────────────────────────────────────
-
-
-def test_kanban_dispatch_blocked_when_engaged(hermes_home):
-    from gateway.kanban_watchers_common import _kanban_dispatch_allowed
-
-    assert _kanban_dispatch_allowed() is True
-    estop.engage(reason="test")
-    assert _kanban_dispatch_allowed() is False
-    estop.disengage()
-    assert _kanban_dispatch_allowed() is True
-
 
 # ── gateway turn-start integration ──────────────────────────────────────────
 

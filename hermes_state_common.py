@@ -624,7 +624,7 @@ CREATE INDEX IF NOT EXISTS idx_session_admissions_cron_request
 CREATE TABLE IF NOT EXISTS worker_executions (
     execution_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,
-    kind TEXT NOT NULL CHECK (kind IN ('cron','child','compute','kanban')),
+    kind TEXT NOT NULL CHECK (kind IN ('cron','child','compute')),
     owner_epoch INTEGER NOT NULL,
     generation INTEGER NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('registered','running','unknown','terminal')),

@@ -13,7 +13,9 @@ from gateway.config import Platform, load_gateway_config
 from plugins.teams_pipeline.meetings import (
     enrich_meeting_with_call_record, fetch_preferred_transcript_text, list_recording_artifacts, resolve_meeting_reference)
 from plugins.teams_pipeline.pipeline import TeamsMeetingPipeline
+from plugins.teams_pipeline.runtime import build_pipeline_runtime_config
 from plugins.teams_pipeline.store import TeamsPipelineStore, resolve_teams_pipeline_store_path
+from plugins.teams_pipeline.summary_writer import TeamsSummaryWriter
 from plugins.teams_pipeline.subscriptions import (
     build_graph_client, maintain_graph_subscriptions, sync_graph_subscription_record, utc_timestamp)
 from tools.microsoft_graph_auth import MicrosoftGraphConfigError, MicrosoftGraphTokenProvider
@@ -116,12 +118,16 @@ def _cmd_validate(args) -> None:
     warnings: list[str] = []
     gateway_config = load_gateway_config()
     webhook_config = gateway_config.platforms.get(Platform.MSGRAPH_WEBHOOK)
-    teams_config = gateway_config.platforms.get(Platform("teams"))
     graph = {key: bool(os.environ.get(f"MSGRAPH_{key.upper()}")) for key in ("tenant_id", "client_id", "client_secret")}
     webhook_enabled = bool(webhook_config and webhook_config.enabled)
-    teams_enabled = bool(teams_config and teams_config.enabled)
-    teams_extra = dict((teams_config.extra or {}) if teams_config else {})
-    teams_mode = str(teams_extra.get("delivery_mode") or "").strip() or None
+    delivery = build_pipeline_runtime_config(gateway_config).get("teams_delivery") or {}
+    teams_enabled = bool(delivery.get("enabled"))
+    teams_extra = TeamsSummaryWriter()._resolve_delivery_config(delivery)
+    teams_mode = str(teams_extra.get("delivery_mode") or teams_extra.get("mode") or "").strip().lower() or None
+    if not teams_mode and teams_extra.get("incoming_webhook_url"):
+        teams_mode = "incoming_webhook"
+    elif not teams_mode and (teams_extra.get("chat_id") or (teams_extra.get("team_id") and teams_extra.get("channel_id"))):
+        teams_mode = "graph"
     if not all(graph.values()):
         issues.append("Microsoft Graph app-only credentials are incomplete.")
     if not webhook_enabled:
@@ -133,14 +139,12 @@ def _cmd_validate(args) -> None:
             issues.append("TEAMS_INCOMING_WEBHOOK_URL is required for incoming_webhook mode.")
     elif teams_mode == "graph":
         # Graph delivery can authenticate with either a dedicated delivery token or the app-only creds.
-        if not (teams_config.token or teams_extra.get("access_token")) and not all(graph.values()):
+        if not teams_extra.get("access_token") and not all(graph.values()):
             issues.append("TEAMS_GRAPH_ACCESS_TOKEN or complete MSGRAPH_* app credentials is required for graph delivery mode.")
-        if not teams_extra.get("team_id"):
-            issues.append("TEAMS_TEAM_ID is required for graph delivery mode.")
-        if not (teams_extra.get("channel_id") or teams_extra.get("chat_id") or teams_config.home_channel):
-            issues.append("TEAMS_CHANNEL_ID is required for graph delivery mode.")
+        if not (teams_extra.get("chat_id") or (teams_extra.get("team_id") and teams_extra.get("channel_id"))):
+            issues.append("Graph delivery requires chat_id or both team_id and channel_id.")
     else:
-        warnings.append("TEAMS_DELIVERY_MODE is not set.")
+        issues.append("Teams delivery mode must be incoming_webhook or graph.")
     _print_json({
         "ok": not issues, "issues": issues, "warnings": warnings, "graph_config": graph,
         "webhook_enabled": webhook_enabled, "teams_enabled": teams_enabled, "teams_delivery_mode": teams_mode,

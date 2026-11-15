@@ -19,14 +19,6 @@ def _h_proxy(args):  # pragma: no cover - identity only
     return "proxy"
 
 
-def _h_gateway_enroll(args):  # pragma: no cover - identity only
-    return "gateway_enroll"
-
-
-
-
-
-
 def _gateway_parser():
     p = argparse.ArgumentParser(prog="hermes")
     sub = p.add_subparsers(dest="command")
@@ -34,7 +26,6 @@ def _gateway_parser():
         sub,
         cmd_gateway=_h_gateway,
         cmd_proxy=_h_proxy,
-        cmd_gateway_enroll=_h_gateway_enroll,
     )
     return p
 
@@ -47,23 +38,7 @@ def _gateway_parser():
 
 
 
-def test_gateway_enroll_dispatch():
-    p = _gateway_parser()
-    ns = p.parse_args(
-        [
-            "gateway",
-            "enroll",
-            "--token",
-            "tok",
-            "--connector-url",
-            "wss://connector.example.com/relay",
-            "--gateway-id",
-            "gw-1",
-        ]
-    )
-    assert ns.command == "gateway"
-    assert ns.gateway_command == "enroll"
-    assert ns.func is _h_gateway_enroll
-    assert ns.token == "tok"
-    assert ns.connector_url == "wss://connector.example.com/relay"
-    assert ns.gateway_id == "gw-1"
+def test_gateway_run_dispatch():
+    ns = _gateway_parser().parse_args(["gateway", "run"])
+    assert ns.gateway_command == "run"
+    assert ns.func is _h_gateway

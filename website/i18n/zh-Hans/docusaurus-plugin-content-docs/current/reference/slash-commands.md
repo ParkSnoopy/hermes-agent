@@ -13,21 +13,6 @@ Hermes 有两个斜杠命令入口，均由 `hermes_cli/commands.py` 中的中�
 
 已安装的 skill（技能）也会在两个入口以动态斜杠命令的形式暴露。（`/plan` 曾是其中之一；它现在是内置命令 — 见下方 Session 表。）
 
-## 权限与管理员/用户分级
-
-每个支持按用户白名单的消息平台（Telegram、Discord、Slack、Matrix、Mattermost、Signal 等）都支持两级斜杠命令分级：**管理员**可使用所有已注册命令，**普通用户**只能使用你在 `user_allowed_commands` 中列出的命令（以及始终允许的 `/help` 和 `/whoami`）。在 `~/.hermes/gateway-config.yaml` 中对应平台的 `extra:` 块内配置 `allow_admin_from` 和 `user_allowed_commands`（以及群组等效项 `group_allow_admin_from` / `group_user_allowed_commands`）。
-
-各平台文档中有示例——结构在各平台间完全一致：
-
-- [Telegram](../user-guide/messaging/telegram.md#slash-command-access-control)
-- [Discord](../user-guide/messaging/discord.md)
-- [Slack](../user-guide/messaging/slack.md)
-- [Matrix](../user-guide/messaging/matrix.md)
-- [Mattermost](../user-guide/messaging/mattermost.md)
-- [Signal](../user-guide/messaging/signal.md)
-
-如果某个作用域未设置 `allow_admin_from`，该作用域将保持不受限的向后兼容模式——所有允许的用户均可运行所有命令。
-
 ## 交互式 CLI 斜杠命令
 
 在 CLI 中输入 `/` 可打开自动补全菜单。内置命令不区分大小写。
@@ -59,7 +44,7 @@ Hermes 有两个斜杠命令入口，均由 `hermes_cli/commands.py` 中的中�
 | `/bg <prompt>` | 在独立的后台会话中运行 prompt。agent 独立处理你的 prompt——当前会话保持空闲可继续其他工作。任务完成后结果以面板形式显示。见 [CLI 后台会话](../user-guide/cli.md#background-sessions)。 |
 | `/btw <question>` | 在不打断当前工作的情况下，就**当前对话**提出一个快速的顺带问题。由一次一次性辅助 LLM 调用根据对话快照作答——实时会话的历史和提示缓存不受影响，当前回合继续运行。需要全新上下文的独立任务请使用 `/bg`。 |
 | `/branch [name]`（别名：`/fork`） | 分支当前会话（探索不同路径） |
-| `/handoff <platform>` | **仅限 CLI。** 将当前会话移交给消息平台（Telegram、Discord、Slack、WhatsApp、Signal、Matrix）。gateway 立即接管，在支持线程的平台上创建新线程（Telegram 话题、Discord 文字频道线程、Slack 和 Matrix 消息锚定线程），将目标重新绑定到你的 CLI session_id 以重放完整的角色感知转录，并伪造一条合成用户轮次让 agent 确认已在新位置工作。成功后 CLI 干净退出并提示 `/resume`；随时可用 `/resume <title>` 在本地恢复。轮次进行中拒绝执行。需要 gateway 正在运行且目标平台已配置 home 频道（从目标聊天中执行 `/sethome`）。见 [跨平台移交](../user-guide/sessions.md#cross-platform-handoff)。 |
+
 
 ### 配置
 
@@ -78,7 +63,7 @@ Hermes 有两个斜杠命令入口，均由 `hermes_cli/commands.py` 中的中�
 | `/yolo` | 切换 YOLO 模式——跳过所有危险命令审批提示。 |
 | `/footer [on\|off\|status]` | 切换最终回复中的 gateway 运行时元数据页脚（显示模型、工具调用次数、耗时）。 |
 | `/busy [queue\|steer\|interrupt\|status]` | 控制 Hermes 工作时发送消息的行为——将新消息加入队列、中途引导，或立即中断。支持 CLI 和消息 gateway。 |
-| `/autoprune [on\|off\|later\|status]` | 决定是否自动清理旧的已结束 session（默认关闭）。当 `state.db` 所在磁盘空间不足时 Hermes 会询问一次；`on`/`off` 保存 `sessions.auto_prune` 并不再询问，`later` 一周后再提醒。支持 CLI、TUI、Desktop 和消息 gateway（Slack 上用 `/hermes autoprune`）。 |
+| `/autoprune [on\|off\|later\|status]` | 决定是否自动清理旧的已结束 session（默认关闭）。当 `state.db` 所在磁盘空间不足时 Hermes 会询问一次；`on`/`off` 保存 `sessions.auto_prune` 并不再询问，`later` 一周后再提醒。支持 CLI、TUI 和 Desktop。 |
 | `/indicator [kaomoji\|emoji\|unicode\|ascii]` | 仅限 CLI：选择 TUI 忙碌指示器样式。 |
 
 ### 工具与 Skill
@@ -95,7 +80,6 @@ Hermes 有两个斜杠命令入口，均由 `hermes_cli/commands.py` 中的中�
 | `/suggestions [accept\|dismiss N\|catalog\|clear]`（别名：`/suggest`） | 审核建议的自动化。使用 `/suggestions` 列出待处理建议，`/suggestions accept <id>` 接受并创建建议任务，`/suggestions dismiss <id>` 拒绝单条建议，`/suggestions catalog` 添加精选起步自动化，`/suggestions clear` 清理已解决的建议记录。被接受的任务会保留当前表面作为投递来源。 |
 | `/blueprint [name] [slot=value ...]`（别名：`/bp`） | 通过 blueprint 模板设置自动化。裸 `/blueprint` 列出目录；`/blueprint <name>` 会在下一次 agent 轮次启动引导式填槽流程；`/blueprint <name> slot=value ...` 直接创建任务。 |
 | `/curator` | 后台 skill 维护——`status`、`run`、`pin`、`archive`。见 [Curator](../user-guide/features/curator.md)。 |
-| `/kanban <action>` | 无需离开聊天即可操作多 profile、多项目协作看板。完整的 `hermes kanban` 命令面均可用：`/kanban list`、`/kanban show t_abc`、`/kanban create "title" --assignee X`、`/kanban comment t_abc "text"`、`/kanban unblock t_abc`、`/kanban dispatch` 等。支持多看板：`/kanban boards list`、`/kanban boards create <slug>`、`/kanban boards switch <slug>`、`/kanban --board <slug> <action>`。见 [Kanban 斜杠命令](../user-guide/features/kanban.md#kanban-slash-command)。 |
 | `/reload-mcp`（别名：`/reload_mcp`） | 从 config.yaml 重新加载 MCP 服务器 |
 | `/reload-skills`（别名：`/reload_skills`） | 重新扫描 `~/.hermes/skills/` 以发现新安装或已删除的 skill |
 | `/reload` | 将 `.env` 变量重新加载到运行中的会话（无需重启即可获取新 API 密钥） |
@@ -111,7 +95,6 @@ Hermes 有两个斜杠命令入口，均由 `hermes_cli/commands.py` 中的中�
 | `/credits` | 显示你的 Nous 积分余额和充值跳转链接。 |
 | `/billing` | Nous 的 CLI 终端计费流程——查看余额、购买积分并管理自动充值 / 月度限额。 |
 | `/insights` | 显示用量洞察和分析（最近 30 天） |
-| `/platforms`（别名：`/gateway`） | 显示 gateway/消息平台状态（仅限 CLI 摘要视图）。 |
 | `/paste` | 附加剪贴板图片 |
 | `/copy [number]` | 将最后一条助手回复复制到剪贴板（或用数字指定倒数第 N 条）。仅限 CLI。 |
 | `/image <path>` | 为下一条 prompt 附加本地图片文件。 |
@@ -194,67 +177,12 @@ hermes config set model.aliases.grok x-ai/grok-4
 
 命令支持前缀匹配：输入 `/h` 解析为 `/help`，`/mod` 解析为 `/model`。当前缀有歧义（匹配多个命令）时，注册表顺序中的第一个匹配项优先。完整命令名和已注册别名始终优先于前缀匹配。
 
-## 消息平台斜杠命令
-
-消息 gateway 在 Telegram、Discord、Slack、WhatsApp、Signal、Email、Home Assistant 和 Teams 聊天中支持以下内置命令：
-
-| 命令 | 描述 |
-|---------|-------------|
-| `/start` | 平台协议命令。许多聊天平台（Telegram、Discord 等）会在用户首次打开 bot 对话时自动发送 `/start`。Hermes 会静默确认这个 ping——不触发 agent 回复，也不消耗会话轮次——因此首次握手不会浪费一次对话。你也可以显式发送它来确认 gateway 可达。 |
-| `/new` | 开始新对话。 |
-| `/reset` | 重置对话历史。 |
-| `/status` | 显示会话信息，随后显示本地**会话摘要**块（近期轮次数、最常用工具、访问的文件、最新 prompt + 回复）。 |
-| `/stop` | 终止所有正在运行的后台进程并中断运行中的 agent。 |
-| `/model [provider:model]` | 显示或更改模型。支持提供商切换（`/model zai:glm-5`）、自定义端点（`/model custom:model`）、命名自定义提供商（`/model custom:local:qwen`）、自动检测（`/model custom`），以及用户自定义别名（`/model fav`、`/model grok`——见[自定义模型别名](#custom-model-aliases)）。使用 `--global` 将更改持久化到 config.yaml；成功的 `--global` 选择（键入或选择器）还会清除本聊天的仅会话覆盖，因此网关重启后仅由 config.yaml 决定模型（设有 `channel_overrides` 模型的聊天会保留该覆盖，否则频道设置会优先于 config.yaml；CLI/TUI 则有意保留各自的会话固定，以便恢复时沿用该聊天所用的模型）。**注意：** `/model` 只能在已配置的提供商之间切换。如需添加新提供商或设置 API 密钥，请在终端（聊天会话外）运行 `hermes model`。 |
-| `/codex-runtime [auto\|codex_app_server\|on\|off]` | 切换可选的 [Codex app-server runtime](../user-guide/features/codex-app-server-runtime)。持久化到 config.yaml 中的 `model.openai_runtime` 并驱逐缓存的 agent，使下一条消息使用新 runtime。下次会话生效。 |
-| `/personality [name]` | 为会话设置 personality 覆盖层。 |
-| `/fast [normal\|fast\|status]` | 切换快速模式——OpenAI Priority Processing / Anthropic Fast Mode。 |
-| `/retry` | 重试最后一条消息。 |
-| `/undo` | 移除最后一轮对话。 |
-| `/sethome`（别名：`/set-home`） | 将当前聊天标记为该平台的 home 频道，用于消息投递。 |
-| `/compress [focus topic]` | 手动压缩对话上下文。可选的焦点主题可缩小摘要保留的范围。 |
-| `/topic [off\|help\|session-id]` | **仅限 Telegram DM。** 管理用户自主的多会话话题模式。`/topic` 启用或显示状态；`/topic off` 禁用并清除绑定；`/topic help` 显示用法；在话题中执行 `/topic <session-id>` 可恢复之前的会话。见 [多会话 DM 模式](../user-guide/messaging/telegram.md#multi-session-dm-mode-topic)。 |
-| `/save <json\|md\|html> [文件名] [redact]` | 将当前会话导出为 JSON、Markdown 或 HTML，并作为文档发送到聊天中。直接输入 `/save` 显示用法；`redact` 会先清除密钥等敏感信息。 |
-| `/title [name]` | 设置或显示会话标题。 |
-| `/resume [name]` | 恢复之前命名的会话。 |
-| `/usage` | 显示 token 用量、估算费用明细（输入/输出）、上下文窗口状态、会话时长，以及——当活动提供商支持时——从提供商 API 实时拉取的**账户限额**部分，包含剩余配额/积分。 |
-| `/credits` | 显示你的 Nous 积分余额，以及会在浏览器中打开 portal 计费页的充值链接。 |
-| `/insights [days]` | 显示用量分析。 |
-| `/reasoning [level\|show\|hide]` | 更改推理力度或切换推理显示。 |
-| `/voice [on\|off\|tts\|join\|channel\|leave\|status]` | 控制聊天中的语音回复。`join`/`channel`/`leave` 管理 Discord 语音频道模式。 |
-| `/rollback [number]` | 列出或恢复文件系统检查点。 |
-| `/bg <prompt>` | 在独立的后台会话中运行 prompt。任务完成后结果投递回同一聊天。见 [消息平台后台会话](../user-guide/messaging/index.md#background-sessions)。 |
-| `/btw <question>` | 在不打断当前对话的情况下，就当前对话提出顺带问题。根据对话快照作答；答案就绪后发送到聊天中。 |
-| `/queue <prompt>`（别名：`/q`） | 将 prompt 加入队列等待下一轮处理，不中断当前轮次。 |
-| `/steer <prompt>` | 在下一次工具调用后注入一条消息，不中断——模型在下一次迭代时获取，而非作为新轮次。 |
-| `/goal <text>` | 设置一个持续目标，Hermes 将跨轮次持续推进——这是我们对 Ralph loop 的实现。裁判模型在每轮后检查；若未完成，Hermes 自动继续，直到完成、你暂停/清除，或达到轮次预算（默认 20）。子命令：`/goal status`、`/goal pause`、`/goal resume`、`/goal clear`。agent 运行中可安全执行 status/pause/clear；设置新目标需先执行 `/stop`。见 [持续目标](../user-guide/features/goals.md)。 |
-| `/footer [on\|off\|status]` | 切换最终回复中的运行时元数据页脚（显示模型、工具调用次数、耗时）。 |
-| `/curator [status\|run\|pin\|archive]` | 后台 skill 维护控制。 |
-| `/suggestions [accept\|dismiss N\|catalog\|clear]` | 直接在聊天中审核建议的自动化。`/suggestions` 列出待处理建议，`catalog` 添加精选起步自动化，`clear` 清理已解决的建议记录。被接受的建议会保留当前聊天/线程作为任务投递来源。 |
-| `/blueprint [name] [slot=value ...]` | 浏览 cron blueprint、启动引导式填槽对话，或直接创建 blueprint 任务。直接创建的任务会回投到当前聊天/线程。 |
-| `/memory [pending\|approve\|reject\|approval]` | 审核由写入审批门控（`memory.write_approval`）暂存的待处理 memory 写入——可直接在聊天中批准或拒绝——并通过 `/memory approval on\|off` 切换门控。见 [Memory 功能](../user-guide/features/memory.md)。 |
-| `/skills [pending\|approve\|reject\|diff\|approval]` | 审核由写入审批门控（`skills.write_approval`）暂存的待处理 **skill** 写入。每条待写入会显示一行摘要；`/skills diff <id>` 在聊天中会截断——完整 diff 请在 CLI 或 `~/.hermes/pending/skills/<id>.json` 中查看。仅当门控开启（或仍有待处理写入）时出现；搜索/安装仍然是 CLI-only。 |
-| `/kanban <action>` | 从聊天中操作多 profile、多项目协作看板——参数与 CLI 完全一致。绕过运行中 agent 的保护，因此 `/kanban unblock t_abc`、`/kanban comment t_abc "…"`、`/kanban list --mine`、`/kanban boards switch <slug>` 等均可在轮次进行中使用。`/kanban create …` 会自动将发起聊天订阅到新任务的终态事件。见 [Kanban 斜杠命令](../user-guide/features/kanban.md#kanban-slash-command)。 |
-| `/platform <list\|pause\|resume> [name]` | 直接在聊天中操作正在运行的 gateway 平台。`/platform list` 列出所有适配器及其状态（运行中、熔断器暂停、手动暂停）；`/platform pause <name>` 停止向该适配器分发新消息但不卸载它；`/platform resume <name>` 重新启用它，并在上游恢复健康后清除已触发的熔断器。 |
-| `/reload-mcp`（别名：`/reload_mcp`） | 从配置重新加载 MCP 服务器。 |
-| `/yolo` | 切换 YOLO 模式——跳过所有危险命令审批提示。 |
-| `/commands [page]` | 浏览所有命令和 skill（分页）。 |
-| `/approve [session\|always]` | 审批并执行待处理的危险命令。`session` 仅为本次会话审批；`always` 添加到永久白名单。 |
-| `/deny` | 拒绝待处理的危险命令。 |
-| `/update` | 将 Hermes Agent 更新到最新版本。 |
-| `/restart` | 在排空活动运行后优雅重启 gateway。gateway 重新上线后，会向请求者的聊天/线程发送确认消息。 |
-| `/debug` | 上传调试报告（系统信息 + 日志）并获取可分享链接。 |
-| `/help` | 显示消息平台帮助。 |
-| `/<skill-name>` | 按名称调用任意已安装的 skill。 |
-
 ## 注意事项
 
-- `/skin`、`/snapshot`、`/reload`、`/tools`、`/toolsets`、`/browser`、`/config`、`/cron`、`/platforms`、`/paste`、`/image`、`/statusbar`、`/plugins`、`/indicator`、`/redraw`、`/clear`、`/history`、`/copy`、`/handoff`、`/billing` 和 `/quit` 是**仅限 CLI** 的命令。
-- `/skills` **仅在搜索/浏览/安装时属于 CLI-only**；其写入审批子命令（`pending`、`approve`、`reject`、`diff`、`approval`）在 `skills.write_approval` 开启时也可在消息平台使用。`/memory` 可在**两个表面**使用。
-- `/verbose` **默认仅限 CLI**，但可通过在 `config.yaml` 中设置 `display.tool_progress_command: true` 为消息平台启用。启用后，它会循环切换 `display.tool_progress` 模式并保存到配置。
-- `/sethome`、`/update`、`/restart`、`/approve`、`/deny`、`/topic`、`/platform` 和 `/commands` 是**仅限消息平台**的命令。
-- `/status`、`/version`、`/bg`、`/btw`、`/queue`、`/steer`、`/voice`、`/reload-mcp`、`/reload-skills`、`/rollback`、`/debug`、`/fast`、`/busy`、`/footer`、`/curator`、`/kanban`、`/credits`、`/suggestions`、`/blueprint`、`/sessions` 和 `/yolo` 在 **CLI 和消息 gateway 中均可使用**。
-- `/voice join`、`/voice channel` 和 `/voice leave` 仅在 Discord 上有意义。
+- `/skin`、`/snapshot`、`/reload`、`/tools`、`/toolsets`、`/browser`、`/config`、`/cron`、`/paste`、`/image`、`/statusbar`、`/plugins`、`/indicator`、`/redraw`、`/clear`、`/history`、`/copy`、`/billing` 和 `/quit` 是**仅限 CLI** 的命令。
+- `/skills` 可用于搜索、浏览和安装技能；写入审批子命令包括 `pending`、`approve`、`reject`、`diff` 和 `approval`。
+- `/verbose` 切换工具进度显示模式。
+- `/status`、`/version`、`/bg`、`/btw`、`/queue`、`/steer`、`/voice`、`/reload-mcp`、`/reload-skills`、`/rollback`、`/debug`、`/fast`、`/busy`、`/footer`、`/curator`、`/credits`、`/suggestions`、`/blueprint`、`/sessions` 和 `/yolo` 可在 CLI 中使用。
 
 ## 破坏性命令的确认提示
 

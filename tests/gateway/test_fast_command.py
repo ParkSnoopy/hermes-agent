@@ -84,25 +84,18 @@ def _make_runner():
     return runner
 
 
+@pytest.fixture(autouse=True)
+def _register_transport(monkeypatch):
+    from tests.gateway.test_platform_reconnect import register_test_platform
+    register_test_platform(monkeypatch)
+
+
 def _make_source() -> SessionSource:
     return SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform("test-chat"),
         chat_id="12345",
         chat_type="dm",
         user_id="user-1",
-    )
-
-
-def _make_discord_auto_thread_source() -> SessionSource:
-    return SessionSource(
-        platform=Platform.DISCORD,
-        chat_id="999",
-        chat_type="thread",
-        user_id="user-1",
-        thread_id="999",
-        parent_chat_id="100",
-        auto_thread_created=True,
-        auto_thread_initial_name="raw user prompt",
     )
 
 
@@ -223,16 +216,15 @@ async def test_fast_gate_follows_the_session_route(monkeypatch, tmp_path, defaul
 
 
 @pytest.mark.asyncio
-async def test_fast_override_lands_under_the_recovered_telegram_topic_key(monkeypatch, tmp_path):
-    """/fast keys its eligibility check AND its tier override by the topic-recovered source the next
-    turn uses (#30479), not the raw lobby-shaped event source."""
+async def test_fast_override_lands_under_the_thread_session_key(monkeypatch, tmp_path):
+    """/fast uses the thread session's route and does not change the root session."""
     import dataclasses
+    from tests.gateway.test_platform_reconnect import register_test_platform
 
     runner = _make_runner()
-    source = _make_source()
-    monkeypatch.setattr(runner, "_recover_telegram_topic_thread_id", lambda src: "77")
-    raw_key = runner._session_key_for_source(source)
-    turn_key = runner._session_key_for_source(dataclasses.replace(source, thread_id="77"))
+    source = dataclasses.replace(_make_source(), platform=register_test_platform(monkeypatch), thread_id="77")
+    raw_key = runner._session_key_for_source(dataclasses.replace(source, thread_id=None))
+    turn_key = runner._session_key_for_source(source)
     assert turn_key != raw_key
     runner._session_model_overrides[turn_key] = dict(_ASTRA_ON_CODEX)
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)

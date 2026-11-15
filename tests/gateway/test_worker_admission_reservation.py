@@ -104,12 +104,12 @@ async def test_input_queued_behind_a_live_worker_is_released_then_runs_when_it_f
 
     monkeypatch.setenv('HERMES_HOME', str(tmp_path))
     db = SessionDB(tmp_path / 'state.db')
-    db.create_session('owned', 'telegram')
+    db.create_session('owned', 'webhook')
     runner = SimpleNamespace(_draining=False, config=SimpleNamespace(multiplex_profiles=False),
                              _adapter_for_source=lambda source: None)
     authority = SessionAuthority(runner, profile_id='p', instance_id='owner', db=db,
                                  epoch=begin_runtime_epoch(db, instance_id='owner'))
-    authority.sessions['owned'] = LiveSession(SimpleNamespace(platform=Platform.TELEGRAM, user_id='human'), 'route')
+    authority.sessions['owned'] = LiveSession(SimpleNamespace(platform=Platform.WEBHOOK, user_id='human'), 'route')
     ran = []
 
     async def execute(authority, ref, row):
@@ -189,22 +189,17 @@ def test_reservation_survives_a_clock_step_on_macos(tmp_path, stale_psutil_boot_
 @pytest.mark.platforms("macos")
 @pytest.mark.parametrize('drift', [5.0, -5.0])
 def test_process_fingerprints_survive_a_clock_step_on_macos(stale_psutil_boot_reference, drift):
-    """KB-6 beyond worker birth: the Kanban submitter fingerprint (``_process_fingerprint`` via
-    ``get_process_start_time``; ``_watch_submitter`` exits on a mismatch), the delegation
-    ``owner_started_at`` and the spawn ledger's ``_pid_alive_matches`` read the same live process
-    the same way before and after a clock step."""
+    """The delegation owner and spawn ledger identify a live process across a clock step."""
     from gateway.status import get_process_start_time
-    from hermes_cli.kanban_db_dispatch import _pid_recycled, _process_fingerprint
     from hermes_cli.process_identity import _pid_alive_matches, _process_create_time
     process = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'], stdin=subprocess.PIPE,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        start, fingerprint, create = (get_process_start_time(process.pid), _process_fingerprint(process.pid),
-                                      _process_create_time(process.pid))
+        start, create = get_process_start_time(process.pid), _process_create_time(process.pid)
         stale_psutil_boot_reference(drift)
         assert abs(psutil.Process(process.pid).create_time() - create) >= 4  # the step is real
         assert get_process_start_time(process.pid) == start
-        assert _process_fingerprint(process.pid) == fingerprint and not _pid_recycled(process.pid, fingerprint)
+
         assert _pid_alive_matches(process.pid, create, strict=True) is True
         assert _pid_alive_matches(process.pid, create) is True
     finally:

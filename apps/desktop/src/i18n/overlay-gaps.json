@@ -1671,14 +1671,12 @@
   "settings.model.restartingBackend": ["ru"],
   "settings.model.speed": ["ja","zh-hant"],
   "settings.model.speedStandard": ["ja","zh-hant"],
-  "settings.model.tasks.kanban_decomposer.hint": ["ru"],
-  "settings.model.tasks.kanban_decomposer.label": ["ru"],
+
   "settings.model.tasks.profile_describer.hint": ["ru"],
   "settings.model.tasks.profile_describer.label": ["ru"],
   "settings.model.tasks.review.hint": ["ru"],
   "settings.model.tasks.review.label": ["ru"],
-  "settings.model.tasks.triage_specifier.hint": ["ru"],
-  "settings.model.tasks.triage_specifier.label": ["ru"],
+
   "settings.nav.billing": ["ar"],
   "settings.nav.plugins": ["de","es","fr"],
   "settings.nav.providerCustomEndpoints": ["ar"],

@@ -1,4 +1,4 @@
-"""Contracts: billing / subscription / usage envelopes, delegation controls, handoff, message
+"""Contracts: billing / subscription / usage envelopes, delegation controls, message
 reactions, pet generation and ``project.facts`` (handlers in ``tui_gateway/methods_session.py``).
 
 Billing routes are FAIL-OPEN: a logged-out / unreachable portal answers an ``ok`` result whose
@@ -431,51 +431,6 @@ class SubagentSteerResult(Result):
 
 method("subagent.steer", params=SubagentSteerParams, result=SubagentSteerResult,
        doc="Queue steering text into a live delegated child owned by this session.")
-
-
-# ── handoff ───────────────────────────────────────────────────────────────────────────────────
-
-
-class HandoffRequestParams(SessionParams):
-    platform: str
-
-
-class HandoffRequestResult(Result):
-    queued: bool
-    session_key: str
-    platform: str
-    home_name: str
-
-
-method("handoff.request", params=HandoffRequestParams, result=HandoffRequestResult,
-       doc="Queue a handoff to a messaging platform's home channel; the gateway watcher claims it.")
-
-
-class HandoffStateResult(Result):
-    """``state`` is pending | running | completed | failed, or '' when nothing was requested."""
-
-    state: str
-    platform: str
-    error: str
-
-
-method("handoff.state", params=SessionParams, result=HandoffStateResult,
-       doc="Poll the handoff row for this session.")
-
-
-class HandoffFailParams(SessionParams):
-    error: str | None = None
-
-
-class HandoffFailResult(Result):
-    """``failed`` false when the watcher already claimed the row; ``state`` is what it is now."""
-
-    failed: bool
-    state: str
-
-
-method("handoff.fail", params=HandoffFailParams, result=HandoffFailResult,
-       doc="Fail a not-yet-claimed handoff (client poll timeout); CAS against the watcher.")
 
 
 # ── message.react ─────────────────────────────────────────────────────────────────────────────

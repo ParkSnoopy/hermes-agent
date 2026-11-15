@@ -112,7 +112,6 @@ class TestExistingInstallDefault:
                 model="hermes_cli.setup.setup_model_provider",
                 terminal="hermes_cli.setup.setup_terminal_backend",
                 agent="hermes_cli.setup.setup_agent_settings",
-                gateway="hermes_cli.setup.setup_gateway",
                 tools="hermes_cli.setup.setup_tools",
             )
             from hermes_cli.setup import run_setup_wizard
@@ -127,7 +126,6 @@ class TestExistingInstallDefault:
         m["model"].assert_called_once()
         m["terminal"].assert_called_once()
         m["agent"].assert_not_called()
-        m["gateway"].assert_called_once()
         m["tools"].assert_called_once()
 
 
@@ -144,7 +142,6 @@ class TestQuickFlag:
                 model="hermes_cli.setup.setup_model_provider",
                 terminal="hermes_cli.setup.setup_terminal_backend",
                 agent="hermes_cli.setup.setup_agent_settings",
-                gateway="hermes_cli.setup.setup_gateway",
                 tools="hermes_cli.setup.setup_tools",
             )
             from hermes_cli.setup import run_setup_wizard
@@ -162,7 +159,6 @@ class TestQuickFlag:
         m["model"].assert_not_called()
         m["terminal"].assert_not_called()
         m["agent"].assert_not_called()
-        m["gateway"].assert_not_called()
         m["tools"].assert_not_called()
 
 

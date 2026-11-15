@@ -14,13 +14,12 @@ metadata:
 
 # Hermes Agent
 
-Hermes Agent is an open-source AI agent framework by Nous Research that runs in your terminal, a native desktop app, messaging platforms, and IDEs. It's in the same category as Claude Code (Anthropic), Codex (OpenAI), and OpenClaw — autonomous coding and task-execution agents that use tool calling to interact with your system. Hermes works with any LLM provider (OpenRouter, Anthropic, OpenAI, Google, DeepSeek, xAI, local models, and 20+ others) and runs on Linux, macOS, Windows, and WSL.
+Hermes Agent is an open-source AI agent framework by Nous Research that runs in your terminal, a native desktop app, and IDEs. It's in the same category as Claude Code (Anthropic), Codex (OpenAI), and OpenClaw — autonomous coding and task-execution agents that use tool calling to interact with your system. Hermes works with any LLM provider (OpenRouter, Anthropic, OpenAI, Google, DeepSeek, xAI, local models, and 20+ others) and runs on Linux, macOS, Windows, and WSL.
 
 What makes Hermes different:
 
 - **Self-improving through skills** — Hermes learns from experience by saving reusable procedures as skills that load into future sessions.
 - **Persistent memory across sessions** — remembers who you are, your preferences, environment details, and lessons learned. Pluggable memory backends.
-- **Multi-platform gateway** — the same agent runs on Telegram, Discord, Slack, WhatsApp, iMessage, Signal, Matrix, Teams, Email, and a dozen more platforms with full tool access, not just chat.
 - **Many surfaces** — the same agent core drives the CLI, the Ink TUI, a native Electron desktop app, a web dashboard, and an ACP server for IDEs (VS Code / Zed / JetBrains).
 - **Provider-agnostic** — swap models and providers mid-workflow; credential pools rotate across multiple API keys automatically.
 - **Profiles** — run multiple independent Hermes instances with isolated configs, sessions, skills, and memory.
@@ -96,7 +95,7 @@ Profiles use `~/.hermes/profiles/<name>/` with the same layout. When a profile i
 | config.yaml sections, toolsets, voice/STT/TTS | `references/configuration.md` |
 | AGENTS.md / .hermes.md / CLAUDE.md project rules | `references/project-context-files.md` |
 | Secret redaction, PII, approval modes, "reset permissions" | `references/security-privacy.md` |
-| Delegation, cron, curator, kanban | `references/background-systems.md` |
+| Delegation, cron, curator | `references/background-systems.md` |
 | `hermes project` workspaces, multi-folder projects, desktop sidebar groups | `references/projects-and-folders.md` |
 | MCP servers (add, catalog, `hermes mcp`) | `references/native-mcp.md` |
 | Webhook routes and event-driven runs | `references/webhooks.md` |
@@ -109,7 +108,7 @@ Profiles use `~/.hermes/profiles/<name>/` with the same layout. When a profile i
 | Contributing code: adding tools, slash commands, tests | `references/contributor-guide.md` |
 | delegate_task "capped at N" reports | `references/delegate-task-concurrency-diagnosis.md` |
 | "Can app X use my Nous Portal subscription/OAuth?" | `references/portal-auth-for-third-party-apps.md` |
-| Connecting a messaging platform (Telegram, Discord, Slack, WhatsApp, …) | docs: `/user-guide/messaging` |
+
 
 The reference list above is not the feature list — it is the set of topics that
 need more than their docs page. For everything else Hermes ships, fetch

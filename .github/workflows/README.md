@@ -188,7 +188,7 @@ Then a gate step in `ci.yaml` rewrites the result:
 |---|---|
 | `python` | anything not provably irrelevant to Python (includes `skills/`, `website/docs/`, `website/scripts/`, `website/static/oauth/`) |
 | `python_prod` | as `python`, excluding `tests/` |
-| `frontend` | `ui-tui/`, `web/`, `apps/`, `tests-js/`, root pnpm manifests (`package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`), the WhatsApp bridge, JS under `scripts/build/` |
+| `frontend` | `ui-tui/`, `web/`, `apps/`, `tests-js/`, root pnpm manifests (`package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`), JS under `scripts/build/` |
 | `rust` | `.rs`, Cargo files, bootstrap-installer crate paths |
 | `catalog` | `plugin-catalog/*.yaml`, `contributors/emails/` (a diff with only these runs catalog tests **instead of** the Python suite) |
 | `site` | the Docusaurus site |

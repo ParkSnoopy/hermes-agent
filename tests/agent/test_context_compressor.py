@@ -447,10 +447,10 @@ def _refusals():
     """Refused-call results from the real producers: the approval gate messages in their terminal
     envelope, the write guard's raw ``BLOCKED:`` text, the workdir guard's ``status`` "blocked"
     envelope (its error reads "Blocked:", not "BLOCKED"), a pending gateway approval, and a
-    successful kanban_block (``status`` "blocked" with no error, which is not a refusal). ``expected`` lists substrings the summary must
+    successful session search. ``expected`` lists substrings the summary must
     contain; empty means it must not read as refused."""
     from tools import approval
-    from tools.kanban_tools import _ok
+    from tools.session_search_tool import _ok
     from tools.terminal_tool import _error_json
     from tools.terminal_tool_guards import _validate_workdir
 
@@ -477,9 +477,8 @@ def _refusals():
         pytest.param("terminal", {"command": "rm -rf build"},
                      _error_json("", status="pending_approval"),
                      ["awaiting the user's approval, not run"], id="pending_approval"),
-        pytest.param("kanban_block", {"reason": "need creds"},
-                     _ok(task_id="t_1", run_id=None, status="blocked", block_kind="needs_input"),
-                     [], id="kanban_block_ok"),
+        pytest.param("session_search", {"query": "notes"},
+                     _ok(results=[]), [], id="session_search_ok"),
     ]
 
 

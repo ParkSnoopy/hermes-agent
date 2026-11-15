@@ -51,7 +51,7 @@ hermes config set OPENROUTER_API_KEY sk-or-...  # Saves to .env
 ```
 
 :::tip
-The `hermes config set` command automatically routes values to the right file — every `UPPER_SNAKE` name (`OPENROUTER_API_KEY`, `DISCORD_HOME_CHANNEL`, `TELEGRAM_GROUP_ALLOWED_USERS`, `HERMES_TIMEZONE`, …) is an environment variable and is saved to `.env`, never to `config.yaml`; dotted settings go to `config.yaml`. Any other `UPPER_SNAKE` name is saved to `.env` as-is (it is exported to the process environment for plugins and skills); names on the env writer's denylist (`HERMES_YOLO_MODE`, `PATH`, …) are refused. A known key written under the wrong prefix (`gateway.discord.foo`, where `discord.foo` is itself a known key) is refused with a did-you-mean before anything is written; pass `--force` to write it anyway. Any other unknown path under a known section (a typo such as `agent.max_turnz`, or a runtime-read key with no seeded default) is written together with a did-you-mean notice, since the schema alone cannot tell the two apart. `hermes config get` on such a path prints the value from your file together with a stderr notice that Hermes may not read it, so a leftover key cannot silently pass for a live setting.
+The `hermes config set` command automatically routes values to the right file — every `UPPER_SNAKE` name (`OPENROUTER_API_KEY`, `HERMES_TIMEZONE`, …) is an environment variable and is saved to `.env`, never to `config.yaml`; dotted settings go to `config.yaml`. Any other `UPPER_SNAKE` name is saved to `.env` as-is (it is exported to the process environment for plugins and skills); names on the env writer's denylist (`HERMES_YOLO_MODE`, `PATH`, …) are refused. A known key written under the wrong prefix (`gateway.agent.max_turns`, where `agent.max_turns` is itself a known key) is refused with a did-you-mean before anything is written; pass `--force` to write it anyway. Any other unknown path under a known section (a typo such as `agent.max_turnz`, or a runtime-read key with no seeded default) is written together with a did-you-mean notice, since the schema alone cannot tell the two apart. `hermes config get` on such a path prints the value from your file together with a stderr notice that Hermes may not read it, so a leftover key cannot silently pass for a live setting.
 :::
 
 ## Configuration Precedence
@@ -72,6 +72,22 @@ An administrator can pin specific config and secret values that a standard user
 cannot override, via a system-level managed directory. See
 [Managed Scope](./managed-scope.md).
 :::
+
+## Response Pacing
+
+`human_delay.mode` controls optional pacing between transport reply chunks: `off`
+(the default), `natural` (800–2500 milliseconds), or `custom`. Custom bounds are
+`human_delay.min_ms` and `human_delay.max_ms`; configure them per profile:
+
+```yaml
+human_delay:
+  mode: custom
+  min_ms: 800
+  max_ms: 2500
+```
+
+Invalid bounds produce a warning and fall back to the natural bounds. These
+settings do not enable a transport or change the model's generation speed.
 
 ## Runtime Limits
 
@@ -171,7 +187,7 @@ delegation:
 
 Multiple references in a single value work: `url: "${HOST}:${PORT}"`. If a referenced variable is not set, the placeholder is kept verbatim (`${UNDEFINED_VAR}` stays as-is) and a warning is logged. Bare `$VAR` is not expanded.
 
-Under a [multiplexed multi-profile gateway](./multi-profile-gateways.md), references in a profile's `config.yaml` resolve against **that profile's** `.env` (its secret scope), not the shared process environment — a `${MATRIX_ACCESS_TOKEN}` in profile B stays unresolved (kept verbatim, warning logged) unless B defines the variable itself. This holds wherever B's config is loaded inside the multiplexer: routed gateway turns, B's adapter startup, and B's cron jobs. Single-profile runs are unchanged. See [What is isolated per profile](./multi-profile-gateways.md#what-is-isolated-per-profile) for the full list.
+Under a [multiplexed multi-profile gateway](./multi-profile-gateways.md), references in a profile's `config.yaml` resolve against **that profile's** `.env` (its secret scope), not the shared process environment — a `${EXAMPLE_API_KEY}` in profile B stays unresolved (kept verbatim, warning logged) unless B defines the variable itself. This holds wherever B's config is loaded inside the multiplexer: routed gateway turns, B's adapter startup, and B's cron jobs. Single-profile runs are unchanged. See [What is isolated per profile](./multi-profile-gateways.md#what-is-isolated-per-profile) for the full list.
 
 A local `hermes chat` / TUI session served by the gateway resolves these references, `provider_routing` and `prefill_messages_file` when the gateway creates the session, from its profile's current `config.yaml` and `.env`. Edits to them apply to the next new session without a gateway restart, and open sessions keep their creation-time values. A gateway restart doesn't re-read them either: a session restored after a restart keeps the routing and prefill path stored with it, and reads the prefill file's contents again, from that stored path, the first time it needs them. On the profile the gateway was launched with, a variable you remove from `.env` still resolves to the value loaded at gateway start, because a miss falls back to the process environment; restart the gateway to drop it.
 
@@ -236,7 +252,6 @@ Point-in-time copies of `config.yaml` itself (taken before `hermes setup` rewrit
 
 For git installs, Hermes auto-stashes dirty tracked files, plus any untracked file at a path the update adds, before checking out the update branch or pulling. Untracked files the update never writes stay in place. Interactive terminal updates ask whether to keep the changes before stashing anything; answering no deletes them instead of leaving a stash entry behind. Non-interactive updates (desktop/chat app, gateway, or `--yes`) use `updates.non_interactive_local_changes`: `stash` restores local source edits after a successful pull, while `discard` drops the update-created stash after a successful pull. Use `discard` only on managed installs where local source edits are never meant to persist.
 
-Before that stash step, Hermes also restores tracked `package-lock.json` diffs that npm installs leave in the WhatsApp bridge and Photon sidecar. Commit or manually stash intentional lockfile edits before updating.
 
 ## Terminal Backend Configuration
 
@@ -390,7 +405,7 @@ Runs commands inside a Docker container with security hardening (all capabilitie
 
 Earlier builds gave each Desktop folder its own sandbox even with mounting off. Those directories (`*_ws_*` under `TERMINAL_SANDBOX_DIR/docker`, default `sandboxes/docker` in the profile's Hermes home) are kept but no longer used by the terminal or the file panel: copy anything you still need into the profile sandbox's `workspace` or `home`.
 
-In a named profile, its gateway chats, Desktop sessions, cron jobs and Kanban workers all use the profile's one sandbox (`profile_<name>-*` under `TERMINAL_SANDBOX_DIR/docker`). Earlier builds kept a gateway launched as that profile (`hermes -p <name> gateway`) and its cron and Kanban work in a separate `default` sandbox under the profile's home. That directory is kept but no longer used: copy anything you still need from it the same way.
+In a named profile, its gateway chats, Desktop sessions, cron jobs and delegated workers all use the profile's one sandbox (`profile_<name>-*` under `TERMINAL_SANDBOX_DIR/docker`). Earlier builds kept a gateway launched as that profile (`hermes -p <name> gateway`) and its cron and delegated work in a separate `default` sandbox under the profile's home. That directory is kept but no longer used: copy anything you still need from it the same way.
 
 Terminal, file, and `execute_code` calls use `docker exec` in the selected container. Installed packages, files in `/workspace`, and **background processes** carry over between calls and Hermes processes using that container. Closing a TUI session, running `/quit`, or starting a new `hermes` invocation does not itself remove it; the next process can reuse it through its labels. See **Container lifecycle** below for the exact teardown rules.
 
@@ -720,7 +735,7 @@ This is useful for:
 - **Receiving files** from the agent (generated code, reports, exports)
 - **Shared workspaces** where both you and the agent access the same files
 
-If you use a messaging gateway and want the agent to send generated files via
+If a gateway client supports generated files via
 `MEDIA:/...`, prefer a dedicated host-visible export mount such as
 `/home/user/.hermes/cache/documents:/output`.
 
@@ -1103,7 +1118,7 @@ auxiliary:
 Older configs with `compression.summary_model`, `compression.summary_provider`, and `compression.summary_base_url` are automatically migrated to `auxiliary.compression.*` on first load (config version 17). No manual action needed.
 :::
 
-`progress_notices` (default `false`) controls whether **routine** compression progress statuses reach chat platforms (Telegram, Discord, Slack, etc.). By design, automatic compression is silent on chat surfaces — it runs in the background with server-side logging only. Set `progress_notices: true` to opt into seeing the routine lifecycle on chat platforms: the "Compacting context…" start notice, preflight/pre-API compression triggers, idle compaction, retry progress ("Compressed 30 → 12 messages, retrying…"), and the "Context compaction complete" notice. The gate is scoped to compression statuses only — unrelated operational noise (auxiliary model failures, provider rate-limit/retry chatter) stays suppressed either way. Compression **failure** notices and manual `/compress` feedback are always visible regardless of this setting. Editing this value on a running gateway takes effect on the next message.
+`progress_notices` (default `false`) controls whether **routine** compression progress statuses reach gateway surfaces. By design, automatic compression is silent on chat surfaces — it runs in the background with server-side logging only. Set `progress_notices: true` to opt into seeing the routine lifecycle on chat platforms: the "Compacting context…" start notice, preflight/pre-API compression triggers, idle compaction, retry progress ("Compressed 30 → 12 messages, retrying…"), and the "Context compaction complete" notice. The gate is scoped to compression statuses only — unrelated operational noise (auxiliary model failures, provider rate-limit/retry chatter) stays suppressed either way. Compression **failure** notices and manual `/compress` feedback are always visible regardless of this setting. Editing this value on a running gateway takes effect on the next message.
 
 `hygiene_hard_message_limit` is a gateway-only **pre-compression safety valve**. It exists to break a death spiral: when API calls keep disconnecting on an oversized session, the gateway never receives token-usage data, so the token-based threshold can't fire, so the transcript keeps growing and disconnects get worse. This count-based floor fires on message count alone (always known, regardless of API failures) to force compression and recover the session. Default `5000` — far above any normal session, including large-context (1M+) models doing thousands of short turns, which compress on the token threshold long before this. Raise it further for unusual platforms, lower it to force more aggressive compression. Editing this value on a running gateway takes effect on the next message (see below).
 
@@ -1113,7 +1128,7 @@ The same limit is also a **fail-closed bound on what the model is sent** wheneve
 
 `hygiene_total_ceiling_seconds` (default `600`) bounds the total wait even while tokens are still moving, so a degenerate trickle stream can't hold a turn hostage indefinitely. It is clamped to at least `hygiene_timeout_seconds`. Time a llama.cpp server spends reading the prompt does not count toward it (see `context_total_ceiling_seconds`).
 
-`hygiene_max_turn_hold_seconds` (default `10`) is the gateway's **turn-hold budget** — the maximum wall-clock the incoming message is held waiting on hygiene compression before the gateway stops waiting and proceeds on the uncompressed transcript. It exists because `hygiene_total_ceiling_seconds` alone can leave the wire silent for far longer than a chat transport's idle-timeout: a summary model that keeps streaming tokens keeps resetting the inactivity slice, so without a turn-hold budget the wait can stretch toward the ceiling while zero bytes reach the user — Telegram (and similar transports) then drop the connection and the turn appears frozen. Capping the turn's wait at this budget (well under the typical ~30s transport idle-timeout) guarantees the message is answered promptly. **The compression is not lost when the budget expires**: the worker keeps running detached and — when its commit is watermark-fenced (the normal case with a session DB) — it keeps its commit admission, so the finished summary is adopted at the next safe boundary and turns appended after the wait was abandoned survive verbatim as concurrent tail. This matters especially for **thinking/reasoning summary models** (DeepSeek, QwQ, etc.) whose reasoning phase alone can exceed the budget: their summaries land one turn late instead of never. If the commit cannot be safely fenced, the late result is discarded (`CompressionCommitFence`) and it cannot overwrite newer turns. Raise the budget if you'd rather have compression apply within the same turn and your transport tolerates the wait; lower it for snappier recovery on very slow backends.
+`hygiene_max_turn_hold_seconds` (default `10`) is the gateway's **turn-hold budget** — the maximum wall-clock the incoming message is held waiting on hygiene compression before the gateway stops waiting and proceeds on the uncompressed transcript. It exists because `hygiene_total_ceiling_seconds` alone can leave the wire silent for far longer than a chat transport's idle-timeout: a summary model that keeps streaming tokens keeps resetting the inactivity slice, so without a turn-hold budget the wait can stretch toward the ceiling while zero bytes reach the user — a transport may then drop the connection and the turn appears frozen. Capping the turn's wait at this budget (well under the typical ~30s transport idle-timeout) guarantees the message is answered promptly. **The compression is not lost when the budget expires**: the worker keeps running detached and — when its commit is watermark-fenced (the normal case with a session DB) — it keeps its commit admission, so the finished summary is adopted at the next safe boundary and turns appended after the wait was abandoned survive verbatim as concurrent tail. This matters especially for **thinking/reasoning summary models** (DeepSeek, QwQ, etc.) whose reasoning phase alone can exceed the budget: their summaries land one turn late instead of never. If the commit cannot be safely fenced, the late result is discarded (`CompressionCommitFence`) and it cannot overwrite newer turns. Raise the budget if you'd rather have compression apply within the same turn and your transport tolerates the wait; lower it for snappier recovery on very slow backends.
 
 `hygiene_failure_cooldown_seconds` controls that per-session cooldown after a hygiene compression timeout or abort. During the cooldown, the gateway skips repeated hygiene attempts for the same oversized session so every incoming message does not block on the same broken auxiliary backend. `/compress`, `/reset`, or a healthy later turn can still recover the session.
 
@@ -1129,7 +1144,7 @@ The value is the **first rung** of an escalating ladder, not a fixed interval: c
 
 `threshold_tokens` sets an optional **absolute token cap** for the compression trigger. When set, compression fires at the lower of the ratio-based `threshold` and this absolute count, so compaction never fires later than that token count regardless of which model is active. Use it when you want a fixed cost ceiling per call, for example `threshold_tokens: 256000` to compact a 1M-window model at 256K instead of 500K. The cap is clamped to the model's context length, so a value above the window is a no-op. Default `null` (disabled — ratio-based threshold only). The cap survives model switches and fallback activations.
 
-`idle_compact_after_seconds` is an **opt-in, time-based** trigger that complements the size-based `threshold`. Default `0` (disabled). When set above 0, a session that resumes after at least that many seconds of inactivity compacts its accumulated history up front, before the first reply — so a long-lived thread (e.g. a Telegram conversation you come back to hours later) doesn't re-read its full stale context on every subsequent turn. It never fires when the context is already at or below the post-compression target (`threshold × target_ratio`), and it honors the same failure-cooldown, anti-thrash, and per-session lock guards as every automatic compaction. Example: `idle_compact_after_seconds: 1800` compacts after 30 minutes idle.
+`idle_compact_after_seconds` is an **opt-in, time-based** trigger that complements the size-based `threshold`. Default `0` (disabled). When set above 0, a session that resumes after at least that many seconds of inactivity compacts its accumulated history up front, before the first reply — so a long-lived thread (e.g. a conversation you come back to hours later) doesn't re-read its full stale context on every subsequent turn. It never fires when the context is already at or below the post-compression target (`threshold × target_ratio`), and it honors the same failure-cooldown, anti-thrash, and per-session lock guards as every automatic compaction. Example: `idle_compact_after_seconds: 1800` compacts after 30 minutes idle.
 
 `prepare_ahead` (default `false`) writes the next compaction summary in the background once the session is close to the trigger, while tools run and between turns. One summary is prepared per compaction. When automatic compaction fires and the summarized messages are still the same messages (text edits by plugins are fine; a dropped message or a rewind is not), the prepared summary is used instead of a summary call at that moment, and every message newer than it stays outside it, in the uncompressed tail. If the prepared summary is still being written when compaction fires, compaction waits for it (within the usual compression time limit) rather than writing it again. If there is no prepared summary or it no longer matches, compaction runs exactly as it does without the option. It spends an auxiliary summary call that may go unused, and it does not apply to manual `/compress`, plugin context engines, or native/app-server compaction. With a memory provider that adds context to compaction summaries it switches itself off after the first compaction, since every prepared summary would be discarded.
 
@@ -1197,6 +1212,22 @@ The summary model **must** have a context window at least as large as your main 
 :::
 
 ## Gateway Turn Lease Timeout
+
+### Inbound context and automated-peer limits
+
+`gateway.message_timestamps.enabled` (default `false`) prefixes inbound user content in the model context with its send time; the stored transcript remains unchanged.
+The automated-peer loop guard uses these profile-scoped settings:
+
+| Key | Default | Behavior |
+|-----|---------|----------|
+| `gateway.bot_loop_guard.enabled` | `true` | Apply the inbound automated-message budget. |
+| `gateway.bot_loop_guard.max_events` | `20` | Maximum admitted bot messages per conversation in the sliding window. |
+| `gateway.bot_loop_guard.window_seconds` | `300` | Length of the sliding window in seconds. |
+| `gateway.bot_loop_guard.cooldown_seconds` | `600` | Refuse further bot messages for this period after the budget is exhausted. |
+| `gateway.bot_loop_guard.max_hops` | `4` | Limit bot-to-bot hops in an exchange. |
+| `gateway.bot_loop_guard.bot_replies_expect_reply` | `false` | Do not answer a bot's reply to a reply by default. |
+
+### Turn serialization
 
 The gateway serializes turns by their resolved session ID so two routing keys
 cannot load and write the same transcript concurrently. Configure the maximum
@@ -1272,11 +1303,11 @@ agent:
 
 ## Reconnect Attention Escalation
 
-When a platform adapter fails to connect (network outage, revoked bot token, broken sidecar), the gateway retries it indefinitely with capped exponential backoff — retries never stop, so a transient outage always self-heals without operator action. The downside is that a *permanent* failure (a revoked Telegram token, missing Discord privileged intents) looks identical to a blip: "retrying", forever.
+When a platform adapter fails to connect (network outage, revoked bot token, broken sidecar), the gateway retries it indefinitely with capped exponential backoff — retries never stop, so a transient outage always self-heals without operator action. The downside is that a *permanent* failure (such as invalid credentials) looks identical to a blip: "retrying", forever.
 
 Two mechanisms make permanent failures visible:
 
-- **Terminal classification.** Failures whose exception *type* proves they can never self-heal — rejected/revoked tokens (`telegram_auth_error`, `discord_auth_error`, `email_auth_error`), missing privileged intents (`discord_intents_required`), a Photon sidecar whose dependencies cannot install (`SIDECAR_DEPS_MISSING`) or whose node binary is missing (`SIDECAR_NODE_MISSING`) — are marked fatal instead of entering the retry queue. Classification is strictly type-based; ambiguous errors always keep retrying.
+- **Terminal classification.** Failures whose exception *type* proves they can never self-heal — unrecoverable adapter configuration errors — are marked fatal instead of entering the retry queue. Classification is strictly type-based; ambiguous errors always keep retrying.
 - **Needs-attention escalation.** A platform continuously in the retry queue past `agent.reconnect_attention_after` (default `7200` seconds = 2 hours, `0` disables) gets `needs_attention: true` and a `retrying_since` timestamp in gateway runtime status (`hermes status`), plus a WARNING log. Retries continue unchanged — this is a signal, not a circuit breaker. The flag clears on successful reconnect.
 
 ```yaml
@@ -1346,7 +1377,7 @@ agent:
 
 `agent.max_turns` is **unlimited by default** — the turn cap caused more problems than it solved (silent mid-task truncation), so out of the box Hermes runs a conversation turn to completion. To impose a cap, set a positive integer. To be explicit about "no limit", any of these case-insensitive spellings work: `"none"`, `"null"`, `"unlimited"`, `"infinite"`, `"infinity"`, `"inf"`, `0`, `-1` (they resolve to a `sys.maxsize` sentinel so the loop never exits on a turn count).
 
-`agent.budget_warning_ratio` is off by default for ordinary and delegated conversations. When set to a value strictly between `0` and `1` alongside a finite `max_turns`, Hermes appends one model-visible checkpoint notice to the latest tool result after the threshold is reached. The notice rearms each conversation turn and uses each agent's own iteration budget. It only appends to a current tool-result tail, never an older turn, and does not add a synthetic user/system message or change the existing exhaustion grace call. Dispatcher-owned Kanban workers receive a completion checkpoint at 90% by default (an explicit ratio changes that threshold), while their tools are still available. The checkpoint asks for verified completion or a durable progress comment, not premature success.
+`agent.budget_warning_ratio` is off by default for ordinary and delegated conversations. When set to a value strictly between `0` and `1` alongside a finite `max_turns`, Hermes appends one model-visible checkpoint notice to the latest tool result after the threshold is reached. The notice rearms each conversation turn and uses each agent's own iteration budget. It only appends to a current tool-result tail, never an older turn, and does not add a synthetic user/system message or change the existing exhaustion grace call.
 
 `agent.api_max_retries` controls how many times Hermes retries a provider API call on transient errors (rate limits, connection drops, 5xx) **before** fallback-provider switching engages. The default is `3` — four attempts total. If you have [fallback providers](./features/fallback-providers.md) configured and want to fail over faster, drop this to `0` so the first transient error on your primary immediately hands off to the fallback instead of churning retries against the flaky endpoint.
 
@@ -1388,7 +1419,7 @@ agent:
   coding_instructions: ""      # Standing project-wide coding rules appended to the coding brief
 ```
 
-`verify_on_stop` accepts `true` (on everywhere), `false` (off — the default), or `"auto"` (legacy surface-aware behavior: on for interactive coding surfaces — CLI, TUI, desktop — and programmatic callers; off for messaging surfaces like Telegram/Discord where the verification narrative reads as chat noise). Off is the default everywhere: fresh installs ship `false` and the config migration turned it off on existing installs, so enabling it is an explicit opt-in. The `HERMES_VERIFY_ON_STOP` env var overrides the config value when set.
+`verify_on_stop` accepts `true` (on everywhere), `false` (off — the default), or `"auto"` (legacy surface-aware behavior: on for interactive coding surfaces — CLI, TUI, desktop — and programmatic callers; off for other gateway surfaces where the verification narrative reads as chat noise). Off is the default everywhere: fresh installs ship `false` and the config migration turned it off on existing installs, so enabling it is an explicit opt-in. The `HERMES_VERIFY_ON_STOP` env var overrides the config value when set.
 
 The evidence that feeds this guard (which test/lint/build commands ran, which files were edited since) lives in `~/.hermes/verification_evidence.db`. That ledger is only written or created while the guard is enabled; with `verify_on_stop: false` nothing is recorded and an existing file can be deleted freely.
 
@@ -1504,7 +1535,7 @@ prompt_caching:
 
 `cache_ttl` selects the breakpoint TTL Hermes attaches for Claude via the native Anthropic API, OpenRouter, and Nous Portal. The two Anthropic tiers (`"5m"`, `"1h"`) are sent as-is; any other value is ignored. Providers with their own caps (e.g. Qwen Cloud, which maxes at 5 minutes) still clamp to what the upstream allows.
 
-The 1h tier writes at 2x the base input price (5m writes at 1.25x) and only pays off when your turns are more than five minutes apart — otherwise every tool result is written at the dearer rate for retention nobody uses. `"auto"` picks the tier per session from who paces it: `1h` for sessions a person types into (CLI, TUI, Desktop, Telegram/Discord/Slack and the other messaging platforms), `5m` for machine-paced ones (subagents, cron, `hermes -q` one-shots, webhooks, Kanban workers, the API server, tool-invoked and batch runs). On an install where interactive sessions are parked and resumed through the day, `auto` cut the interactive cache-write bill by roughly 40% while leaving fan-out subagent spend untouched. Delegated subagents are always clamped to `5m`, whatever the setting.
+The 1h tier writes at 2x the base input price (5m writes at 1.25x) and only pays off when your turns are more than five minutes apart — otherwise every tool result is written at the dearer rate for retention nobody uses. `"auto"` picks the tier per session from who paces it: `1h` for sessions a person types into (CLI, TUI and Desktop), `5m` for machine-paced ones (subagents, cron, `hermes -q` one-shots, webhooks, delegated workers, the API server, tool-invoked and batch runs). On an install where interactive sessions are parked and resumed through the day, `auto` cut the interactive cache-write bill by roughly 40% while leaving fan-out subagent spend untouched. Delegated subagents are always clamped to `5m`, whatever the setting.
 
 ## Auxiliary Models
 
@@ -1528,8 +1559,6 @@ $ hermes model
 [ ] voice_chat           currently: auto / main model
 [ ] compression          currently: auto / main model
 [ ] approval             currently: auto / main model
-[ ] triage_specifier     currently: auto / main model
-[ ] kanban_decomposer    currently: auto / main model
 [ ] profile_describer    currently: auto / main model
 [ ] delegation           currently: auto / inherit main agent
 ```
@@ -1562,12 +1591,6 @@ attachment. The first ~1,000 characters of that paste are handed to the title st
 title-only hint (the agent turn still sees only the attachment reference), so a "summarize
 this" plus a large paste is named after the pasted topic. Files you attach yourself are never
 read for titling.
-
-In the local messaging gateway, text messages supply their original request to
-session titling, before channel-bound skills and platform context are added.
-The main model and conversation history still retain the full skill content.
-Attachment-only turns retain the existing enriched-message title fallback.
-This affects new title generation; it does not repair previously named sessions.
 
 ### Stream-only endpoints
 
@@ -1727,17 +1750,6 @@ auxiliary:
     timeout: 30
     # max_concurrency: 2       # Optional: cap simultaneous title-generation calls
 
-  # Kanban triage specifier — `hermes kanban specify <id>` (or the
-  # dashboard's ✨ Specify button on Triage-column cards) uses this
-  # slot to expand a one-liner into a concrete spec and promote the
-  # task to `todo`. Cheap fast models work well here; spec expansion
-  # is short and doesn't need reasoning depth.
-  triage_specifier:
-    provider: "auto"
-    model: ""
-    base_url: ""
-    api_key: ""
-    timeout: 120
 ```
 
 :::tip
@@ -1784,7 +1796,7 @@ Separate from `auxiliary.vision` (which picks the describer model): when the *ma
 
 `max_concurrency` caps in-flight LLM calls for auxiliary tasks such as `compression` and `title_generation` across the whole process. `auxiliary.vision.max_concurrency` is excluded: it already controls only vision's CPU-bound image encode/resize workers, not LLM requests. This is most useful when:
 
-- Many sessions can spawn background work simultaneously (Discord/Telegram channels, multiple terminals)
+- Many sessions can spawn background work simultaneously (multiple terminals or API sessions)
 - Your provider is rate-limited or going through an incident and retries would amplify the burst
 
 The default is unlimited. A typical safety cap is `2`:
@@ -2309,7 +2321,7 @@ display:
   focus_view: false       # CLI focus view (/focus) — reduced output, display-only
   platforms: {}           # Per-platform display overrides (see below)
   interim_assistant_messages: true  # Gateway: send natural mid-turn assistant updates as separate messages
-  suppress_warning_notifications: false  # Opt-in: hide automatic warning/diagnostic notices (see messaging guide)
+  suppress_warning_notifications: false  # Opt-in: hide automatic warning/diagnostic notices
   show_commentary: true   # Codex models: deliver commentary-channel progress narration as visible mid-turn updates
   skin: default           # Built-in or custom CLI skin (see user-guide/features/skins)
   personality: ""         # Legacy cosmetic field still surfaced in some summaries
@@ -2343,6 +2355,11 @@ display:
 ```
 
 ### Per-turn summary and spinner token flow
+
+`display.tool_progress_grouping` selects `accumulate` (edit one progress message, the default) or `separate` (one message per tool).
+`display.reasoning_style` selects `code` (the default), `blockquote`, or `subtext` for reasoning on gateway delivery surfaces.
+`display.status_phrases` configures profile-relative phrase catalogs with `path` or `paths` and `mode: append` or `mode: replace`.
+Only configured phrase strings are used; model scratch text and tool arguments are not interpolated.
 
 `display.turn_summary` (default `true`) prints one dim accounting line after each **interactive CLI** turn, summarising what that turn actually did:
 
@@ -2422,9 +2439,8 @@ display:
 | `all` | Every tool call with a short preview (default) |
 | `verbose` | Full args, results, and debug logs |
 
-In the CLI, cycle through these modes with `/verbose`. To use `/verbose` in messaging platforms (Telegram, Discord, Slack, etc.), set `tool_progress_command: true` in the `display` section above. The command will then cycle the mode and save to config.
+In the CLI, cycle through these modes with `/verbose`.
 
-Tool progress requires a gateway adapter that can display progress updates safely. Platforms without message editing support, including Signal, suppress tool-progress bubbles even if `/verbose` saves a non-`off` mode.
 
 `off` hides tool-call *chrome* only. Application state that has its own surface in the Desktop app and TUI — the task list (`todo_list`), subagent progress, clarify questions, and MCP consent cards — keeps flowing regardless of this setting.
 
@@ -2487,39 +2503,13 @@ The default field set is `["model", "context_pct", "cwd"]`. `latency` and `serve
 
 The `/footer` slash command toggles this at runtime in any session.
 
-Example footer appended to a Telegram/Discord/Slack reply:
+Example runtime footer:
 
 ```
 — claude-opus-4.7 · 12 tool calls · 2m 14s · $0.042
 ```
 
 Only the **final** message of a turn gets the footer; interim updates stay clean.
-
-### Per-platform progress overrides
-
-Different platforms have different verbosity needs. Use `display.platforms` to set per-platform modes:
-
-```yaml
-display:
-  tool_progress: all          # global default
-  platforms:
-    signal:
-      tool_progress: 'off'    # Signal cannot currently display tool-progress bubbles
-    telegram:
-      tool_progress: verbose  # detailed progress on Telegram
-    slack:
-      tool_progress: 'off'    # quiet in shared Slack workspace
-```
-
-From the CLI, use the canonical path — `hermes config set display.platforms.telegram.streaming false`. The shorthand `hermes config set platforms.telegram.streaming false` is accepted too: because per-platform *display* settings (`streaming`, `show_reasoning`, `tool_progress`, …) are only ever read from `display.platforms`, `config set`/`get`/`unset` redirect that shorthand to the canonical key and print a note. Connection keys under the top-level `platforms.<name>` block (`token`, `enabled`, `reply_to_mode`, `extra`) are not redirected. Writing them under the nested prefix (`hermes config set gateway.platforms.telegram.enabled true`) is redirected to the top-level `platforms.telegram.enabled` with a note: the gateway reads both blocks, but the top-level one wins on shared keys, so a nested write would be silently shadowed by an existing top-level value.
-
-Platforms without an override fall back to the global `tool_progress` value. Valid platform keys: `telegram`, `discord`, `slack`, `signal`, `whatsapp`, `matrix`, `mattermost`, `email`, `sms`, `dingtalk`, `feishu`, `wecom`, `weixin`, `bluebubbles`, `qqbot`, plus the name of any plugin platform (e.g. `homeassistant` from the Home Assistant plugin). The legacy `display.tool_progress_overrides` key still loads for backward compatibility but is deprecated and migrated into `display.platforms` on first load.
-
-Signal is listed as a valid platform key because the setting can be saved per platform, but the current Signal adapter cannot edit sent messages and does not render tool-progress bubbles. Keep Signal `tool_progress` set to `off`; use the CLI or an editing-capable messaging platform if you need to watch each tool call live.
-
-`interim_assistant_messages` is gateway-only. When enabled, Hermes sends completed mid-turn assistant updates as separate chat messages. This is independent from `tool_progress` and does not require gateway streaming.
-
-`show_commentary` (default `true`) controls Codex Responses models' commentary channel — the polished progress narration these models produce alongside their private reasoning. When enabled, each completed commentary message is delivered as a visible mid-turn update (on the gateway this also requires `interim_assistant_messages`). Set it to `false` if the extra narration annoys you: commentary then falls back to the reasoning channel and is only shown when `show_reasoning` is enabled.
 
 ## Privacy
 
@@ -2532,13 +2522,12 @@ When `redact_pii` is `true`, the gateway redacts personally identifiable informa
 
 | Field | Treatment |
 |-------|-----------|
-| Phone numbers (user ID on WhatsApp/Signal) | Hashed to `user_<12-char-sha256>` |
+| Phone numbers | Hashed to `user_<12-char-sha256>` |
 | User IDs | Hashed to `user_<12-char-sha256>` |
-| Chat IDs | Numeric portion hashed, platform prefix preserved (`telegram:<hash>`) |
+| Chat IDs | Numeric portion hashed, platform prefix preserved (`platform:<hash>`) |
 | Home channel IDs | Numeric portion hashed |
 | User names / usernames | **Not affected** (user-chosen, publicly visible) |
 
-**Platform support:** Redaction applies to WhatsApp, Signal, and Telegram. Discord and Slack are excluded because their mention systems (`<@user_id>`) require the real ID in the LLM context.
 
 Hashes are deterministic — the same user always maps to the same hash, so the model can still distinguish between users in group chats. Routing and delivery use the original values internally.
 
@@ -2563,7 +2552,7 @@ stt:
   cloud_trim_silence: true     # trim long pauses with ffmpeg before uploading to a cloud provider (default: true)
   cloud_trim_threshold_db: -40 # audio quieter than this counts as silence
   cloud_trim_keep_ms: 300      # how much of each pause survives the trim (keeps natural pacing)
-  # prompt: "Hermes, Teknium, Nous Research, kanban"   # Static vocabulary hint (see below)
+  # prompt: "Hermes, Teknium, Nous Research"   # Static vocabulary hint (see below)
   local:
     model: "base"              # tiny, base, small, medium, large-v3, turbo
     language: ""               # blank inherits stt.language, then HERMES_LOCAL_STT_LANGUAGE
@@ -2621,7 +2610,7 @@ Command backends have additional behavior. `local_command` uses `stt.local.langu
 
 `stt.openai.timeout` and `stt.openai.max_retries` shape the OpenAI-SDK transcription client that the `openai`, `groq` and `deepinfra` providers share (there are no per-provider siblings yet, and the SDK reads no environment variables for these). The defaults are `60` / `1` rather than the previous fixed 30 s / no retries because a self-hosted OpenAI-compatible endpoint can take longer than 30 s to load its model on the first request, which used to lose that voice message outright. The trade-off: an unreachable backend now holds a voice message for up to two attempts × the timeout before Hermes gives up; set `timeout: 30` and `max_retries: 0` for the old shape.
 
-Set `stt.echo_transcripts: false` when the gateway should transcribe voice notes for the agent but must not post the raw transcript back to the chat (for example, customer-facing WhatsApp bots).
+Set `stt.echo_transcripts: false` when the gateway should transcribe voice notes for the agent but must not post the raw transcript back to the chat.
 
 Provider behavior:
 
@@ -2652,7 +2641,7 @@ STT_OPENAI_BASE_URL=https://api.openai.com/v1
 ```yaml
 stt:
   provider: "local"
-  prompt: "Hermes, Teknium, Nous Research, kanban, Ollama"
+  prompt: "Hermes, Teknium, Nous Research, Ollama"
 ```
 
 **Composition.** The config value is the base. Plugins that register the [`pre_transcription`](./features/hooks.md#pre_transcription) hook mutate on top of it, last-writer-wins per field. Multiple plugins' hints compose deterministically: plugin discovery loads plugins in sorted order by plugin id, and each plugin's callbacks run in its own registration order, so the same set of plugins always produces the same final prompt. A hook returning an empty string for `prompt` clears the config prompt for that request. Hooks may also override `language` and `model`; `file_path` is read-only and any attempt to change it is logged and dropped. With no hook registered and no `stt.prompt` set, the outgoing request is identical to previous releases.
@@ -2695,7 +2684,7 @@ Use `/voice on` in the CLI to enable microphone mode, `record_key` to start/stop
 
 ## Streaming
 
-Stream tokens to the terminal or messaging platforms as they arrive, instead of waiting for the full response.
+Stream tokens to the terminal as they arrive, instead of waiting for the full response.
 
 ### CLI Streaming
 
@@ -2707,34 +2696,25 @@ display:
 
 When enabled, responses appear token-by-token inside a streaming box. Tool calls are still captured silently. If the provider doesn't support streaming, it falls back to the normal display automatically.
 
-### Gateway Streaming (Telegram, Discord, Slack)
+### Gateway adapter streaming
+
+Adapters that support message editing can use the separate gateway setting:
 
 ```yaml
 streaming:
-  enabled: true           # Enable progressive message editing (default: false)
-  transport: auto         # "auto" (default) | "edit" (progressive message editing) | "off"
-  edit_interval: 0.8      # Seconds between message edits (default: 0.8)
-  buffer_threshold: 24    # Characters before forcing an edit flush (default: 24)
-  cursor: " ▉"            # Cursor shown during streaming
-  fresh_final_after_seconds: 0    # Opt in to fresh final (Telegram) when preview is this old
+  enabled: false
+  transport: auto
+  edit_interval: 0.8
+  buffer_threshold: 24
+  cursor: " ▉"
 ```
 
-When enabled, the bot sends a message on the first token, then progressively edits it as more tokens arrive. Platforms that don't support message editing (Signal, Email, Home Assistant) are auto-detected on the first attempt — streaming is gracefully disabled for that session with no flood of messages.
+The master switch defaults to off. `display.platforms.<name>.streaming` can disable streaming for a particular adapter, but cannot enable it while the master switch is off.
 
-For separate natural mid-turn assistant updates without progressive token editing, set `display.interim_assistant_messages: true`.
-
-**Overflow handling:** If the streamed text exceeds the platform's message length limit (~4096 chars), the current message is finalized and a new one starts automatically.
-
-**Fresh final (Telegram):** Telegram's `editMessageText` preserves the original message timestamp, so a long-running streamed reply would keep the first-token timestamp even after completion. Set `fresh_final_after_seconds > 0` to opt in to delivering old previews as brand-new final messages with best-effort preview deletion. The default is `0`, which always finalizes streamed replies in place and avoids the brief duplicate-message/delete sequence on clients that show both operations.
-
-:::note Per-platform streaming defaults
-The master `streaming.enabled` switch is `false` by default — nothing streams until you flip it. Once enabled, streaming is decided **per platform**: Telegram ships with `display.platforms.telegram.streaming: true` (streams) and Discord with `display.platforms.discord.streaming: false` (does not). So after enabling streaming, Telegram streams out of the box and Discord stays on whole-message replies until you change its toggle. You can adjust these per-platform switches from the dashboard's **Channels** toggles or directly in `~/.hermes/config.yaml`.
-:::
-
-## Group Chat Session Isolation
+## Concurrent Session Limit
 
 Limit how many chat sessions can actively be open across CLI, TUI/dashboard,
-and messaging gateway:
+and gateway sessions:
 
 ```yaml
 max_concurrent_sessions: null  # null/0 = unlimited; positive integer = active session cap
@@ -2743,7 +2723,7 @@ max_concurrent_sessions: null  # null/0 = unlimited; positive integer = active s
 A slot is taken when a session runs its **first turn**, not when a chat window
 is opened. Opening, resuming or reconnecting to a chat costs nothing until you
 send a message, so idle desktop tabs (and the background resumes a flaky
-websocket triggers) cannot starve the messaging gateway that shares this cap.
+websocket triggers) cannot starve other sessions that share this cap.
 
 When the cap is reached, Hermes returns a direct limit message naming which
 surfaces hold the slots. Existing active sessions keep their normal behavior.
@@ -2772,12 +2752,12 @@ Control whether shared chats keep one conversation per room or one conversation 
 group_sessions_per_user: true  # true = per-user isolation in groups/channels, false = one shared session per chat
 ```
 
-- `true` is the default and recommended setting. In Discord channels, Telegram groups, Slack channels, and similar shared contexts, each sender gets their own session when the platform provides a user ID.
+- `true` is the default and recommended setting. In shared contexts, each sender gets their own session when the platform provides a user ID.
 - `false` reverts to the old shared-room behavior. That can be useful if you explicitly want Hermes to treat a channel like one collaborative conversation, but it also means users share context, token costs, and interrupt state.
 - Direct messages are unaffected. Hermes still keys DMs by chat/DM ID as usual.
 - Threads stay isolated from their parent channel either way; with `true`, each participant also gets their own session inside the thread.
 
-For the behavior details and examples, see [Sessions](./sessions.md) and the [Discord guide](./messaging/discord.md).
+For the behavior details and examples, see [Sessions](./sessions.md).
 
 ## Native Hosted-Room Discussion Limits
 
@@ -2815,34 +2795,9 @@ Rooms set to pick who answers automatically (Room settings, `routing: auto`) mak
 one short JSON model call per unaddressed message through `auxiliary.group_router`
 (provider/model/timeout like every other auxiliary task; default timeout 20 s).
 
-## Unauthorized DM Behavior
-
-Control what Hermes does when an unknown user sends a direct message:
-
-```yaml
-unauthorized_dm_behavior: pair
-
-whatsapp:
-  unauthorized_dm_behavior: ignore
-```
-
-- `pair` is the default for chat-style DM platforms. Hermes denies access, but replies with a one-time pairing code in DMs.
-- `ignore` silently drops unauthorized DMs.
-- `decline` sends one short, polite decline instead of a pairing code, then stays silent toward that sender for 24 hours. Override the default text:
-
-  ```yaml
-  unauthorized_dm_behavior: decline
-  unauthorized_dm_decline_message: "Sorry, this assistant is private."
-  ```
-
-  `hermes gateway setup` offers this as "Politely decline unknown senders" when you leave the allowlist empty; it writes `platforms.<platform>.unauthorized_dm_behavior: decline`.
-
-- Email defaults to `ignore` unless `platforms.email.unauthorized_dm_behavior: pair` is set, because inboxes can contain unrelated unread mail.
-- Platform sections override the global default, so you can keep pairing enabled broadly while making one platform quieter.
-
 ## Quick Commands
 
-Define custom commands that either run shell commands without invoking the LLM, or alias one slash command to another. Exec quick commands are zero-token and useful from messaging platforms (Telegram, Discord, etc.) for quick server checks or utility scripts.
+Define custom commands that either run shell commands without invoking the LLM, or alias one slash command to another. Exec quick commands are zero-token and useful in the CLI for quick server checks or utility scripts.
 
 ```yaml
 quick_commands:
@@ -2863,28 +2818,15 @@ quick_commands:
     target: /gateway restart
 ```
 
-Usage: type `/status`, `/disk`, `/update`, `/gpu`, or `/restart` in the CLI or any messaging platform. `exec` commands run locally on the host and return the output directly — no LLM call, no tokens consumed. `alias` commands rewrite to the configured slash command target.
+Usage: type `/status`, `/disk`, `/update`, `/gpu`, or `/restart` in the CLI. `exec` commands run locally on the host and return the output directly — no LLM call, no tokens consumed. `alias` commands rewrite to the configured slash command target.
 
 - **30-second timeout** — long-running commands are killed with an error message
 - **Priority** — quick commands are checked before skill commands, so you can override skill names
 - **Autocomplete** — quick commands are resolved at dispatch time and are not shown in the built-in slash-command autocomplete tables
 - **Type** — supported types are `exec` and `alias`; other types show an error
-- **Works everywhere** — CLI, Telegram, Discord, Slack, WhatsApp, Signal, Email, Home Assistant
+- **Works in the CLI**
 
 String-only prompt shortcuts are not valid quick commands. For reusable prompt workflows, create a skill or alias to an existing slash command.
-
-## Human Delay
-
-Simulate human-like response pacing in messaging platforms:
-
-```yaml
-human_delay:
-  mode: "off"                  # off | natural | custom
-  min_ms: 800                  # Minimum delay (custom mode)
-  max_ms: 2500                 # Maximum delay (custom mode)
-```
-
-Each profile's own `config.yaml` is read, so multiplexed profiles keep independent pacing; there is no process-environment override. In `custom` mode a non-integer, negative or inverted `min_ms`/`max_ms` pair is rejected with a warning naming the key and the `natural` range (800–2500 ms) is used instead.
 
 ## Code Execution
 
@@ -3032,23 +2974,6 @@ Supported values: any IANA timezone identifier (e.g. `America/New_York`, `Europe
 `hermes doctor` (and the startup config check) reports a value the runtime cannot load — a typo such as `Asia/Tokio` would otherwise silently put the agent clock and every cron schedule on server-local time. `HERMES_TIMEZONE` overrides this key when set.
 
 The agent clock, cron schedules and time-aware tools follow this zone on every OS. Code run through `execute_code` also inherits it as `TZ` on Linux and macOS; on Windows those children keep the OS-configured zone instead (the Windows C runtime only parses POSIX-form `TZ` strings, and an IANA name there produces a wrong UTC offset), so set the Windows zone itself when child scripts must render local time in this zone.
-
-## Discord
-
-Configure Discord-specific behavior for the messaging gateway:
-
-```yaml
-discord:
-  require_mention: true          # Require @mention to respond in server channels
-  free_response_channels: ""     # Comma-separated channel IDs where bot responds without @mention
-  auto_thread: true              # Auto-create threads on @mention in channels
-  free_response_auto_thread: false  # Free-response channels also auto-thread (default: reply inline)
-```
-
-- `require_mention` — when `true` (default), the bot only responds in server channels when mentioned with `@BotName`. DMs always work without mention.
-- `free_response_channels` — comma-separated list of channel IDs where the bot responds to every message without requiring a mention.
-- `auto_thread` — when `true` (default), mentions in channels automatically create a thread for the conversation, keeping channels clean (similar to Slack threading).
-- `free_response_auto_thread` — when `true`, channels in `free_response_channels` also auto-create a thread per top-level message. Default `false`: free-response channels reply inline. Requires `auto_thread: true`.
 
 ## Security
 
@@ -3263,7 +3188,7 @@ See also:
 | Context | Default |
 |---------|---------|
 | **CLI (`hermes`)** | Current directory where you run the command |
-| **Messaging gateway** | `terminal.cwd` from `~/.hermes/config.yaml`; if unset, home directory `~` |
+| **Gateway / cron** | `terminal.cwd` from `~/.hermes/config.yaml`; if unset, home directory `~` |
 | **Docker / Singularity / Modal / SSH** | User's home directory inside the container or remote machine |
 
 Override the working directory:
@@ -3361,4 +3286,4 @@ dashboard:
 - `ssh_isolated_idle_grace_s` (default `900`) — a Desktop-owned `hermes serve --isolated` backend reached over SSH is detached from the SSH session on purpose, so a laptop that sleeps mid-connection cannot tear it down; each dark-wake reconnect used to leave another backend holding `state.db`. The backend now retires itself once no client WebSocket has been connected for this long and no agent turn is running (a turn keeps it alive; an unreadable turn state keeps it alive too). Set high if you rely on a detached backend finishing long work after the laptop sleeps. Such backends also send a slow WebSocket ping (60 s, 10 min timeout) so a half-open tunnel is noticed. Independently of this grace, a backend retires (between turns) once the Desktop's ownership lock on the remote host names a newer spawn of the same connection, so a reconnect storm cannot stack detached backends; this covers POSIX and native Windows SSH hosts.
 - `ws_orphan_reap_grace_s` — how long a WS-detached session waits before the orphan reaper collects it. Raise alongside the keepalive values if clients reconnect slowly. Periodic session maintenance also completes cleanup for closed sockets and re-arms a missing orphan timer, so a detached chat cannot keep its ownership lease solely because its initial cleanup or timer was lost. Reconnecting cancels that timer; active delegated work and healthy running turns remain protected by the normal orphan-reaper checks. (`HERMES_TUI_WS_ORPHAN_REAP_GRACE_S` remains as an internal override.)
 - `ws_orphan_activity_stale_s` (default `600`) — how long a detached **running** turn's activity clock (the same clock the `agent.turn_liveness` watchdog samples: API waits, stream tokens, tool heartbeats) must be idle before the orphan reaper interrupts it. A client-absent turn that is still actively producing keeps running to completion detached — closing the laptop, backgrounding the mobile app, or a desktop update no longer cancels healthy long turns; only a genuinely wedged turn is interrupted. Set `0` to interrupt at the grace window regardless of activity (old behavior).
-- `startup_orphan_sweep` (default `true`) — the WS-orphan reap timer above is in-process, so a gateway restart (update, crash, systemd) before it fires leaves the session row open forever — phantom "active" work in `/resume` and dashboards. On every gateway boot — both the stdio TUI (`entry.main`) and the desktop/dashboard WebSocket sidecar (`handle_ws`) — rows with source `tui` / `desktop` / `subagent` / `unknown` (a row the token-accounting guard had to materialize itself) whose start time **and** newest message are both older than the session TTL (`HERMES_TUI_SESSION_TTL_S`, default 6 hours) are closed with `end_reason: startup_orphan_reap`. Messaging-platform sessions (Telegram, Discord, …) are never touched, live in-memory sessions (a client that already resumed) are excluded, and swept sessions remain resumable.
+- `startup_orphan_sweep` (default `true`) — the WS-orphan reap timer above is in-process, so a gateway restart (update, crash, systemd) before it fires leaves the session row open forever — phantom "active" work in `/resume` and dashboards. On every gateway boot — both the stdio TUI (`entry.main`) and the desktop/dashboard WebSocket sidecar (`handle_ws`) — rows with source `tui` / `desktop` / `subagent` / `unknown` (a row the token-accounting guard had to materialize itself) whose start time **and** newest message are both older than the session TTL (`HERMES_TUI_SESSION_TTL_S`, default 6 hours) are closed with `end_reason: startup_orphan_reap`. Other gateway sessions are never touched, live in-memory sessions (a client that already resumed) are excluded, and swept sessions remain resumable.

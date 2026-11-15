@@ -42,7 +42,7 @@ async def _busy_ack(agent) -> str:
     from gateway.platforms.base import SessionSource, build_session_key
     from gateway.platforms.event import MessageEvent, MessageType
 
-    gr._load_gateway_config = lambda: {"display": {"platforms": {"telegram": {"busy_ack_detail": True}}}}
+    gr._load_gateway_config = lambda: {"display": {"platforms": {"api_server": {"busy_ack_detail": True}}}}
     runner = object.__new__(gr.GatewayRunner)
     runner._running_agents, runner._running_agents_ts = {}, {}
     runner._pending_messages, runner._busy_ack_ts, runner._queued_events = {}, {}, {}
@@ -52,14 +52,14 @@ async def _busy_ack(agent) -> str:
     runner.hooks = MagicMock(); runner.hooks.emit = AsyncMock()
     runner.pairing_store = MagicMock(); runner.pairing_store.is_approved.return_value = True
     runner._is_user_authorized = lambda _s: True
-    source = SessionSource(platform=MagicMock(value="telegram"), chat_id="123", chat_type="private", user_id="u1")
+    source = SessionSource(platform=MagicMock(value="api_server"), chat_id="123", chat_type="private", user_id="u1")
     event = MessageEvent(text="status?", message_type=MessageType.TEXT, source=source, message_id="m1")
     sk = build_session_key(source)
     adapter = MagicMock()
     adapter._pending_messages, adapter._text_debounce, adapter._busy_text_debounce_seconds = {}, {}, 0.6
     adapter._send_with_retry = AsyncMock()
     adapter.config = MagicMock(); adapter.config.extra = {}
-    adapter.platform = MagicMock(value="telegram")
+    adapter.platform = MagicMock(value="api_server")
     runner._running_agents[sk] = agent
     runner._running_agents_ts[sk] = time.time() - 600
     runner.adapters[source.platform] = adapter
@@ -80,7 +80,7 @@ async def _heartbeat(agent) -> str:
     disp = MagicMock()
     disp._display_surface_mode.return_value = "on"
     disp.resolve_display_setting.return_value = True
-    ctx = TurnContext(source=SimpleNamespace(chat_id="c1", platform="telegram"), session_key="s1", agent_holder=[agent])
+    ctx = TurnContext(source=SimpleNamespace(chat_id="c1", platform="api_server"), session_key="s1", agent_holder=[agent])
     await mixin._run_agent_notify_long_running(disp, ctx, [None])
     return adapter.send.await_args.args[1]
 

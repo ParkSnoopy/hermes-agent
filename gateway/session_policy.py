@@ -142,7 +142,7 @@ class LocalSessionPolicy:
     credential_ref: str | None = None
     config_secret_ref: str | None = None
     editor_mcp_json: str | None = None
-    kanban_json: str | None = None
+    kanban_json: str | None = None  # Legacy field preserves existing local policy credential hashes.
     # Troubleshooting isolation is derived by the owner at creation and frozen with the
     # route; safe_mode always implies ignore_user_config (normalized once in build_policy).
     safe_mode: bool = False
@@ -810,8 +810,7 @@ def register_worker_hooks(policy):
     refuses inside both registrars)."""
     if policy.ignore_user_config:
         return
-    kanban = json.loads(policy.kanban_json or 'null') or {}
-    accept = json.loads(policy.request_json).get('accept_hooks') is True or kanban.get('accept_hooks') is True
+    accept = json.loads(policy.request_json).get('accept_hooks') is True
     from agent.outbound_webhooks import register_from_config as register_outbound_webhooks
     from agent.shell_hooks import register_from_config
     config = policy.config()
@@ -994,7 +993,7 @@ def restore_policy(data):
     try:
         policy = LocalSessionPolicy(**data)
         from gateway.session_a2a import is_forward_policy
-        surfaces = {**SURFACES, 'cron': 'cron', 'kanban': 'cli', 'bot_room': 'bot_room'}
+        surfaces = {**SURFACES, 'cron': 'cron', 'bot_room': 'bot_room'}
         if ((not is_forward_policy(policy) and
              (policy.source not in surfaces or policy.platform != surfaces[policy.source]))
                 or not isinstance(policy.cwd, str) or not Path(policy.cwd).is_absolute()

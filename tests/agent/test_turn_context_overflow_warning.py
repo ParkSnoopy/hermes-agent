@@ -249,9 +249,9 @@ class TestWarningSurvivesNoiseFilter:
         )
 
     def test_cooldown_warning_not_matched_by_noise_regex(self):
-        from gateway.run import _TELEGRAM_NOISY_STATUS_RE
+        from gateway.run import _GATEWAY_NOISY_STATUS_RE
 
-        assert not _TELEGRAM_NOISY_STATUS_RE.search(
+        assert not _GATEWAY_NOISY_STATUS_RE.search(
             self._emitted_warning("cooldown:30")
         )
 
@@ -263,6 +263,6 @@ class TestWarningSurvivesNoiseFilter:
 
         message = self._emitted_warning("cooldown:30")
         assert (
-            _prepare_gateway_status_message(Platform.TELEGRAM, "warn", message, "dm")
+            _prepare_gateway_status_message(Platform.API_SERVER, "warn", message, "dm")
             == message
         )

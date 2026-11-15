@@ -5,7 +5,7 @@ unescaped ``key.split(".")``:
 
 * #84064 — ``providers.<name>.models.<model-with-dot>`` phantom siblings,
   plus read-path (``config get``) and unset-path breakage.
-* #80006 — Matrix room IDs with dots under ``matrix.channel_prompts``.
+* #80006 — custom keys with dots under ``matrix.channel_prompts``.
 * #91095 — creation targets under a ``custom_providers`` list index where the
   dotted model key already exists (``custom_providers.0.models.qwen3.5:4b``).
 * #91607 — ``model_overrides.zai.glm-5.3`` via
@@ -149,28 +149,28 @@ class TestUnescapedDottedModelKeys:
 
 
 # ---------------------------------------------------------------------------
-# #80006 — Matrix room IDs with dots
+# #80006 — custom keys with dots
 # ---------------------------------------------------------------------------
 
-class TestMatrixRoomIds:
+class TestCustomDottedKeys:
     def test_set_existing_room_id_key(self, _isolated_hermes_home):
         _write_config(
             _isolated_hermes_home,
-            {"matrix": {"channel_prompts": {"!TestRoom:example.org": "old"}}},
+            {"mcp_servers": {"custom": {"!TestRoom:example.org": "old"}}},
         )
-        set_config_value("matrix.channel_prompts.!TestRoom:example.org", "be brief")
+        set_config_value("mcp_servers.custom.!TestRoom:example.org", "be brief")
         saved = _read_config(_isolated_hermes_home)
-        prompts = saved["matrix"]["channel_prompts"]
+        prompts = saved["mcp_servers"]["custom"]
         assert prompts["!TestRoom:example.org"] == "be brief"
         assert "!TestRoom:example" not in prompts
 
     def test_escaped_creates_new_room_id_key(self, _isolated_hermes_home):
-        _write_config(_isolated_hermes_home, {"matrix": {"channel_prompts": {}}})
+        _write_config(_isolated_hermes_home, {"mcp_servers": {"custom": {}}})
         set_config_value(
-            "matrix.channel_prompts.!TestRoom:example\\.org", "be brief"
+            "mcp_servers.custom.!TestRoom:example\\.org", "be brief"
         )
         saved = _read_config(_isolated_hermes_home)
-        assert saved["matrix"]["channel_prompts"]["!TestRoom:example.org"] == "be brief"
+        assert saved["mcp_servers"]["custom"]["!TestRoom:example.org"] == "be brief"
 
 
 # ---------------------------------------------------------------------------

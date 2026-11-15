@@ -1,12 +1,12 @@
 ---
 sidebar_position: 13
 title: "纯脚本 Cron 任务（无 LLM）"
-description: "完全跳过 LLM 的经典看门狗 cron 任务——脚本按计划运行，其 stdout 输出直接投递到你的消息平台。内存告警、磁盘告警、CI 通知、定期健康检查。"
+description: "完全跳过 LLM 的经典看门狗 cron 任务——脚本按计划运行，结果保存在本地。"
 ---
 
 # 纯脚本 Cron 任务
 
-有时你已经清楚地知道要发送什么消息。你不需要 agent 来推理——你只需要一个脚本按计时器运行，并将其输出（如有）发送到 Telegram / Discord / Slack / Signal。
+有时你不需要 agent 推理，只需要按计划运行脚本并在本地查看输出。
 
 Hermes 将此称为**无 agent 模式**。这是去掉 LLM 的 cron 系统。
 
@@ -20,14 +20,14 @@ Hermes 将此称为**无 agent 模式**。这是去掉 LLM 的 cron 系统。
                                           │ stdout
                                           ▼
                                  ┌──────────────────┐
-                                 │ delivery router  │
-                                 │ (telegram/disc…) │
+                                 │ local output     │
+                                 │ (cron/output/)   │
                                  └──────────────────┘
 ```
 <!-- ascii-guard-ignore-end -->
 
 - **无 LLM 调用。** 零 token，零 agent 循环，零模型费用。
-- **脚本即任务。** 由脚本决定是否告警。有输出 → 发送消息；无输出 → 静默执行。
+- **脚本即任务。** 由脚本决定输出内容；结果保存在本地。
 - **Bash 或 Python。** `.sh` / `.bash` 文件在 `/bin/bash` 下运行；其他扩展名在当前 Python 解释器下运行。`~/.hermes/scripts/` 中的任何文件均可接受。
 - **同一调度器。** 与 LLM 任务共存于 `cronjob` 中——暂停、恢复、列出、日志和投递目标的操作方式完全相同。
 
@@ -49,11 +49,11 @@ Hermes 将此称为**无 agent 模式**。这是去掉 LLM 的 cron 系统。
 
 ### 示例对话
 
-> **你：** 每 5 分钟检查一次，如果内存超过 85% 就在 telegram 通知我
+> **你：** 每 5 分钟检查一次，如果内存超过 85% 就记录结果
 >
 > **Hermes：** *（写入 `~/.hermes/scripts/memory-watchdog.sh`，然后以 `no_agent=true` 调用 `cronjob(...)`）*
 >
-> 已设置。每 5 分钟运行一次，仅在内存超过 85% 时告警 Telegram。脚本：`memory-watchdog.sh`。任务 ID：`abc123`。
+> 已设置。每 5 分钟运行一次，仅在内存超过 85% 时输出结果。脚本：`memory-watchdog.sh`。任务 ID：`abc123`。
 
 在底层，agent 进行了两次工具调用：
 
@@ -76,12 +76,12 @@ cronjob(
     schedule="every 5m",
     script="memory-watchdog.sh",
     no_agent=True,
-    deliver="telegram",
+    deliver="none",
     name="memory-watchdog",
 )
 ```
 
-此后每次触发都是免费的：调度器运行脚本，若 stdout 非空则将其发送到 Telegram，且从不调用模型。
+此后每次触发不调用模型；调度器运行脚本并将结果保存在本地。
 
 ### agent 为你决定的内容
 
@@ -126,7 +126,7 @@ chmod +x ~/.hermes/scripts/memory-watchdog.sh
 hermes cron create "every 5m" \
   --no-agent \
   --script memory-watchdog.sh \
-  --deliver telegram \
+  --deliver none \
   --name "memory-watchdog"
 
 # 3. 验证
@@ -141,13 +141,11 @@ hermes cron run <job_id>    # 触发一次以测试
 
 | 脚本行为 | 结果 |
 |-----------------|--------|
-| 退出码 0，stdout 非空 | stdout 原样投递 |
-| 退出码 0，stdout 为空 | 静默执行——不投递 |
-| 退出码 0，stdout 最后一行包含 `{"wakeAgent": false}` | 静默执行（与 LLM 任务共用的门控） |
-| 非零退出码 | 投递错误告警（确保损坏的看门狗不会静默失败） |
-| 脚本超时 | 投递错误告警 |
+| 退出码 0，stdout 非空 | stdout 保存在本地输出中 |
+| 退出码 0，stdout 为空 | 没有脚本输出 |
+| 非零退出码或超时 | 检查本地任务结果和日志 |
 
-"空则静默"的行为是经典看门狗模式的关键：脚本可以每分钟运行一次，但只有在真正需要关注时，频道才会收到消息。
+脚本可以频繁运行，只在需要关注时输出内容；请定期检查本地结果。
 
 ## 脚本规则
 
@@ -178,7 +176,7 @@ hermes cron create "0 8 * * *" \
   --no-agent \
   --script daily-report.py \
   --interpreter ~/venvs/hermes-reporting/bin/python \
-  --deliver telegram
+  --deliver none
 ```
 
 与 `--model` 一样，这是用户自有的设置：通过 `hermes cron create/edit` 设置；agent 的 `cronjob` 工具无法设置它。
@@ -208,19 +206,7 @@ hermes cron create "30m"             # 单次：30 分钟后运行一次
 
 ## 投递目标
 
-`--deliver` 接受 gateway 已知的所有目标。常见形式：
-
-```bash
---deliver telegram                       # 平台默认频道
---deliver telegram:-1001234567890        # 指定聊天
---deliver telegram:-1001234567890:17585  # 指定 Telegram 论坛话题
---deliver discord:#ops
---deliver slack:#engineering
---deliver signal:+15551234567
---deliver local                          # 仅保存到 ~/.hermes/cron/output/
-```
-
-对于使用 bot token 的平台（Telegram、Discord、Slack、Signal、SMS、WhatsApp），脚本运行时无需运行中的 gateway——工具直接使用 `~/.hermes/.env` / `~/.hermes/config.yaml` 中已有的凭据调用各平台的 REST 端点。
+使用 `--deliver none` 仅保存结果，不向消息平台推送。输出位于 `~/.hermes/cron/output/`。
 
 ## 编辑与生命周期
 
@@ -254,7 +240,7 @@ chmod +x ~/.hermes/scripts/disk-alert.sh
 hermes cron create "*/15 * * * *" \
   --no-agent \
   --script disk-alert.sh \
-  --deliver telegram \
+  --deliver none \
   --name "disk-alert"
 ```
 

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Agent emoji reaction in the Hermes desktop app: the counterpart to the user's tapback
-(same store, one-per-author, ``author="agent"``). Lives in the ``desktop_ui`` toolset so it
-costs nothing elsewhere (adapters expose reactions via ``send_message(action="react")``);
-defaults to the triggering message and emits ``message.reaction`` for live painting."""
+"""Agent emoji reactions in the Hermes desktop app: the counterpart to the user's tapback
+(same store, one-per-author, ``author="agent"``). The ``desktop_ui`` toolset keeps this
+local-chat capability off other surfaces. Defaults to the triggering message and emits
+``message.reaction`` for live painting.
+"""
 
 import contextlib
 import json
@@ -67,7 +68,7 @@ def check_react_requirements() -> bool:
 REACT_TO_MESSAGE_SCHEMA = {
     "name": "react_to_message",
     "description": (
-        "React to a message with a single emoji, the way you'd tapback in iMessage. "
+        "React to a message with a single emoji, the way you'd tapback in a chat. "
         "Reach for it when a reaction is what a person would do: something funny gets "
         "a 😂, warmth gets a ❤️, a plan you're on board with gets a 👍 — then just "
         "carry on with whatever the message actually needs. If a reaction says it "

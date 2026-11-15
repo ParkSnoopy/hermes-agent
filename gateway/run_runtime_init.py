@@ -65,11 +65,7 @@ class GatewayRuntimeInitMixin:
         self._restart_requested = self._signal_initiated_shutdown = self._restart_task_started = False
         self._restart_detached = self._restart_via_service = self._detached_restart_helper_started = False
         self._restart_command_source: Optional[SessionSource] = None
-        # Construction clock: bounds the /restart redelivery guard's window (missing dedup marker = stale).
-        self._startup_time: float = time.time()
-        # True when booted from a chat /restart (.restart_notify.json existed). One-shot signal so the
-        # marker-missing fallback suppresses a /restart only when we KNOW we just restarted.
-        self._booted_from_restart: bool = False
+
         self._stop_task: Optional[asyncio.Task] = None
         self._restart_task: Optional[asyncio.Task] = None
         self._executor_lock = threading.Lock()
@@ -145,7 +141,7 @@ class GatewayRuntimeInitMixin:
         # host's primary map is always the default profile, even when a named profile launched
         # the process (that launcher is a secondary adapter owner).
         launch = self._active_profile_name()
-        self._kanban_notifier_profile = launch
+
         self._primary_profile_name = (
             "default" if getattr(self.config, "multiplex_profiles", False) else launch
         )
@@ -228,11 +224,3 @@ class GatewayRuntimeInitMixin:
         self._gateway_started_at: float = time.time()
         self._loop_heartbeat_task: Optional[asyncio.Task] = None
         self._loop_floor_timer_handle = self._loop_liveness_watchdog = None
-        # scale-to-zero: gateway-scoped "last inbound seen" clock, stamped in _handle_message (the single
-        # inbound chokepoint) and seeded to "now" so a fresh gateway isn't idle from epoch.
-        self._last_inbound_at: float = time.time()
-        # Re-arm cooldown after a wake so we don't go dormant again before the drained backlog updates
-        # the clock; and a one-shot latch so the "platform owns the suspend" notice logs once.
-        self._scale_to_zero_cooldown_until: float = 0.0
-        self._scale_to_zero_no_suspend_logged: bool = False
-        self._scale_to_zero_direct_platform_logged: bool = False

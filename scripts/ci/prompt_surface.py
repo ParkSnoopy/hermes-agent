@@ -58,8 +58,7 @@ SURFACES = (
     ("cli.hermes", "cli", "hermes", False),
     ("cli-code.claude", "cli", "claude", True),
     ("desktop.claude", "desktop", "claude", False),
-    ("telegram.claude", "telegram", "claude", False),
-    ("discord.claude", "discord", "claude", False),
+    ("api.claude", "api_server", "claude", False),
     ("cron.claude", "cron", "claude", False),
 )
 # Desktop resolves toolsets in tui_gateway (client-surface toolsets folded in); the gateway, cron

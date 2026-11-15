@@ -60,20 +60,13 @@ let
         lib.genAttrs [
           "alibabacloud-credentials-api"
           "alibabacloud-endpoint-util"
-          "alibabacloud-gateway-dingtalk"
+
           "alibabacloud-gateway-spi"
           "alibabacloud-tea"
         ] (_: null)
       )
     // {
-      # The locked sdist has no build-system metadata; setup.py imports
-      # setuptools and uses CFFI to compile the bundled libolm.
-      python-olm = prev.python-olm.overrideAttrs (old: {
-        nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ final.resolveBuildSystem {
-          setuptools = [ ];
-          cffi = [ ];
-        };
-      });
+
       # [kittentts] locks misaki as a git source. uv.lock records no build
       # backend for it, so supply the hatchling its pyproject declares.
       misaki = prev.misaki.overrideAttrs (old: {

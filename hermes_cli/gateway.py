@@ -20,7 +20,7 @@ import textwrap
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from hermes_cli import _startup_fast, gateway_service_owner, setup_platforms
+from hermes_cli import _startup_fast, gateway_service_owner
 
 # UV's bundled Python ships a minimal PATH; ensure launchctl/systemctl are discoverable.
 if os.name == "posix":
@@ -4336,8 +4336,8 @@ def _attach_to_host_gateway_or_guard(force: bool = False, replace: bool = False)
 
 def _guard_supervised_gateway_conflict(force: bool = False) -> None:
     """Refuse a foreground gateway when a service manager already supervises one: a shell-launched run
-    becomes a second dispatcher that escapes the cgroup, survives ``systemctl restart``, and writes the
-    shared kanban DB concurrently (multi-writer SQLite WAL corruption). ``--force`` starts anyway.
+    becomes a second gateway that escapes the cgroup and survives ``systemctl restart``.
+    ``--force`` starts anyway.
 
     See #35240.
     """
@@ -4358,9 +4358,8 @@ def _guard_supervised_gateway_conflict(force: bool = False) -> None:
 
     print_error(f"A gateway is already running under {snapshot.manager} for this profile.")
     print(
-        "  Starting another one from a shell leaves an orphan dispatcher that\n"
-        "  escapes the service, survives restarts, and writes to the same kanban\n"
-        "  DB concurrently — which can corrupt it. Restart the supervised gateway\n"
+        "  Starting another one from a shell leaves an orphan gateway that\n"
+        "  escapes the service and survives restarts. Restart the supervised gateway\n"
         "  instead:"
     )
     print()
@@ -4641,40 +4640,6 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
     _exit_diag("gateway.exit_clean")
     _hard_exit_after_gateway_teardown(0)
 
-
-# =============================================================================
-# Gateway Setup (Interactive Messaging Platform Configuration)
-# =============================================================================
-
-from hermes_cli.gateway_setup_wizard import (
-    _PLATFORMS,
-    _all_platforms,
-    _platform_status,
-    _set_platform_unauthorized_dm_behavior,
-    print_setup_header,
-    confirm_reconfigure,
-    offer_home_channel,
-    save_env_values,
-    prompt_csv,
-    _UNAUTHORIZED_ACCESS_CHOICES,
-    _prompt_unauthorized_access,
-    _telegram_auto_setup,
-    _clean_discord_ids,
-    _prompt_allowlist_var,
-    _setup_standard_platform,
-    _builtin_setup_fn,
-    _configure_platform,
-    _wizard_offer_service_action,
-    _setup_service_action,
-    _WIZARD_BANNER,
-    _WIZARD_BACKEND_LABELS,
-    _WIZARD_NO_SERVICE_LINES,
-    _wizard_service_status_block,
-    _wizard_platform_loop,
-    _wizard_install_service,
-    _wizard_post_setup,
-    gateway_setup,
-)
 
 
 # Operator wording for the out-of-loop watchdog exit reasons stamped by gateway/shutdown_watchdog.py.
@@ -5038,6 +5003,25 @@ def _print_runtime_health() -> None:
             print(f"  {line}")
 
 
+def _setup_service_action(action: str, *, failed_label: str, windows: bool = True, system: bool = False) -> None:
+    """Start or restart a configured service and report actionable failures."""
+    try:
+        backend = _service_backend(windows=windows)
+        if backend is not None:
+            _service_call(backend, action, None if action == "restart" else system)
+        elif action == "restart" and windows:
+            stop_profile_gateway()
+            print_info("Start manually: hermes gateway")
+    except UserSystemdUnavailableError as exc:
+        print_error(f"  {failed_label} — user systemd not reachable:")
+        _print_indented(str(exc))
+    except SystemScopeRequiresRootError as exc:
+        print_error(f"  {failed_label}: {exc}")
+        _print_system_scope_remediation(action)
+    except subprocess.CalledProcessError as exc:
+        print_error(f"  {failed_label}: {exc}")
+
+
 def _cmd_run(args):
     if _maybe_redirect_run_to_s6_supervision(args):
         return  # unreachable; execvp doesn't return
@@ -5048,10 +5032,6 @@ def _cmd_run(args):
         replace=getattr(args, "replace", False), force=getattr(args, "force", False),
         idle_exit=getattr(args, "idle_exit", False),
     )
-
-
-def _cmd_setup(args):
-    gateway_setup()
 
 
 _WSL_FOREGROUND_HINT = (
@@ -5657,7 +5637,7 @@ def _cmd_migrate(args):
 
 
 _GATEWAY_SUBCOMMANDS = {
-    None: _cmd_run, "run": _cmd_run, "setup": _cmd_setup, "install": _cmd_install,
+    None: _cmd_run, "run": _cmd_run, "install": _cmd_install,
     "uninstall": _cmd_uninstall, "start": _cmd_start, "stop": _cmd_stop, "restart": _cmd_restart,
     "status": _cmd_status, "list": _cmd_list, "migrate-legacy": _cmd_migrate_legacy, "migrate": _cmd_migrate,
 }

@@ -406,7 +406,7 @@ canonical_method("clarify.lock", params=ClarifyLockParams, result=ClarifyLockRes
                      "locked); only a viewer attached to that session with session:respond may lock.")
 
 
-# ── cron / kanban / a2a producers ─────────────────────────────────────────────────────────────
+# ── cron / a2a producers ──────────────────────────────────────────────────────────────────────
 
 
 class CronRunParams(Params):
@@ -453,23 +453,6 @@ class CronCancelResult(Result):
 
 canonical_method("cron.cancel", params=CronAdmissionParams, result=CronCancelResult,
                  doc="Cancel a queued cron admission or latch cancellation on a started one.")
-
-
-class KanbanRunParams(Params):
-    board: str
-    task_id: str
-    run_id: int
-    claim_lock: str
-    db: str | None = None
-
-
-class KanbanRunResult(Result):
-    session_id: str
-    receipt: AdmissionStatus
-
-
-canonical_method("kanban.run", params=KanbanRunParams, result=KanbanRunResult,
-                 doc="Native-owner only: admit the dispatcher's current claim on a kanban task.")
 
 
 class A2aForwardParams(Params):

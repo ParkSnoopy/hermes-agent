@@ -21,9 +21,9 @@ const BUILTIN: Record<string, keyof Translations["app"]["nav"]> = {
 const BUILTIN_LITERAL: Record<string, string> = {
   "/files": "Files",
   "/mcp": "MCP",
-  "/channels": "Channels",
+
   "/webhooks": "Webhooks",
-  "/pairing": "Pairing",
+
   "/system": "System",
 };
 

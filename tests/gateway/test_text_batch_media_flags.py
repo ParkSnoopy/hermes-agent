@@ -7,12 +7,12 @@ import pytest
 from gateway.platforms.base import BasePlatformAdapter
 from gateway.platforms.event import MessageEvent
 from gateway.session_envelope import _media_clause
-from plugins.platforms.telegram.adapter import TelegramAdapter
+from gateway.platforms.api_server import APIServerAdapter
 
 
 @pytest.fixture
 def adapter():
-    adapter = object.__new__(TelegramAdapter)
+    adapter = object.__new__(APIServerAdapter)
     adapter._drop_unresolved = lambda event: False
     adapter._text_batch_key = lambda event: "chat"
     adapter._pending_text_batches = {}

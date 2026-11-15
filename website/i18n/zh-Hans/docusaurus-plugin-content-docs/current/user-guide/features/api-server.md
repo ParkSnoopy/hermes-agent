@@ -51,7 +51,7 @@ curl http://localhost:8642/v1/chat/completions \
   -d '{"model": "hermes-agent", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
-或连接 Open WebUI、LobeChat 或其他任意前端——参见 [Open WebUI 集成指南](../messaging/open-webui.md)获取分步说明。
+或连接 Open WebUI、LobeChat 或其他任意前端——参见 Open WebUI 集成指南获取分步说明。
 
 ## 端点
 
@@ -403,7 +403,7 @@ API_SERVER_CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
 | 前端 | Stars | 连接方式 |
 |----------|-------|------------|
-| [Open WebUI](../messaging/open-webui.md) | 126k | 提供完整指南 |
+| Open WebUI | 126k | 提供完整指南 |
 | LobeChat | 73k | 自定义 provider 端点 |
 | LibreChat | 34k | librechat.yaml 中的自定义端点 |
 | AnythingLLM | 56k | 通用 OpenAI provider |
@@ -448,7 +448,7 @@ hermes -p bob gateway &
 - `http://localhost:8643/v1/models` → 模型 `alice`
 - `http://localhost:8644/v1/models` → 模型 `bob`
 
-在 Open WebUI 中，将每个添加为单独的连接。模型下拉列表显示 `alice` 和 `bob` 作为不同模型，每个均由完全隔离的 Hermes 实例支持。详见 [Open WebUI 指南](../messaging/open-webui.md#multi-user-setup-with-profiles)。
+在 Open WebUI 中，将每个添加为单独的连接。模型下拉列表显示 `alice` 和 `bob` 作为不同模型，每个均由完全隔离的 Hermes 实例支持。详见 Open WebUI 指南。
 
 ## 限制
 
@@ -460,4 +460,4 @@ hermes -p bob gateway &
 
 API 服务器还作为 **gateway 代理模式**的后端。当另一个 Hermes gateway 实例配置了指向此 API 服务器的 `GATEWAY_PROXY_URL` 时，它会将所有消息转发到这里，而不是运行自己的 agent。这支持分离部署——例如，一个处理 Matrix E2EE 的 Docker 容器将请求中继到宿主机侧的 agent。
 
-完整设置指南参见 [Matrix 代理模式](../messaging/matrix.md#proxy-mode-e2ee-on-macos)。
+完整设置指南参见 Matrix 代理模式。

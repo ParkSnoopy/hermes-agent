@@ -814,11 +814,11 @@ test('translateSelfProfileQuery rewrites the self-profile filter into the backen
 test('translateSelfProfileQuery rewrites sidebar recents_profile aliases for managed SSH', () => {
   assert.equal(
     translateSelfProfileQuery(
-      '/api/profiles/sessions/sidebar?recents_profile=research&recents_limit=20&cron_limit=50&messaging_limit=100',
+      '/api/profiles/sessions/sidebar?recents_profile=research&recents_limit=20&cron_limit=50',
       'research',
       'remote-research'
     ),
-    '/api/profiles/sessions/sidebar?recents_profile=remote-research&recents_limit=20&cron_limit=50&messaging_limit=100'
+    '/api/profiles/sessions/sidebar?recents_profile=remote-research&recents_limit=20&cron_limit=50'
   )
 })
 

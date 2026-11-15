@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # run through its real handler against a local session (website/docs/developer-guide/
 # gateway-command-parity.md); a handler that reads messaging-only state or writes config is not here.
 _READ_COMMANDS = frozenset({'help', 'commands', 'status', 'context', 'version', 'whoami',
-                            'usage', 'insights', 'profile', 'diff', 'memory', 'kanban', 'topup',
+                            'usage', 'insights', 'profile', 'diff', 'memory', 'topup',
                             'suggestions', 'bundles', 'skills'})
 _CONTROL_COMMANDS = frozenset({'title'})
 # Authoring/workflow commands whose messaging handler (``_command_handler_table``) runs as-is for a
@@ -53,12 +53,6 @@ _OWNER_COMMANDS = frozenset({'cron'})
 # Commands that move the session's goal/loop/heartbeat state: every viewer's cards repaint after them.
 _AUTOMATION_COMMANDS = frozenset({'goal', 'subgoal', 'loop', 'heartbeat'})
 
-# Kanban verbs that only read the board. ``create`` would also subscribe the LOCAL chat to
-# messaging notifications, and every other verb mutates the board.
-_KANBAN_READS = frozenset({'', 'help', '--help', '-h', '?', 'list', 'ls', 'show', 'stats', 'assignees',
-                           'context', 'runs', 'log', 'diagnostics', 'diag'})
-
-
 def _split(arg):
     """``arg`` as a shlex-splitting handler parses it: an unclosed quote can't run there either, so it is
     refused by name (before ``pre_command`` fires) instead of failing as an internal error."""
@@ -66,17 +60,6 @@ def _split(arg):
         return shlex.split(arg) if arg.strip() else []
     except ValueError as exc:
         raise RuntimeStoreError('invalid_params', field='arg', detail=str(exc)) from None
-
-
-def _first_token(arg):
-    """/kanban's verb as its handler parses it (shlex, hermes_cli/kanban.py ``run_slash``)."""
-    tokens = iter(_split(arg))
-    for token in tokens:
-        if token == '--board':
-            next(tokens, None)
-        elif not token.startswith('--board='):
-            return token.lower()
-    return ''
 
 
 def _first_word(arg):
@@ -94,7 +77,7 @@ _READ_ARGUMENTS = {
     'usage': lambda arg: not arg.strip(),
     'memory': lambda arg: _first_word(arg) in {'', 'pending'},
     'suggestions': lambda arg: not arg.strip(),
-    'kanban': lambda arg: _first_token(arg) in _KANBAN_READS,
+
 }
 
 

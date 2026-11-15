@@ -73,7 +73,6 @@ DRIVERS: dict[str, Driver] = {
     "chat -q": _drive_cli.drive_chat_q,
     "tui_gateway (stdio)": _drive_rpc.drive_tui_gateway,
     "serve (Desktop WS)": _drive_rpc.drive_serve,
-    "gateway (fake adapter)": _drive_gateway.drive_gateway,
     "api_server": _drive_gateway.drive_api_server,
     "acp (stdio)": _drive_acp.drive_acp,
     "cron (run-now)": _drive_cron.drive_cron,

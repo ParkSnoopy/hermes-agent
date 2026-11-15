@@ -27,7 +27,7 @@ First-time users almost always want `hermes setup --portal` — one OAuth covers
 | Level | Goal | Recommended Reading | Time Estimate |
 |---|---|---|---|
 | **Beginner** | Get up and running, have basic conversations, use built-in tools | [Installation](./installation.md) → [Quickstart](./quickstart.md) → [CLI Usage](../user-guide/cli.md) → [Configuration](../user-guide/configuration.md) | ~1 hour |
-| **Intermediate** | Set up messaging bots, use advanced features like memory, cron jobs, and skills | [Sessions](../user-guide/sessions.md) → [Messaging](../user-guide/messaging/index.md) → [Tools](../user-guide/features/tools.md) → [Skills](../user-guide/features/skills.md) → [Memory](../user-guide/features/memory.md) → [Cron](../user-guide/features/cron.md) | ~2–3 hours |
+| **Intermediate** | Use advanced features like memory, cron jobs, and skills | [Sessions](../user-guide/sessions.md) → [Tools](../user-guide/features/tools.md) → [Skills](../user-guide/features/skills.md) → [Memory](../user-guide/features/memory.md) → [Cron](../user-guide/features/cron.md) | ~2–3 hours |
 | **Advanced** | Build custom tools, create skills, train models with RL, contribute to the project | [Architecture](../developer-guide/architecture.md) → [Adding Tools](../developer-guide/adding-tools.md) → [Creating Skills](../developer-guide/creating-skills.md) → [Contributing](../developer-guide/contributing.md) | ~4–6 hours |
 
 ## By Use Case
@@ -55,16 +55,13 @@ Deploy Hermes Agent as a bot on your favorite messaging platform.
 
 1. [Installation](./installation.md)
 2. [Configuration](../user-guide/configuration.md)
-3. [Messaging Overview](../user-guide/messaging/index.md)
-4. [Telegram Setup](../user-guide/messaging/telegram.md)
-5. [Discord Setup](../user-guide/messaging/discord.md)
-6. [Voice Mode](../user-guide/features/voice-mode.md)
-7. [Use Voice Mode with Hermes](../guides/use-voice-mode-with-hermes.md)
-8. [Security](../user-guide/security.md)
+3. [Voice Mode](../user-guide/features/voice-mode.md)
+4. [Use Voice Mode with Hermes](../guides/use-voice-mode-with-hermes.md)
+5. [Security](../user-guide/security.md)
 
 For full project examples, see:
 - [Daily Briefing Bot](../guides/daily-briefing-bot.md)
-- [Team Telegram Assistant](../guides/team-telegram-assistant.md)
+
 
 ### "I want to automate tasks"
 

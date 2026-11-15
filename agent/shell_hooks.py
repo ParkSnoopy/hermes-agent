@@ -91,11 +91,7 @@ def _payload_fields(kwargs: dict[str, Any]) -> dict[str, Any]:
     except OSError:
         cwd = ""
     from hermes_cli.profiles import get_active_profile_name
-    from agent.delegation_context import owned_kanban_task
     extra = {k: v for k, v in kwargs.items() if k not in _TOP_LEVEL_PAYLOAD_KEYS}
-    # Resolve in the firing execution before the descendant environment is scrubbed.
-    # This is payload metadata, never permission for the hook to act as the worker.
-    extra["kanban_task_id"] = owned_kanban_task()
     return {
         "tool_name": kwargs.get("tool_name"),
         "tool_input": kwargs.get("args") if isinstance(kwargs.get("args"), dict) else None,

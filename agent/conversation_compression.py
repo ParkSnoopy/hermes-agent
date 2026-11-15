@@ -101,8 +101,8 @@ def _emit_compaction_done(agent: Any) -> None:
 
 
 # Every ROUTINE compression status line lives here: suppressed on chat platforms
-# by _TELEGRAM_NOISY_STATUS_RE (gateway/run.py); update that regex + telegram
-# noise test when rewording. Failure notices and /compress feedback: NOT here.
+# by _GATEWAY_NOISY_STATUS_RE (gateway/run.py); update that regex and the gateway
+# noise tests when rewording. Failure notices and /compress feedback: NOT here.
 PRE_API_COMPRESSION_STATUS_TEMPLATE = (
     "📦 Pre-API compression: ~{tokens:,} tokens near the context/output limit. Compacting before the next model call."
 )
@@ -128,7 +128,7 @@ COMPRESSION_REFUSED_WOULD_GROW_WARNING = ("⚠️ Compression refused: the gener
 # is over the compression threshold but compression is blocked (summary-LLM cooldown / anti-thrash breaker),
 # so the session will keep growing until the hard provider token limit kills it. DMs keep it (the owner can act);
 # shared chats drop it in gateway/run_status_filter.py (#101003). Never add it to the noise regex
-# (_TELEGRAM_NOISY_STATUS_RE) or ROUTINE_COMPRESSION_STATUS_SAMPLES; tests/gateway/test_run_status_filter.py pins it.
+# (_GATEWAY_NOISY_STATUS_RE) or ROUTINE_COMPRESSION_STATUS_SAMPLES; tests/gateway/test_run_status_filter.py pins it.
 CONTEXT_OVERFLOW_BLOCKED_WARNING_TEMPLATE = (
     "⚠ Context is over the compression threshold (~{tokens:,} tokens >= {threshold:,}) "
     "but compression is currently blocked ({reason}). The model may stop responding. Run /new to start a fresh "

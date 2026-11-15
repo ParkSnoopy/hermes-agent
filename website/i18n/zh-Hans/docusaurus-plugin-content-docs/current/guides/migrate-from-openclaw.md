@@ -122,23 +122,6 @@ TTS 设置从 OpenClaw 配置的**两个**位置读取，优先级如下：
 | Edge TTS 语音 | `config.yaml` → `tts.edge.voice`（OpenClaw 将 "edge" 重命名为 "microsoft"——两者均可识别） |
 | TTS 资源文件 | `~/.hermes/tts/`（文件复制） |
 
-### 消息平台
-
-| 平台 | OpenClaw 配置路径 | Hermes `.env` 变量 | 备注 |
-|----------|---------------------|----------------------|-------|
-| Telegram | `channels.telegram.botToken` 或 `.accounts.default.botToken` | `TELEGRAM_BOT_TOKEN` | Token 可为字符串或 [SecretRef](#secretref-handling)，支持扁平和 accounts 两种布局 |
-| Telegram | `credentials/telegram-default-allowFrom.json` | `TELEGRAM_ALLOWED_USERS` | 从 `allowFrom[]` 数组逗号拼接 |
-| Discord | `channels.discord.token` 或 `.accounts.default.token` | `DISCORD_BOT_TOKEN` | |
-| Discord | `channels.discord.allowFrom` 或 `.accounts.default.allowFrom` | `DISCORD_ALLOWED_USERS` | |
-| Slack | `channels.slack.botToken` 或 `.accounts.default.botToken` | `SLACK_BOT_TOKEN` | |
-| Slack | `channels.slack.appToken` 或 `.accounts.default.appToken` | `SLACK_APP_TOKEN` | |
-| Slack | `channels.slack.allowFrom` 或 `.accounts.default.allowFrom` | `SLACK_ALLOWED_USERS` | |
-| WhatsApp | `channels.whatsapp.allowFrom` 或 `.accounts.default.allowFrom` | `WHATSAPP_ALLOWED_USERS` | 通过 Baileys 二维码配对认证——迁移后需重新配对 |
-| Signal | `channels.signal.account` 或 `.accounts.default.account` | `SIGNAL_ACCOUNT` | |
-| Signal | `channels.signal.httpUrl` 或 `.accounts.default.httpUrl` | `SIGNAL_HTTP_URL` | |
-| Signal | `channels.signal.allowFrom` 或 `.accounts.default.allowFrom` | `SIGNAL_ALLOWED_USERS` | |
-| Matrix | `channels.matrix.accessToken` 或 `.accounts.default.accessToken` | `MATRIX_ACCESS_TOKEN` | 使用 `accessToken`（非 `botToken`） |
-| Mattermost | `channels.mattermost.botToken` 或 `.accounts.default.botToken` | `MATTERMOST_BOT_TOKEN` | |
 
 ### 其他配置
 
@@ -150,7 +133,7 @@ TTS 设置从 OpenClaw 配置的**两个**位置读取，优先级如下：
 | 浏览器无头模式 | `browser.headless` | `config.yaml` → `browser.headless` | |
 | Brave 搜索密钥 | `tools.web.search.brave.apiKey` | `.env` → `BRAVE_API_KEY` | 需要 `--migrate-secrets` |
 | Gateway 认证 token | `gateway.auth.token` | `.env` → `HERMES_GATEWAY_TOKEN` | 需要 `--migrate-secrets` |
-| 工作目录 | `agents.defaults.workspace` | `.env` → `MESSAGING_CWD` | |
+
 
 ### 已归档（无对应 Hermes 等效项）
 
@@ -170,8 +153,8 @@ TTS 设置从 OpenClaw 配置的**两个**位置读取，优先级如下：
 | UI/身份 | `archive/ui-identity-config.json` | 使用 `/skin` 命令 |
 | 日志 | `archive/logging-diagnostics-config.json` | 在 `config.yaml` 日志部分设置 |
 | 多 Agent 列表 | `archive/agents-list.json` | 使用 Hermes profiles |
-| 频道绑定 | `archive/bindings.json` | 按平台手动配置 |
-| 复杂频道配置 | `archive/channels-deep-config.json` | 手动配置各平台 |
+| 频道绑定 | `archive/bindings.json` | 供人工审查 |
+| 复杂频道配置 | `archive/channels-deep-config.json` | 供人工审查 |
 
 ## API 密钥解析
 
@@ -186,7 +169,7 @@ TTS 设置从 OpenClaw 配置的**两个**位置读取，优先级如下：
 
 ### 支持的密钥目标
 
-`OPENROUTER_API_KEY`、`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`、`ZAI_API_KEY`、`MINIMAX_API_KEY`、`ELEVENLABS_API_KEY`、`TELEGRAM_BOT_TOKEN`、`VOICE_TOOLS_OPENAI_KEY`
+`OPENROUTER_API_KEY`、`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`、`ZAI_API_KEY`、`MINIMAX_API_KEY`、`ELEVENLABS_API_KEY`、`VOICE_TOOLS_OPENAI_KEY`
 
 不在此白名单中的密钥一律不会被复制。
 
@@ -196,13 +179,13 @@ OpenClaw 配置中 token 和 API 密钥的值支持三种格式：
 
 ```json
 // 纯字符串
-"channels": { "telegram": { "botToken": "123456:ABC-DEF..." } }
+"models": { "providers": { "example": { "apiKey": "YOUR_API_KEY" } } }
 
 // 环境变量模板
-"channels": { "telegram": { "botToken": "${TELEGRAM_BOT_TOKEN}" } }
+"models": { "providers": { "example": { "apiKey": "${OPENAI_API_KEY}" } } }
 
 // SecretRef 对象
-"channels": { "telegram": { "botToken": { "source": "env", "id": "TELEGRAM_BOT_TOKEN" } } }
+"models": { "providers": { "example": { "apiKey": { "source": "env", "id": "OPENAI_API_KEY" } } } }
 ```
 
 迁移会解析所有三种格式。对于环境变量模板和 `source: "env"` 的 SecretRef 对象，会从 `~/.openclaw/.env` 和 `openclaw.json` 的 env 子对象中查找值。`source: "file"` 或 `source: "exec"` 的 SecretRef 对象无法自动解析——迁移会对此发出警告，相关值需通过 `hermes config set` 手动添加至 Hermes。
@@ -217,13 +200,9 @@ OpenClaw 配置中 token 和 API 密钥的值支持三种格式：
 
 4. **验证 API 密钥** — 运行 `hermes status` 检查 provider 认证状态。
 
-5. **测试消息平台** — 若迁移了平台 token，重启 gateway：`systemctl --user restart hermes-gateway`
+5. **检查会话归档** — 查看已归档的高级设置；空闲和每日重置计时器不会导入。
 
-6. **检查会话归档** — 查看已归档的高级设置；空闲和每日重置计时器不会导入。
-
-7. **重新配对 WhatsApp** — WhatsApp 使用二维码配对（Baileys），不支持 token 迁移。运行 `hermes whatsapp` 进行配对。
-
-8. **清理归档** — 确认一切正常后，运行 `hermes claw cleanup` 将残留的 OpenClaw 目录重命名为 `.pre-migration/`（防止状态混淆）。
+6. **清理归档** — 确认一切正常后，运行 `hermes claw cleanup` 将残留的 OpenClaw 目录重命名为 `.pre-migration/`（防止状态混淆）。
 
 ## 故障排查
 

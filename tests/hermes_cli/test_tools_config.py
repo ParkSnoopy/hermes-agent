@@ -55,20 +55,6 @@ def test_valid_platform_toolsets_no_runtime_warning(caplog):
     assert not any("#38798" in r.getMessage() for r in caplog.records)
 
 
-@pytest.mark.parametrize("platform", ["teams", "google_chat", "homeassistant"])
-def test_unloaded_plugin_platform_toolset_no_runtime_warning(caplog, platform):
-    """Bundled and catalog plugin-platform entries are valid before plugin loading."""
-    import hermes_cli.tools_config as _tc
-
-    _tc._warned_invalid_platform_toolsets.discard(platform)
-    config = {"platform_toolsets": {platform: [f"hermes-{platform}"]}}
-
-    with caplog.at_level(logging.WARNING, logger="hermes_cli.tools_config"):
-        _get_platform_tools(config, platform)
-
-    assert not any("#38798" in r.getMessage() for r in caplog.records)
-
-
 def test_partially_valid_platform_toolsets_no_runtime_warning(caplog):
     """When at least one configured toolset is valid, tools still resolve, so
     the runtime zero-tools warning must not fire (the migration-time check still
@@ -142,40 +128,19 @@ def test_malformed_list_string_platform_toolsets_warns_then_falls_back(caplog):
 
 
 
-# ─── #35527: platform-restricted default-off toolsets (discord/discord_admin)
-# are stripped by _DEFAULT_OFF_TOOLSETS even when the user explicitly opts in
-# via the platform's native composite. The composite ``hermes-discord``
-# contains both ``discord`` and ``discord_admin`` tools, so configuring it is
-# an explicit opt-in that should survive the default-off strip. ───────────────
-
-
-def test_discord_toolsets_do_not_leak_to_other_platforms():
-    """Layer 4 (guard): discord/discord_admin are platform-restricted — they
-    must never appear on a non-discord platform even when that platform is
-    explicitly configured."""
-    config = {"platform_toolsets": {"telegram": ["hermes-telegram", "discord"]}}
-    enabled = _get_platform_tools(config, "telegram")
-    assert "discord" not in enabled
-    assert "discord_admin" not in enabled
-
-
-
-
-
-
 def test_get_platform_tools_legacy_hermes_alias_expands():
     """Legacy ``"hermes"`` toolset name must expand to ``"hermes-cli"`` and
     ``"hermes-api-server"`` so that tools are not silently dropped.
 
     Regression test for issue #41579.
     """
-    config = {"platform_toolsets": {"cli": ["hermes", "kanban"]}}
+    config = {"platform_toolsets": {"cli": ["hermes", "terminal"]}}
 
     enabled = _get_platform_tools(config, "cli", include_default_mcp_servers=False)
 
     # Must resolve to the same toolset as a plain "hermes-cli" config.
     reference = _get_platform_tools(
-        {"platform_toolsets": {"cli": ["hermes-cli", "kanban"]}},
+        {"platform_toolsets": {"cli": ["hermes-cli", "terminal"]}},
         "cli",
         include_default_mcp_servers=False,
     )
@@ -592,20 +557,6 @@ def test_get_effective_configurable_toolsets_dedupes_bundled_plugins():
 
 
 
-
-
-# Kanban now participates in the checklist: an explicit deselection must be
-# both visible in the diff and durable in the platform selection.
-def test_kanban_checklist_reports_and_persists_explicit_removal():
-    config = {"platform_toolsets": {"telegram": ["kanban", "web", "terminal"]}}
-    current = _get_platform_tools(config, "telegram", include_default_mcp_servers=False)
-    universe = _checklist_toolset_keys("telegram")
-    new_enabled = current - {"kanban"}
-    assert ((current - new_enabled) & universe) == {"kanban"}
-    with patch("hermes_cli.tools_config.save_config"):
-        _save_platform_tools(config, "telegram", new_enabled)
-    assert "kanban" not in _get_platform_tools(config, "telegram", include_default_mcp_servers=False)
-    assert {"web", "terminal"} <= set(config["platform_toolsets"]["telegram"])
 
 
 def test_vision_picker_custom_endpoint(tmp_path, monkeypatch):

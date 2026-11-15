@@ -51,7 +51,7 @@ curl http://localhost:8642/v1/chat/completions \
   -d '{"model": "hermes-agent", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
-Or connect Open WebUI, LobeChat, or any other frontend — see the [Open WebUI integration guide](../messaging/open-webui.md) for step-by-step instructions.
+Or connect Open WebUI, LobeChat, or any other frontend — see the Open WebUI integration guide for step-by-step instructions.
 
 ## Conversation and terminal-result semantics
 
@@ -891,7 +891,7 @@ Any frontend that supports the OpenAI API format works. Tested/documented integr
 
 | Frontend | Stars | Connection |
 |----------|-------|------------|
-| [Open WebUI](../messaging/open-webui.md) | 126k | Full guide available |
+| Open WebUI | 126k | Full guide available |
 | LobeChat | 73k | Custom provider endpoint |
 | LibreChat | 34k | Custom endpoint in librechat.yaml |
 | AnythingLLM | 56k | Generic OpenAI provider |
@@ -936,7 +936,7 @@ Each profile's API server automatically advertises the profile name as the model
 - `http://localhost:8643/v1/models` → model `alice`
 - `http://localhost:8644/v1/models` → model `bob`
 
-In Open WebUI, add each as a separate connection. The model dropdown shows `alice` and `bob` as distinct models, each backed by a fully isolated Hermes instance. See the [Open WebUI guide](../messaging/open-webui.md#multi-user-setup-with-profiles) for details.
+In Open WebUI, add each as a separate connection. The model dropdown shows `alice` and `bob` as distinct models, each backed by a fully isolated Hermes instance. See the Open WebUI guide for details.
 
 ## Limitations
 
@@ -950,4 +950,4 @@ In Open WebUI, add each as a separate connection. The model dropdown shows `alic
 
 The API server also serves as the backend for **gateway proxy mode**. When another Hermes gateway instance is configured with `GATEWAY_PROXY_URL` pointing at this API server, it forwards all messages here instead of running its own agent. This enables split deployments — for example, a Docker container handling Matrix E2EE that relays to a host-side agent.
 
-See [Matrix Proxy Mode](../messaging/matrix.md#proxy-mode-e2ee-on-macos) for the full setup guide.
+See Matrix Proxy Mode for the full setup guide.

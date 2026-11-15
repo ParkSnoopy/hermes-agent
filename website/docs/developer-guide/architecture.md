@@ -110,7 +110,7 @@ hermes-agent/
 │   ├── ansi_strip.py         # ANSI escape stripping
 │   └── environments/         # Terminal backends (local, docker, ssh, modal, daytona, vercel_sandbox)
 │
-├── gateway/                  # Messaging platform gateway
+├── gateway/                  # Gateway and HTTP ingress
 │   ├── run.py                # GatewayRunner facade — message dispatch (+ run_*.py siblings)
 │   ├── session.py            # SessionStore — conversation persistence
 │   ├── delivery.py           # Outbound message delivery
@@ -120,14 +120,6 @@ hermes-agent/
 │   ├── status.py             # Token locks, profile-scoped process tracking
 │   └── platforms/            # Core ingress adapters: api_server, webhook,
 │                             #   msgraph_webhook
-│
-├── plugins/platforms/        # Bundled platform plugins: telegram, discord, slack,
-│                             #   whatsapp, matrix, mattermost, email, sms, dingtalk,
-│                             #   feishu, wecom, irc, line, teams, google_chat,
-│                             #   buzz, ntfy, photon, raft, simplex, whatsapp_cloud,
-│                             #   signal, weixin, bluebubbles, qqbot
-│                             #   (Home Assistant: `homeassistant` catalog plugin;
-│                             #    Yuanbao: `yuanbao` Hermes Labs plugin)
 │
 ├── acp_adapter/              # ACP server (VS Code / Zed / JetBrains)
 ├── cron/                     # Scheduler (jobs.py, scheduler.py)

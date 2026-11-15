@@ -15,7 +15,6 @@ Hermes 有多种不同的可插拔接口——有些使用 Python `register_*` A
 |---|---|
 | 自定义工具、钩子、斜杠命令、技能或 CLI 子命令 | **本指南**（通用插件接口） |
 | **LLM / 推理后端**（新提供商） | [模型提供商插件](../model-provider-plugin.md) |
-| **网关频道**（Discord/Telegram/IRC/Teams 等） | [添加平台适配器](../adding-platform-adapters.md) |
 | **记忆后端**（Honcho/Mem0/Supermemory 等） | [记忆提供商插件](../memory-provider-plugin.md) |
 | **上下文压缩引擎** | [上下文引擎插件](../context-engine-plugin.md) |
 | **图像生成后端** | [图像生成提供商插件](../image-gen-provider-plugin.md) |
@@ -72,7 +71,6 @@ provides_hooks:
 - **`hermes plugins validate`**：注册的工具与列表不一致时，“declared tools”检查失败，插件无法进入目录（catalog）。
 - **目录展示**：目录及仪表盘/桌面端插件页中的“N 个工具”标签和按工具名搜索。
 - **仪表盘认证提示**：只有已声明工具的可用性检查会用于显示“需要认证”及 `hermes auth <name>` 命令。
-- **仅限内置的 `kind: platform` 插件**：该字段决定是否在 CLI/TUI 会话中加载 `tools.py`（适配器本身仍延迟加载）。参见 [添加平台适配器](../adding-platform-adapters.md)。
 
 可选字段示例：
 ```yaml
@@ -695,7 +693,7 @@ def register(ctx):
 
 ### 注册斜杠命令
 
-插件可以注册会话内斜杠命令——用户在对话中输入的命令（如 `/lcm status` 或 `/ping`）。这些命令在 CLI 和网关（Telegram、Discord 等）中均可使用。
+插件可以注册会话内斜杠命令——用户在对话中输入的命令（如 `/lcm status` 或 `/ping`）。这些命令可用于 CLI 和由网关管理的会话。
 
 ```python
 def _handle_status(raw_args: str) -> str:
@@ -712,7 +710,7 @@ def register(ctx):
     )
 ```
 
-注册后，用户可以在任意会话中输入 `/mystatus`。该命令会出现在自动补全、`/help` 输出和 Telegram 机器人菜单中。
+注册后，用户可以在任意会话中输入 `/mystatus`。该命令会出现在自动补全和 `/help` 输出中。
 
 **签名：** `ctx.register_command(name: str, handler: Callable, description: str = "")`
 
@@ -720,14 +718,14 @@ def register(ctx):
 |-----------|------|-------------|
 | `name` | `str` | 不含前导斜杠的命令名称（例如 `"lcm"`、`"mystatus"`） |
 | `handler` | `Callable[[str], str \| None]` | 以原始参数字符串调用。也可以是 `async`。 |
-| `description` | `str` | 显示在 `/help`、自动补全和 Telegram 机器人菜单中 |
+| `description` | `str` | 显示在 `/help` 和自动补全中 |
 
 **与 `register_cli_command()` 的主要区别：**
 
 | | `register_command()` | `register_cli_command()` |
 |---|---|---|
 | 调用方式 | 会话中的 `/name` | 终端中的 `hermes name` |
-| 适用范围 | CLI 会话、Telegram、Discord 等 | 仅终端 |
+| 适用范围 | CLI、TUI 和 Desktop 会话 | 仅终端 |
 | 处理器接收 | 原始参数字符串 | argparse `Namespace` |
 | 使用场景 | 诊断、状态查询、快速操作 | 复杂子命令树、设置向导 |
 
@@ -787,6 +785,12 @@ def register(ctx):
 本指南涵盖**通用插件**（工具、钩子、斜杠命令、CLI 命令）。以下各节简要介绍每种专用插件类型的编写模式；每节均链接到其完整指南以获取字段参考和示例。
 :::
 
+### 会话消息和适配器钩子
+
+`ctx.post_message(text)` 向当前绑定的会话发送消息并返回可用 `edit(text)` 更新的句柄。异步代码可使用 `await ctx.apost_message(text)` 和 `await handle.aedit(text)`；没有绑定会话时句柄会报告失败。
+
+`ctx.register_platform_handler(platform, factory)` 注册一个在匹配的适配器连接时调用的 `(native, adapter)` 工厂。请仅针对已配置且支持的适配器注册，并限制处理范围。
+
 ## 专用插件类型
 
 Hermes 在通用接口之外还有五种专用插件类型。每种都以目录形式存放在 `plugins/<category>/<name>/`（内置）或 `~/.hermes/plugins/<category>/<name>/`（用户）下。各类别的约定不同——选择你需要的类型，然后阅读其完整指南。
@@ -823,66 +827,6 @@ description: Acme Inference — OpenAI-compatible direct API
 在任何调用 `get_provider_profile()` 或 `list_providers()` 的地方首次使用时懒加载发现——`auth.py`、`config.py`、`doctor.py`、`models.py`、`runtime_provider.py` 和 chat_completions 传输层会自动连接。用户插件按名称覆盖内置插件。
 
 **完整指南：** [模型提供商插件](../model-provider-plugin.md)——字段参考、可覆盖钩子（`prepare_messages`、`build_extra_body`、`build_api_kwargs_extras`、`fetch_models`）、api_mode 选择、认证类型、测试。
-
-### 平台插件——添加网关频道
-
-在 `plugins/platforms/<name>/` 下放置适配器：
-
-```python
-# plugins/platforms/myplatform/adapter.py
-from gateway.platforms.base import BasePlatformAdapter
-
-class MyPlatformAdapter(BasePlatformAdapter):
-    async def connect(self): ...
-    async def send(self, chat_id, text): ...
-    async def disconnect(self): ...
-
-def check_requirements():
-    import os
-    return bool(os.environ.get("MYPLATFORM_TOKEN"))
-
-def _env_enablement():
-    import os
-    tok = os.getenv("MYPLATFORM_TOKEN", "").strip()
-    if not tok:
-        return None
-    return {"token": tok}
-
-def register(ctx):
-    ctx.register_platform(
-        name="myplatform",
-        label="MyPlatform",
-        adapter_factory=lambda cfg: MyPlatformAdapter(cfg),
-        check_fn=check_requirements,
-        required_env=["MYPLATFORM_TOKEN"],
-        # 从环境变量自动填充 PlatformConfig.extra，使仅环境变量的设置
-        # 在 `hermes gateway status` 中显示，无需 SDK 实例化。
-        env_enablement_fn=_env_enablement,
-        # 启用 cron 投递：`deliver=myplatform` 路由到此变量。
-        cron_deliver_env_var="MYPLATFORM_HOME_CHANNEL",
-        emoji="💬",
-        platform_hint="You are chatting via MyPlatform. Keep responses concise.",
-    )
-```
-
-```yaml
-# plugins/platforms/myplatform/plugin.yaml
-name: myplatform-platform
-label: MyPlatform
-kind: platform
-version: 1.0.0
-description: MyPlatform gateway adapter
-requires_env:
-  - name: MYPLATFORM_TOKEN
-    description: "Bot token from the MyPlatform console"
-    password: true
-optional_env:
-  - name: MYPLATFORM_HOME_CHANNEL
-    description: "Default channel for cron delivery"
-    password: false
-```
-
-**完整指南：** [添加平台适配器](../adding-platform-adapters.md)——完整的 `BasePlatformAdapter` 约定、消息路由、认证限制、设置向导集成。参考 `plugins/platforms/irc/` 获取仅使用标准库的可用示例。
 
 ### 记忆提供商插件——添加跨会话知识后端
 

@@ -474,7 +474,7 @@ def test_env_scrub_hermes_allowlist_and_secret_blocks():
         "HERMES_DELEGATED_CHILD_CONTEXT": "1",
         # other HERMES_* → dropped (broad prefix removed)
         "HERMES_BASE_URL": "https://x", "HERMES_INTERACTIVE": "1",
-        "HERMES_KANBAN_TASK": "t_parent",
+        "HERMES_WORKSPACE": "/workspace",
         # secret substrings (incl. new DSN/WEBHOOK) → dropped
         "SENTRY_DSN": "https://a@s.io/1", "SLACK_WEBHOOK": "https://h/x",
         "OPENAI_API_KEY": "sk", "GITHUB_TOKEN": "ghp",
@@ -489,11 +489,20 @@ def test_env_scrub_hermes_allowlist_and_secret_blocks():
     ):
         assert kept in out, f"{kept} should be kept"
     for dropped in (
-        "HERMES_BASE_URL", "HERMES_INTERACTIVE", "HERMES_KANBAN_TASK",
+        "HERMES_BASE_URL", "HERMES_INTERACTIVE", "HERMES_WORKSPACE",
         "SENTRY_DSN", "SLACK_WEBHOOK", "OPENAI_API_KEY", "GITHUB_TOKEN",
         "RANDOM_X",
     ):
         assert dropped not in out, f"{dropped} should be dropped"
+
+
+def test_env_scrub_marks_in_process_delegation():
+    from agent.delegation_context import delegated_child_context, DELEGATED_CHILD_ENV_MARKER
+    from tools.code_execution_env import _scrub_child_env
+
+    with delegated_child_context():
+        out = _scrub_child_env({"PATH": "/usr/bin"}, is_passthrough=lambda _: False, is_windows=False)
+    assert out[DELEGATED_CHILD_ENV_MARKER] == "1"
 
 
 def test_env_scrub_passthrough_overrides_secret_block():

@@ -246,32 +246,6 @@ async def chat(request: ChatRequest):
     return {"response": response}
 ```
 
-### Discord 机器人
-
-```python
-import discord
-from run_agent import AIAgent
-
-client = discord.Client(intents=discord.Intents.default())
-
-@client.event
-async def on_message(message):
-    if message.author == client.user:
-        return
-    if message.content.startswith("!hermes "):
-        query = message.content[8:]
-        agent = AIAgent(
-            model="anthropic/claude-sonnet-4",
-            quiet_mode=True,
-            skip_context_files=True,
-            skip_memory=True,
-            platform="discord",
-        )
-        response = agent.chat(query)
-        await message.channel.send(response[:2000])
-
-client.run("YOUR_DISCORD_TOKEN")
-```
 
 ### CI/CD 流水线步骤
 
@@ -314,7 +288,7 @@ print(review)
 | `skip_memory` | `bool` | `False` | 禁用持久化内存的读写 |
 | `api_key` | `str` | `None` | API 密钥（回退到环境变量） |
 | `base_url` | `str` | `None` | 自定义 API 端点 URL |
-| `platform` | `str` | `None` | 平台提示（`"discord"`、`"telegram"` 等） |
+
 
 ---
 
@@ -323,7 +297,7 @@ print(review)
 :::tip
 - 如果不希望将工作目录中的 `AGENTS.md` 文件加载到系统 prompt 中，请设置 **`skip_context_files=True`**。
 - 设置 **`skip_memory=True`** 可阻止 agent 读写持久化内存——推荐用于无状态 API 端点。
-- `platform` 参数（如 `"discord"`、`"telegram"`）会注入平台特定的格式化提示，使 agent 适配其输出风格。
+
 :::
 
 :::warning

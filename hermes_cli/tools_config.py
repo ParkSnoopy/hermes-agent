@@ -81,7 +81,7 @@ CONFIGURABLE_TOOLSETS = [
     ("stt",             "🎙️ Speech-to-Text",           "voice transcription (gateway voice messages + voice mode)"),
     ("skills",          "📚 Skills",                    "list, view, manage"),
     ("todo",            "📋 Task Planning",             "todo_list"),
-    ("kanban",          "📌 Kanban",                    "opt-in task board tools for this platform"),
+
     ("memory",          "💾 Memory",                    "persistent memory across sessions"),
     ("context_engine",  "🧩 Context Engine",            "runtime tools from the active context engine"),
     ("session_search",  "🔎 Session Search",            "search past conversations"),
@@ -89,8 +89,7 @@ CONFIGURABLE_TOOLSETS = [
     ("clarify",         "❓ Clarifying Questions",      "clarify"),
     ("delegation",      "👥 Task Delegation",           "delegate_task"),
     ("cronjob",         "⏰ Cron Jobs",                 "create/list/update/pause/resume/run, with optional attached skills"),
-    ("discord",         "💬 Discord (read/participate)", "fetch messages, search members, create thread"),
-    ("discord_admin",   "🛡️  Discord Server Admin",    "list channels/roles, pin, assign roles"),
+
     ("computer_use",     "🖱️  Computer Use (macOS/Windows/Linux)", "background desktop control via cua-driver"),
 ]
 
@@ -108,7 +107,7 @@ def gui_toolset_label(label: str) -> str:
 # OFF by default for new installs (still in _HERMES_CORE_TOOLS; the checklist won't pre-select them). x_search
 # auto-enables when xAI creds exist; its check_fn still gates the schema. ``spotify`` and ``a2a`` are plugin
 # toolsets (catalog / bundled plugin) that stay opt-in once installed.
-_DEFAULT_OFF_TOOLSETS = {"spotify", "discord", "discord_admin", "video", "video_gen", "x_search", "a2a", "kanban"}
+_DEFAULT_OFF_TOOLSETS = {"spotify", "video", "video_gen", "x_search", "a2a"}
 
 # Config-only capabilities: provider setup in `hermes tools` (TOOL_CATEGORIES) but not model toolsets — zero
 # schemas, own switch (``stt.enabled``), never in ``platform_toolsets`` or the per-platform checklist.
@@ -372,14 +371,9 @@ TOOL_CATEGORIES = {
 TOOLSET_ENV_REQUIREMENTS = {"vision": [("OPENROUTER_API_KEY", "https://openrouter.ai/keys")]}
 
 # --- Platform / Toolset Helpers ---
-_PLATFORM_ENABLE_ENV_VARS = (
-    ("telegram", "TELEGRAM_BOT_TOKEN"), ("discord", "DISCORD_BOT_TOKEN"), ("slack", "SLACK_BOT_TOKEN"),
-    ("whatsapp", "WHATSAPP_ENABLED"), ("qqbot", "QQ_APP_ID"))
-
-
 def _get_enabled_platforms() -> list[str]:
-    """Return platform keys that are configured (have tokens or are CLI)."""
-    return ["cli"] + [platform for platform, env_var in _PLATFORM_ENABLE_ENV_VARS if get_env_value(env_var)]
+    """Return the interactive local toolset configuration."""
+    return ["cli"]
 
 
 def _platform_toolset_summary(config: dict, platforms: Optional[list[str]] = None) -> dict[str, set[str]]:
@@ -628,11 +622,8 @@ def _get_platform_tools(config: dict, platform: str, *, include_default_mcp_serv
     # Explicit non-configurable entries (custom toolsets, MCP server names) pass through.
     explicit_passthrough = {ts for ts in toolset_names if ts not in explicit_known_keys and ts not in platform_default_keys}
     enabled_toolsets |= _merge_mcp_servers(config, toolset_names, explicit_passthrough, include_default_mcp_servers)
-
-    # Legacy profile opt-in is a fallback only. A saved platform list (even
-    # empty) is authoritative, so a later disable cannot silently re-enable it.
-    if not explicitly_configured and "kanban" in (config.get("toolsets") or []):
-        enabled_toolsets.add("kanban")
+    # Apply the shared session-platform gate after passthrough/plugin expansion as well.
+    enabled_toolsets = {ts for ts in enabled_toolsets if _toolset_allowed_for_platform(ts, platform)}
 
     # agent.disabled_toolsets is a global suppression list (#86661) and runs LAST so it overrides everything
     # above. It may arrive as a JSON-array string ("['memory']") from `hermes config set` or a JSON-mode editor.

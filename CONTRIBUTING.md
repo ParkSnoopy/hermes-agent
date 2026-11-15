@@ -181,7 +181,7 @@ script or tool in this repository, so the commands below also work without
 | `just lock` | `scripts/relock.sh`: refreshes `uv.lock` after a `pyproject.toml` change, then re-syncs |
 | `just check-repo-guards`, `just check-uv-lock` | the repo-guards history, contributor and supply-chain steps, and the `uv.lock` check, through `scripts/ci/local_step.sh` against the merge base with `origin/main` |
 | `just check-icons`, `just lint-docker`, `just check-plugin-catalog`, `just check-nix` | the committed-icons check, hadolint and shellcheck on the container inputs, the catalog validator, `nix flake check` |
-| `just test-catalog`, `just test-whatsapp-bridge`, `just test-rust` | the plugin-catalog tests, the WhatsApp bridge's node tests (after `just js-install-whatsapp-bridge`), the bootstrap installer's `cargo test --lib` |
+| `just test-catalog`, `just test-rust` | the plugin-catalog tests and the bootstrap installer's `cargo test --lib` |
 
 Recipes that run Python go through `scripts/run-in-hermes-env`, so they work in
 a shell that was never activated. A new developer command is a script under
@@ -299,7 +299,7 @@ hermes-agent/
 ├── run_agent.py              # AIAgent facade (~1.5k LOC) — the turn loop lives in agent/conversation_loop.py + agent/turn_*.py
 ├── cli.py                    # HermesCLI class — interactive CLI orchestrator (~4.6k LOC + hermes_cli/cli_*_mixin.py)
 ├── model_tools.py            # Tool orchestration (thin layer over tools/registry.py)
-├── toolsets.py               # Tool groupings and presets (hermes-cli, hermes-telegram, etc.)
+├── toolsets.py               # Tool groupings and presets
 ├── hermes_state.py           # SessionDB facade (~1.4k LOC); implementation in hermes_state_*.py (21 siblings) — FTS5 search, session titles
 ├── batch_runner.py           # Parallel batch processing for trajectory generation
 │
@@ -348,18 +348,16 @@ hermes-agent/
 │       ├── base.py                   # BaseEnvironment ABC
 │       ├── local.py, docker.py, ssh.py, modal.py, daytona.py
 │
-├── gateway/                  # Messaging gateway
+├── gateway/                  # Gateway runtime
 │   ├── run.py                    # GatewayRunner facade (~5.5k LOC); phases in run_*.py (startup, inbound, turn, busy, ...)
 │   ├── slash_commands_*.py       # Gateway slash command handler mixins
 │   ├── config.py                 # Platform configuration resolution
 │   ├── session.py                # Session store, context prompts, explicit resets (+ session_*.py siblings)
-│   └── platforms/                # Platform adapters
-│       ├── telegram.py, discord_adapter.py, slack.py, whatsapp.py
+│   └── platforms/                # Shared platform interfaces
 │
-├── scripts/                  # Installer and bridge scripts
+├── scripts/                  # Installer and maintenance scripts
 │   ├── install.sh                # Linux/macOS installer
-│   ├── install.ps1               # Windows PowerShell installer
-│   └── whatsapp-bridge/          # Node.js WhatsApp bridge (Baileys)
+│   └── install.ps1               # Windows PowerShell installer
 │
 ├── skills/                   # Bundled skills (copied to ~/.hermes/skills/ on install)
 ├── optional-skills/          # Official optional skills (discoverable via hub, not activated by default)
@@ -382,7 +380,7 @@ hermes-agent/
 | `~/.hermes/state.db` | SQLite session database |
 | `~/.hermes/sessions/` | Gateway routing index (`sessions.json`), request-dump breadcrumbs, gateway `*.jsonl` transcripts, and explicit `/save` exports. Automatic per-session JSON snapshots are no longer written; state.db is canonical. |
 | `~/.hermes/cron/` | Scheduled job data |
-| `~/.hermes/whatsapp/session/` | WhatsApp bridge credentials |
+
 
 ---
 
@@ -645,7 +643,7 @@ prerequisites:
   commands: [curl, jq]            # Advisory CLI checks
 ```
 
-Gateway and messaging sessions never collect secrets in-band; they instruct the user to run `hermes setup` or update `~/.hermes/.env` locally.
+Non-interactive sessions must not collect secrets in-band; configure them locally with `hermes setup` or `~/.hermes/.env`.
 
 **When to declare required environment variables:**
 - The skill uses an API key or token that should be collected securely at load time
@@ -1058,12 +1056,12 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 | `refactor` | Code restructuring (no behavior change) |
 | `chore` | Build, CI, dependency updates |
 
-Scopes: `cli`, `gateway`, `tools`, `skills`, `agent`, `install`, `whatsapp`, `security`, etc.
+Scopes: `cli`, `gateway`, `tools`, `skills`, `agent`, `install`, `security`, etc.
 
 Examples:
 ```
 fix(cli): prevent crash in save_config_value when model is a string
-feat(gateway): add WhatsApp multi-user session isolation
+feat(gateway): improve session isolation
 fix(security): prevent shell injection in sudo password piping
 test(tools): add unit tests for file_operations
 ```

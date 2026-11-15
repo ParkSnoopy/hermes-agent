@@ -1,6 +1,4 @@
-"""CLI subcommand: ``hermes send`` — pipe text from shell scripts to any configured messaging platform
-(Telegram, Discord, Slack, Signal, SMS, etc.).
-"""
+"""CLI subcommand: send text through a configured gateway transport."""
 
 from __future__ import annotations
 
@@ -40,23 +38,16 @@ def _read_message_body(positional: Optional[str], file_path: Optional[str]) -> O
                 "message *body* (logs, reports, markdown).\n"
                 "To send an image/document/audio file as a native attachment, "
                 "reference it with MEDIA: in the message text instead:\n"
-                f'  hermes send --to telegram "MEDIA:{file_path}"\n'
-                f'  hermes send --to telegram "optional caption MEDIA:{file_path}"\n'
+                f'  hermes send --to plugin "MEDIA:{file_path}"\n'
+                f'  hermes send --to plugin "optional caption MEDIA:{file_path}"\n'
                 "Add [[as_document]] to deliver an image as an uncompressed file:\n"
-                f'  hermes send --to telegram "[[as_document]] MEDIA:{file_path}"',
+                f'  hermes send --to plugin "[[as_document]] MEDIA:{file_path}"',
                 _USAGE_EXIT)
         except OSError as exc:
             _fail(f"hermes send: cannot read {file_path}: {exc}", _USAGE_EXIT)
 
     # Reading from a TTY would block the user in a half-broken "type your message" state.
     return (sys.stdin.read() or None) if not sys.stdin.isatty() else None
-
-
-def _invalid_whatsapp_mentions(mentions: list[str]) -> list[str]:
-    """Return mention values that cannot identify a WhatsApp participant."""
-    from gateway.whatsapp_identity import normalize_whatsapp_mention_jid
-
-    return [mention for mention in mentions if not normalize_whatsapp_mention_jid(mention)]
 
 
 def _emit_result(result_json: str, *, json_mode: bool, quiet: bool) -> int:
@@ -116,8 +107,7 @@ def _list_targets(platform_filter: Optional[str], *, json_mode: bool) -> int:
         print(json.dumps({"platforms": platforms}, indent=2, default=str))
         return _SUCCESS_EXIT
     if not platforms:
-        print("No messaging platforms configured or no channels discovered yet.")
-        print("Set one up with `hermes gateway setup`, or run the gateway once so")
+        print("No configured targets or discovered destinations.")
         from hermes_constants import get_default_hermes_root, get_hermes_home, hermes_home_key
         home, root = get_hermes_home(), get_default_hermes_root()
         print(f"channel discovery can populate {home / 'channel_directory.json'}.")
@@ -196,7 +186,7 @@ def cmd_send(args: argparse.Namespace) -> None:
     """Entry point wired into the top-level argparse dispatcher."""
     _load_hermes_env()  # the downstream gateway config loader reads credentials from os.environ
     if getattr(args, "list_targets", False):  # --list short-circuits everything else
-        # `hermes send --list telegram` lands "telegram" in the `message` positional.
+        # `hermes send --list plugin` lands "plugin" in the `message` positional.
         exit_code = _list_targets(getattr(args, "message", None), json_mode=getattr(args, "json", False))
         sys.exit(exit_code)
     target = (getattr(args, "to", None) or "").strip()
@@ -204,18 +194,9 @@ def cmd_send(args: argparse.Namespace) -> None:
         _fail(
             "hermes send: --to PLATFORM[:channel[:thread]] is required\n"
             "Examples:\n"
-            "  hermes send --to telegram \"hello\"\n"
-            "  hermes send --to discord:#ops --file report.md\n"
+            "  hermes send --to plugin \"hello\"\n"
+            "  hermes send --to plugin:destination --file report.md\n"
             "  hermes send --list      # list available targets",
-            _USAGE_EXIT)
-    mentions = list(getattr(args, "mentions", None) or [])
-    if mentions and target.split(":", 1)[0].strip().lower() != "whatsapp":
-        _fail("hermes send: --mention is only supported for WhatsApp targets.", _USAGE_EXIT)
-    invalid_mentions = _invalid_whatsapp_mentions(mentions)
-    if invalid_mentions:
-        _fail(
-            "hermes send: invalid --mention value(s): "
-            f"{', '.join(invalid_mentions)}. Use a phone number or participant JID.",
             _USAGE_EXIT)
     message = _read_message_body(getattr(args, "message", None), getattr(args, "file", None))
     if message is None or not message.strip():
@@ -230,14 +211,12 @@ def cmd_send(args: argparse.Namespace) -> None:
         message = f"{subject}\n\n{message.lstrip()}"
 
     # Lazy import keeps `hermes send --help` fast (no tool registry / gateway config stack).
-    from tools.send_message_tool import send_message_tool
+    from gateway.outbound import send_outbound
 
     # Routes to the platform adapter (bot-token path for built-ins, live-adapter path for plugin
     # platforms); takes the standard tool-call dict and returns a JSON string.
     tool_args = {"action": "send", "target": target, "message": message}
-    if mentions:
-        tool_args["mentions"] = mentions
-    result = send_message_tool(tool_args)
+    result = send_outbound(tool_args)
     sys.exit(_emit_result(result, json_mode=getattr(args, "json", False), quiet=getattr(args, "quiet", False)))
 
 
@@ -246,18 +225,14 @@ _SEND_ARGUMENTS = (
     (("-t", "--to"), dict(metavar="TARGET", default=None, help=(
         "Delivery target. Format: 'platform' (home channel), "
         "'platform:chat_id', 'platform:chat_id:thread_id', or "
-        "'platform:#channel-name'. Examples: telegram, "
-        "telegram:-1001234567890:17585, discord:#ops, slack:C0123ABCD, signal:+15551234567."))),
+        "'platform:#channel-name'. Example: plugin:destination."))),
     (("message",), dict(nargs="?", default=None, help="Message text. If omitted, read from --file or stdin.")),
     (("-f", "--file"), dict(metavar="PATH", default=None, help=(
         "Read message body from PATH (text only). Use '-' to force stdin. "
         "To send an image/document as an attachment, use MEDIA:<path> in the message text instead."))),
     (("-s", "--subject"), dict(metavar="LINE", default=None, help="Prepend a subject/header line before the message body.")),
-    (("--mention",), dict(dest="mentions", action="append", default=None, metavar="PHONE_OR_JID", help=(
-        "WhatsApp only: add a native participant mention. Repeat for multiple recipients; "
-        "bare phone numbers are normalized to JIDs. Include each matching @<number> near the start of the message text."))),
     (("-l", "--list"), dict(dest="list_targets", action="store_true", default=False,
-                            help="List available targets. Optional positional filter: `hermes send --list telegram`.")),
+                            help="List available targets. Optional positional filter: `hermes send --list plugin`.")),
     (("-q", "--quiet"), dict(action="store_true", default=False, help="Suppress stdout on success (exit code only).")),
     (("--json",), dict(action="store_true", default=False, help="Emit raw JSON result instead of human-readable output.")),
 )
@@ -271,24 +246,14 @@ def register_send_subparser(subparsers) -> argparse.ArgumentParser:
         "send",
         help="Send a message to a configured platform (scripts, cron jobs, CI).",
         description=(
-            "Pipe text from any shell script to any messaging platform Hermes "
-            "is already configured for. Reuses the gateway's platform "
-            f"credentials ({hermes_home / '.env'} + "
-            f"{hermes_home / 'config.yaml'}) — no LLM, "
-            "no agent loop, no running gateway required for bot-token "
-            "platforms like Telegram/Discord/Slack/Signal."
+            "Pipe text through a configured gateway transport. "
+            f"Configuration is read from {hermes_home / '.env'} and "
+            f"{hermes_home / 'config.yaml'}."
         ),
         epilog=(
             "Examples:\n"
-            "  hermes send --to telegram \"deploy finished\"\n"
-            "  echo \"RAM 92%\" | hermes send --to telegram:-1001234567890\n"
-            "  hermes send --to discord:#ops --file ./report.md\n"
-            "  hermes send --to slack:#eng --subject \"[CI]\" --file build.log\n"
-            "  hermes send --to whatsapp:GROUP@g.us --mention 15551234567 \"@15551234567 hello\"\n"
-            "  hermes send --to telegram \"MEDIA:./chart.png\"   # send a media attachment\n"
-            "  hermes send --list                  # all platforms\n"
-            "  hermes send --list telegram         # filter by platform\n"
-            "\n"
+            "  hermes send --to plugin:destination \"deploy finished\"\n"
+            "  hermes send --list\n\n"
             "Exit codes: 0 ok, 1 delivery/backend error, 2 usage error."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter)

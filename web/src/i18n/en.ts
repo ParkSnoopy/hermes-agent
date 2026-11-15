@@ -47,7 +47,7 @@ export const en: Translations = {
     messaging: "Messaging",
     gateway: "Gateway",
     gatewayHint:
-      "Messaging platforms, the API server and webhooks are configured on the Channels page. These are gateway-wide settings (proxy/relay mode and the global allowlist).",
+      "Gateway-wide settings for the API server and webhooks.",
     pluginLoadFailed:
       "Could not load this plugin’s script. Check the Network tab (dashboard-plugins/…) and the server’s plugin path.",
     pluginNotRegistered:
@@ -156,7 +156,7 @@ export const en: Translations = {
     recentSessions: "Recent Sessions",
     restartGateway: "Restart Gateway",
     restartGatewayConfirmMessage:
-      "This restarts the Hermes gateway process. Connected channels and active sessions will reconnect afterward.",
+      "This restarts the Hermes gateway process. Active sessions will reconnect afterward.",
     restartGatewayConfirmTitle: "Restart gateway?",
     restartingGateway: "Restarting gateway…",
     running: "Running",
@@ -395,7 +395,7 @@ export const en: Translations = {
     aliasBadge: "alias",
     description: "Description",
     descriptionPlaceholder:
-      "What is this profile good at? Used to route kanban tasks by role.",
+      "What is this profile good at?",
     noDescription: "No description",
     editDescription: "Edit description",
     descriptionSaved: "Description saved",

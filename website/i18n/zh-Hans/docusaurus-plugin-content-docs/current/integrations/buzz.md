@@ -42,7 +42,7 @@ Buzz relay <-- WebSocket --> buzz-acp <-- ACP over stdio --> Hermes Agent
 hermes gateway setup   # 选择 Buzz
 ```
 
-完整配置参考（环境变量、config.yaml、传输模式、访问控制）：**[消息平台 → Buzz](../user-guide/messaging/buzz.md)**
+完整配置参考（环境变量、config.yaml、传输模式、访问控制）：**消息平台 → Buzz**
 
 ## 该选哪一个？
 

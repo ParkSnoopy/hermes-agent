@@ -265,8 +265,7 @@ from hermes_cli.subcommands.profile import build_profile_parser
 from hermes_cli.subcommands.model import build_model_parser
 from hermes_cli.subcommands.setup import build_setup_parser
 
-from hermes_cli.subcommands.whatsapp import build_whatsapp_parser, build_whatsapp_cloud_parser
-from hermes_cli.subcommands.slack import build_slack_parser
+
 from hermes_cli.subcommands.login import build_login_parser
 from hermes_cli.subcommands.logout import build_logout_parser
 from hermes_cli.subcommands.auth import build_auth_parser
@@ -719,11 +718,7 @@ from hermes_cli.main_agent_cmds import (
     cmd_skills,
     cmd_tools,
 )
-from hermes_cli.main_platform_setup import (
-    cmd_slack,
-    cmd_whatsapp,
-    cmd_whatsapp_cloud,
-)
+
 from hermes_cli.process_identity import is_desktop_owned_backend as _is_desktop_owned_backend
 from hermes_cli.main_dashboard import (
     _attach_to_host_backend,
@@ -823,7 +818,7 @@ from hermes_cli.main_web_build import (  # frozen updater surface: update_cmd*.p
 from hermes_cli.main_tui_launch import (
     _bypass_chat_launch,
     _launch_tui,
-    _pin_kanban_board_env,
+
     _refuse_unforwarded_tui_flags,
     _resolve_use_tui,
     _sync_bundled_skills_quietly,
@@ -1639,7 +1634,7 @@ def cmd_chat(args):
         # runs must keep it (see agent.session_source.session_source_for).
         os.environ["HERMES_SESSION_SOURCE_EXPLICIT"] = "1"
 
-    _pin_kanban_board_env()
+
     from hermes_cli.observability.shared_metrics_consent import offer_consent_before_chat
 
     # Not before setup: a blank install meets "Setup Required" first. The offer stays
@@ -1746,7 +1741,7 @@ cmd_auth = _forward_command("cmd_auth", "hermes_cli.auth_commands", "auth_comman
 cmd_status = _forward_command("cmd_status", "hermes_cli.status", "show_status", doc='Show status of all components.')
 cmd_cron = _forward_command("cmd_cron", "hermes_cli.cron", "cron_command", forward_return=True, doc='Cron job management.')
 cmd_webhook = _forward_command("cmd_webhook", "hermes_cli.webhook", "webhook_command", forward_return=True, doc='Webhook subscription management.')
-cmd_kanban = _forward_command("cmd_kanban", "hermes_cli.kanban", "kanban_command", forward_return=True, doc='Multi-profile collaboration board.')
+
 cmd_project = _forward_command("cmd_project", "hermes_cli.projects_cmd", "projects_command", forward_return=True, doc='Manage projects (named, multi-folder workspaces).')
 cmd_hooks = _forward_command("cmd_hooks", "hermes_cli.hooks", "hooks_command", doc='Shell-hook inspection and management.')
 cmd_doctor = _forward_command("cmd_doctor", "hermes_cli.doctor", "run_doctor", forward_return=True, doc='Check configuration and dependencies.')
@@ -1756,7 +1751,6 @@ cmd_skin = _forward_command("cmd_skin", "hermes_cli.skin_cmd", "skin_command", d
 cmd_import = _forward_command("cmd_import", "hermes_cli.backup", "run_import", forward_return=True, doc='Restore a Hermes backup from a zip file.')
 cmd_dashboard_register = _forward_command("cmd_dashboard_register", "hermes_cli.dashboard_register", "cmd_dashboard_register", doc='Register a self-hosted dashboard OAuth client with Nous Portal.')
 cmd_webapp = _forward_command("cmd_webapp", "hermes_cli.webapp_launcher", "cmd_webapp", forward_return=True, doc='Open the browser-hosted Desktop the gateway serves.')
-cmd_gateway_enroll = _forward_command("cmd_gateway_enroll", "hermes_cli.gateway_enroll", "cmd_gateway_enroll", doc='Enroll a self-hosted gateway with a relay connector.')
 cmd_prompt_size = _forward_command("cmd_prompt_size", "hermes_cli.prompt_size", "cmd_prompt_size", doc='Show a byte/char breakdown of the system prompt + tool schemas.')
 cmd_pairing = _forward_command("cmd_pairing", "hermes_cli.pairing", "pairing_command")
 cmd_plugins = _forward_command("cmd_plugins", "hermes_cli.plugins_cmd", "plugins_command")
@@ -2650,7 +2644,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "clipboard", "computer-use", "connectors",
         "config", "console", "cron", "curator", "dashboard", "serve", "debug", "doctor",
         "dump", "egress", "fallback", "gateway", "hooks", "import", "insights",
-        "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
+        "gui", "desktop", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
         "journey", "memory-graph", "learning",
         "model", "monitoring", "pairing", "pause", "peer", "pets", "plugins", "portal", "profile",
         "project", "proxy", "prompt-size", "resume", "send", "sessions", "setup",
@@ -3154,9 +3148,7 @@ def _register_plugin_cli_commands(subparsers) -> None:
     try:
         from plugins.memory import discover_plugin_cli_commands
         from hermes_cli.plugins import discover_plugins, get_plugin_manager
-        from hermes_cli.left_core_migration import recover_for_command
 
-        recover_for_command(_first_positional_argv())
         seen_plugin_commands = set()
         for cmd_info in discover_plugin_cli_commands():
             _attach_plugin_cli_command(subparsers, cmd_info)
@@ -3197,7 +3189,7 @@ def _build_cli_parser():
     build_migrate_parser(subparsers)
     build_codex_runtime_parser(subparsers)
     build_gateway_parser(
-        subparsers, cmd_gateway=cmd_gateway, cmd_proxy=cmd_proxy, cmd_gateway_enroll=cmd_gateway_enroll
+        subparsers, cmd_gateway=cmd_gateway, cmd_proxy=cmd_proxy
     )
 
     # LSP is optional — a registration failure must not break the CLI.
@@ -3208,12 +3200,8 @@ def _build_cli_parser():
         logger.debug("LSP CLI registration failed: %s", _lsp_err)
 
     build_setup_parser(subparsers, cmd_setup=cmd_setup)
-    build_whatsapp_parser(subparsers, cmd_whatsapp=cmd_whatsapp)
-    build_whatsapp_cloud_parser(subparsers, cmd_whatsapp_cloud=cmd_whatsapp_cloud)
-    build_slack_parser(subparsers, cmd_slack=cmd_slack)
 
-    from hermes_cli.send_cmd import register_send_subparser
-    register_send_subparser(subparsers)
+
 
     build_login_parser(subparsers, cmd_login=cmd_login)
     build_logout_parser(subparsers, cmd_logout=cmd_logout)
@@ -3229,8 +3217,6 @@ def _build_cli_parser():
     from hermes_cli.portal_cli import add_parser as _add_portal_parser
     _add_portal_parser(subparsers)
 
-    from hermes_cli.kanban import build_parser as _build_kanban_parser
-    _build_kanban_parser(subparsers).set_defaults(func=cmd_kanban)
 
     from hermes_cli.projects_cmd import build_parser as _build_project_parser
     _build_project_parser(subparsers).set_defaults(func=cmd_project)
@@ -3248,7 +3234,7 @@ def _build_cli_parser():
     build_config_parser(subparsers, cmd_config=cmd_config)
     build_skin_parser(subparsers, cmd_skin=cmd_skin)
     build_console_parser(subparsers, cmd_console=cmd_console)
-    build_pairing_parser(subparsers, cmd_pairing=cmd_pairing)
+
     build_skills_parser(subparsers, cmd_skills=cmd_skills)
     build_bundles_parser(subparsers)
     build_plugins_parser(subparsers, cmd_plugins=cmd_plugins)

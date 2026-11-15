@@ -1,7 +1,7 @@
 ---
 sidebar_position: 8
 title: "Use Voice Mode with Hermes"
-description: "A practical guide to setting up and using Hermes voice mode across CLI, Telegram, Discord, and Discord voice channels"
+description: "A practical guide to setting up and using Hermes CLI voice mode"
 ---
 
 # Use Voice Mode with Hermes
@@ -22,24 +22,13 @@ If the feature page explains what voice mode can do, this guide shows how to act
 
 Voice mode is especially useful when:
 - you want a hands-free CLI workflow
-- you want spoken responses in Telegram or Discord
-- you want Hermes sitting in a Discord voice channel for live conversation
+
 - you want quick idea capture, debugging, or back-and-forth while walking around instead of typing
 
 ## Choose your voice mode setup
 
-There are really three different voice experiences in Hermes.
-
-| Mode | Best for | Platform |
-|---|---|---|
-| Interactive microphone loop | Personal hands-free use while coding or researching | CLI |
-| Voice replies in chat | Spoken responses alongside normal messaging | Telegram, Discord |
-| Live voice channel bot | Group or personal live conversation in a VC | Discord voice channels |
-
-A good path is:
-1. get text working first
-2. enable voice replies second
-3. move to Discord voice channels last if you want the full experience
+Use the interactive microphone loop for hands-free work in the CLI.
+Get text working first, then enable voice mode.
 
 ## Step 1: make sure normal Hermes works first
 
@@ -68,11 +57,6 @@ If that is not solid yet, fix text mode first.
 cd ~/.hermes/hermes-agent && python -c "import pm; pm.sync_venv(['voice'], explicit=True)"
 ```
 
-### Messaging platforms
-
-```bash
-cd ~/.hermes/hermes-agent && python -c "import pm; pm.sync_venv(['messaging'], explicit=True)"
-```
 
 ### Premium ElevenLabs TTS
 
@@ -87,35 +71,26 @@ requires Python 3.14, so requesting this extra does not install NeuTTS there.
 Choose a compatible provider. A separately managed NeuTTS command provider
 needs its own supported Python environment.
 
-### Combined voice and messaging setup
-
-```bash
-python -c "import pm; pm.sync_venv(['voice', 'messaging', 'tts-premium', 'edge-tts'], explicit=True)"
-```
-
-The `all` extra is not every optional feature. It does not include these voice
-and messaging extras.
 
 ## Step 3: install system dependencies
 
 ### macOS
 
 ```bash
-brew install portaudio ffmpeg opus
+brew install portaudio ffmpeg
 brew install espeak-ng
 ```
 
 ### Ubuntu / Debian
 
 ```bash
-sudo apt install portaudio19-dev ffmpeg libopus0
+sudo apt install portaudio19-dev ffmpeg
 sudo apt install espeak-ng
 ```
 
 Why these matter:
 - `portaudio` → microphone input / playback for CLI voice mode
-- `ffmpeg` → audio conversion for TTS and messaging delivery
-- `opus` → Discord voice codec support
+- `ffmpeg` → audio conversion for TTS
 - `espeak-ng` → phonemizer backend for NeuTTS
 
 ## Step 4: choose STT and TTS providers
@@ -316,99 +291,6 @@ voice:
   record_key: "ctrl+space"
 ```
 
-## Use case 2: voice replies in Telegram or Discord
-
-This mode is simpler than full voice channels.
-
-Hermes stays a normal chat bot, but can speak replies.
-
-### Start the gateway
-
-```bash
-hermes gateway
-```
-
-### Turn on voice replies
-
-Inside Telegram or Discord:
-
-```text
-/voice on
-```
-
-or
-
-```text
-/voice tts
-```
-
-### Modes
-
-| Mode | Meaning |
-|---|---|
-| `off` | text only |
-| `voice_only` | speak only when the user sent voice |
-| `all` | speak every reply |
-
-### When to use which mode
-
-- `/voice on` if you want spoken replies only for voice-originating messages
-- `/voice tts` if you want a full spoken assistant all the time
-
-### Good messaging workflows
-
-#### Telegram assistant on your phone
-
-Use when:
-- you are away from your machine
-- you want to send voice notes and get quick spoken replies
-- you want Hermes to function like a portable research or ops assistant
-
-#### Discord DMs with spoken output
-
-Useful when you want private interaction without server-channel mention behavior.
-
-## Use case 3: Discord voice channels
-
-This is the most advanced mode.
-
-Hermes joins a Discord VC, listens to user speech, transcribes it, runs the normal agent pipeline, and speaks replies back into the channel.
-
-## Required Discord permissions
-
-In addition to the normal text-bot setup, make sure the bot has:
-- Connect
-- Speak
-- preferably Use Voice Activity
-
-Also enable privileged intents in the Developer Portal:
-- Presence Intent
-- Server Members Intent
-- Message Content Intent
-
-## Join and leave
-
-In a Discord text channel where the bot is present:
-
-```text
-/voice join
-/voice leave
-/voice status
-```
-
-### What happens when joined
-
-- users speak in the VC
-- Hermes detects speech boundaries
-- transcripts are posted in the associated text channel
-- Hermes responds in text and audio
-- the text channel is the one where `/voice join` was issued
-
-### Best practices for Discord VC use
-
-- keep `DISCORD_ALLOWED_USERS` tight
-- use a dedicated bot/testing channel at first
-- verify STT and TTS work in ordinary text-chat voice mode before trying VC mode
 
 ## Voice quality recommendations
 
@@ -433,13 +315,6 @@ In a Discord text channel where the bot is present:
 
 Install `portaudio`.
 
-### "Bot joins but hears nothing"
-
-Check:
-- your Discord user ID is in `DISCORD_ALLOWED_USERS`
-- you are not muted
-- privileged intents are enabled
-- the bot has Connect/Speak permissions
 
 ### "It transcribes but does not speak"
 
@@ -456,11 +331,6 @@ Try:
 - different STT provider/model
 - shorter, clearer utterances
 
-### "It works in DMs but not in server channels"
-
-That is often mention policy.
-
-By default, the bot needs an `@mention` in Discord server text channels unless configured otherwise.
 
 ## Suggested first-week setup
 
@@ -469,15 +339,11 @@ If you want the shortest path to success:
 1. get text Hermes working
 2. run `hermes setup tts` to enable voice support
 3. use CLI voice mode with local STT + Edge TTS
-4. then enable `/voice on` in Telegram or Discord
-5. only after that, try Discord VC mode
+
 
 That progression keeps the debugging surface small.
 
 ## Where to read next
 
 - [Voice Mode feature reference](../user-guide/features/voice-mode.md)
-- [Messaging Gateway](../user-guide/messaging/index.md)
-- [Discord setup](../user-guide/messaging/discord.md)
-- [Telegram setup](../user-guide/messaging/telegram.md)
 - [Configuration](../user-guide/configuration.md)

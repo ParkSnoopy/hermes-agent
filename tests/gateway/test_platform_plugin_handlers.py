@@ -2,10 +2,9 @@
 
 Covers:
 * ``PluginContext.register_platform_handler`` validation + queuing
-* ``PluginContext.register_telegram_handler`` back-compat alias
-* ``PluginManager.get_platform_handler_factories`` accessor (+ telegram alias)
+* ``PluginManager.get_platform_handler_factories`` accessor
 * ``BasePlatformAdapter._wire_plugin_handlers`` invoking factories with
-  ``(native, adapter)`` — exercised through the Telegram adapter
+  ``(native, adapter)`` — exercised through the API adapter
 * Defensive isolation: a factory that raises does NOT prevent other
   factories from wiring or the platform from connecting.
 * Platform scoping: factories for platform A never fire for platform B.
@@ -27,7 +26,7 @@ _repo = str(Path(__file__).resolve().parents[2])
 if _repo not in sys.path:
     sys.path.insert(0, _repo)
 
-from plugins.platforms.telegram.adapter import TelegramAdapter
+from gateway.platforms.api_server import APIServerAdapter
 from gateway.config import PlatformConfig
 
 from hermes_cli.plugins import (
@@ -42,9 +41,9 @@ def _make_ctx(name: str = "test_plugin") -> tuple[PluginManager, PluginContext]:
     ctx = PluginContext(manifest=manifest, manager=mgr)
     return mgr, ctx
 
-def _make_adapter() -> TelegramAdapter:
+def _make_adapter() -> APIServerAdapter:
     config = PlatformConfig(enabled=True, token="test-token", extra={})
-    adapter = TelegramAdapter(config)
+    adapter = APIServerAdapter(config)
     adapter._app = MagicMock()
     adapter._bot = MagicMock()
     return adapter
@@ -128,7 +127,7 @@ class TestTelegramAlias:
         ]
 
 # ===========================================================================
-# BasePlatformAdapter._wire_plugin_handlers (via TelegramAdapter)
+# BasePlatformAdapter._wire_plugin_handlers (via APIServerAdapter)
 # ===========================================================================
 
 class TestAdapterPluginWiring:
@@ -149,7 +148,7 @@ class TestAdapterPluginWiring:
         assert calls == [(adapter._app, adapter)]
         adapter._app.add_handler.assert_called_once()
         # Adapter asked for its own platform's factories.
-        mgr.get_platform_handler_factories.assert_called_once_with("telegram")
+        mgr.get_platform_handler_factories.assert_called_once_with("api_server")
 
     def test_raising_factory_does_not_block_others(self):
         adapter = _make_adapter()

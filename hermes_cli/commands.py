@@ -1,7 +1,7 @@
 """Slash command registry for the Hermes CLI and gateway.
 
-Every consumer -- CLI help, gateway dispatch, Telegram BotCommands, Slack
-subcommand mapping, autocomplete -- derives from ``COMMAND_REGISTRY``. To add a
+Every consumer -- CLI help, gateway dispatch, autocomplete -- derives from
+``COMMAND_REGISTRY``. To add a
 command, append a ``CommandDef``; to add an alias, set ``aliases=("short",)``.
 """
 
@@ -82,13 +82,11 @@ VALID_BUSY_POLICIES: frozenset[str] = frozenset({"dispatch", "reject", "interrup
 
 COMMAND_REGISTRY: list[CommandDef] = [
     # Session
-    CommandDef("start", "Acknowledge platform start pings without a reply", "Session",
-               gateway_only=True, busy_policy="dispatch", busy_handler="start"),
+
     CommandDef("new", "Start a new session (fresh session ID + history)", "Session",
                aliases=("reset",), args_hint="[name]",
                busy_policy="interrupt_then_dispatch", busy_handler="new"),
-    CommandDef("topic", "Enable or inspect Telegram DM topic sessions", "Session",
-               gateway_only=True, args_hint="[off|help|session-id]"),
+
     CommandDef("clear", "Clear screen and start a new session", "Session",
                cli_only=True, desktop="terminal"),
     CommandDef("redraw", "Force a full UI repaint (recovers from terminal drift)", "Session",
@@ -105,9 +103,7 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("rewind", "Rewind to an earlier prompt to edit & resend it, or fork from there (Esc Esc)",
                "Session", cli_only=True, args_hint="[N | fork N]", desktop="terminal"),
     CommandDef("title", "Set a title for the current session", "Session", args_hint="[name]"),
-    CommandDef("handoff", "Hand off this session to a messaging platform (Telegram, Discord, etc.)", "Session",
-               args_hint="<platform>", cli_only=True, argument_mode="options"),
-    CommandDef("branch", "Branch the current session (new thread on Discord/Telegram/Slack/Matrix; --here stays here)",
+    CommandDef("branch", "Branch the current session",
                "Session", aliases=("fork",), args_hint="[--here] [name]"),
     CommandDef("worktree", "Show, list, create, or prune isolated git worktrees", "Session",
                cli_only=True, args_hint="[new [name]|list|prune [--dry-run]]",
@@ -179,8 +175,7 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("whoami", "Show your slash command access (admin / user)", "Info"),
     CommandDef("profile", "Show active profile name and home directory", "Info",
                busy_policy="dispatch", execute="profile"),
-    CommandDef("sethome", "Set this chat as the home channel", "Session",
-               gateway_only=True, aliases=("set-home",), desktop="terminal"),
+
     CommandDef("resume", "Resume a previously-named session", "Session",
                args_hint="[name]", argument_mode="mixed"),
     CommandDef("sessions", "Browse and resume previous sessions", "Session"),
@@ -289,15 +284,7 @@ COMMAND_REGISTRY: list[CommandDef] = [
                "Tools & Skills", args_hint="[subcommand]",
                subcommands=("status", "run", "pause", "resume", "pin", "unpin", "restore", "list-archived"),
                desktop="advanced"),
-    CommandDef("kanban", "Multi-profile collaboration board (tasks, links, comments)",
-               "Tools & Skills", args_hint="[subcommand]",
-               subcommands=("init", "boards", "create", "list", "ls", "show", "assign",
-                            "reclaim", "reassign", "diagnostics", "diag", "link", "unlink",
-                            "claim", "comment", "complete", "edit", "block", "unblock",
-                            "archive", "tail", "dispatch", "stats", "notify-subscribe",
-                            "notify-list", "notify-unsubscribe", "log", "runs",
-                            "heartbeat", "assignees", "context", "specify", "gc"),
-               busy_policy="dispatch", desktop="advanced"),
+
     CommandDef("reload", "Reload .env variables into the running session", "Tools & Skills",
                cli_only=True, desktop="terminal"),
     CommandDef("reload-mcp", "Reload MCP servers from config", "Tools & Skills",
@@ -330,10 +317,7 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("topup", "Show your Nous balance and manage billing on the portal", "Info"),
     CommandDef("insights", "Show usage insights and analytics", "Info",
                args_hint="[days]", desktop="advanced"),
-    CommandDef("platforms", "Show gateway/messaging platform status", "Info",
-               cli_only=True, aliases=("gateway",), desktop="terminal"),
-    CommandDef("platform", "Pause, resume, or list a failing gateway platform", "Info",
-               gateway_only=True, args_hint="<pause|resume|list> [name]"),
+
     CommandDef("copy", "Copy the last assistant response to clipboard", "Info",
                cli_only=True, args_hint="[number]", desktop="terminal"),
     CommandDef("paste", "Attach clipboard image from your clipboard", "Info",

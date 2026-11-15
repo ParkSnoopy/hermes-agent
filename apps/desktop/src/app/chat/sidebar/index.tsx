@@ -5,7 +5,6 @@ import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router'
 
-import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu'
@@ -27,9 +26,7 @@ import { type SessionInfo, type SessionSearchResult } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { comboTokens } from '@/lib/keybinds/combo'
 import { sessionMatchesSearch } from '@/lib/session-search'
-import { normalizeSessionSource, sessionSourceLabel } from '@/lib/session-source'
 import { cn } from '@/lib/utils'
-import { $connectionsRegistry } from '@/store/connection-registry-state'
 import { $activeConnectionId } from '@/store/connections'
 import { $cronJobs } from '@/store/cron'
 import { recordAction } from '@/store/desktop-metrics'
@@ -43,7 +40,7 @@ import {
   $sidebarCronOpen,
   $sidebarFiltersActive,
   $sidebarGrouping,
-  $sidebarMessagingOpenIds,
+
   $sidebarOrdering,
   $sidebarPinsOpen,
   $sidebarPrDataWanted,
@@ -72,20 +69,19 @@ import {
   setSidebarWorkspaceOrderIds,
   setSidebarWorkspaceParentOrderIds,
   SIDEBAR_SESSIONS_PAGE_SIZE,
-  toggleSidebarMessagingOpen,
+
   unpinSession
 } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
 import {
   $newChatProfile,
-  $profileColors,
+
   $profiles,
   $profileScope,
   type AgentProfileRoute,
   ALL_PROFILES,
-  messagingTotalsKey,
-  normalizeProfileKey,
-  sidebarProfileForScope
+
+  normalizeProfileKey
 } from '@/store/profile'
 import { $profileRailVisible } from '@/store/profile-rail-prefs'
 import { $projectScope, ALL_PROJECTS, exitProjectScope } from '@/store/project-scope'
@@ -117,9 +113,9 @@ import { openRouteTile } from '@/store/route-tiles'
 import {
   $cronSessions,
   $gatewayState,
-  $messagingPlatformTotals,
+
   $messagingSessions,
-  $messagingTruncated,
+
   $sessionProfilesTruncated,
   $sessions,
   $sessionsLoadError,
@@ -144,7 +140,7 @@ import {
   ARTIFACTS_ROUTE,
   CAPABILITIES_ROUTE,
   CRON_ROUTE,
-  MESSAGING_ROUTE,
+
   SIDEBAR_NAV_AREA,
   type SidebarNavContribution
 } from '../../routes'
@@ -154,7 +150,7 @@ import { type NewSessionSplitHandler, startNewSessionDrag } from '../new-session
 import { SidebarSectionAddButton } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarFilterMenu } from './filter-menu'
-import { buildGatewaySessionGroups, scopeGatewaySessionGroups, useGatewaySessionGroups } from './gateway-group-model'
+import { useGatewaySessionGroups } from './gateway-group-model'
 import { SidebarLoadMoreRow } from './load-more-row'
 import { orderByIds, reconcileOrderIds, resolveManualSessionOrderIds, sameIds } from './order'
 import { filterSessionsByProfileScope } from './profile-scope'
@@ -196,11 +192,6 @@ import { CONTEXT_SPLIT_KIT, SplitSubmenu } from './split-submenu'
 import { useEnteredProjectSessions } from './use-entered-project-sessions'
 import { useServerSessionSearch } from './use-server-session-search'
 
-// Non-session groups (messaging platforms) stay compact: show a few rows up
-// front, reveal more in larger steps on demand. Keeps a busy platform from
-// dominating the sidebar before the user asks to see it.
-const NON_SESSION_INITIAL_ROWS = 3
-const NON_SESSION_LOAD_STEP = 10
 
 // How long after connecting to warm the project tree for someone who isn't in
 // the grouped view. Long enough that the flat list — the thing actually on
@@ -224,15 +215,7 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
     route: CAPABILITIES_ROUTE,
     keybindActionId: 'nav.capabilities'
   },
-  {
-    id: 'messaging',
-    label: '',
-    icon: props => <Codicon name="comment" {...props} />,
-    route: MESSAGING_ROUTE,
-    keybindActionId: 'nav.messaging'
-  },
-  // Artifacts and Scheduled jobs are outputs of running Hermes the developer
-  // way; Capabilities and Messaging are how anyone sets it up.
+  // Artifacts and Scheduled jobs are outputs of running Hermes the developer way.
   {
     id: 'artifacts',
     label: '',
@@ -379,7 +362,6 @@ interface ChatSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onNavigate: (item: SidebarNavItem) => void
   onLoadMoreSessions: () => Promise<void> | void
   onRetrySessions: () => Promise<void> | void
-  onLoadMoreMessaging?: (platform: string) => Promise<void> | void
   onResumeSession: (sessionId: string, session?: SessionInfo) => void
   onDeleteSession: (sessionId: string) => void
   onArchiveSession: (sessionId: string) => void
@@ -401,7 +383,7 @@ export function ChatSidebar({
   onNavigate,
   onLoadMoreSessions,
   onRetrySessions,
-  onLoadMoreMessaging,
+
   onResumeSession,
   onDeleteSession,
   onArchiveSession,
@@ -490,8 +472,7 @@ export function ChatSidebar({
   const cronSessions = useStore($cronSessions)
   const cronJobs = useStore($cronJobs)
   const messagingSessions = useStore($messagingSessions)
-  const messagingPlatformTotals = useStore($messagingPlatformTotals)
-  const messagingTruncated = useStore($messagingTruncated)
+
   const sessionsLoading = useStore($sessionsLoading)
   const sessionsLoadError = useStore($sessionsLoadError)
   const sessionProfilesTruncated = useStore($sessionProfilesTruncated)
@@ -520,7 +501,7 @@ export function ChatSidebar({
   // profile while scope is still ALL (persisted), the rail is hidden and they'd
   // otherwise be stuck in the grouped view with no way out.
   const showAllProfiles = multiProfile && profileScope === ALL_PROFILES
-  const messagingProfile = sidebarProfileForScope(profileScope)
+
   const agentOrderIds = useStore($sidebarSessionOrderIds)
   const agentOrderManual = useStore($sidebarSessionOrderManual)
   const workspaceOrderIds = useStore($sidebarWorkspaceOrderIds)
@@ -550,11 +531,9 @@ export function ChatSidebar({
   const newSessionKbd = newSessionCombo ? comboTokens(newSessionCombo) : []
   const [searchQuery, setSearchQuery] = useState('')
   const [newSessionKbdFlash, setNewSessionKbdFlash] = useState(false)
-  const [messagingLoadMorePending, setMessagingLoadMorePending] = useState<Record<string, boolean>>({})
+
   const [recentsLoadMorePending, setRecentsLoadMorePending] = useState(false)
-  const messagingOpenIds = useStore($sidebarMessagingOpenIds)
-  // Per-platform count of rows currently revealed (starts at NON_SESSION_INITIAL_ROWS).
-  const [messagingVisible, setMessagingVisible] = useState<Record<string, number>>({})
+
   const searchInputRef = useRef<HTMLInputElement>(null)
   const trimmedQuery = searchQuery.trim()
 
@@ -1277,102 +1256,14 @@ export function ChatSidebar({
     !projectOverview?.length &&
     !(inProject && (enteredProject?.sessionCount ?? 0) > 0)
 
-  const runKeyedLoad = useCallback(
-    (
-      key: string,
-      load: ((key: string) => Promise<void> | void) | undefined,
-      setPending: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
-    ) => {
-      if (!load) {
-        return
-      }
 
-      setPending(prev => ({ ...prev, [key]: true }))
 
-      void Promise.resolve(load(key))
-        .catch(() => undefined)
-        .finally(() => setPending(({ [key]: _done, ...rest }) => rest))
-    },
-    []
-  )
-
-  const loadMoreForMessaging = useCallback(
-    (platform: string) => runKeyedLoad(platform, onLoadMoreMessaging, setMessagingLoadMorePending),
-    [onLoadMoreMessaging, runKeyedLoad]
-  )
-
-  // Reveal another batch of a platform's rows; fetch from the backend too if we
-  // run past what's loaded and more remain on disk.
-  const revealMoreMessaging = (platform: string, loaded: number, hasMore: boolean) => {
-    const next = (messagingVisible[platform] ?? NON_SESSION_INITIAL_ROWS) + NON_SESSION_LOAD_STEP
-
-    setMessagingVisible(prev => ({ ...prev, [platform]: next }))
-
-    if (next > loaded && hasMore) {
-      loadMoreForMessaging(platform)
-    }
-  }
-
-  // Each messaging platform is its own self-managed section: split the
-  // separately-fetched messaging slice by source, newest platform first, rows
-  // within a platform by recency. Per-platform totals (when a "load more" has
-  // resolved them) drive the count + whether more remain on disk.
-  const messagingGroups = useMemo<MessagingSection[]>(() => {
-    if (!visibleMessagingSessions.length) {
-      return []
-    }
-
-    const bySource = new Map<string, SessionInfo[]>()
-    // Rows this platform owns that the Pinned section is showing instead. The
-    // backend's per-platform total counts them, so discount it or "load more"
-    // promises rows that will never appear.
-    const pinnedBySource = new Map<string, number>()
-
-    for (const session of visibleMessagingSessions) {
-      const sourceId = normalizeSessionSource(session.source)
-
-      if (!sourceId) {
-        continue
-      }
-
-      if (isPinnedSession(session)) {
-        pinnedBySource.set(sourceId, (pinnedBySource.get(sourceId) ?? 0) + 1)
-
-        continue
-      }
-
-      const list = bySource.get(sourceId) ?? []
-      list.push(session)
-      bySource.set(sourceId, list)
-    }
-
-    return [...bySource.entries()]
-      .map(([sourceId, list]) => {
-        const ordered = [...list].sort((a, b) => sessionTime(b) - sessionTime(a))
-        const known = messagingPlatformTotals[messagingTotalsKey(messagingProfile, sourceId)]
-        const unpinnedKnown = known == null ? null : Math.max(0, known - (pinnedBySource.get(sourceId) ?? 0))
-        const total = Math.max(ordered.length, unpinnedKnown ?? 0)
-
-        return {
-          // Known exact total → more exist iff total exceeds loaded; otherwise
-          // the seed fetch was capped, so assume more until a per-platform load
-          // resolves the count.
-          hasMore: unpinnedKnown != null ? unpinnedKnown > ordered.length : messagingTruncated,
-          label: sessionSourceLabel(sourceId) ?? sourceId,
-          sessions: ordered,
-          sourceId,
-          total
-        }
-      })
-      .sort((a, b) => sessionTime(b.sessions[0]) - sessionTime(a.sessions[0]))
-  }, [visibleMessagingSessions, messagingPlatformTotals, messagingTruncated, isPinnedSession, messagingProfile])
 
   // Recents and every messaging platform resolve owner groups the same way
   // ([connectionId, profile]), so a platform's groups line up with recents.
   const ownerGrouped = profileScope === ALL_PROFILES && grouping === 'profile'
   const profileGroups = useGatewaySessionGroups(agentSessions, ownerGrouped, filtersNarrow)
-  const connectionsRegistry = useStore($connectionsRegistry)
-  const profileColors = useStore($profileColors)
+
 
   // The flat Sessions list always shows ALL recent sessions; Projects is a
   // parallel grouped view, not a filter on this one — nothing is hidden here.
@@ -1512,7 +1403,7 @@ export function ChatSidebar({
   const showSessionSections = hasSessionArea({
     cronJobs: showsAdvancedChrome ? cronJobs.length : 0,
     loading: showSessionSkeletons || Boolean(sessionsLoadError) || filtersActive,
-    messaging: messagingGroups.length,
+    messaging: 0,
     profileGroups: profileGroups?.length ?? 0,
     projects: projectModel.length,
     sessions: sortedSessions.length
@@ -1577,7 +1468,7 @@ export function ChatSidebar({
 
                 const active =
                   (item.id === 'capabilities' && currentView === 'capabilities') ||
-                  (item.id === 'messaging' && currentView === 'messaging') ||
+
                   (item.id === 'artifacts' && currentView === 'artifacts') ||
                   (item.id === 'cron' && currentView === 'cron') ||
                   // Contributed rows light up at their own route.
@@ -1980,63 +1871,6 @@ export function ChatSidebar({
               />
             )}
 
-            {!trimmedQuery &&
-              !worktreeGroupingActive &&
-              messagingGroups.map(group => {
-                const visible = messagingVisible[group.sourceId] ?? NON_SESSION_INITIAL_ROWS
-                const shownSessions = group.sessions.slice(0, visible)
-                // More to show if rows are hidden behind the cap, or the backend
-                // still has older threads on disk.
-                const canRevealMore = visible < group.sessions.length || group.hasMore
-
-                // Group only what the cap lets through, so the footer's count
-                // and load-more stay about the platform, not one of its groups.
-                const ownerGroups = ownerGrouped
-                  ? scopeGatewaySessionGroups(
-                      buildGatewaySessionGroups(shownSessions, connectionsRegistry, profileColors),
-                      `messaging:${group.sourceId}`
-                    )
-                  : undefined
-
-                return (
-                  <SidebarSessionsSection
-                    activeSessionId={activeSidebarSessionId}
-                    contentClassName={cn('flex max-h-56 flex-col gap-px pb-1.75', GROUP_BODY)}
-                    embeddedGroups
-                    emptyState={null}
-                    footer={
-                      canRevealMore ? (
-                        <SidebarLoadMoreRow
-                          loading={Boolean(messagingLoadMorePending[group.sourceId])}
-                          onClick={() => revealMoreMessaging(group.sourceId, group.sessions.length, group.hasMore)}
-                          step={Math.min(NON_SESSION_LOAD_STEP, Math.max(0, group.total - shownSessions.length))}
-                        />
-                      ) : null
-                    }
-                    groups={ownerGroups}
-                    key={group.sourceId}
-                    label={group.label}
-                    labelIcon={
-                      <PlatformAvatar
-                        className="size-4 rounded-[4px] text-[0.5625rem] [&_svg]:size-3"
-                        platformId={group.sourceId}
-                        platformName={group.label}
-                      />
-                    }
-                    onArchiveSession={onArchiveSession}
-                    onDeleteSession={onDeleteSession}
-                    onResumeSession={onResumeSession}
-                    onToggle={() => toggleSidebarMessagingOpen(group.sourceId)}
-                    onTogglePin={pinSession}
-                    onToggleUnread={toggleUnread}
-                    open={messagingOpenIds.includes(group.sourceId)}
-                    pinned={false}
-                    rootClassName="shrink-0 p-0"
-                    sessions={shownSessions}
-                    showProfileTags={showAllProfiles && !ownerGrouped}
-                  />
-                )
-              })}
 
             {!trimmedQuery && !worktreeGroupingActive && showsAdvancedChrome && cronJobs.length > 0 && (
               <SidebarCronJobsSection
@@ -2067,12 +1901,4 @@ export function ChatSidebar({
       <WorktreeDialog />
     </Sidebar>
   )
-}
-
-interface MessagingSection {
-  sourceId: string
-  label: string
-  sessions: SessionInfo[]
-  total: number
-  hasMore: boolean
 }

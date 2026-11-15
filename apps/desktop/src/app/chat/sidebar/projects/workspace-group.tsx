@@ -109,7 +109,7 @@ export function SidebarWorkspaceGroup({
   const leadingIcon = (
     <Codicon
       className="shrink-0 text-(--ui-text-tertiary)"
-      name={group.isKanban ? 'checklist' : group.isHome ? 'home' : 'git-branch'}
+      name={group.isHome ? 'home' : 'git-branch'}
       size="0.75rem"
     />
   )

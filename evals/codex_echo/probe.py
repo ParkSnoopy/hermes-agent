@@ -25,7 +25,7 @@ def main():
                 os.environ["ECHO_FIXTURE_MODE"] = mode
                 sid = f"{mode}-{rich}"
                 db = SessionDB(Path(tmp) / f"{sid}.db")
-                db.create_session(session_id=sid, source="telegram", model="fixture")
+                db.create_session(session_id=sid, source="api_server", model="fixture")
                 agent = SessionPersistenceMixin()
                 agent.session_id = sid
                 agent._session_db = db

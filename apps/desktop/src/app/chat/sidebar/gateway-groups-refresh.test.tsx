@@ -39,7 +39,7 @@ const page = (
 ): SidebarSessionsResponse => ({
   recents: { sessions, ...(errors ? { errors } : {}) },
   cron: { sessions: [] },
-  messaging: { sessions: [] }
+
 })
 
 function mountSidebar() {

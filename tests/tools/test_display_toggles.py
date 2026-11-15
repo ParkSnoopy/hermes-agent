@@ -13,7 +13,7 @@ import pytest
 
 from hermes_constants import get_hermes_home
 from tools import desktop_ui
-from tools.react_to_message_tool import check_react_requirements
+
 from tools.tip_tool import check_tips_enabled
 from tools.tour_tool import check_tours_enabled
 
@@ -34,14 +34,14 @@ def display_config():
 def test_a_missing_setting_leaves_the_feature_at_its_default():
     """Absence is not an answer: an opt-out feature stays on, opt-in stays off."""
     assert desktop_ui.user_enabled("in_app_tips", default=True) is True
-    assert desktop_ui.user_enabled("message_reactions", default=False) is False
+    assert desktop_ui.user_enabled("in_app_tours", default=True) is True
 
 
 def test_the_users_answer_wins_in_both_directions(display_config):
-    display_config(in_app_tips=False, message_reactions=True)
+    display_config(in_app_tips=False, in_app_tours=True)
 
     assert desktop_ui.user_enabled("in_app_tips", default=True) is False
-    assert desktop_ui.user_enabled("message_reactions", default=False) is True
+    assert desktop_ui.user_enabled("in_app_tours", default=True) is True
 
 
 @pytest.mark.parametrize(
@@ -49,7 +49,7 @@ def test_the_users_answer_wins_in_both_directions(display_config):
     [
         ("in_app_tips", check_tips_enabled, True),
         ("in_app_tours", check_tours_enabled, True),
-        ("message_reactions", check_react_requirements, False),
+
     ],
 )
 def test_switching_a_feature_off_withdraws_its_tool(display_config, setting, check, default_on):

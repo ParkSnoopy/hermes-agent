@@ -254,7 +254,7 @@ describe('listSidebarSessions remote ownership', () => {
   it('stamps active remote rows so a later resume stays on their gateway', async () => {
     hermesApi.mockResolvedValue({
       cron: { sessions: [] },
-      messaging: { sessions: [] },
+
       recents: {
         sessions: [{ id: 'remote-session', profile: 'default', source: 'desktop', title: 'Remote chat' }]
       }
@@ -265,8 +265,8 @@ describe('listSidebarSessions remote ownership', () => {
       recentsLimit: 40,
       recentsExclude: [],
       cronLimit: 20,
-      messagingLimit: 40,
-      messagingExclude: []
+
+
     })
 
     expect(result.recents.sessions[0]).toMatchObject({ connection_id: 'prometheus', id: 'remote-session' })
@@ -278,7 +278,7 @@ describe('listSidebarSessions storage health', () => {
     const response = {
       cron: { sessions: [] },
       errors: [{ error: 'database disk image is malformed', profile: 'default' }],
-      messaging: { sessions: [] },
+
       recents: { sessions: [] },
       storage: { default: 'corrupt' }
     } satisfies SidebarSessionsResponse
@@ -292,8 +292,8 @@ describe('listSidebarSessions storage health', () => {
       recentsLimit: 40,
       recentsExclude: [],
       cronLimit: 20,
-      messagingLimit: 40,
-      messagingExclude: []
+
+
     })
 
     expect(result.storage).toEqual({ default: 'corrupt' })

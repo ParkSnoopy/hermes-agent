@@ -167,12 +167,20 @@ def yaml_env_setter() -> Callable[[str, Any], None]:
     return set_env
 
 
+def sanitize_send_error(message: Any) -> str:
+    """Redact credentials and signed query values from outbound errors."""
+    import re
+    from agent.redact import redact_sensitive_text
+    redacted = redact_sensitive_text(str(message))
+    redacted = re.sub(r"([?&](?:access_token|api[_-]?key|auth[_-]?token|token|signature|sig)=)([^&#\s]+)",
+                      lambda m: f"{m.group(1)}***", redacted, flags=re.IGNORECASE)
+    return re.sub(r"\b(access_token|api[_-]?key|auth[_-]?token|signature|sig)\s*=\s*([^\s,;]+)",
+                  lambda m: f"{m.group(1)}=***", redacted, flags=re.IGNORECASE)
+
+
 def send_error(message: Any) -> dict:
-    """Standalone-sender failure envelope with vendor exception text redacted (the same helper
-    ``send_message`` uses), so a token or signed URL in an httpx/aiohttp error never reaches the
-    model transcript."""
-    from tools.send_message_senders import _error
-    return _error(str(message))
+    """Build an outbound failure envelope without leaking credentials."""
+    return {"error": sanitize_send_error(message)}
 
 
 # kind -> (applies-when predicate over (cfg, key), env encoder). "lower"/"json" bridge whenever the key

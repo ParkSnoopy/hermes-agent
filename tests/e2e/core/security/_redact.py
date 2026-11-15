@@ -11,16 +11,14 @@ import json
 import re
 import secrets
 import string
-import subprocess
-import sys
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
 import pytest
 
-from tests.e2e.core.delivery._fake_platform import GatewayProcess, read_jsonl, wait_until
-from tests.e2e.core.security._helpers import REPO_ROOT, BoundaryBreach, db_blob, files_containing, run_hermes
+from tests.e2e.core.security._helpers import BoundaryBreach, db_blob, files_containing, run_hermes
 from tests.fakes.fake_llm_provider import Error, Response, Text, ToolCall
 
 
@@ -205,7 +203,7 @@ class Sinks:
         return out
 
 
-def collect(home: Path, requests: list[dict], platform_journal: Path | None = None) -> Sinks:
+def collect(home: Path, requests: list[dict]) -> Sinks:
     hh = home / ".hermes"
     logs = {str(p.relative_to(hh / "logs")): p.read_text(encoding="utf-8", errors="replace")
             for p in sorted((hh / "logs").rglob("*")) if p.is_file()}
@@ -222,13 +220,8 @@ def collect(home: Path, requests: list[dict], platform_journal: Path | None = No
         exports[name] = (out / name).read_text(encoding="utf-8")
     wire = {f"request #{i} ({r['kind']})": json.dumps(r["body"]) for i, r in enumerate(requests)
             if r["kind"] in ("main", "aux")}
-    platform: dict[str, str] = {}  # every post AND every intermediate edit (streamed text), per chat
-    chat_of: dict[str, str] = {}
-    for rec in read_jsonl(platform_journal) if platform_journal is not None else []:
-        chat = chat_of.setdefault(rec["message_id"], str(rec.get("chat_id", "?")))
-        platform[f"chat {chat}"] = platform.get(f"chat {chat}", "") + json.dumps(rec) + "\n"
     return Sinks({LOGS: logs, STORE: store, EXPORT: {"plain.jsonl": exports["plain.jsonl"]},
-                  EXPORT_REDACTED: {"redacted.jsonl": exports["redacted.jsonl"]}, WIRE: wire, PLATFORM: platform})
+                  EXPORT_REDACTED: {"redacted.jsonl": exports["redacted.jsonl"]}, WIRE: wire, PLATFORM: {}})
 
 
 def chat_for(name: str) -> str:
@@ -285,41 +278,5 @@ def check(world: World, scenario: str, sink: str) -> None:
         raise BoundaryBreach(f"{scenario}: secret reached the redacted sink {sink!r}:\n  " + "\n  ".join(leaks))
 
 
-# Gateway ------------------------------------------------------------------------------------------
-
-
-class LoggingGateway(GatewayProcess):
-    """The delivery suite's real GatewayRunner child, with the gateway's file logging installed the way
-    ``start_gateway`` does (agent.log / errors.log / gateway.log under the child's HERMES_HOME)."""
-
-    def start(self) -> LoggingGateway:
-        assert self.proc is None
-        self.boots += 1
-        ready_before = len(read_jsonl(self.spool / "ready.jsonl"))
-        with open(self.log, "wb") as log:
-            self.proc = subprocess.Popen(
-                [sys.executable, "-m", "tests.e2e.core.security._redact", "serve", str(self.spool)],
-                cwd=str(REPO_ROOT), env=self.env(), stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-        self.pids.append(self.proc.pid)
-        pid = self.proc.pid
-        rec = wait_until(lambda: next((r for r in read_jsonl(self.spool / "ready.jsonl")[ready_before:]
-                                       if r["pid"] == pid), None),
-                         "gateway child ready", timeout=240, proc=self.proc, log=self.log)
-        import socket
-        self.sock = socket.create_connection(("127.0.0.1", rec["port"]), timeout=120)
-        self._rfile = self.sock.makefile("rb")
-        return self
-
-
 def files_with(root: Path, needles: list[str]) -> list[str]:
     return files_containing(root, [core(n) for n in needles])
-
-
-if __name__ == "__main__":  # pragma: no cover - gateway child entry
-    if len(sys.argv) >= 3 and sys.argv[1] == "serve":
-        from hermes_logging import setup_logging
-
-        setup_logging(mode="gateway")
-        from tests.e2e.core.delivery._fake_platform import _serve
-
-        _serve(Path(sys.argv[2]))

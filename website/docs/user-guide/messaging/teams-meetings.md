@@ -8,9 +8,7 @@ description: "Set up the Microsoft Teams meeting summary pipeline with Microsoft
 
 Use the Teams meeting pipeline when you want Hermes to ingest Microsoft Graph meeting events, fetch transcripts first, fall back to recordings plus STT when needed, and deliver a structured summary to downstream sinks.
 
-Prerequisites: see [Microsoft Teams](./teams.md) for the underlying bot/credential setup.
-
-> Run `hermes gateway setup` and pick **Teams Meetings** for a guided walk-through.
+For application registration and permissions, see [Microsoft Graph app registration](../../guides/microsoft-graph-app-registration.md).
 
 This page focuses on setup and enablement:
 - Graph credentials
@@ -42,7 +40,7 @@ hermes teams-pipeline maintain-subscriptions
 Before enabling the meetings pipeline, make sure you have:
 
 - a working Hermes install
-- the existing [Microsoft Teams bot setup](./teams.md) if you want Teams outbound delivery
+- a Teams incoming webhook or a Graph chat/channel target if you want Teams summary delivery
 - Microsoft Graph application credentials with the permissions required for the meeting resources you plan to subscribe to
 - a public HTTPS URL that Microsoft Graph can call for webhook delivery
 - `ffmpeg` installed if you want recording-plus-STT fallback
@@ -88,7 +86,9 @@ https://ops.example.com/msgraph/webhook
 
 ## Step 3: Configure Teams Delivery and Pipeline Behavior
 
-The meeting pipeline reads its runtime config from the existing `teams` platform entry. Pipeline-specific knobs live under `teams.extra.meeting_pipeline`. Teams outbound delivery stays on the normal Teams platform config surface.
+The meeting pipeline reads `platforms.msgraph_webhook.extra.meeting_pipeline`.
+Enable Teams summary delivery with `platforms.msgraph_webhook.extra.meeting_pipeline.teams_delivery.enabled: true`.
+Values in `teams_delivery` take precedence over the corresponding `TEAMS_*` environment fallbacks.
 
 Example `~/.hermes/config.yaml`:
 
@@ -103,24 +103,17 @@ platforms:
       accepted_resources:
         - "communications/onlineMeetings"
 
-  teams:
-    enabled: true
-    extra:
-      client_id: "your-teams-client-id"
-      client_secret: "your-teams-client-secret"
-      tenant_id: "your-teams-tenant-id"
-
-      # outbound summary delivery
-      delivery_mode: "graph" # or incoming_webhook
-      team_id: "team-id"
-      channel_id: "channel-id"
-      # incoming_webhook_url: "https://..."
-
       meeting_pipeline:
         transcript_min_chars: 80
         transcript_required: false
         transcription_fallback: true
         ffmpeg_extract_audio: true
+        teams_delivery:
+          enabled: true
+          delivery_mode: "graph" # or incoming_webhook
+          team_id: "team-id"
+          channel_id: "channel-id"
+          # incoming_webhook_url: "https://..."
         notion:
           enabled: false
         linear:
@@ -131,7 +124,7 @@ If you bind the listener to a non-loopback host such as `0.0.0.0`, you must also
 
 ## Teams Delivery Modes
 
-The pipeline supports two Teams summary-delivery modes inside the existing Teams plugin.
+The meeting pipeline supports two Teams summary-delivery modes.
 
 ### `incoming_webhook`
 
@@ -141,11 +134,14 @@ Required config:
 
 ```yaml
 platforms:
-  teams:
+  msgraph_webhook:
     enabled: true
     extra:
-      delivery_mode: "incoming_webhook"
-      incoming_webhook_url: "https://..."
+      meeting_pipeline:
+        teams_delivery:
+          enabled: true
+          delivery_mode: "incoming_webhook"
+          incoming_webhook_url: "https://..."
 ```
 
 ### `graph`
@@ -155,18 +151,21 @@ Use this when you want Hermes to post the summary through Microsoft Graph into a
 Supported targets:
 - `chat_id`
 - `team_id` + `channel_id`
-- `team_id` + `home_channel` fallback for the existing Teams platform
+
 
 Example:
 
 ```yaml
 platforms:
-  teams:
+  msgraph_webhook:
     enabled: true
     extra:
-      delivery_mode: "graph"
-      team_id: "team-id"
-      channel_id: "channel-id"
+      meeting_pipeline:
+        teams_delivery:
+          enabled: true
+          delivery_mode: "graph"
+          team_id: "team-id"
+          channel_id: "channel-id"
 ```
 
 ## Step 4: Start the Gateway
@@ -238,5 +237,5 @@ hermes teams-pipeline subscriptions
 
 ## Related Docs
 
-- [Microsoft Teams bot setup](./teams.md)
+- [Microsoft Graph app registration](../../guides/microsoft-graph-app-registration.md)
 - [Operate the Teams Meeting Pipeline](../../guides/operate-teams-meeting-pipeline.md)

@@ -72,7 +72,7 @@ hermes cron create "0 */12 * * *" \
   --name "teams-pipeline-maintain-subscriptions" \
   --no-agent \
   --script maintain-teams-subscriptions.sh \
-  --deliver local
+  --deliver none
 ```
 
 验证注册情况并查看下次运行时间：
@@ -214,8 +214,8 @@ hermes teams-pipeline show <job-id>
 ### 摘要已生成但未投递到 Teams
 
 检查：
-- `platforms.teams.enabled: true`
-- `delivery_mode`
+- `platforms.msgraph_webhook.extra.meeting_pipeline.teams_delivery.enabled: true`
+- `teams_delivery.delivery_mode`（显式配置优先于对应的 `TEAMS_*` 环境变量）
 - webhook 模式下的 `incoming_webhook_url`
 - Graph 模式下的 `chat_id` 或 `team_id` 加 `channel_id`
 - 若使用 Graph 发帖，检查 Teams auth 配置
@@ -285,4 +285,3 @@ hermes teams-pipeline show <job-id>
 ## 相关文档
 
 - [Teams Meetings 设置](../user-guide/messaging/teams-meetings.md)
-- [Microsoft Teams bot 设置](../user-guide/messaging/teams.md)

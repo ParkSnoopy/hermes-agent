@@ -8,7 +8,7 @@ description: "构建一个自动化 AI 代码审查器，监控你的仓库、�
 
 **问题所在：** 团队提交 PR 的速度比你审查的速度还快。PR 等待数天无人问津。初级开发者因为没人检查而合并了有 bug 的代码。你每天早上都在追赶 diff，而不是在写新功能。
 
-**解决方案：** 一个全天候监控你的仓库的 AI agent，对每个新 PR 进行 bug、安全问题和代码质量审查，并向你发送摘要——这样你只需把时间花在真正需要人工判断的 PR 上。
+**解决方案：** 一个按计划监控仓库的 AI agent，对每个新 PR 进行 bug、安全问题和代码质量审查，并在本地保存摘要。
 
 **你将构建的内容：**
 
@@ -16,10 +16,9 @@ description: "构建一个自动化 AI 代码审查器，监控你的仓库、�
 ┌───────────────────────────────────────────────────────────────────┐
 │                                                                   │
 │   Cron Timer  ──▶  Hermes Agent  ──▶  GitHub API  ──▶  Review     │
-│   (every 2h)       + gh CLI           (PR diffs)       delivery   │
-│                    + skill                             (Telegram, │
-│                    + memory                            Discord,   │
-│                                                        local)     │
+│   (every 2h)       + gh CLI           (PR diffs)       local file │
+│                    + skill                                        │
+│                    + memory                                       │
 │                                                                   │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -50,10 +49,10 @@ description: "构建一个自动化 AI 代码审查器，监控你的仓库、�
   # Authenticate
   gh auth login
   ```
-- **已配置消息通知**（可选）— [Telegram](../user-guide/messaging/telegram.md) 或 [Discord](../user-guide/messaging/discord.md)
 
-:::tip 没有消息通知？没关系
-使用 `deliver: "local"` 将审查结果保存到 `~/.hermes/cron/output/`。在接入通知之前用于测试非常方便。
+
+:::tip 本地结果
+使用 `deliver: "none"` 将审查结果保存到 `~/.hermes/cron/output/`。
 :::
 
 ---
@@ -189,7 +188,7 @@ Steps:
 
 If no new PRs found, say: No new PRs to review." \
   --name "pr-review" \
-  --deliver telegram \
+  --deliver none \
   --skill code-review
 ```
 
@@ -230,7 +229,7 @@ hermes cron run pr-review
 
 ### 直接在 GitHub 上发布审查评论
 
-不将结果发送到 Telegram，而是让 agent 直接在 PR 上评论：
+你也可以让 agent 直接在 PR 上评论：
 
 在你的 cron prompt（提示词）中添加：
 
@@ -264,7 +263,7 @@ For each repo show:
 
 Format as a clean summary." \
   --name "weekly-dashboard" \
-  --deliver telegram
+  --deliver none
 ```
 
 ### 多仓库监控

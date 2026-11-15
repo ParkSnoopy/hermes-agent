@@ -78,7 +78,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/tools
 # user cannot apt-get it later (no root, and the root fs resets on restart).
 RUN apt-get -o Acquire::Retries=3 update && \
     apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
-    ca-certificates curl iputils-ping python3 python-is-python3 gcc g++ make cmake python3-dev python3-venv libffi-dev libolm-dev libatomic1 procps git openssh-client docker-cli xz-utils tmux \
+    ca-certificates curl iputils-ping python3 python-is-python3 gcc g++ make cmake python3-dev python3-venv libffi-dev libatomic1 procps git openssh-client docker-cli xz-utils tmux \
     libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 libdbus-1-3 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 && \
     rm -rf /var/lib/apt/lists/*
 
@@ -246,11 +246,10 @@ FROM runtime_base AS python_deps
 # frontend stats the readme path during dep resolution, so we `touch` an
 # empty placeholder — the real README is restored by `COPY . .` below.
 #
-# `pm.build_env --no-install-project --extra all --extra messaging --extra otlp`
+# `pm.build_env --no-install-project --extra all --extra otlp`
 # installs the deps reachable through the composite `[all]` extra
 # (handpicked set intended for the production image; dependency groups are not selected),
-# plus gateway messaging adapters that should work in the published image
-# without a first-boot lazy install.  We do NOT use `--all-extras`:
+# We do NOT use `--all-extras`:
 # that would pull in `[rl]` (atroposlib + tinker + torch + wandb from
 # git) and `[yc-bench]` (another git dep), neither of which belongs in
 # the published container.
@@ -263,17 +262,7 @@ FROM runtime_base AS python_deps
 # Health export is enabled. Collector and observability-backend dependencies
 # remain external and are not part of the Hermes production image.
 #
-# The Matrix gateway's deps ([matrix] extra) are baked in because
-# python-olm (transitive via mautrix[encryption]) builds from source on
-# Python/image combinations without usable wheels.  The Docker image is
-# Linux-only, so keeping the native libolm/build-toolchain packages here
-# avoids the cross-platform failures that kept [matrix] out of [all]
-# while still making Matrix work in the published container. Fixes #30399.
-#
-# Google Chat's [google-chat] extra (google-cloud-pubsub + Chat API clients)
-# is baked so hosted/immutable images can enable the adapter without writing
-# the sealed venv.
-#
+
 # [fal] is baked because the image tool's availability check imports
 # fal_client whenever a FAL backend resolves, which the Nous-managed gateway
 # always does on hosted agents. Lazy-installing it at the gateway's first boot
@@ -298,12 +287,12 @@ RUN touch ./README.md
 # pm.packages.uv_cache_dir() merges into $HERMES_HOME/cache/uv on first use.
 # Do not leave the cache at its default: HERMES_HOME is not set yet in this
 # stage, so the default is /root/.hermes/cache/uv, which nothing reads. A plugin
-# install then runs with an empty cache and builds python-olm from source.
+# install then runs with an empty cache.
 RUN python3 -m pm.build_env --source /opt/hermes --python /usr/local/bin/python3 \
     --cache /opt/hermes/uv-cache \
     --out /opt/hermes/.venv --no-install-project --sealed --record-selection \
-    --extra all --extra messaging --extra otlp --extra anthropic --extra bedrock \
-    --extra azure-identity --extra matrix --extra google-chat --extra fal --extra documents
+    --extra all --extra otlp --extra anthropic --extra bedrock \
+    --extra azure-identity --extra fal --extra documents
 
 # Icons render on the runtime environment: Pillow and resvg-py are core
 # dependencies. A stage of its own so the frontend stage keeps building its
@@ -364,21 +353,6 @@ COPY --from=frontend_build /opt/products/typescript /opt/hermes/node_modules/typ
 RUN mkdir -p /opt/hermes/node_modules/.bin && \
     ln -s ../typescript/bin/tsc /opt/hermes/node_modules/.bin/tsc
 
-# ---------- Photon iMessage sidecar deps (baked, NS-606) ----------
-# The photon plugin's Node sidecar needs its own node_modules
-# (spectrum-ts). The install tree is immutable at runtime, so a lazy
-# `npm ci` on first connect would hit EROFS — bake the deps here instead
-# (deterministic installs, NS-559). The patch script is copied alongside
-# the manifests because package.json's postinstall runs it, which also
-# means the spectrum-ts patch is applied at build time. Layer-cached:
-# only re-runs when the sidecar manifests/patch change.
-COPY plugins/platforms/photon/sidecar/package.json \
-     plugins/platforms/photon/sidecar/package-lock.json \
-     plugins/platforms/photon/sidecar/patch-spectrum-mixed-attachments.mjs \
-     plugins/platforms/photon/sidecar/
-RUN cd plugins/platforms/photon/sidecar && \
-    npm ci --no-audit --fetch-retries=5 && \
-    npm cache clean --force
 
 # Shared product outputs are independent of application dependency assembly.
 COPY --from=frontend_build /opt/products/tui /opt/hermes/ui-tui

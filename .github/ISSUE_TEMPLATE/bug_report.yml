@@ -60,7 +60,7 @@ body:
       multiple: true
       options:
         - CLI (interactive chat)
-        - Gateway (Telegram/Discord/Slack/WhatsApp)
+        - Gateway / API
         - Setup / Installation
         - Tools (terminal, file ops, web, code execution, etc.)
         - Skills (skill loading, skill hub, skill guard)
@@ -70,18 +70,6 @@ body:
     validations:
       required: true
 
-  - type: dropdown
-    id: platform
-    attributes:
-      label: Messaging Platform (if gateway-related)
-      description: Which platform adapter is affected?
-      multiple: true
-      options:
-        - N/A (CLI only)
-        - Telegram
-        - Discord
-        - Slack
-        - WhatsApp
 
   - type: textarea
     id: debug-report

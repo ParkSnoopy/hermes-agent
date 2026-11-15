@@ -14,7 +14,7 @@ export const SETTINGS_ROUTE = '/settings'
 export const COMMAND_CENTER_ROUTE = '/command-center'
 export const SESSION_IMPORT_ROUTE = '/session-import'
 export const CAPABILITIES_ROUTE = '/capabilities'
-export const MESSAGING_ROUTE = '/messaging'
+
 export const WEBHOOKS_ROUTE = '/webhooks'
 export const ARTIFACTS_ROUTE = '/artifacts'
 export const CRON_ROUTE = '/cron'
@@ -35,7 +35,6 @@ export type AppView =
   // so the sidebar kept a session highlighted and the titlebar kept the
   // session-title dropdown while a plugin page was showing.
   | 'extension'
-  | 'messaging'
   | 'profiles'
   | 'settings'
   | 'starmap'
@@ -48,7 +47,6 @@ export type AppRouteId =
   | 'capabilities'
   | 'command-center'
   | 'cron'
-  | 'messaging'
   | 'new'
   | 'profiles'
   | 'settings'
@@ -67,7 +65,7 @@ export const APP_ROUTES = [
   { id: 'settings', path: SETTINGS_ROUTE, view: 'settings' },
   { id: 'command-center', path: COMMAND_CENTER_ROUTE, view: 'command-center' },
   { id: 'capabilities', path: CAPABILITIES_ROUTE, view: 'capabilities' },
-  { id: 'messaging', path: MESSAGING_ROUTE, view: 'messaging' },
+
   { id: 'webhooks', path: WEBHOOKS_ROUTE, view: 'webhooks' },
   { id: 'artifacts', path: ARTIFACTS_ROUTE, view: 'artifacts' },
   { id: 'cron', path: CRON_ROUTE, view: 'cron' },

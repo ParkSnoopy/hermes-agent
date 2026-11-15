@@ -3,14 +3,14 @@ import asyncio
 
 import pytest
 
-from gateway.config import GatewayConfig, Platform, PlatformConfig
+from gateway.config import GatewayConfig
 from gateway.platforms.base import SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.run import GatewayRunner
 from gateway.session_authority import SessionAuthority, initialize_session_authority
 from hermes_state_runtime import list_session_admissions
+from tests.gateway.test_authority_busy_plaintext_approval import CHAT, _human_adapter
 
-CHAT = '15551234567@s.whatsapp.net'
 
 
 class _RunningAgent:
@@ -29,12 +29,10 @@ class _RunningAgent:
 
 
 async def _setup(tmp_path, monkeypatch, mode):
-    from plugins.platforms.whatsapp.adapter import WhatsAppAdapter
-    monkeypatch.setenv('WHATSAPP_ALLOWED_USERS', '15551234567')
     monkeypatch.setattr(SessionAuthority, '_schedule', lambda self, ref: None)
     runner = GatewayRunner(GatewayConfig(sessions_dir=tmp_path / 'sessions'))
-    adapter = WhatsAppAdapter(PlatformConfig(enabled=True, extra={'session_path': str(tmp_path / 'wa')}))
-    adapter.gateway_runner, runner.adapters = runner, {Platform.WHATSAPP: adapter}
+    adapter = _human_adapter(monkeypatch)
+    adapter.gateway_runner, runner.adapters = runner, {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='busy')
     runner._wire_adapter_handlers(adapter)
     sent = []

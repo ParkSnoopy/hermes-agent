@@ -212,7 +212,7 @@ describe('desktop slash command curation', () => {
     expect(desktopSlashCommandArgumentMode('/queue')).toBe('text')
     expect(desktopSlashCommandArgumentMode('/background')).toBe('text')
     expect(desktopSlashCommandArgumentMode('/personality')).toBe('options')
-    expect(desktopSlashCommandArgumentMode('/handoff')).toBe('options')
+    expect(desktopSlashCommandArgumentMode('/handoff')).toBeNull()
     expect(desktopSlashCommandArgumentMode('/version')).toBeNull()
   })
 

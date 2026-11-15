@@ -138,7 +138,6 @@ function useSyncHarness({
     refreshCronJobs: vi.fn(),
     refreshCurrentModel: vi.fn(),
     refreshHermesConfig: vi.fn(),
-    refreshMessagingSessions: vi.fn(),
     refreshSessions: vi.fn(),
     updateSessionState,
     requestGateway: vi.fn(async () => ({ sessions: [] })) as never
@@ -1261,7 +1260,6 @@ describe('typing-aware sessions.changed deferral', () => {
       refreshCronJobs: vi.fn(),
       refreshCurrentModel: vi.fn(),
       refreshHermesConfig: vi.fn(),
-      refreshMessagingSessions: vi.fn(),
       requestGateway: vi.fn(async () => ({ sessions: [] })) as never,
       // Required by the hook's params. This harness never drives the
       // transcript path, so the updater just runs against a throwaway state —

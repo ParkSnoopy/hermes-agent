@@ -197,7 +197,7 @@ def gateway(tmp_path_factory):
     model = ScriptedModel()
     root = tmp_path_factory.mktemp("approval-gw")
     with FakeLLMServer(model) as srv:
-        gw = GatewayProcess(root, platforms={PLATFORM: "telegram"}, llm_base_url=srv.base_url,
+        gw = GatewayProcess(root, platforms={PLATFORM: "local"}, llm_base_url=srv.base_url,
                             extra_config=MANUAL + "updates:\n  check: false\n")
         gw.start()
         try:

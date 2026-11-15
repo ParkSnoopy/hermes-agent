@@ -19,7 +19,7 @@ description: "开箱即用的自动化蓝图——定时任务、GitHub 事件�
 | **GitHub 事件** | PR 开启、推送、issue、CI 结果时触发 | Webhook 平台（`hermes webhook subscribe`） |
 | **API 调用** | 外部服务向你的端点 POST JSON | Webhook 平台（config.yaml 路由或 `hermes webhook subscribe`） |
 
-三种方式均支持投递到 Telegram、Discord、Slack、SMS、邮件、GitHub 评论或本地文件。
+定时任务可使用 `--deliver none` 将结果保存在本地；Webhook 路由可写入日志或 GitHub 评论。
 :::
 
 ---
@@ -28,7 +28,7 @@ description: "开箱即用的自动化蓝图——定时任务、GitHub 事件�
 
 ### 每晚待办事项分类
 
-每晚自动对新 issue 进行标签分类、优先级排序和摘要汇总，并将摘要投递到团队频道。
+每晚自动对新 issue 进行标签分类、优先级排序和摘要汇总，并将摘要保存在本地。
 
 **触发方式：** 定时（每晚）
 
@@ -46,7 +46,7 @@ hermes cron create "0 2 * * *" \
 
 Format as a clean digest. If no new issues, respond with [SILENT]." \
   --name "Nightly backlog triage" \
-  --deliver telegram
+  --deliver none
 ```
 
 ### 自动 PR 代码审查
@@ -129,7 +129,7 @@ hermes cron create "0 9 * * 1" \
 
 Report any gaps where code changed but docs didn't. If everything is in sync, respond with [SILENT]." \
   --name "Docs drift detection" \
-  --deliver telegram
+  --deliver none
 ```
 
 ### 依赖安全审计
@@ -154,7 +154,7 @@ If vulnerabilities found:
 
 If no vulnerabilities, respond with [SILENT]." \
   --name "Dependency audit" \
-  --deliver telegram
+  --deliver none
 ```
 
 ---
@@ -183,7 +183,7 @@ Run these verification steps:
 
 Report: deployment status (healthy/degraded/failed), response time, any errors found.
 If healthy, keep it brief. If degraded or failed, provide detailed diagnostics." \
-  --deliver telegram
+  --deliver none
 ```
 
 你的 CI/CD 流水线触发方式：
@@ -218,8 +218,8 @@ Investigate:
    - Suggested first response steps
    - Escalation recommendation (P1-P4)
 
-Be concise. This goes to the on-call channel." \
-  --deliver slack
+Be concise." \
+  --deliver log
 ```
 
 ### 可用性监控
@@ -263,7 +263,7 @@ hermes cron create "every 30m" \
   "If the script reports OUTAGE DETECTED, summarize which services are down and suggest likely causes. If NO_ISSUES, respond with [SILENT]." \
   --script ~/.hermes/scripts/check-uptime.py \
   --name "Uptime monitor" \
-  --deliver telegram
+  --deliver none
 ```
 
 ---
@@ -300,7 +300,7 @@ Skip routine dependency bumps and CI fixes. If nothing notable, respond with [SI
 If there are findings, organize by repo with brief analysis of each item." \
   --skill competitive-pr-scout \
   --name "Competitor scout" \
-  --deliver telegram
+  --deliver none
 ```
 
 ### AI 新闻摘要
@@ -325,7 +325,7 @@ Structure:
 
 Keep each item to 1-2 sentences. Include links. Total under 600 words." \
   --name "Weekly AI digest" \
-  --deliver telegram
+  --deliver none
 ```
 
 ### 论文摘要与笔记
@@ -339,7 +339,7 @@ hermes cron create "0 8 * * *" \
   "Search arXiv for the 3 most interesting papers on 'language model reasoning' OR 'tool-use agents' from the past day. For each paper, create an Obsidian note with the title, authors, abstract summary, key contribution, and potential relevance to Hermes Agent development." \
   --skill arxiv --skill obsidian \
   --name "Paper digest" \
-  --deliver local
+  --deliver none
 ```
 
 ---
@@ -466,8 +466,8 @@ For charge.dispute.created:
 For payment_intent.succeeded:
 - Brief confirmation only
 
-Keep responses concise for the ops channel." \
-  --deliver slack
+Keep responses concise." \
+  --deliver log
 ```
 
 ### 每日营收摘要
@@ -488,7 +488,7 @@ Search the web for:
 Format as a brief morning briefing, 3-4 bullet points max.
 Deliver as a clean, scannable message." \
   --name "Morning briefing" \
-  --deliver telegram
+  --deliver none
 ```
 
 ---
@@ -518,7 +518,7 @@ Write a security report with findings categorized by severity (Critical, High, M
 If nothing found, report a clean bill of health." \
   --skill codebase-security-audit \
   --name "Weekly security audit" \
-  --deliver telegram
+  --deliver none
 ```
 
 ### 内容流水线
@@ -542,7 +542,7 @@ hermes cron create "0 10 * * 3" \
 
 Keep the outline to ~300 words. This is a starting point, not a finished post." \
   --name "Blog outline" \
-  --deliver local
+  --deliver none
 ```
 
 ---
@@ -565,13 +565,7 @@ Keep the outline to ~300 words. This is a starting point, not a finished post." 
 
 | 目标 | 参数 | 说明 |
 |--------|------|-------|
-| 当前会话 | `--deliver origin` | 默认——投递到任务创建所在的位置 |
-| 本地文件 | `--deliver local` | 保存输出，不发送通知 |
-| Telegram | `--deliver telegram` | 主频道，或用 `telegram:CHAT_ID` 指定特定会话 |
-| Discord | `--deliver discord` | 主频道，或用 `discord:CHANNEL_ID` 指定 |
-| Slack | `--deliver slack` | 主频道 |
-| SMS | `--deliver sms:+15551234567` | 直接发送到手机号 |
-| 指定话题 | `--deliver telegram:-100123:456` | Telegram 论坛话题 |
+| 本地文件 | `--deliver none` | 保存输出，不发送通知 |
 
 ### Webhook 模板变量
 

@@ -166,13 +166,6 @@ const SITES: Array<[string, string, Record<string, unknown>, string[] | RegExp]>
     ['session.mutate', 'prompt.submit']
   ],
   [
-    'use-prompt-actions /handoff',
-    'handoff.request',
-    { session_id: 's', platform: 'telegram' },
-    /handoff\.request is not available/
-  ],
-  ['use-prompt-actions handoff poll', 'handoff.state', { session_id: 's' }, /handoff\.state is not available/],
-  [
     'use-preview-routing restart',
     'preview.restart',
     { session_id: 's', url: 'http://x' },

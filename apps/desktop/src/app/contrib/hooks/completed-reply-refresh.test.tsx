@@ -171,7 +171,6 @@ function Harness({
     refreshCronJobs: noop,
     refreshCurrentModel: noop,
     refreshHermesConfig: noop,
-    refreshMessagingSessions: noop,
     refreshSessions: noop,
     requestGateway: async () => ({ sessions: [] }) as never,
     updateSessionState: cache.updateSessionState

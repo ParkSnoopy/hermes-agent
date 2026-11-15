@@ -1,15 +1,10 @@
-"""Entrypoint drivers for the parity matrix: messaging gateway + OpenAI-compatible API server.
+"""Entrypoint driver for the OpenAI-compatible API server parity matrix.
 
-Both follow the driver contract in ``_drive_cli``. Daemon surfaces have no launch
+It follows the driver contract in ``_drive_cli``. Daemon surfaces have no launch
 directory, so the documented cwd channel ``terminal.cwd`` is pinned in config.yaml
 (``DriveResult.cwd_channel = "terminal.cwd"``) and credentials go in the fixture
 home's ``.env`` exactly as a user configures them.
 
-* ``drive_gateway`` — the REAL gateway entrypoint (``gateway.run.main``: host-attach
-  decision, PID claim, MCP discovery, ``GatewayRunner.start()``, signal handlers,
-  graceful shutdown tail) in a subprocess; only the Telegram adapter instance is a
-  recording fake (``_gateway_child.py``), fed one inbound DM through its normal
-  ``handle_message`` path.
 * ``drive_api_server`` — the stock ``python -m gateway.run`` with only the
   ``api_server`` platform enabled (loopback, free port, strong key); one
   non-streaming ``POST /v1/chat/completions``.
@@ -24,13 +19,11 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import queue
 import secrets
 import signal
 import socket
 import subprocess
 import sys
-import threading
 import time
 import urllib.error
 import urllib.request
@@ -40,12 +33,7 @@ from typing import Any
 from tests.e2e.core.parity._helpers import TURN_TIMEOUT, DriveResult, ParityHome
 from tests.fakes.fake_llm_provider import FakeLLMServer
 
-GATEWAY_CHILD = Path(__file__).with_name("_gateway_child.py")
-_LINE_PREFIX = "PARITY-GW "
 STOP_TIMEOUT = 60.0
-# Telegram private chats use the user id as chat id; the child reads it from the env
-# (importing the child here would import gateway.run into the test process).
-PARITY_USER_ID = "424242"
 
 
 def _append_env(ph: ParityHome, values: dict[str, str]) -> None:
@@ -67,18 +55,6 @@ def _spawn(ph: ParityHome, argv: list[str], log_name: str, extra_env: dict[str, 
     proc._parity_log_path = log_path  # type: ignore[attr-defined]
     return proc
 
-
-def _stdout_pump(proc: subprocess.Popen) -> queue.Queue[str | None]:
-    lines: queue.Queue[str | None] = queue.Queue()
-
-    def pump() -> None:
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            lines.put(line)
-        lines.put(None)
-
-    threading.Thread(target=pump, daemon=True, name="parity-gw-stdout").start()
-    return lines
 
 
 def _log_tail(proc: subprocess.Popen, n: int = 4000) -> str:
@@ -128,57 +104,6 @@ def _stop(ph: ParityHome, proc: subprocess.Popen) -> bool:
         proc._parity_log.close()  # type: ignore[attr-defined]
     return graceful
 
-
-# Messaging gateway (Telegram-shaped fake adapter) ------------------------------------
-
-
-def _collect_delivered(events: list[dict[str, Any]]) -> str:
-    """Final text of every message the client would see (sends, updated by later edits)."""
-    messages: dict[str, str] = {}
-    for ev in events:
-        if ev["kind"] in ("send", "edit"):
-            messages[ev["message_id"]] = ev["content"]
-    return "\n".join(messages.values())
-
-
-def drive_gateway(ph: ParityHome, srv: FakeLLMServer, prompt: str) -> DriveResult:
-    ph.pin_terminal_cwd()
-    # A real Telegram setup: bot token + allowlisted user in the profile .env.
-    _append_env(ph, {"TELEGRAM_BOT_TOKEN": "123456:parity-fake-token",
-                     "TELEGRAM_ALLOWED_USERS": PARITY_USER_ID})
-    proc = _spawn(ph, [sys.executable, str(GATEWAY_CHILD)], "gateway.stderr.log",
-                  {"PARITY_GATEWAY_PROMPT": prompt, "PARITY_GATEWAY_USER": PARITY_USER_ID})
-    lines = _stdout_pump(proc)
-    events: list[dict[str, Any]] = []
-    outcome: str | None = None
-    graceful = False
-    try:
-        deadline = time.monotonic() + TURN_TIMEOUT
-        while outcome is None:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise AssertionError(f"gateway turn timed out; events={events}\n{_log_tail(proc)}")
-            try:
-                line = lines.get(timeout=remaining)
-            except queue.Empty:
-                continue
-            if line is None:
-                raise AssertionError(
-                    f"gateway exited {proc.wait()} before the turn completed; events={events}\n{_log_tail(proc)}")
-            if not line.startswith(_LINE_PREFIX):
-                continue
-            ev = json.loads(line[len(_LINE_PREFIX):])
-            events.append(ev)
-            if ev["kind"] == "complete":
-                outcome = ev["outcome"]
-    finally:
-        graceful = _stop(ph, proc)
-    return DriveResult(
-        final_text=_collect_delivered(events), toolset="hermes-telegram", cwd_channel="terminal.cwd",
-        graceful_exit=graceful,
-        extra={"outcome": outcome, "exit_code": proc.returncode, "events": events,
-               "stderr_log": str(proc._parity_log_path)},  # type: ignore[attr-defined]
-    )
 
 
 # OpenAI-compatible API server -------------------------------------------------------

@@ -38,7 +38,7 @@ DEFAULT_CONFIG = {
     },
     # Server-process fd soft limit (clamped to the hard limit) + glibc arena cap; 0/false/null = off.
     "runtime": {"nofile_soft_limit": 4096, "malloc_arena_max": 4},
-    # Global active chat session cap across CLI, TUI/dashboard, and messaging. None/0 = unbounded.
+    # Global active chat session cap across CLI, TUI/dashboard, and API. None/0 = unbounded.
     "max_concurrent_sessions": None,
     # Soft LRU cap on in-memory TUI/desktop/dashboard sessions. Above it the gateway evicts the
     # least-recently-active DETACHED sessions (no live client); reopening re-resumes from disk.
@@ -75,8 +75,7 @@ DEFAULT_CONFIG = {
         # while calling tools or receiving API responses. 0 = unlimited.
         "gateway_timeout": 1800,
         # Max seconds an alias routing key waits for the active turn holding the same session lease;
-        # on expiry the message is rejected with a resend notice. Keep short: Telegram dispatches
-        # sequentially, so a waiter delays unrelated topics. Non-positive -> 5s.
+        # on expiry the message is rejected with a resend notice. Non-positive -> 5s.
         "gateway_turn_lease_timeout": 5,
         # Per-session AIAgent cache in the gateway. Each entry keeps a warm prompt prefix AND the
         # full transcript: too small re-pays uncached prompts, too large fills the heap.
@@ -467,7 +466,7 @@ DEFAULT_CONFIG = {
     # sweep runs at `hermes -w` startup and every 6h from the cron ticker over every repo Hermes made
     # a worktree in. Trees idle past their tier (hermes-*/subagent-* 24h, named 72h) that are clean
     # and merged are removed; dirty or unpushed ones are archived to refs/hermes/archive/<tree>
-    # first (`hermes worktree restore <name>`). Live trees and Kanban t_<hex> trees are never touched.
+    # first (`hermes worktree restore <name>`). Live trees and legacy t_<hex> trees are never touched.
     "worktrees": {
         "archive_dirty": True,  # false = never remove a dirty/unpushed tree (the pre-archive behaviour)
         # Untracked files larger than this (MB) are not archived, so a tree holding one is kept.
@@ -475,7 +474,7 @@ DEFAULT_CONFIG = {
         # The sweep deletes archive refs older than this many days. 0 keeps them forever.
         "archive_retention_days": 30,
         # Optional size budget (GB) for idle trees: past it the oldest idle trees are archived and
-        # removed first. Live, young and Kanban trees are never counted or touched. 0 = off.
+        # removed first. Live, young and legacy t_<hex> trees are never counted or touched. 0 = off.
         "max_total_gb": 0,
         "install_state_retention_days": 14,  # installs/<key> of a missing checkout, unused this long, goes; 0 = never
     },
@@ -625,7 +624,7 @@ DEFAULT_CONFIG = {
         "hygiene_total_ceiling_seconds": 600,
         "hygiene_failure_cooldown_seconds": 300,  # skip repeated failed hygiene attempts
         # Max seconds an ARRIVING user turn is held while a streaming hygiene summary finishes;
-        # bounds user-visible latency (keep under chat idle timeouts, Telegram ~30s). On expiry the
+        # bounds user-visible latency. On expiry the
         # turn proceeds uncompressed; the detached worker keeps its watermark-fenced commit, so the
         # summary is adopted at the next safe boundary.
         "hygiene_max_turn_hold_seconds": 10,
@@ -683,7 +682,7 @@ DEFAULT_CONFIG = {
     },
     # Anthropic prompt caching (Claude via OpenRouter or native API). cache_ttl: "5m" | "1h" | "auto"
     # (auto = 1h for human-paced sessions — cli/tui/desktop/messaging — and 5m for subagent, cron,
-    # oneshot, webhook, kanban, api, tool, batch); other non-falsy values are ignored; falsy (false, null, "off",
+    # oneshot, webhook, api, tool, batch); other non-falsy values are ignored; falsy (false, null, "off",
     # "disabled", "no", "none") disables caching.
     "prompt_caching": {"cache_ttl": "5m"},
     # OpenRouter settings. response_cache: X-OpenRouter-Cache header — identical requests return
@@ -772,9 +771,7 @@ DEFAULT_CONFIG = {
         "memory_query_rewrite": _aux(8, reasoning_effort=False),
         "tts_audio_tags": _aux(30),
         "voice_chat": {**_aux(120), "reasoning_effort": "none"},  # agent/voice_turn_route.py; off = lowest valid
-        # Kanban: triage_specifier expands a Triage one-liner into a spec; kanban_decomposer a JSON graph.
-        "triage_specifier": _aux(120),
-        "kanban_decomposer": _aux(180),
+
         "profile_describer": _aux(60),   # 1-2 sentence profile blurb; short, cheap
         "goal_judge": _aux(60),          # /goal satisfaction + contract drafting; JSON calls
         "group_router": _aux(20),        # Group Chat routing "auto": who answers; fast/cheap model OK
@@ -929,24 +926,14 @@ DEFAULT_CONFIG = {
         # Per-platform: display.platforms.<platform>.status_phrases.
         "status_phrases": {},
         # Reasoning summary rendering: "code" (💭 fenced block) | "blockquote" ("> ") | "subtext"
-        # ("-# " Discord small grey text; Discord's default). Per-platform via
+        # ("-# " prefix). Per-platform via
         # display.platforms.<platform>.reasoning_style.
         "reasoning_style": "code",
         # Auto-delete EphemeralReply system notices ("✨ New session started!", …) after N seconds
-        # where deletion is supported (Telegram; others ignore). Agent responses are never touched.
+        # where deletion is supported. Agent responses are never touched.
         # 0 = disabled.
         "ephemeral_system_ttl": 0,
-        # Per-platform display/streaming overrides; unset keys fall through to the global. Telegram
-        # has smooth native draft streaming (on); Discord/Slack only edit-based streaming, which
-        # flickers (off). Gap-fillers only: explicit user values win, and the global
-        # streaming.enabled master switch still gates everything.
-        "platforms": {
-            "telegram": {"streaming": True},
-            "discord": {"streaming": False},
-            "slack": {"streaming": False},
-            # WeCom native streaming (msgtype "stream" via aibot_respond_msg).
-            "wecom": {"streaming": True},
-        },
+        "platforms": {},
         # Gateway runtime footer on the FINAL message, e.g. `model · 68% · ~/projects/hermes`.
         # Per-platform: display.platforms.<platform>.runtime_footer.
         "runtime_footer": {
@@ -1507,133 +1494,6 @@ DEFAULT_CONFIG = {
     # IANA timezone (e.g. "Asia/Kolkata", "America/New_York"). Empty = server-local time.
     "timezone": "",
 
-    "slack": {
-        "require_mention": True,  # require @mention to respond in channels
-        "free_response_channels": "",  # comma-separated channel IDs answered without mention
-        "allowed_channels": "",  # if set, ONLY respond in these channel IDs (whitelist)
-        "require_mention_channels": "",  # channel IDs where @mention is ALWAYS required
-        # Ignore messages whose first token @mentions another user unless the bot is also mentioned.
-        # Env: SLACK_IGNORE_OTHER_USER_MENTIONS.
-        "ignore_other_user_mentions": False,
-        "thread_require_mention": False,  # require @mention in thread replies too
-        "channel_prompts": {},  # per-channel ephemeral system prompts
-    },
-
-    "discord": {
-        "require_mention": True,  # require @mention to respond in server channels
-        "free_response_channels": "",  # comma-separated channel IDs answered without mention
-        "allowed_channels": "",  # if set, ONLY respond in these channel IDs (whitelist)
-        "auto_thread": True,  # auto-create threads on @mention in channels (like Slack)
-        # Free-response channels reply inline by default; true also gives each top-level
-        # message in them its own thread (still mention-free). Env: DISCORD_FREE_RESPONSE_AUTO_THREAD.
-        "free_response_auto_thread": False,
-        "thread_require_mention": False,  # require @mention in threads too (multi-bot threads)
-        # Bot authors must type @thisbot to trigger a reply; Discord reply pings alone do not count.
-        # Set False only for trusted legacy relays. Humans are unaffected.
-        "bots_require_inline_mention": True,
-        # Prepend recent channel scrollback when triggered (recovers messages gated out by
-        # require_mention); limit = max messages scanned.
-        "history_backfill": True,
-        "history_backfill_limit": 50,
-        # Replay messages missed while offline, after reconnect/startup.
-        "missed_message_backfill": {
-            "enabled": False,
-            "channels": "",  # comma-separated channel IDs; empty uses free_response_channels
-            "window_seconds": 21600,  # only inspect messages from the last 6 hours
-            "limit": 100,  # global cap on messages scanned per reconnect
-            "max_dispatches": 10,  # cap on recovered messages dispatched per reconnect
-            "max_attempts": 3,  # lifetime re-dispatch cap for one message, whatever its outcome
-        },
-        "reactions": True,  # add 👀/✅/❌ reactions to messages during processing
-        # Gateway transport health probe: inspects the WebSocket's ready/open/heartbeat state (never
-        # REST) as proof events still arrive. Any value 0 disables it.
-        "websocket_liveness_interval_seconds": 15,
-        "websocket_liveness_failure_threshold": 2,
-        "websocket_heartbeat_ack_max_age_seconds": 60,
-        "websocket_max_latency_seconds": 30,
-        # Dispatch-side dimension: a socket that ACKs heartbeats but delivers no events for this
-        # long is treated as deaf. 4 h absorbs a quiet server overnight; 0 disables it.
-        "websocket_event_max_silence_seconds": 14400,
-        # per-channel ephemeral system prompts (forum parents apply to child threads)
-        "channel_prompts": {},
-        # Opt-in DM role auth: DISCORD_ALLOWED_ROLES normally authorizes guild messages only (DMs
-        # need DISCORD_ALLOWED_USERS). A guild ID here also authorizes DMs from that guild's members
-        # holding the allowed role. Unset / "" / 0 = off.
-        # See #12136.
-        "dm_role_auth_guild": "",
-        # discord / discord_admin tools: allowed actions (comma string or YAML list; empty = all,
-        # subject to bot intents; unknown names dropped with a warning): list_guilds, server_info,
-        # list_channels, channel_info, list_roles, member_info, search_members, fetch_messages,
-        # list_pins, pin_message, unpin_message, create_thread, add_role, remove_role.
-        "server_actions": "",
-        # DEPRECATED no-op (uploads are always cached; messaging auth is the gate). Kept so existing
-        # configs don't error. Env: DISCORD_ALLOW_ANY_ATTACHMENT.
-        "allow_any_attachment": False,
-        # Max bytes per cached attachment (held in memory while written); 0 = no cap. Env:
-        # DISCORD_MAX_ATTACHMENT_BYTES.
-        "max_attachment_bytes": 33554432,
-        # Mention allowed users on approval prompts so owners notice them in shared channels. Env:
-        # DISCORD_APPROVAL_MENTIONS.
-        "approval_mentions": False,
-        # Voice-channel inactivity timeout (seconds); 0 = stay until `/voice leave`.
-        "voice_channel_inactivity_timeout_seconds": 300,
-        # Minimum seconds before force-stopping a VC playback; the adapter probes clip duration and
-        # extends this floor so long TTS isn't cut off.
-        "voice_playback_timeout_seconds": 120,
-        # Voice-channel software mixer (plugins/platforms/discord/voice_mixer.py): ambient
-        # "thinking" bed, verbal acks and TTS OVERLAP (ambient ducked) vs stop-and-swap.
-        "voice_fx": {
-            "enabled": False,  # master switch for the mixer subsystem
-            "ambient_enabled": True,  # play the idle "thinking" bed while tools run
-            "ambient_path": "",  # custom loop audio file; "" = synthesised pad
-            "ambient_gain": 0.18,  # idle bed loudness, 0.0–1.0
-            "duck_gain": 0.06,  # ambient loudness while speech plays
-            "speech_gain": 1.0,  # TTS / ack loudness, 0.0–1.0
-            "ack_enabled": True,  # speak a short phrase before the first tool call
-            "ack_phrases": [  # picked at random; [] disables phrases
-                "Let me look into that.",
-                "One moment.",
-                "Checking on that now.",
-                "Give me a sec.",
-                "On it.",
-            ],
-        },
-    },
-
-    "whatsapp": {
-        # reply_prefix: None = built-in "☤ *Hermes Agent*" header; "" disables; \n allowed.
-    },
-
-    "telegram": {
-        "reactions": False,  # add 👀/✅/❌ reactions to messages during processing
-        # per-chat/topic ephemeral system prompts (topics inherit from parent group)
-        "channel_prompts": {},
-        "allowed_chats": "",  # if set, ONLY respond in these group/supergroup chat IDs
-        "extra": {
-            # Bot API 10.1 native rich messages (tables/task lists/math). Off = legacy MarkdownV2,
-            # since rich messages are hard to copy as plain text.
-            "rich_messages": False,
-            # Experimental rich DM stream previews; off: Telegram Desktop/macOS overlays draft frames.
-            "rich_drafts": False,
-            # CJK stays on legacy MarkdownV2 (Telegram Desktop/macOS garbles rich CJK, #47653);
-            # set True on an unaffected client to get native rich tables for CJK.
-            "allow_cjk_rich_messages": False,
-            "dm_topic_auto_transfer": False,  # /topic mode: root-DM message opens a fresh topic
-        },
-    },
-
-    "mattermost": {
-        "require_mention": True,  # require @mention to respond in channels
-        "free_response_channels": "",  # comma-separated channel IDs answered without mention
-        "allowed_channels": "",  # if set, ONLY respond in these channel IDs (whitelist)
-        "channel_prompts": {},  # per-channel ephemeral system prompts
-    },
-
-    "matrix": {
-        "require_mention": True,  # require @mention to respond in rooms
-        "free_response_rooms": "",  # comma-separated room IDs answered without mention
-        "allowed_rooms": "",  # if set, ONLY respond in these room IDs (whitelist)
-    },
     # Approvals for dangerous commands.
     # mode: manual (always prompt) | smart (aux LLM auto-approves low-risk) | off (= --yolo)
     # cron_mode / single_query_mode / unattended_mode: deny | approve — what to do when a
@@ -1641,8 +1501,7 @@ DEFAULT_CONFIG = {
     #   platform (webhook, msgraph_webhook, api_server; no /approve channel) hits one.
     #   deny blocks instantly so the agent finds another way instead of waiting out the
     #   timeout and failing closed.
-    # timeout: seconds before an unanswered prompt fails closed (CLI and gateway). 60s
-    #   proved too tight for Telegram/Discord push notifications, hence 300.
+    # timeout: seconds before an unanswered prompt fails closed (CLI and gateway).
     "approvals": {
         # single_query_mode — what to do when a single-query (-q) session hits a dangerous command. -q runs
         # export HERMES_INTERACTIVE=1 (for interactive sudo prompts) but have NO user waiting to answer
@@ -1656,7 +1515,7 @@ DEFAULT_CONFIG = {
         # mirrors cron_mode deny) approve — auto-approve all dangerous commands on unattended platforms
         "mode": "smart",
         "timeout": 300,
-        "discord_prompt_timeout": 300,  # Discord buttons stay clickable (min 30 s, cap MAX_SAFE_TIMEOUT_S)
+
         "cron_mode": "deny",
         "single_query_mode": "deny",
         "unattended_mode": "deny",
@@ -1674,7 +1533,7 @@ DEFAULT_CONFIG = {
         # /reload-mcp confirms before rebuilding the MCP tool set (it invalidates the prompt cache). "Always Approve" → false.
         "mcp_reload_confirm": True,
         # /clear, /new, /reset, /undo confirm before discarding state (Approve Once / Always Approve
-        # / Cancel via tools.slash_confirm; native buttons on Telegram/ Discord/Slack). "Always
+        # / Cancel via tools.slash_confirm). "Always
         # Approve" → false. HERMES_TUI_NO_CONFIRM=1 skips the TUI modal.
         "destructive_slash_confirm": True,
     },
@@ -1682,8 +1541,7 @@ DEFAULT_CONFIG = {
     "command_allowlist": [],
     # User-defined quick commands that bypass the agent loop (type: exec only).
     "quick_commands": {},
-    # Per-platform system-prompt hint overrides, keyed by platform name (whatsapp, slack, telegram,
-    # ...). Value: {"append": text} keeps the built-in hint and appends; {"replace": text}
+    # Per-platform system-prompt hint overrides, keyed by platform name. Value: {"append": text} keeps the built-in hint and appends; {"replace": text}
     # substitutes it; a bare string is shorthand for append. `replace` wins over `append` if both
     # are given.
     "platform_hints": {},
@@ -1818,14 +1676,12 @@ DEFAULT_CONFIG = {
         # message" footer. False = clean output.
         "wrap_response": True,
         "delivery": {  # Delivery behaviour for cron output sent through a live gateway adapter.
-            # Mark cron deliveries FINAL so the platform pushes them (Telegram's "important" mode
-            # otherwise sends with disable_notification=True and briefs look undelivered). False =
-            # silent, no-push deliveries.
+            # Mark cron deliveries final; false requests silent deliveries.
             "notify": True,
         },
         # Make cron deliveries CONTINUABLE (user can reply to a brief with it in context). False
         # keeps deliveries isolated to the job's session; per-job `attach_to_session` overrides.
-        # Thread-capable platforms (Telegram topics, Discord/Slack threads) get a seeded thread per
+        # Thread-capable adapters get a seeded thread per
         # job via create_handoff_thread; DM-only platforms mirror the brief into the target DM
         # session. Appended at a turn boundary via mirror_to_session, cached system prompt
         # untouched. User-written bare platforms address home conversations, unlike `all`
@@ -1850,7 +1706,7 @@ DEFAULT_CONFIG = {
         "media_send_timeout_seconds": 300,
         # Managed systemd gateway with no user session (containers, no linger): false runs
         # cron jobs as a direct external subprocess (warns once; no cgroup isolation), true
-        # fails closed with the enable-linger remedy. Kanban always requires a scope.
+        # fails closed with the enable-linger remedy.
         "require_restart_safe_scope": False,
         # A job failing with the SAME error alerts once, then stays silent for this many hours
         # before one reminder ping (the run is still recorded; `hermes cron incidents` shows it).
@@ -1859,80 +1715,7 @@ DEFAULT_CONFIG = {
         # cron.scheduler.DEFAULT_FAILURE_REPEAT_ALERT_HOURS.
         "failure_repeat_alert_hours": 6,
     },
-    # Kanban multi-agent coordination. The dispatcher ticks every N seconds, reclaims stale claims,
-    # promotes dependency-satisfied todos to ready, and fires `hermes -p <assignee> chat -q ...` per
-    # claimable task. Run ONE dispatcher per profile; two on the same kanban.db race for claims.
-    "kanban": {
-        # Auto-subscribe the originating gateway/TUI session to completion + block events when
-        # kanban_create is called from a session with a persistent delivery channel. Disable for
-        # profiles that prefer explicit kanban_notify-subscribe calls per task.
-        "auto_subscribe_on_create": True,
-        # Poll and deliver Kanban subscriptions from this gateway. Disable on profiles that do
-        # not own notification subscriptions to avoid an idle five-second board probe.
-        "notify_in_gateway": True,
-        # Run the dispatcher inside the gateway process (~300µs per idle tick). False only if you
-        # run it as a separate unit or don't want the gateway spawning workers.
-        "dispatch_in_gateway": True,
-        # Auto-claim tasks in the review column and spawn the assigned profile with the bundled
-        # sdlc-review skill. Disable where every review is done manually from the dashboard.
-        "review_dispatch": True,
-        # Seconds between dispatcher ticks. Lower = snappier pickup; higher = less SQL pressure.
-        "dispatch_interval_seconds": 60,
-        # Auto-block after this many consecutive non-success attempts (spawn_failed, timed_out,
-        # crashed) for the same task/profile. Reassignment resets the streak.
-        "failure_limit": 2,
-        # Worker stdout/stderr log rotation at spawn time (2 MiB + one backup). Raise to keep more
-        # early failure evidence from long-running workers.
-        "worker_log_rotate_bytes": 2 * 1024 * 1024,
-        "worker_log_backup_count": 1,
-        # Profile for the root/orchestration task after Triage decomposition; "" = default profile.
-        # Does not control the decomposer LLM path (see auxiliary.kanban_decomposer).
-        "orchestrator_profile": "",
-        # Assignee when the orchestrator can't match one to an installed profile; "" = default
-        # profile. A task never ends up with assignee=None.
-        "default_assignee": "",
-        # Global cap: positive int = the HOST never has more than N tasks 'running' across all
-        # boards and both dispatch lanes. None = ~MemTotal / 512 MiB clamped to [2, 8]; where
-        # MemTotal is unreadable (macOS/Windows) None means no cap.
-        # Global concurrency cap (#33488): when set to a positive int, the HOST never has more than N tasks
-        # in 'running' at once — counted across every active board and across both the ready and review
-        # dispatch lanes (workers are OS processes sharing one machine's memory, so the cap bounds the
-        # machine, not each board; OOF-30). Unset (None) means "derive from system memory" (OOF-30/OOF-77):
-        # the dispatcher caps concurrency at roughly MemTotal / 512 MiB, clamped to [2, 8] — e.g. 2 workers
-        # on a 1 GiB VM. On hosts where total memory can't be read (macOS/Windows), unset falls back to no
-        # cap. Set an explicit value to override the derived default in either direction.
-        "max_in_progress": None,
-        # Per-profile cap: positive int = no single profile runs more than N workers even if the
-        # global caps allow; blocked tasks defer to the next tick. None = no per-profile cap. Useful
-        # when fan-out would saturate one profile's model/API quota/browser pool.
-        # Unset (None) means "no per-profile cap" — backward-compatible with existing installs. Useful for
-        # fan-out workflows that would otherwise saturate one profile's local model / API quota / browser
-        # pool while leaving other profiles idle. See #21582.
-        "max_in_progress_per_profile": None,
-        # Per-home claim allowlist for boards shared across Hermes homes (#110995): profile names
-        # this home's dispatcher may claim (list or comma-separated string). None = any existing
-        # profile is claimable. Set = fail-closed (an empty list claims nothing). Every home has a
-        # root profile named "default", so on a shared kanban.db every home can otherwise claim
-        # default-assigned cards.
-        "dispatch_profiles": None,
-        # Auto-run the decomposer on Triage tasks every tick. False = manual via `hermes kanban
-        # decompose <id>` or the dashboard's Decompose button.
-        "auto_decompose": True,
-        # Max triage tasks decomposed per tick, bounding the aux-LLM burst from a bulk load. Excess
-        # defers to the next tick.
-        "auto_decompose_per_tick": 3,
-        # Running tasks with no heartbeat (last_heartbeat_at) for this many seconds are reclaimed to
-        # ready on the next tick; a still-running local worker is terminated first. 0 = off.
-        "dispatch_stale_timeout_seconds": 14400,
-        # Each tick, requeue 'running' cards with broken claim bookkeeping (claim_lock or
-        # claim_expires NULL with a dead worker) that TTL/crash/stale recovery can't see. False
-        # keeps orphans frozen for manual forensics.
-        "reconcile_orphans": True,
-        # Notify subscriptions survive `done` (completion is reversible) and are removed on archive.
-        # On boards that never archive, the notifier GC purges subscriptions for tasks done with no
-        # activity for this many days so stale rows aren't scanned forever. 0 = off.
-        "done_sub_retention_days": 30,
-    },
+
     # Bot Mode cross-connection relay (tools/bot_relay.py): envelopes queued by message_agent for
     # agents on other connections wait in an on-disk outbox until the Desktop drains them.
     "bot_mode": {
@@ -2085,7 +1868,7 @@ DEFAULT_CONFIG = {
             "max_messages": 10,
         },
     },
-    "gateway": {  # Gateway settings (messaging platforms: Telegram, Discord, Slack, ...).
+    "gateway": {  # Shared gateway and API settings.
         "unmanaged_idle_exit_seconds": 600,  # client-auto-started gateway only; 0 disables
         # Seconds a SIGTERM-interrupted agent unwinds before teardown (short: service stop budgets).
         "signal_interrupt_grace_timeout": 1,
@@ -2095,14 +1878,8 @@ DEFAULT_CONFIG = {
         # boot (ambiguous cases carry a "recovered reply — may be a duplicate" marker;
         # at-least-once). Disable to lose in-flight final responses on crash/restart.
         "delivery_ledger": True,
-        # Seconds to wait for one platform to connect at startup/reconnect; raise on "discord
-        # connect timed out" loops (many slash commands to sync). 0/negative = wait forever. Bridged
-        # to HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT, which wins if set explicitly.
-        # Seconds the gateway waits for a single messaging platform to finish connecting during startup (and
-        # on reconnect). Discord in particular can blow past the old fixed 30s when an account has many
-        # slash commands to sync (#19776: 90-173 skills → ~28-31s sync). Raise this if your gateway hits
-        # "discord connect timed out" / "Timeout waiting for connection to Discord" restart loops. ``0`` or
-        # negative disables the timeout entirely (wait indefinitely).
+        # Seconds to wait for an adapter to connect; 0 or negative waits indefinitely.
+        # HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT overrides this setting.
         "platform_connect_timeout": 30,
         # Event-loop liveness watchdog: a daemon thread probes the asyncio loop; after consecutive
         # missed probes it dumps all-thread stacks and hard-exits with the service-restart code so
@@ -2166,12 +1943,6 @@ DEFAULT_CONFIG = {
         # (gateway/profile_routing.py): [{profile, platform, chat_id|user_id|guild_id|...}].
         # Most-specific match wins; only read by the multiplexing default gateway.
         "profile_routes": [],
-        # Scale-to-zero idle TIMEOUT only. When an instance is opted in via the NAS "Labs" toggle
-        # (HERMES_SCALE_TO_ZERO env stamp) AND messaging is relay-only/absent AND a wakeUrl is
-        # registered, the relay transport goes dormant so the platform (e.g. Fly autostop) can
-        # suspend the machine; it wakes on the wakeUrl poke. Enablement is the Labs toggle, never a
-        # config key. 0/negative = default.
-        "scale_to_zero": {"idle_timeout_minutes": 2},
         # Auto-resume restart-loop breaker. A supervisor-revived gateway auto-resumes the
         # SIGTERM-interrupted session; if that turn keeps triggering the kill, boots no more than
         # `max_gap_seconds` apart (floored by `window_seconds`) chain, and after `max_restarts`
@@ -2188,15 +1959,14 @@ DEFAULT_CONFIG = {
         # message metadata regardless), so enabling later surfaces past send-times too.
         "message_timestamps": {"enabled": False},
         # Max bytes of inbound image/audio/video the gateway buffers into RAM and caches to disk.
-        # Media is read fully into memory first, so unbounded uploads (Discord Nitro: 500 MB) or
+        # Media is read fully into memory first, so unbounded uploads or
         # huge remote URLs can OOM-kill constrained deployments. Enforced in
         # gateway/platforms/base.py for every adapter. 0 = no cap. Default 128 MiB.
         "max_inbound_media_bytes": 134217728,
         # Let adapters read HTTP_PROXY/HTTPS_PROXY/NO_PROXY/SSL_CERT_FILE from the environment and
         # auto-detect generic/macOS system proxies. False when the gateway inherits a proxy it must
         # not use (e.g. a scheduled task picking up a Clash/V2Ray HTTP_PROXY -> "Cannot connect to
-        # host 127.0.0.1:7890"). Per-platform vars (DISCORD_PROXY, TELEGRAM_PROXY, ...) are still
-        # honored.
+        # host 127.0.0.1:7890").
         "trust_env": True,
         # Media delivery. False: any emitted file path is delivered natively unless under the
         # credential/system denylist (/etc, /proc, ~/.ssh, ~/.aws, ~/.hermes/.env, auth.json). True:
@@ -2230,22 +2000,13 @@ DEFAULT_CONFIG = {
             "history_tool_output_max_chars": 0,
         },
     },
-    # Real-time token streaming to messaging platforms (gateway; restart after enabling). Off by
-    # default: costs extra edit/draft API calls per response.
+    # Generic gateway adapter streaming; individual adapters may not support edits.
     "streaming": {
-        "enabled": False,  # When false, each response is delivered as one final message.
-        # auto = native drafts where supported (Telegram DMs, Bot API 9.5+), edits elsewhere
-        # (Discord, Slack, Matrix, Telegram groups); draft = drafts with edit fallback; edit =
-        # progressive editMessageText only; off = disabled.
+        "enabled": False,
         "transport": "auto",
-        # Minimum seconds between progressive edits (Telegram's ~1 edit/s flood envelope).
         "edit_interval": 0.8,
-        # Flush the buffer once this many chars accumulate, so short replies feel instant.
         "buffer_threshold": 24,
-        "cursor": " \u2589",  # Cursor glyph appended to the in-progress message.
-        # Telegram only: when >0, if the preview was visible at least this many seconds the final
-        # edit is sent as a fresh message so the timestamp reflects completion.
-        "fresh_final_after_seconds": 0.0,
+        "cursor": " ▉",
     },
     # Automatic cleanup of ~/.hermes/state.db, which otherwise grows without bound and slows FTS5
     # inserts, /resume listing, and insights queries.
@@ -2944,120 +2705,6 @@ OPTIONAL_ENV_VARS = OptionalEnvVars({
         "OpenViking API key", tools=["viking_search"]),
     "OPENVIKING_ENDPOINT": _tool("OpenViking server URL (default: http://127.0.0.1:1933)",
         "OpenViking endpoint", password=None, advanced=True),
-    # ── Messaging platforms ──
-    "TELEGRAM_BOT_TOKEN": _msg(
-        "Complete Telegram bot token created by @BotFather (numeric bot ID followed by a colon "
-        "and secret)", "Telegram bot token", "https://t.me/BotFather", password=True),
-    "TELEGRAM_ALLOWED_USERS": _msg(
-        "Optional comma-separated numeric Telegram user IDs allowed immediately; leave blank to "
-        "approve new users through DM pairing", "Allowed Telegram user IDs (comma-separated)",
-        "https://t.me/userinfobot"),
-    "TELEGRAM_PROXY": _msg(
-        "Proxy URL for Telegram connections (overrides HTTPS_PROXY). Supports http://, "
-        "https://, socks5://", "Telegram proxy URL (optional)"),
-    "DISCORD_BOT_TOKEN": _msg("Discord bot token from Developer Portal", "Discord bot token",
-        "https://discord.com/developers/applications", password=True),
-    "DISCORD_ALLOWED_USERS": _msg("Comma-separated Discord user IDs allowed to use the bot",
-        "Allowed Discord user IDs (comma-separated)", None),
-    "DISCORD_REPLY_TO_MODE": _msg(
-        "Discord reply threading mode: 'off' (no reply references), 'first' (reply on first "
-        "message only, default), 'all' (reply on every chunk)",
-        "Discord reply mode (off/first/all)", None),
-    "SLACK_BOT_TOKEN": _msg(
-        "Slack bot token (xoxb-). Get from OAuth & Permissions after installing your app. "
-        "Required scopes: chat:write, app_mentions:read, channels:history, groups:history, "
-        "im:history, im:read, im:write, mpim:history, mpim:read, users:read, files:read, "
-        "files:write", "Slack Bot Token (xoxb-...)", "https://api.slack.com/apps",
-        help=("In your Slack app, add the required bot scopes, install the app to the workspace, "
-        "then copy OAuth & Permissions > Bot User OAuth Token."), password=True),
-    "SLACK_APP_TOKEN": _msg(
-        "Slack app-level token (xapp-) for Socket Mode. Get from Basic Information → App-Level "
-        "Tokens. Also ensure Event Subscriptions include: message.im, message.channels, "
-        "message.groups, message.mpim, app_mention", "Slack App Token (xapp-...)",
-        "https://api.slack.com/apps",
-        help=("In your Slack app, enable Socket Mode, then create Basic Information > App-Level "
-        "Tokens with the connections:write scope."), password=True),
-    "SLACK_ALLOWED_USERS": _msg(
-        "Comma-separated Slack member IDs allowed to use Hermes, e.g. U01ABC2DEF3. Without "
-        "this, Slack may connect but deny messages by default.", "Allowed Slack member IDs",
-        "https://api.slack.com/apps",
-        help=("In Slack, open your profile, choose More or the three-dot menu, then Copy member "
-        "ID. Add multiple IDs comma-separated.")),
-    "MATTERMOST_URL": _msg("Mattermost server URL (e.g. https://mm.example.com)",
-        "Mattermost server URL", "https://mattermost.com/deploy/"),
-    "MATTERMOST_TOKEN": _msg("Mattermost bot token or personal access token",
-        "Mattermost bot token", None, password=True),
-    "MATTERMOST_ALLOWED_USERS": _msg("Comma-separated Mattermost user IDs allowed to use the bot",
-        "Allowed Mattermost user IDs (comma-separated)", None),
-    "MATTERMOST_REQUIRE_MENTION": _msg(
-        "Require @mention in Mattermost channels (default: true). Set to false to respond to "
-        "all messages.", "Require @mention in channels", None),
-    "MATTERMOST_FREE_RESPONSE_CHANNELS": _msg(
-        "Comma-separated Mattermost channel IDs where bot responds without @mention",
-        "Free-response channel IDs (comma-separated)", None),
-    "MATRIX_HOMESERVER": _msg("Matrix homeserver URL (e.g. https://matrix.example.org)",
-        "Matrix homeserver URL", "https://matrix.org/ecosystem/servers/"),
-    "MATRIX_ACCESS_TOKEN": _msg("Matrix access token (preferred over password login)",
-        "Matrix access token", None, password=True),
-    "MATRIX_USER_ID": _msg("Matrix user ID (e.g. @hermes:example.org)",
-        "Matrix user ID (@user:server)", None),
-    "MATRIX_ALLOWED_USERS": _msg(
-        "Comma-separated Matrix user IDs allowed to use the bot (@user:server format)",
-        "Allowed Matrix user IDs (comma-separated)", None),
-    "MATRIX_REQUIRE_MENTION": _msg(
-        "Require @mention in Matrix rooms (default: true). Set to false to respond to all "
-        "messages.", "Require @mention in rooms (true/false)", None, advanced=True),
-    "MATRIX_FREE_RESPONSE_ROOMS": _msg(
-        "Comma-separated Matrix room IDs where bot responds without @mention",
-        "Free-response room IDs (comma-separated)", None, advanced=True),
-    "MATRIX_AUTO_THREAD": _msg("Auto-create threads for messages in Matrix rooms (default: true)",
-        "Auto-create threads in rooms (true/false)", None, advanced=True),
-    "MATRIX_DM_AUTO_THREAD": _msg("Auto-create threads for DM messages in Matrix (default: false)",
-        "Auto-create threads in DMs (true/false)", None, advanced=True),
-    "MATRIX_DEVICE_ID": _msg(
-        "Stable Matrix device ID for E2EE persistence across restarts (e.g. HERMES_BOT)",
-        "Matrix device ID (stable across restarts)", None, advanced=True),
-    "MATRIX_RECOVERY_KEY": _msg(
-        "Matrix recovery key for cross-signing verification after device key rotation (from "
-        "Element: Settings → Security → Recovery Key)", "Matrix recovery key", None, password=True,
-        advanced=True),
-    "BLUEBUBBLES_SERVER_URL": _msg(
-        "BlueBubbles server URL for iMessage integration (e.g. http://192.168.1.10:1234)",
-        "BlueBubbles server URL", "https://bluebubbles.app/"),
-    "BLUEBUBBLES_PASSWORD": _msg(
-        "BlueBubbles server password (from BlueBubbles Server → Settings → API)",
-        "BlueBubbles server password", None, password=True),
-    "BLUEBUBBLES_ALLOWED_USERS": _msg(
-        "Comma-separated iMessage addresses (email or phone) allowed to use the bot",
-        "Allowed iMessage addresses (comma-separated)", None),
-    "BLUEBUBBLES_ALLOW_ALL_USERS": _msg("Allow all BlueBubbles users without allowlist",
-        "Allow All BlueBubbles Users", password=None),
-    "QQ_APP_ID": _msg("QQ Bot App ID from QQ Open Platform (q.qq.com)", "QQ App ID",
-        "https://q.qq.com", password=None),
-    "QQ_CLIENT_SECRET": _msg("QQ Bot Client Secret from QQ Open Platform", "QQ Client Secret",
-        password=True),
-    "QQ_ALLOWED_USERS": _msg("Comma-separated QQ user IDs allowed to use the bot",
-        "QQ Allowed Users", password=None),
-    "QQ_GROUP_ALLOWED_USERS": _msg("Comma-separated QQ group IDs allowed to interact with the bot",
-        "QQ Group Allowed Users", password=None),
-    "QQ_ALLOW_ALL_USERS": _msg("Allow all QQ users without an allowlist (true/false)",
-        "Allow All QQ Users", password=None),
-    "QQBOT_HOME_CHANNEL": _msg("Default QQ channel/group for cron delivery and notifications",
-        "QQ Home Channel", password=None),
-    "QQBOT_HOME_CHANNEL_NAME": _msg("Display name for the QQ home channel", "QQ Home Channel Name",
-        password=None),
-    "QQ_SANDBOX": _msg("Enable QQ sandbox mode for development testing (true/false)",
-        "QQ Sandbox Mode", password=None),
-    "IRC_SERVER": _msg("IRC server hostname (e.g. irc.libera.chat)", "IRC server", None),
-    "IRC_CHANNEL": _msg("IRC channel to join (e.g. #hermes)", "IRC channel", None),
-    "IRC_NICKNAME": _msg("Bot nickname on IRC (default: hermes-bot)", "IRC nickname", None),
-    "IRC_SERVER_PASSWORD": _msg("IRC server password (if required)", "IRC server password", None,
-        password=True, advanced=True),
-    "IRC_NICKSERV_PASSWORD": _msg("NickServ password for nick identification", "NickServ password",
-        None, password=True, advanced=True),
-    "GATEWAY_ALLOW_ALL_USERS": _msg(
-        "Allow all users to interact with messaging bots (true/false). Default: false.",
-        "Allow all users (true/false)", None, advanced=True),
     "API_SERVER_ENABLED": _msg(
         "Enable the OpenAI-compatible API server (true/false). Allows frontends like Open "
         "WebUI, LobeChat, etc. to connect.", "Enable API server (true/false)", None, advanced=True),
@@ -3074,16 +2721,6 @@ OPTIONAL_ENV_VARS = OptionalEnvVars({
         "Model name advertised on /v1/models. Defaults to the profile name (or 'hermes-agent' "
         "for the default profile). Useful for multi-user setups with OpenWebUI.",
         "API server model name", None, advanced=True),
-    "GATEWAY_PROXY_URL": _msg(
-        "URL of a remote Hermes API server to forward messages to (proxy mode). When set, the "
-        "gateway handles platform I/O only — all agent work is delegated to the remote server. "
-        "Use for Docker E2EE containers that relay to a host agent. Also configurable via "
-        "gateway.proxy_url in config.yaml.",
-        "Remote Hermes API server URL (e.g. http://192.168.1.100:8642)", None, advanced=True),
-    "GATEWAY_PROXY_KEY": _msg(
-        "Bearer token for authenticating with the remote Hermes API server (proxy mode). Must "
-        "match the API_SERVER_KEY on the remote host.", "Remote API server auth key", None,
-        password=True, advanced=True),
     "WEBHOOK_ENABLED": _msg(
         "Enable the webhook platform adapter for receiving events from GitHub, GitLab, etc.",
         "Enable webhooks (true/false)", None),

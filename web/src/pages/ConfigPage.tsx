@@ -22,13 +22,13 @@ import {
   Volume2,
   Ear,
   ClipboardList,
-  MessageCircle,
+
   Wrench,
   FileQuestion,
   Filter,
   Cloud,
   Sparkles,
-  LayoutDashboard,
+
   BookOpen,
   Route,
   History,
@@ -74,11 +74,11 @@ const CATEGORY_ICONS: Record<
   tts: Volume2,
   stt: Ear,
   logging: ClipboardList,
-  discord: MessageCircle,
+
   auxiliary: Wrench,
   bedrock: Cloud,
   curator: Sparkles,
-  kanban: LayoutDashboard,
+
   model_catalog: BookOpen,
   openrouter: Route,
   sessions: History,

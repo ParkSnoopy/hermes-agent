@@ -195,11 +195,6 @@ def show_config():
     _show_compression_section(config)
     _show_aux_overrides(config)
 
-    _section("Messaging Platforms")
-    for label, env_key in (("Telegram", "TELEGRAM_BOT_TOKEN"), ("Discord", "DISCORD_BOT_TOKEN")):
-        state = 'configured' if _cfg.get_env_value(env_key) else color('not configured', Colors.DIM)
-        print(f"  {label + ':':<13} {state}")
-
     _show_skill_settings()
 
     print()

@@ -3,7 +3,7 @@
 Emitted ids/lane keys must stay byte-compatible with the renderer's persisted state
 (pins, ordering, dismissal), which keys off: explicit project id ``p_<hex>``; auto
 project id / repo node id = repo root path; home bucket ``__no_project__``; main lane
-``<repoRoot>::branch::<branch>``; kanban lane ``<repoRoot>::kanban``; linked worktree
+``<repoRoot>::branch::<branch>``; linked worktree
 lane = the worktree path. Linked worktrees fold under their MAIN repo (common-dir probe).
 """
 
@@ -19,9 +19,6 @@ Resolve = Callable[[str], Optional[dict]]
 # "does this directory still exist?"; always-True default keeps remote-host projects visible.
 Exists = Callable[[str], bool]
 
-# Only KANBAN-TASK worktrees (`<repo>/.worktrees/t_<hex>`, the id kanban_db mints)
-# collapse into one lane; user-named dirs under `.worktrees/` stay their own lanes.
-_KANBAN_DIR_RE = re.compile(r"^(.*[/\\]\.worktrees)[/\\]t_[0-9a-f]+[/\\]?$")
 _TRUNK_BRANCHES = {"main", "master", "trunk", "develop"}
 DEFAULT_BRANCH_LABEL = "main"
 
@@ -47,9 +44,6 @@ def _branch_lane_id(repo_root: str, branch: str = "") -> str:
     """The one definition of a main-checkout lane id (must match the desktop)."""
     return f"{repo_root}::branch::{(branch or '').strip()}"
 
-
-def _kanban_lane_id(repo_root: str) -> str:
-    return f"{repo_root}::kanban"
 
 
 def _segments(path: str) -> list[str]:
@@ -85,7 +79,7 @@ def _path_key(path: str) -> str:
 
 def _lane_key(path_or_lane: str) -> str:
     """Canonicalize only the path portion of a lane id (branch labels stay byte-preserved)."""
-    marker = next((m for m in ("::branch::", "::kanban") if m in path_or_lane), None)
+    marker = next((m for m in ("::branch::",) if m in path_or_lane), None)
     if marker is None:
         return _path_key(path_or_lane)
     root, suffix = path_or_lane.split(marker, 1)
@@ -96,11 +90,6 @@ def base_name(path: str) -> str:
     segs = _segments(path)
     return segs[-1] if segs else ""
 
-
-def kanban_worktree_dir(path: str) -> Optional[str]:
-    """The ``<repo>/.worktrees`` dir for a ``.../.worktrees/<task>`` path, else None."""
-    m = _KANBAN_DIR_RE.match(path or "")
-    return m.group(1) if m else None
 
 
 def _with_base_name(path: str, name: str = "") -> str:
@@ -121,23 +110,19 @@ def _last_active(sessions: list[dict]) -> float:
 
 
 def _placement(
-    repo_root: str, lane_key: str, lane_label: str, lane_path: str, is_main: bool, is_kanban: bool,
+    repo_root: str, lane_key: str, lane_label: str, lane_path: str, is_main: bool,
     is_git: bool = True,
 ) -> dict:
     return {
         "repo_key": repo_root, "repo_label": base_name(repo_root) or repo_root,
         "lane_key": lane_key, "lane_label": lane_label, "lane_path": lane_path,
-        "is_main": is_main, "is_kanban": is_kanban, "is_git": is_git}
+        "is_main": is_main, "is_git": is_git}
 
 
 def _trunk_placement(repo_root: str, branch: str) -> dict:
     # An unrecorded branch folds into the trunk lane so a repo never shows two "main" lanes.
     b = (branch or "").strip() or DEFAULT_BRANCH_LABEL
-    return _placement(repo_root, _branch_lane_id(repo_root, b), b, repo_root, True, False)
-
-
-def _kanban_placement(repo_root: str, kanban_dir: str) -> dict:
-    return _placement(repo_root, _kanban_lane_id(repo_root), "kanban", kanban_dir, False, True)
+    return _placement(repo_root, _branch_lane_id(repo_root, b), b, repo_root, True)
 
 
 def _probe_sibling_worktree(cwd: str, resolve: Resolve) -> str:
@@ -164,15 +149,13 @@ def _place_by_heuristic(path: str) -> Optional[dict]:
     base = base_name(path)
     if not base:
         return None
-    kanban_dir = kanban_worktree_dir(path)
-    if kanban_dir:
-        return _kanban_placement(_with_base_name(kanban_dir), kanban_dir)
+
     m = re.match(r"^(.+)-wt-(.+)$", base)
     if m:
-        return _placement(_with_base_name(path, m.group(1)), path, m.group(2), path, False, False)
+        return _placement(_with_base_name(path, m.group(1)), path, m.group(2), path, False)
     # No git knowledge at all: the lane is the folder itself, not a branch —
     # is_git=False tells the renderer never to `git switch` it (#61362).
-    return _placement(path, _branch_lane_id(path, DEFAULT_BRANCH_LABEL), base, path, True, False, is_git=False)
+    return _placement(path, _branch_lane_id(path, DEFAULT_BRANCH_LABEL), base, path, True, is_git=False)
 
 
 def _place(
@@ -182,17 +165,11 @@ def _place(
         repo_root, worktree_root = info["repo_root"], info["worktree_root"]
         if _path_key(worktree_root) == _path_key(repo_root) or info.get("is_main"):
             return _trunk_placement(repo_root, branch)
-        kanban_dir = kanban_worktree_dir(worktree_root)
-        if kanban_dir:
-            return _kanban_placement(repo_root, kanban_dir)
         label = base_name(worktree_root) or worktree_root
-        return _placement(repo_root, worktree_root, label, worktree_root, False, False)
+        return _placement(repo_root, worktree_root, label, worktree_root, False)
 
-    # No live probe: trust the persisted root; kanban tasks still collapse by path shape.
+    # No live probe: trust the persisted root.
     if persisted_root:
-        kanban_dir = kanban_worktree_dir(cwd)
-        if kanban_dir:
-            return _kanban_placement(persisted_root, kanban_dir)
         return _trunk_placement(persisted_root, branch)
 
     # Unresolvable cwd: a deleted ``<repo>-<suffix>`` worktree still belongs to its parent.
@@ -223,9 +200,9 @@ def _session_repo_root(session: dict, resolve: Optional[Resolve]) -> str:
 
 
 def _lane_sort_key(group: dict) -> tuple:
-    # Trunk pins to the top, the kanban aggregate to the bottom; the rest by recency, then label.
+    # Trunk pins to the top; the rest sort by recency, then label.
     is_trunk = bool(group.get("isMain")) and group["label"].lower() in _TRUNK_BRANCHES
-    return (0 if is_trunk else 1, 1 if group.get("isKanban") else 0,
+    return (0 if is_trunk else 1,
             -_last_active(group.get("sessions") or []), group["label"].lower())
 
 
@@ -249,8 +226,8 @@ def _disambiguate_labels(items: list[dict]) -> None:
 
 
 # Lane group wire fields <- placement keys (same order).
-_LANE_FIELDS = ("id", "label", "path", "isMain", "isKanban", "isGit")
-_PLACEMENT_LANE_KEYS = ("lane_key", "lane_label", "lane_path", "is_main", "is_kanban", "is_git")
+_LANE_FIELDS = ("id", "label", "path", "isMain", "isGit")
+_PLACEMENT_LANE_KEYS = ("lane_key", "lane_label", "lane_path", "is_main", "is_git")
 
 
 def _repo_node(root: str, label: str) -> dict:
@@ -401,7 +378,7 @@ def _home_project(homeless: list[dict], hydrate: bool, previews: list[dict]) -> 
     """The synthetic Home bucket: no folder => no repo/lane structure, one lane carries the rows."""
     lane = {
         "id": NO_PROJECT_ID, "label": NO_PROJECT_LABEL, "path": None, "isMain": False,
-        "isKanban": False, "sessions": homeless if hydrate else []}
+        "sessions": homeless if hydrate else []}
     home_repo = {
         "id": NO_PROJECT_ID, "label": NO_PROJECT_LABEL, "path": None, "groups": [lane],
         "sessionCount": len(homeless)}

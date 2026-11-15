@@ -12,9 +12,6 @@ import {
 } from '@/store/gateway-switch'
 import {
   $cronSessions,
-  $messagingPlatformTotals,
-  $messagingSessions,
-  $messagingTruncated,
   $sessionProfilesFailed,
   $sessionProfilesTruncated,
   $sessionProfilesUsage,
@@ -22,9 +19,6 @@ import {
   $sessionsLoadError,
   $sessionsLoading,
   setCronSessions,
-  setMessagingPlatformTotals,
-  setMessagingSessions,
-  setMessagingTruncated,
   setSessionProfilesFailed,
   setSessionProfilesTruncated,
   setSessionProfilesUsage,
@@ -61,21 +55,18 @@ const row = (id: string, over: Partial<SessionInfo> = {}): SessionInfo =>
   }) as SessionInfo
 
 // Batched sidebar response builder. `refreshSessions` now makes ONE
-// listSidebarSessions call that returns all three slices, replacing the three
-// separate listAllProfileSessions calls (each of which reopened every profile
+// listSidebarSessions call that returns both slices, replacing separate
+// listAllProfileSessions calls (each of which reopened every profile
 // DB) — #66377-adjacent perf work from the desktop audit canvas.
 const sidebar = (
   recents: { sessions: SessionInfo[]; profiles_truncated?: Record<string, boolean> },
-  cron: SessionInfo[] = [],
-  messaging: SessionInfo[] = []
+  cron: SessionInfo[] = []
 ): SidebarSessionsResponse => ({
   recents: { sessions: recents.sessions, profiles_truncated: recents.profiles_truncated },
-  cron: { sessions: cron },
-  messaging: { sessions: messaging }
+  cron: { sessions: cron }
 })
 
 const listSidebarSessions = vi.fn()
-const listAllProfileSessions = vi.fn()
 const getCronJobs = vi.fn()
 const gatewayScope = vi.hoisted(() => ({ epoch: 0 }))
 
@@ -89,7 +80,6 @@ interface Deferred<T> {
 vi.mock('@/hermes', async importOriginal => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getCronJobs: (...args: unknown[]) => getCronJobs(...args),
-  listAllProfileSessions: (...args: unknown[]) => listAllProfileSessions(...args),
   listSidebarSessions: (...args: unknown[]) => listSidebarSessions(...args)
 }))
 
@@ -123,14 +113,10 @@ beforeEach(() => {
   getCronJobs.mockReset()
   getCronJobs.mockResolvedValue([])
   listSidebarSessions.mockReset()
-  listAllProfileSessions.mockReset()
   removed.ids = new Set()
   setCronJobs([])
   setSessions([])
   setCronSessions([])
-  setMessagingSessions([])
-  setMessagingPlatformTotals({})
-  setMessagingTruncated(false)
   setSessionProfilesTruncated({})
   setSessionProfilesUsage({})
   setSessionProfilesFailed([])
@@ -142,9 +128,6 @@ afterEach(() => {
   setCronJobs([])
   setSessions([])
   setCronSessions([])
-  setMessagingSessions([])
-  setMessagingPlatformTotals({})
-  setMessagingTruncated(false)
   setSessionProfilesTruncated({})
   setSessionProfilesUsage({})
   setSessionsLoading(false)
@@ -159,9 +142,8 @@ describe('workspace-only sidebar refresh', () => {
       const incoming = { ...previous, [field]: '/new' }
       setSessions([previous])
       setCronSessions([{ ...previous, source: 'cron' }])
-      setMessagingSessions([{ ...previous, source: 'telegram' }])
       listSidebarSessions.mockResolvedValue(
-        sidebar({ sessions: [incoming] }, [{ ...incoming, source: 'cron' }], [{ ...incoming, source: 'telegram' }])
+        sidebar({ sessions: [incoming] }, [{ ...incoming, source: 'cron' }])
       )
       const { result } = renderHook(() => useSessionListActions({ profileScope: 'default' }))
 
@@ -169,15 +151,15 @@ describe('workspace-only sidebar refresh', () => {
         await result.current.refreshSessions()
       })
 
-      for (const store of [$sessions, $cronSessions, $messagingSessions]) {
+      for (const store of [$sessions, $cronSessions]) {
         expect(store.get()[0]?.[field]).toBe('/new')
       }
 
-      const snapshots = [$sessions.get(), $cronSessions.get(), $messagingSessions.get()]
+      const snapshots = [$sessions.get(), $cronSessions.get()]
       await act(async () => {
         await result.current.refreshSessions()
       })
-      ;[$sessions, $cronSessions, $messagingSessions].forEach((store, i) => {
+      ;[$sessions, $cronSessions].forEach((store, i) => {
         expect(store.get()).toBe(snapshots[i])
       })
     }
@@ -227,7 +209,7 @@ describe('refreshSessions cold-start load error', () => {
     listSidebarSessions.mockResolvedValueOnce({
       cron: { errors: [{ error: 'schema heal exhausted', profile: 'default' }], failed: true, retry: true },
       errors: [{ error: 'schema heal exhausted', profile: 'default' }],
-      messaging: { errors: [{ error: 'schema heal exhausted', profile: 'default' }], failed: true, retry: true },
+
       recents: { errors: [{ error: 'schema heal exhausted', profile: 'default' }], failed: true, retry: true }
     })
     const { result } = renderHook(() => useSessionListActions({ profileScope: 'default' }))
@@ -507,7 +489,6 @@ describe('refreshSessions identity + loading hygiene', () => {
 
     setSessionProfilesTruncated({ default: true })
     setSessionProfilesUsage({ default: { cost_usd: 3, tokens: 30 } })
-    setMessagingTruncated(true)
 
     listSidebarSessions.mockResolvedValue({
       ...sidebar({ sessions: [] }),
@@ -521,7 +502,6 @@ describe('refreshSessions identity + loading hygiene', () => {
     expect($sessions.get().map(s => s.id)).toEqual(['yesterday', 'week'])
     expect($sessionProfilesTruncated.get()).toEqual({ default: true })
     expect($sessionProfilesUsage.get()).toEqual({ default: { cost_usd: 3, tokens: 30 } })
-    expect($messagingTruncated.get()).toBe(true)
   })
 
   it('still accepts a genuine empty recents page when the backend reported no errors', async () => {
@@ -539,40 +519,6 @@ describe('refreshSessions identity + loading hygiene', () => {
     })
 
     expect($sessions.get()).toEqual([])
-  })
-
-  it('drops tombstoned rows from the messaging slice and per-platform paging too (#50928)', async () => {
-    // The same delete race exists on every ingestion point: the batched
-    // refresh's messaging slice and the per-platform "load more" pager must
-    // both honor the tombstone, or a deleted platform thread resurrects.
-    removed.ids = new Set(['tg-2'])
-    listSidebarSessions.mockResolvedValue(
-      sidebar({ sessions: [] }, [], [row('tg-1', { source: 'telegram' }), row('tg-2', { source: 'telegram' })])
-    )
-
-    const { result } = renderHook(() => useSessionListActions({ profileScope: 'default' }))
-
-    await act(async () => {
-      await result.current.refreshSessions()
-    })
-
-    expect($messagingSessions.get().map(s => s.id)).toEqual(['tg-1'])
-
-    // Per-platform pager: backend page still lists the doomed row.
-    listAllProfileSessions.mockResolvedValue({
-      sessions: [
-        row('tg-1', { source: 'telegram' }),
-        row('tg-2', { source: 'telegram' }),
-        row('tg-3', { source: 'telegram' })
-      ],
-      total: 3
-    })
-
-    await act(async () => {
-      await result.current.loadMoreMessagingForPlatform('telegram')
-    })
-
-    expect($messagingSessions.get().map(s => s.id)).toEqual(['tg-1', 'tg-3'])
   })
 
   it('still shows loading for the initial (empty-list) fetch', async () => {
@@ -602,10 +548,8 @@ describe('refreshSessions identity + loading hygiene', () => {
     expect($sessionsLoading.get()).toBe(true)
 
     ownsRefresh = false
-    setSessions([row('winner')])
+    setSessions([row('winner'), row('winner-message', { source: 'signal' })])
     setCronSessions([row('winner-cron', { source: 'cron' })])
-    setMessagingSessions([row('winner-message', { source: 'signal' })])
-    setMessagingTruncated(true)
     setSessionProfilesTruncated({ winner: true })
     setSessionProfilesUsage({ winner: { cost_usd: 2, tokens: 20 } })
     setSessionsLoading(true)
@@ -618,15 +562,13 @@ describe('refreshSessions identity + loading hygiene', () => {
           sessions: [row('stale')]
         },
         cron: { sessions: [row('stale-cron', { source: 'cron' })] },
-        messaging: { sessions: [row('stale-message', { source: 'telegram' })] }
+
       })
       await refresh
     })
 
-    expect($sessions.get().map(session => session.id)).toEqual(['winner'])
+    expect($sessions.get().map(session => session.id)).toEqual(['winner', 'winner-message'])
     expect($cronSessions.get().map(session => session.id)).toEqual(['winner-cron'])
-    expect($messagingSessions.get().map(session => session.id)).toEqual(['winner-message'])
-    expect($messagingTruncated.get()).toBe(true)
     expect($sessionProfilesTruncated.get()).toEqual({ winner: true })
     expect($sessionProfilesUsage.get()).toEqual({ winner: { cost_usd: 2, tokens: 20 } })
     expect($sessionsLoading.get()).toBe(true)
@@ -666,15 +608,13 @@ describe('refreshSessions identity + loading hygiene', () => {
             sessions: [row('stale')]
           },
           cron: { sessions: [row('stale-cron', { source: 'cron' })] },
-          messaging: { sessions: [row('stale-message', { source: 'telegram' })] }
+
         })
         await pending.promise
       })
 
       expect($sessions.get()).toEqual([])
       expect($cronSessions.get()).toEqual([])
-      expect($messagingSessions.get()).toEqual([])
-      expect($messagingTruncated.get()).toBe(false)
       expect($sessionProfilesTruncated.get()).toEqual({})
       expect($sessionProfilesUsage.get()).toEqual({})
       expect($sessionsLoading.get()).toBe(true)
@@ -766,6 +706,34 @@ describe('refreshSessions identity + loading hygiene', () => {
 })
 
 describe('refreshSessions batches slices into one request', () => {
+  it('returns historical messaging and kanban conversations in recents', async () => {
+    const rows = [
+      row('telegram-history', { source: 'telegram', profile: 'work' }),
+      row('signal-history', { source: 'signal', profile: 'work' }),
+      row('kanban-history', { source: 'kanban', profile: 'work' }),
+      row('cron-run', { source: 'cron', profile: 'work' }),
+      row('tool-run', { source: 'tool', profile: 'work' })
+    ]
+    listSidebarSessions.mockImplementation(async ({ recentsExclude }: { recentsExclude: string[] }) =>
+      sidebar({ sessions: rows.filter(session => !recentsExclude.includes(session.source ?? '')) })
+    )
+    const { result } = renderHook(() => useSessionListActions({ profileScope: 'work' }))
+
+    await act(async () => {
+      await result.current.refreshSessions()
+    })
+
+    expect(listSidebarSessions).toHaveBeenCalledWith(expect.objectContaining({
+      recentsProfile: 'work',
+      recentsExclude: ['acp', 'cron', 'oneshot', 'subagent', 'tool']
+    }))
+    expect($sessions.get().map(({ id, source, profile }) => ({ id, source, profile }))).toEqual([
+      { id: 'telegram-history', source: 'telegram', profile: 'work' },
+      { id: 'signal-history', source: 'signal', profile: 'work' },
+      { id: 'kanban-history', source: 'kanban', profile: 'work' }
+    ])
+  })
+
   it('forwards the active profile scope + section limits to the batched call', async () => {
     listSidebarSessions.mockResolvedValue(sidebar({ sessions: [] }))
     const { result } = renderHook(() => useSessionListActions({ profileScope: 'work' }))
@@ -778,7 +746,7 @@ describe('refreshSessions batches slices into one request', () => {
       expect.objectContaining({
         recentsProfile: 'work',
         recentsExclude: expect.arrayContaining(['cron']),
-        messagingExclude: expect.arrayContaining(['cron'])
+
       })
     )
   })
@@ -862,8 +830,7 @@ describe('refreshSessions batches slices into one request', () => {
       personal.resolve(
         sidebar(
           { sessions: [row('personal-session', { profile: 'personal' })] },
-          [row('personal-cron', { profile: 'personal', source: 'cron' })],
-          [row('personal-signal', { profile: 'personal', source: 'signal' })]
+          [row('personal-cron', { profile: 'personal', source: 'cron' })]
         )
       )
       await personalRefresh
@@ -871,8 +838,7 @@ describe('refreshSessions batches slices into one request', () => {
       work.resolve(
         sidebar(
           { sessions: [row('work-session', { profile: 'work' })] },
-          [row('work-cron', { profile: 'work', source: 'cron' })],
-          [row('work-telegram', { profile: 'work', source: 'telegram' })]
+          [row('work-cron', { profile: 'work', source: 'cron' })]
         )
       )
       await workRefresh
@@ -880,7 +846,6 @@ describe('refreshSessions batches slices into one request', () => {
 
     expect($sessions.get().map(session => session.id)).toEqual(['personal-session'])
     expect($cronSessions.get().map(session => session.id)).toEqual(['personal-cron'])
-    expect($messagingSessions.get().map(session => session.id)).toEqual(['personal-signal'])
   })
 
   it('ignores an in-flight response after the source changes with the same profile', async () => {
@@ -896,16 +861,15 @@ describe('refreshSessions batches slices into one request', () => {
 
     await act(async () => {
       personal.resolve(
-        sidebar({ sessions: [row('personal-session')] }, [], [row('personal-chat', { source: 'telegram' })])
+        sidebar({ sessions: [row('personal-session')] })
       )
       await personalRefresh
 
-      work.resolve(sidebar({ sessions: [row('work-session')] }, [], [row('work-chat', { source: 'signal' })]))
+      work.resolve(sidebar({ sessions: [row('work-session')] }))
       await workRefresh
     })
 
     expect($sessions.get().map(session => session.id)).toEqual(['personal-session'])
-    expect($messagingSessions.get().map(session => session.id)).toEqual(['personal-chat'])
   })
 
   it('requests cron jobs for the unified scope', async () => {
@@ -943,215 +907,5 @@ describe('refreshSessions batches slices into one request', () => {
 
     expect(getCronJobs.mock.calls.map(call => call[0])).toEqual(['work', 'personal'])
     expect($cronJobs.get().map(job => job.id)).toEqual(['personal-job'])
-  })
-})
-
-describe('messaging profile scope', () => {
-  it('keeps the explicit all-profiles view unified', async () => {
-    listAllProfileSessions.mockResolvedValue({ sessions: [], total: 0 })
-    const { result } = renderHook(() => useSessionListActions({ profileScope: '__all__' }))
-
-    await act(async () => {
-      await result.current.refreshMessagingSessions()
-    })
-
-    expect(listAllProfileSessions.mock.calls[0][4]).toBe('all')
-  })
-
-  it('keeps per-platform pagination on the active profile', async () => {
-    setMessagingSessions([row('m1', { profile: 'work', source: 'signal' })])
-    listAllProfileSessions.mockResolvedValue({
-      sessions: [row('m1', { profile: 'work', source: 'signal' }), row('m2', { profile: 'work', source: 'signal' })],
-      total: 2
-    })
-    const { result } = renderHook(() => useSessionListActions({ profileScope: 'work' }))
-
-    await act(async () => {
-      await result.current.loadMoreMessagingForPlatform('signal')
-    })
-
-    expect(listAllProfileSessions.mock.calls[0][4]).toBe('work')
-    expect($messagingSessions.get().map(s => s.id)).toEqual(['m1', 'm2'])
-    expect($messagingPlatformTotals.get()).toEqual({ 'work:signal': 2 })
-  })
-
-  it('keeps rows from every profile when paginating the unified scope', async () => {
-    setMessagingSessions([row('work-signal', { profile: 'work', source: 'signal' })])
-    listAllProfileSessions.mockResolvedValue({
-      sessions: [
-        row('work-signal', { profile: 'work', source: 'signal' }),
-        row('personal-signal', { profile: 'personal', source: 'signal' })
-      ],
-      total: 2
-    })
-
-    const { result } = renderHook(() => useSessionListActions({ profileScope: '__all__' }))
-
-    await act(async () => {
-      await result.current.loadMoreMessagingForPlatform('signal')
-    })
-
-    expect(listAllProfileSessions.mock.calls[0][4]).toBe('all')
-    expect($messagingSessions.get().map(session => session.id)).toEqual(['work-signal', 'personal-signal'])
-    expect($messagingPlatformTotals.get()).toEqual({ 'all:signal': 2 })
-  })
-
-  it('keeps loaded platform rows when pagination fails', async () => {
-    const loaded = [row('work-signal', { profile: 'work', source: 'signal' })]
-    setMessagingSessions(loaded)
-    setMessagingPlatformTotals({ 'work:signal': 12 })
-    listAllProfileSessions.mockRejectedValue(new Error('request failed'))
-
-    const { result } = renderHook(() => useSessionListActions({ profileScope: 'work' }))
-
-    await act(async () => {
-      await expect(result.current.loadMoreMessagingForPlatform('signal')).resolves.toBeUndefined()
-    })
-
-    expect($messagingSessions.get()).toEqual(loaded)
-    expect($messagingPlatformTotals.get()).toEqual({ 'work:signal': 12 })
-  })
-
-  it('keeps resolved platform totals separate across profile switches', async () => {
-    listAllProfileSessions.mockResolvedValue({
-      sessions: [row('work-signal', { profile: 'work', source: 'signal' })],
-      total: 42
-    })
-
-    const { rerender, result } = renderHook(({ profileScope }) => useSessionListActions({ profileScope }), {
-      initialProps: { profileScope: 'work' }
-    })
-
-    await act(async () => {
-      await result.current.loadMoreMessagingForPlatform('signal')
-    })
-
-    expect($messagingPlatformTotals.get()).toEqual({ 'work:signal': 42 })
-
-    rerender({ profileScope: 'personal' })
-
-    expect($messagingPlatformTotals.get()['personal:signal']).toBeUndefined()
-    expect($messagingPlatformTotals.get()['work:signal']).toBe(42)
-
-    listAllProfileSessions.mockResolvedValue({
-      sessions: [row('personal-signal', { profile: 'personal', source: 'signal' })],
-      total: 3
-    })
-
-    await act(async () => {
-      await result.current.loadMoreMessagingForPlatform('signal')
-    })
-
-    expect($messagingPlatformTotals.get()).toEqual({ 'personal:signal': 3, 'work:signal': 42 })
-
-    rerender({ profileScope: 'work' })
-
-    expect($messagingPlatformTotals.get()['work:signal']).toBe(42)
-  })
-
-  it('ignores an older overlapping load-more response for the same profile and platform', async () => {
-    const older = deferred<{ sessions: SessionInfo[]; total: number }>()
-    const newer = deferred<{ sessions: SessionInfo[]; total: number }>()
-
-    setMessagingSessions([row('m1', { profile: 'work', source: 'signal' })])
-    listAllProfileSessions.mockImplementationOnce(() => older.promise).mockImplementationOnce(() => newer.promise)
-
-    const { result } = renderHook(() => useSessionListActions({ profileScope: 'work' }))
-    const olderLoad = result.current.loadMoreMessagingForPlatform('signal')
-
-    setMessagingSessions([
-      row('m1', { profile: 'work', source: 'signal' }),
-      row('m2', { profile: 'work', source: 'signal' })
-    ])
-    const newerLoad = result.current.loadMoreMessagingForPlatform('signal')
-
-    await act(async () => {
-      newer.resolve({
-        sessions: [
-          row('m1', { profile: 'work', source: 'signal' }),
-          row('m2', { profile: 'work', source: 'signal' }),
-          row('m3', { profile: 'work', source: 'signal' })
-        ],
-        total: 3
-      })
-      await newerLoad
-
-      older.resolve({
-        sessions: [row('m1', { profile: 'work', source: 'signal' }), row('m2', { profile: 'work', source: 'signal' })],
-        total: 2
-      })
-      await olderLoad
-    })
-
-    expect($messagingSessions.get().map(session => session.id)).toEqual(['m1', 'm2', 'm3'])
-    expect($messagingPlatformTotals.get()).toEqual({ 'work:signal': 3 })
-  })
-
-  it('ignores an in-flight response after the active profile changes', async () => {
-    const work = deferred<{ sessions: SessionInfo[]; total: number }>()
-    const personal = deferred<{ sessions: SessionInfo[]; total: number }>()
-
-    listAllProfileSessions.mockImplementation((_limit, _min, _archived, _order, profile) =>
-      profile === 'work' ? work.promise : personal.promise
-    )
-
-    const { rerender, result } = renderHook(({ profileScope }) => useSessionListActions({ profileScope }), {
-      initialProps: { profileScope: 'work' }
-    })
-
-    const workRefresh = result.current.refreshMessagingSessions()
-    rerender({ profileScope: 'personal' })
-    const personalRefresh = result.current.refreshMessagingSessions()
-
-    await act(async () => {
-      personal.resolve({
-        sessions: [row('personal-message', { profile: 'personal', source: 'telegram' })],
-        total: 1
-      })
-      await personalRefresh
-      work.resolve({ sessions: [row('work-message', { profile: 'work', source: 'signal' })], total: 1 })
-      await workRefresh
-    })
-
-    expect(listAllProfileSessions.mock.calls.map(call => call[4])).toEqual(['work', 'personal'])
-    expect($messagingSessions.get().map(session => session.id)).toEqual(['personal-message'])
-  })
-
-  it('does not let a callback captured before a profile switch disturb current totals', async () => {
-    listAllProfileSessions.mockResolvedValue({ sessions: [], total: 0 })
-    setMessagingPlatformTotals({ 'work:signal': 12 })
-
-    const { rerender, result } = renderHook(({ profileScope }) => useSessionListActions({ profileScope }), {
-      initialProps: { profileScope: 'work' }
-    })
-
-    const staleRefresh = result.current.refreshMessagingSessions
-
-    rerender({ profileScope: 'personal' })
-
-    await act(async () => {
-      await staleRefresh()
-    })
-
-    expect(listAllProfileSessions).not.toHaveBeenCalled()
-    expect($messagingPlatformTotals.get()).toEqual({ 'work:signal': 12 })
-  })
-
-  it('re-reads the messaging slice when a same-route re-activation lands mid-refresh', async () => {
-    const pending = deferred<{ sessions: SessionInfo[]; total: number }>()
-    const rows = [row('tg', { source: 'telegram' })]
-    listAllProfileSessions.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ sessions: rows, total: 1 })
-    const { result } = renderHook(() => useSessionListActions({ profileScope: 'default' }))
-
-    const refresh = result.current.refreshMessagingSessions()
-    gatewayScope.epoch += 1
-
-    await act(async () => {
-      pending.resolve({ sessions: rows, total: 1 })
-      await refresh
-    })
-
-    expect(listAllProfileSessions).toHaveBeenCalledTimes(2)
-    expect($messagingSessions.get().map(session => session.id)).toEqual(['tg'])
   })
 })

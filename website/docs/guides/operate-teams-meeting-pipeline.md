@@ -72,7 +72,7 @@ hermes cron create "0 */12 * * *" \
   --name "teams-pipeline-maintain-subscriptions" \
   --no-agent \
   --script maintain-teams-subscriptions.sh \
-  --deliver local
+  --deliver none
 ```
 
 Verify it was registered and inspect the next run time:
@@ -221,8 +221,8 @@ Check:
 ### Summaries are produced but not delivered to Teams
 
 Check:
-- `platforms.teams.enabled: true`
-- `delivery_mode`
+- `platforms.msgraph_webhook.extra.meeting_pipeline.teams_delivery.enabled: true`
+- `delivery_mode` in the `teams_delivery` block (configured values take precedence over `TEAMS_*` environment variables)
 - `incoming_webhook_url` for webhook mode
 - `chat_id` or `team_id` plus `channel_id` for Graph mode
 - Teams auth config if Graph posting is used
@@ -292,4 +292,3 @@ Use this before changing the deployment:
 ## Related Docs
 
 - [Teams Meetings setup](../user-guide/messaging/teams-meetings.md)
-- [Microsoft Teams bot setup](../user-guide/messaging/teams.md)

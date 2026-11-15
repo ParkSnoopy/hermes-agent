@@ -19,7 +19,7 @@ description: "使用 Ollama 和 Gemma 4 等开放权重模型在本机完整运�
 - Ollama 提供一个或多个开放权重模型的服务
 - Hermes 通过自定义端点连接到 Ollama
 - 一个可以编辑文件、执行命令、浏览网页的本地 agent
-- 可选：由你自己的硬件驱动的 Telegram/Discord 机器人
+
 
 ## 所需条件
 
@@ -198,50 +198,7 @@ ollama ps   # 显示已加载的模型及 GPU 层数
 
 对于 12 GB 显存 GPU 上的 31B 模型，你将获得部分卸载（约 40 层在 GPU 上，其余在 CPU 上），仍能带来显著的速度提升。
 
-## 第七步：作为 Gateway 机器人运行（可选）
-
-一旦 Hermes 在 CLI 中本地运行正常，你可以将其作为 Telegram 或 Discord 机器人对外提供服务——仍完全运行在你的硬件上。
-
-### Telegram
-
-1. 通过 [@BotFather](https://t.me/BotFather) 创建机器人并获取 token
-2. 添加到 `~/.hermes/config.yaml`：
-
-```yaml
-model:
-  default: "gemma4:31b"
-  provider: "custom"
-  base_url: "http://localhost:11434/v1"
-
-platforms:
-  telegram:
-    enabled: true
-    token: "YOUR_TELEGRAM_BOT_TOKEN"
-```
-
-3. 启动 gateway：
-
-```bash
-hermes gateway
-```
-
-现在在 Telegram 上给你的机器人发消息——它将使用你的本地模型进行响应。
-
-### Discord
-
-1. 在 [discord.com/developers](https://discord.com/developers/applications) 创建 Discord 应用
-2. 添加到配置：
-
-```yaml
-platforms:
-  discord:
-    enabled: true
-    token: "YOUR_DISCORD_BOT_TOKEN"
-```
-
-3. 启动：`hermes gateway`
-
-## 第八步：设置回退方案（可选）
+## 第七步：设置回退方案（可选）
 
 本地模型在处理复杂任务时可能力不从心。设置一个仅在本地模型失败时激活的云端回退：
 
@@ -306,7 +263,7 @@ Ollama 默认上下文（2048 token）对于 agentic 工作来说太小。请参
 - **终端命令** —— Hermes 封装命令、执行并读取输出，与模型无关
 - **网页浏览** —— 浏览器工具负责抓取内容，模型只需解读结果
 - **定时任务（Cron job）和计划任务** —— 与云端设置完全一致
-- **多平台 gateway** —— Telegram、Discord、Slack 均可与本地模型配合使用
+
 
 ## 云端模型更具优势的场景
 

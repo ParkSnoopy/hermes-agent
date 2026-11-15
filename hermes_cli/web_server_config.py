@@ -212,7 +212,7 @@ _CATEGORY_MERGE: dict[str, str] = {
     "goals": "agent",
     "updates": "general",
     "onboarding": "agent",
-    "telegram": "discord",
+
     "mcp": "agent",
     "computer_use": "agent",
     "telemetry": "security",
@@ -608,7 +608,7 @@ def _normalize_config_for_web(config: dict[str, Any]) -> dict[str, Any]:
 # in hermes_cli/config.py — listed here for deterministic ordering in the UI.
 _AUX_TASK_SLOTS: tuple[str, ...] = (
     "vision", "compression", "approval", "mcp", "title_generation", "review", "voice_chat",
-    "triage_specifier", "kanban_decomposer", "profile_describer", "curator",
+    "profile_describer", "curator",
 )
 
 

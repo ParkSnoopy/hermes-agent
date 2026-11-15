@@ -53,7 +53,7 @@ hermes cron create "every 1h" "Use both skills and combine the result" \
 直接向 Hermes 描述：
 
 ```text
-Every morning at 9am, check Hacker News for AI news and send me a summary on Telegram.
+Every morning at 9am, check Hacker News for AI news and save a local summary.
 ```
 
 Hermes 会在内部使用统一的 `cronjob` 工具。
@@ -97,7 +97,7 @@ Cron 任务默认与任何代码仓库脱离运行——不加载 `AGENTS.md`、
 ```bash
 # 独立 CLI（schedule 和 prompt 为位置参数）
 hermes cron create "every 1d at 09:00" \
-  "Audit open PRs, summarize CI health, and post to #eng" \
+  "Audit open PRs and summarize CI health" \
   --workdir /home/me/projects/acme
 ```
 
@@ -107,7 +107,7 @@ cronjob(
     action="create",
     schedule="every 1d at 09:00",
     workdir="/home/me/projects/acme",
-    prompt="Audit open PRs, summarize CI health, and post to #eng",
+    prompt="Audit open PRs and summarize CI health",
 )
 ```
 
@@ -255,55 +255,7 @@ Hermes 会在执行器或调度提供程序分派之前，将每次已领取的 
 
 ## 投递选项
 
-调度任务时，你可以指定输出的去向：
-
-| 选项 | 说明 | 示例 |
-|--------|-------------|---------|
-| `"origin"` | 回传到任务创建的来源 | 消息平台上的默认值 |
-| `"local"` | 仅保存到本地文件（`~/.hermes/cron/output/`） | CLI 上的默认值 |
-| `"telegram"` | Telegram 主频道 | 使用 `TELEGRAM_HOME_CHANNEL` |
-| `"telegram:123456"` | 按 ID 指定的 Telegram 会话 | 直接投递 |
-| `"telegram:-100123:17585"` | 指定 Telegram 话题 | `chat_id:thread_id` 格式 |
-| `"discord"` | Discord 主频道 | 使用 `DISCORD_HOME_CHANNEL` |
-| `"discord:#engineering"` | 按频道名指定的 Discord 频道 | 按频道名 |
-| `"slack"` | Slack 主频道 | |
-| `"whatsapp"` | WhatsApp 主账号 | |
-| `"signal"` | Signal | |
-| `"matrix"` | Matrix 主房间 | |
-| `"mattermost"` | Mattermost 主频道 | |
-| `"email"` | 邮件 | |
-| `"sms"` | 通过 Twilio 发送 SMS | |
-| `"homeassistant"` | Home Assistant（插件） | 使用 `HASS_HOME_CHANNEL`；需要 [`homeassistant` 插件](../messaging/homeassistant.md) |
-| `"dingtalk"` | 钉钉 | |
-| `"feishu"` | 飞书/Lark | |
-| `"wecom"` | 企业微信 | |
-| `"weixin"` | 微信（WeChat） | |
-| `"bluebubbles"` | BlueBubbles（iMessage） | |
-| `"qqbot"` | QQ Bot（腾讯 QQ） | |
-| `"all"` | 扇出到所有已连接的主频道 | 触发时解析 |
-| `"telegram,discord"` | 扇出到指定的一组频道 | 逗号分隔列表 |
-| `"origin,all"` | 投递到来源**加上**所有其他已连接频道 | 可组合任意 token |
-
-Agent 的最终响应会自动投递，无需在 cron prompt 中调用 `send_message`。
-
-### 路由意图（`all`）
-
-`all` 让你将一个 cron 任务发送到所有已配置的消息频道，无需逐一列举名称。它在**触发时解析**，因此在你配置 `TELEGRAM_HOME_CHANNEL` 之前创建的任务，会在下次 tick 时自动纳入 Telegram。
-
-语义：`all` 展开为所有已配置主频道的平台。零个也没问题；任务只是没有投递目标，并在上游记录为投递失败。
-
-`all` 可与显式目标组合。`origin,all` 投递到来源会话**加上**所有其他已连接的主频道，按 `(platform, chat_id, thread_id)` 去重。
-
-### Telegram cron 话题（`TELEGRAM_CRON_THREAD_ID`）
-
-启用 Telegram 话题模式后，根 DM 被保留为系统大厅——发送到那里的回复会被拒绝并附带大厅提示，`reply_to_message_id` 会被丢弃，因此你无法回复落在主聊天中的 cron 消息。
-
-将 cron 指向专用的论坛话题：
-
-1. 在 Telegram 中打开机器人 DM，创建一个名为 `Cron` 的话题。长按话题标题 → **复制链接**；末尾的整数即为该话题的 `message_thread_id`。
-2. 在 `.env` 中设置 `TELEGRAM_CRON_THREAD_ID=<该 id>`。
-
-这仅适用于 cron 投递。`TELEGRAM_HOME_CHANNEL_THREAD_ID`（用于其他地方，如重启通知）不受影响。显式的 `deliver="telegram:chat_id:thread_id"` 目标仍优先于环境变量。对 cron 消息的回复现在会进入已有的话题会话，你可以直接在其中操作。
+使用 `deliver="local"` 将输出保存在当前 profile 的 `~/.hermes/cron/output/` 中。CLI 创建的任务默认使用本地投递。Agent 的最终响应会自动保存，无需在 prompt 中调用 `send_message`。
 
 ### 响应包装
 
@@ -325,78 +277,6 @@ Note: The agent cannot see this message, and therefore cannot respond to it.
 cron:
   wrap_response: false
 ```
-
-### 可继续任务（回复 cron 投递）
-
-默认情况下，cron 投递是「发完即忘」的：消息发送出去，但不会进入聊天的对话历史，
-因此如果你回复它，agent 并不记得自己说过什么。将任务设为**可继续**后，投递的简报
-就变成一段你可以回复进去的对话——agent 会把简报保留在上下文中，而不会反问
-「Task #2 是什么？」。
-
-选择性启用，**默认关闭**。可在配置中全局启用，或通过 `cronjob` 工具的
-`attach_to_session` 按任务启用（会覆盖该任务的全局设置）：
-
-```yaml
-# ~/.hermes/config.yaml
-cron:
-  mirror_delivery: false   # 设为 true 使 cron 投递可继续
-```
-
-行为为**优先使用话题**，范围限定在任务的来源聊天：
-
-- **支持话题的平台**（Telegram 话题、Discord/Slack/Matrix 话题）：每次投递都会新建
-  专用话题，并将简报植入该话题的会话中，因此在话题内回复即可带完整上下文继续。
-- **仅 DM 的平台**（WhatsApp、Signal、SMS）：不存在话题，因此简报会被镜像进
-  来源 DM 会话——DM 本身就是继续的载体。
-
-只有来源聊天会被触及：扇出/广播目标（`all`、显式的其他聊天投递）永远不会被设为可继续。
-
-#### 平铺频道内继续（Slack）
-
-上面的优先话题行为每次投递都会新建专用话题。如果你希望可继续任务**平铺落在频道
-时间线**中——不新建话题——将 Slack 的**继续投递方式**设为 `in_channel`：
-
-```yaml
-# ~/.hermes/config.yaml
-slack:
-  cron_continuable_surface: in_channel   # 默认："thread"
-  reply_in_thread: false                 # 必需搭配（见下）
-  require_mention: false                 # 纯文本回复即可继续任务
-```
-
-在 `in_channel` 模式下，简报作为普通的顶层频道消息投递（不新建话题），你的回复通过
-频道的共享会话继续任务。三项设置协同工作：
-
-- **`cron_continuable_surface: in_channel`**——投递时跳过新建话题。
-- **`reply_in_thread: false`**（必需）——让机器人在频道中*平铺*回复你，并将其
-  归入简报所植入的同一个整频道会话。缺少它时继续功能仍可用，但回复会出现在话题里
-  （安全回退为话题式继续，绝不会丢失回复——网关会在启动时记录一条警告便于发现不匹配）。
-- **`require_mention: false`**（或将该频道加入 `free_response_channels`）——这样你
-  可以用纯文本消息回复；否则机器人只在你每次 `@` 提及它时才被唤醒。
-
-由于继续载体是**整频道**会话，它是共享的：频道里的其他闲聊——以及第二个可继续的
-in_channel 任务——都会加入同一段滚动对话。这是「平铺在频道中」的固有取舍，与
-`reply_in_thread: false` 用户已经接受的取舍相同；若希望每次投递的后续讨论相互隔离，
-请使用默认的 `thread` 方式。
-
-这目前是 Slack 的能力。其他平台接受该键，但会回退到 `thread` 方式（它们的继续原语
-不同）；该选择按平台设置，位于各平台的配置下。这是网关侧的配置项——`/restart` 即可
-生效；无需重新安装 Slack 应用。
-
-:::note 1:1 私信（DM）
-`cron_continuable_surface` 是**频道**设置——1:1 私信没有「话题 vs 时间线」的区分
-（私信本身就是平铺的），因此该键在私信中无效。决定私信 cron 投递是否可继续的是另一个
-已有的独立开关 **`slack.dm_top_level_threads_as_sessions`**：
-
-- **`false`**——所有顶层私信共享同一个滚动私信会话，因此可继续的 cron 简报与你的回复
-  落在**同一个**会话里，任务得以带上下文继续。这正是私信中可继续 cron 所需要的。
-- **`true`**（默认）——每条顶层私信消息各自成为独立会话，因此对已投递简报的回复会开启
-  一个**全新**、不含该简报记录的会话。此模式下继续功能不可用（对 cron 或任何平铺投递皆然）。
-
-所以，若要让 cron 任务在 1:1 私信中可继续，请设置
-`slack.dm_top_level_threads_as_sessions: false`。私信不需要（也会忽略）
-`cron_continuable_surface`。
-:::
 
 ### 静默抑制
 
@@ -431,7 +311,7 @@ cron:
 hermes cron create "every 5m" \
   --no-agent \
   --script memory-watchdog.sh \
-  --deliver telegram \
+  --deliver local \
   --name "memory-watchdog"
 ```
 
@@ -450,7 +330,7 @@ hermes cron create "every 5m" \
 `cronjob` 工具的 schema 直接向 Hermes 暴露了 `no_agent`，因此你可以在聊天中描述一个看门狗，让 agent 来配置它：
 
 ```text
-Ping me on Telegram if RAM is over 85%, every 5 minutes.
+Check RAM every 5 minutes and save a report if it exceeds 85%.
 ```
 
 Hermes 会通过 `write_file` 将检查脚本写入 `~/.hermes/scripts/`，然后调用：
@@ -458,7 +338,7 @@ Hermes 会通过 `write_file` 将检查脚本写入 `~/.hermes/scripts/`，然�
 ```python
 cronjob(action="create", schedule="every 5m",
         script="memory-watchdog.sh", no_agent=True,
-        deliver="telegram", name="memory-watchdog")
+        deliver="local", name="memory-watchdog")
 ```
 
 当消息内容完全由脚本决定时（看门狗、阈值告警、心跳），它会自动选择 `no_agent=True`。同一工具也让 agent 可以暂停、恢复、编辑和删除任务——整个生命周期都通过聊天驱动，无需任何人接触 CLI。
@@ -491,7 +371,7 @@ cronjob(
 # 任务 3：发布——接收任务 2 的输出作为上下文
 cronjob(
     action="create",
-    prompt="Read ~/.hermes/data/briefs/ranked.md. Write 3 tweet drafts (hook + body + hashtags). Deliver to telegram:7976161601.",
+    prompt="Read ~/.hermes/data/briefs/ranked.md. Write 3 tweet drafts (hook + body + hashtags). Save the drafts locally.",
     schedule="0 8 * * *",
     context_from="<job2_id>",
     name="AI News Brief",
@@ -607,7 +487,7 @@ Cron 在全新的 agent 会话中运行每个任务，不附加任何聊天平�
 ```bash
 hermes tools
 # → 在 curses UI 中选择 "cron" 平台
-# → 像 Telegram/Discord 等平台一样切换工具集开关
+# → 切换 cron 工具集开关
 ```
 
 通过 `cronjob.create`（或通过 `cronjob.update` 对现有任务）上的 `enabled_toolsets` 字段可进行更精细的单任务控制：

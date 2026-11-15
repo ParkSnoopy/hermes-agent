@@ -143,7 +143,7 @@ class TestDoctorToolAvailabilitySummary:
         unavailable = [{"name": "image_gen", "env_vars": [], "tools": ["image_generate"]},
                        {"name": "homeassistant", "env_vars": [], "tools": []}]
         monkeypatch.setattr(doctor_tools, "_enabled_cli_toolsets_for_doctor", lambda: {"image_gen"})
-        monkeypatch.setattr(doctor_tools, "_apply_doctor_tool_availability_overrides", lambda a, u: (a, u))
+
         monkeypatch.setattr(doctor_tools, "_doctor_web_capability_rows", list)
         fake_model_tools = types.SimpleNamespace(
             check_tool_availability=lambda: ([], unavailable),
@@ -278,34 +278,6 @@ class TestDoctorEnvFileEncoding:
 
         with pytest.raises(SystemExit):
             doctor_mod.run_doctor(Namespace(fix=False))
-
-
-class TestDoctorToolAvailabilityOverrides:
-
-
-    def test_marks_kanban_available_only_when_missing_worker_env_gate(self, monkeypatch):
-        monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
-
-        available, unavailable = doctor_tools._apply_doctor_tool_availability_overrides(
-            [],
-            [{"name": "kanban", "env_vars": [], "tools": ["kanban_show"]}],
-        )
-
-        assert available == ["kanban"]
-        assert unavailable == []
-
-    def test_leaves_kanban_unavailable_when_worker_env_is_set(self, monkeypatch):
-        monkeypatch.setenv("HERMES_KANBAN_TASK", "probe")
-        kanban_entry = {"name": "kanban", "env_vars": [], "tools": ["kanban_show"]}
-
-        available, unavailable = doctor_tools._apply_doctor_tool_availability_overrides(
-            [],
-            [kanban_entry],
-        )
-
-        assert available == []
-        assert unavailable == [kanban_entry]
-
 
 
 

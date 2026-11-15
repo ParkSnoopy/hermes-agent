@@ -585,6 +585,7 @@ def _migrate_to_45(results: dict[str, Any], quiet: bool) -> None:
     # already records `connections` (a decline) or `agent.disabled_toolsets` names it (the
     # resolver subtracts that list last, so the append would have no effect).
     from agent.skill_utils import parse_config_string_list
+    from hermes_cli.platforms import PLATFORMS
     from hermes_cli.tools_config import _configurable_keys, _get_plugin_toolset_keys
     from hermes_cli.toolset_scope import toolset_allowed_for_platform
 
@@ -599,6 +600,9 @@ def _migrate_to_45(results: dict[str, Any], quiet: bool) -> None:
     explicit_keys = _configurable_keys() | _get_plugin_toolset_keys()
     enabled_for: list[str] = []
     for platform, toolsets in saved.items():
+        # Leave saved selections for retired/unknown integrations untouched.
+        if platform not in PLATFORMS:
+            continue
         if not isinstance(toolsets, list) or "connections" in toolsets:
             continue
         if not toolset_allowed_for_platform("connections", platform):

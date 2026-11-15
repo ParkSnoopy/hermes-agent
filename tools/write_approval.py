@@ -175,8 +175,7 @@ def _slash_review_surface() -> bool:
             return get_session_env(name, "") or ""
         except Exception:  # standalone/tests: process env is the fallback
             return os.environ.get(name, "") or ""
-    if _env("HERMES_KANBAN_TASK").strip():
-        return False
+
     try:
         from utils import is_truthy_value
         if is_truthy_value(_env("HERMES_CRON_SESSION")):

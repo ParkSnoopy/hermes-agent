@@ -712,7 +712,6 @@ export async function reconcileActiveTranscript({
 // (no `change_events` on gateway.ready) they stay at the legacy cadence.
 const CRON_POLL_INTERVAL_MS = 30_000
 const CRON_BACKSTOP_INTERVAL_MS = 5 * 60_000
-const MESSAGING_POLL_INTERVAL_MS = 10_000
 const ACTIVE_MESSAGING_SESSION_POLL_INTERVAL_MS = 5_000
 const ACTIVE_MESSAGING_SESSION_BACKSTOP_INTERVAL_MS = 30_000
 // Match the TUI's live-session refresh cadence. Auto-compression can rotate a
@@ -993,7 +992,6 @@ interface BackgroundSyncParams {
   refreshCronJobs: () => Promise<unknown> | unknown
   refreshCurrentModel: (force?: boolean) => Promise<unknown> | unknown
   refreshHermesConfig: () => Promise<unknown> | unknown
-  refreshMessagingSessions: () => Promise<unknown> | unknown
   refreshSessions: () => Promise<unknown> | unknown
   requestGateway: GatewayRequester
   updateSessionState: (
@@ -1066,7 +1064,6 @@ export function useBackgroundSync({
   refreshCronJobs,
   refreshCurrentModel,
   refreshHermesConfig,
-  refreshMessagingSessions,
   refreshSessions,
   requestGateway,
   updateSessionState
@@ -1429,7 +1426,6 @@ export function useBackgroundSync({
     const run = () => {
       lastRunAt = Date.now()
       void refreshSessions()
-      void refreshMessagingSessions()
 
       // Archived sessions use their own capped query. Reload it only while the
       // sidebar is showing that view, matching the on-demand fetch contract.
@@ -1512,7 +1508,6 @@ export function useBackgroundSync({
   }, [
     changeEventsAvailable,
     gatewayState,
-    refreshMessagingSessions,
     refreshSessions,
     requestActiveTranscriptRefresh,
     updateSessionState
@@ -1597,17 +1592,6 @@ export function useBackgroundSync({
     gatewayState,
     requestActiveTranscriptRefresh
   ])
-
-  // Messaging session lists against an older backend: no sessions.changed, so
-  // keep the legacy visible poll. (Event-capable backends fold this into the
-  // trailing sessions.changed refresh above.)
-  useEffect(() => {
-    if (gatewayState !== 'open' || changeEventsAvailable) {
-      return
-    }
-
-    return visiblePoll(MESSAGING_POLL_INTERVAL_MS, () => void refreshMessagingSessions())
-  }, [changeEventsAvailable, gatewayState, refreshMessagingSessions])
 
   // A fresh new-session draft (gateway open, no active session) re-pulls the
   // model + config so the composer pill reflects the profile default.

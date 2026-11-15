@@ -103,9 +103,6 @@ Hermes 会自动检测本地端点并放宽流式传输超时（读取超时从 
 
 Hermes Agent 本身**免费且开源**（MIT 许可证）。您只需为所选提供商的 LLM API 用量付费。本地模型完全免费运行。
 
-### 多人可以使用同一个实例吗？
-
-可以。[消息网关](../user-guide/messaging/index.md)允许多个用户通过 Telegram、Discord、Slack、WhatsApp 或 Home Assistant 与同一个 Hermes Agent 实例交互。访问权限通过白名单（特定用户 ID）和私信配对（第一个发消息的用户获得访问权）来控制。
 
 ### 记忆（memory）和技能（skills）有什么区别？
 
@@ -376,54 +373,12 @@ docker run hello-world
 
 ### 消息问题
 
-#### Bot 不响应消息
-
-**原因：** Bot 未运行、未授权，或您的用户不在白名单中。
-
-**解决方案：**
-```bash
-# 检查网关是否在运行
-hermes gateway status
-
-# 启动网关
-hermes gateway start
-
-# 查看错误日志
-cat ~/.hermes/logs/gateway.log | tail -50
-```
-
-#### 消息未送达
-
-**原因：** 网络问题、bot token 已过期，或平台 webhook 配置错误。
-
-**解决方案：**
-- 使用 `hermes gateway setup` 验证您的 bot token 是否有效
-- 检查网关日志：`cat ~/.hermes/logs/gateway.log | tail -50`
-- 对于基于 webhook 的平台（Slack、WhatsApp），确保您的服务器可公开访问
-
-#### 白名单混淆 — 谁可以与 bot 交互？
-
-**原因：** 授权模式决定谁可以获得访问权限。
-
-**解决方案：**
-
-| 模式 | 工作方式 |
-|------|-------------|
-| **白名单** | 只有配置中列出的用户 ID 可以交互 |
-| **私信配对** | 第一个在私信中发消息的用户获得独占访问权 |
-| **开放** | 任何人都可以交互（不建议用于生产环境） |
-
-在 `~/.hermes/config.yaml` 中您的网关设置下进行配置。请参阅[消息文档](../user-guide/messaging/index.md)。
-
 #### 网关无法启动
 
 **原因：** 缺少依赖项、端口冲突或 token 配置错误。
 
 **解决方案：**
 ```bash
-# 安装核心消息网关依赖项
-cd ~/.hermes/hermes-agent && python -c "import pm; pm.sync_venv(['messaging'], explicit=True)"  # Telegram、Discord、Slack 及共享网关依赖
-
 # 检查端口冲突
 lsof -i :8080
 
@@ -469,7 +424,7 @@ nohup hermes gateway run > ~/.hermes/logs/gateway.log 2>&1 &
 
 #### macOS：网关找不到 Node.js / ffmpeg / 其他工具
 
-**原因：** launchd 服务继承的是最小 PATH（`/usr/bin:/bin:/usr/sbin:/sbin`），不包含 Homebrew、nvm、cargo 或其他用户安装的工具目录。这通常会导致 WhatsApp bridge（`node not found`）或语音转录（`ffmpeg not found`）失败。
+**原因：** launchd 服务继承的是最小 PATH（`/usr/bin:/bin:/usr/sbin:/sbin`），不包含 Homebrew、nvm、cargo 或其他用户安装的工具目录。这可能导致语音转录（`ffmpeg not found`）失败。
 
 **解决方案：** 网关在您运行 `hermes gateway install` 时会捕获您的 shell PATH。如果您在设置网关后安装了新工具，请重新运行 install 以捕获更新后的 PATH：
 
@@ -605,10 +560,6 @@ hermes chat
 
 Profiles 是构建在 `HERMES_HOME` 之上的托管层。您*可以*在每次命令前手动设置 `HERMES_HOME=/some/path`，但 profiles 会为您处理所有底层工作：创建目录结构、生成 shell 别名（`hermes-work`）、在 `~/.hermes/active_profile` 中跟踪活动 profile，以及自动跨所有 profiles 同步技能更新。它们还与 tab 补全集成，让您无需记忆路径。
 
-### 两个 profiles 可以共享同一个 bot token 吗？
-
-不可以。每个消息平台（Telegram、Discord 等）都需要对 bot token 的独占访问权。如果两个 profiles 同时尝试使用同一个 token，第二个网关将无法连接。请为每个 profile 创建单独的 bot — 对于 Telegram，请与 [@BotFather](https://t.me/BotFather) 对话以创建额外的 bot。
-
 ### Profiles 共享记忆或会话吗？
 
 不共享。每个 profile 都有自己独立的记忆存储、会话数据库和技能目录，完全隔离。如果您想用现有的记忆和会话创建新 profile，请使用 `hermes profile create newname --clone-all` 从当前 profile 复制所有内容，或添加 `--clone-from <profile>` 从指定源 profile 复制。
@@ -650,82 +601,6 @@ delegation:
 ```
 
 有关委托工作原理的更多信息，请参阅[子智能体委托](../user-guide/features/delegation.md)。
-
-### 在一个 WhatsApp 号码上运行多个智能体（按聊天绑定）
-
-**场景：** 在 OpenClaw 中，您可以将多个独立智能体绑定到特定的 WhatsApp 聊天 — 一个用于家庭购物清单群组，另一个用于您的私聊。Hermes 能做到吗？
-
-**当前限制：** Hermes 的每个 profile 都需要自己的 WhatsApp 号码/会话。您无法将多个 profiles 绑定到同一个 WhatsApp 号码上的不同聊天 — WhatsApp bridge（Baileys）每个号码使用一个已认证的会话。
-
-**变通方案：**
-
-1. **使用单个 profile 配合人格切换。** 创建不同的 `AGENTS.md` 上下文文件或使用 `/personality` 命令按聊天更改行为。智能体能感知当前所在的聊天并进行适应。
-
-2. **使用 cron 作业处理专项任务。** 对于购物清单跟踪器，设置一个监控特定聊天并管理清单的 cron 作业 — 无需单独的智能体。
-
-3. **使用独立号码。** 如果您需要真正独立的智能体，将每个 profile 与其自己的 WhatsApp 号码配对。Google Voice 等服务提供的虚拟号码可用于此目的。
-
-4. **改用 Telegram 或 Discord。** 这些平台更自然地支持按聊天绑定 — 每个 Telegram 群组或 Discord 频道获得自己的会话，您可以在同一账户上运行多个 bot token（每个 profile 一个）。
-
-详情请参阅 [Profiles](../user-guide/profiles.md) 和 [WhatsApp 设置](../user-guide/messaging/whatsapp.md)。
-
-### 控制 Telegram 中显示的内容（隐藏日志和推理过程）
-
-**场景：** 您在 Telegram 中看到了网关执行日志、Hermes 推理过程和工具调用详情，而不是最终输出。
-
-**解决方案：** `config.yaml` 中的 `display.tool_progress` 设置控制显示多少工具活动：
-
-```yaml
-display:
-  tool_progress: "off"   # 选项：off、new、all、verbose
-```
-
-- **`off`** — 仅显示最终响应。无工具调用、无推理过程、无日志。
-- **`new`** — 实时显示新的工具调用（简短单行）。
-- **`all`** — 显示所有工具活动，包括结果。
-- **`verbose`** — 完整详情，包括工具参数和输出。
-
-对于消息平台，通常选择 `off` 或 `new`。编辑 `config.yaml` 后，重启网关使更改生效。
-
-您也可以通过 `/verbose` 命令按会话切换（如果已启用）：
-
-```yaml
-display:
-  tool_progress_command: true   # 在网关中启用 /verbose
-```
-
-### 在 Telegram 上管理技能（slash 命令限制）
-
-**场景：** Telegram 有 100 个 slash 命令的限制，您的技能数量已超过此限制。您想禁用 Telegram 上不需要的技能，但 `hermes skills config` 设置似乎没有生效。
-
-**解决方案：** 使用 `hermes skills config` 按平台禁用技能。这会写入 `config.yaml`：
-
-```yaml
-skills:
-  disabled: []                    # 全局禁用的技能
-  platform_disabled:
-    telegram: [skill-a, skill-b]  # 仅在 telegram 上禁用
-```
-
-更改后，**重启网关**（`hermes gateway restart` 或终止并重新启动）。Telegram bot 命令菜单在启动时重建。
-
-:::tip
-描述过长的技能在 Telegram 菜单中会被截断为 40 个字符，以符合 payload 大小限制。如果技能未出现，可能是总 payload 大小问题而非 100 个命令数量限制 — 禁用未使用的技能对两者都有帮助。
-:::
-
-### 共享线程会话（多用户，一个对话）
-
-**场景：** 您有一个 Telegram 或 Discord 线程，多人在其中 @ bot。您希望该线程中的所有 @ 都属于一个共享对话，而非每个用户各自独立的会话。
-
-**当前行为：** Hermes 在大多数平台上按用户 ID 创建会话，因此每个人都有自己的对话上下文。这是出于隐私和上下文隔离的设计考量。
-
-**变通方案：**
-
-1. **使用 Slack。** Slack 会话按线程而非用户进行键控。同一线程中的多个用户共享一个对话 — 正是您描述的行为。这是最自然的选择。
-
-2. **使用单用户的群聊。** 如果由一个人作为指定"操作员"转达问题，会话保持统一。其他人可以旁观。
-
-3. **使用 Discord 频道。** Discord 会话按频道键控，因此同一频道中的所有用户共享上下文。为共享对话使用专用频道。
 
 ### 将 Hermes 迁移到另一台机器
 

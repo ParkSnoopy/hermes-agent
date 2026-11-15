@@ -165,7 +165,7 @@ def _run(job, content, send_result, relay=False, standalone_result=None, cron_cf
                return_value={"cron": {"wrap_response": False, **(cron_cfg or {})}}), \
          patch("cron.scheduler_delivery._record_delivery_verification", side_effect=_record_verification), \
          patch("gateway.delivery.DeliveryRouter", return_value=router), \
-         patch("tools.send_message_tool._send_to_platform", _fake_send_to_platform), \
+         patch("gateway.outbound._send_to_platform", _fake_send_to_platform), \
          patch("asyncio.run_coroutine_threadsafe", side_effect=fake_run_coro):
         error = _deliver_result(job, content, adapters=_adapters(relay), loop=loop)
     return error, router_calls, standalone_calls
@@ -369,7 +369,7 @@ class TestStandaloneSendIsBounded:
              patch("cron.scheduler.load_config",
                    return_value={"cron": {"wrap_response": False, **cron_cfg}}), \
              patch("cron.scheduler_delivery._record_delivery_verification"), \
-             patch("tools.send_message_tool._send_to_platform", sender):
+             patch("gateway.outbound._send_to_platform", sender):
             return _deliver_result(_job(), "Nightly report.")
 
     def test_hung_send_is_released_at_the_configured_bound(self, caplog):

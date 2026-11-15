@@ -9,8 +9,8 @@ and every root-to-area chain at 30k, so it loads whole on 128k+ models: long for
 
 ## What Hermes Is
 
-Hermes is a personal AI agent that runs the same agent core across a CLI, a messaging
-gateway (Telegram, Discord, Slack, ~20 platforms), a TUI, and an Electron desktop app. It
+Hermes is a personal AI agent that runs the same agent core across a CLI, a TUI,
+and an Electron desktop app. It
 learns across sessions (memory + skills), delegates to subagents, runs scheduled jobs, and
 drives a real terminal and browser. It is extended primarily through **plugins and skills**,
 not by growing the core.
@@ -93,7 +93,7 @@ all profile-aware via `get_hermes_home()`.
 
 Every former god file is a **facade** (public entry points + the names other packages import) plus
 **siblings** `<stem>_<topic>.py`, each owning one topic (`hermes_state.py`, `gateway/run.py`,
-`tools/mcp_tool.py`, `hermes_cli/kanban.py`, `hermes_cli/web_server.py`, `cli.py` →
+`tools/mcp_tool.py`, `hermes_cli/web_server.py`, `cli.py` →
 `hermes_cli/cli_*_mixin.py`, `run_agent.py` → `agent/turn_*.py`).
 
 - **Find code by topic:** `grep -rn "def name" <dir>/<stem>_*.py`, not by reading the facade.
@@ -147,7 +147,6 @@ Every former god file is a **facade** (public entry points + the names other pac
 | `run_agent.py`, `agent/` | `agent/AGENTS.md` | turn phases, caching and message-flow invariants, compression, model/aux resolution |
 | `cli.py`, `hermes_cli/` | `hermes_cli/AGENTS.md` | CLI mixins, slash registry, config system, skins, `hermes update`, profiles / multiplex |
 | `gateway/` | `gateway/AGENTS.md` | adapters, message guards, streaming, notifications, token locks, § Profile scope |
-| `gateway/platforms/` new adapter | `gateway/platforms/ADDING_A_PLATFORM.md` | step-by-step adapter guide |
 | `tools/`, `toolsets.py`, `model_tools.py` | `tools/AGENTS.md` | adding tools, registry, toolsets, delegation, session-scoped surface tools |
 | `plugins/`, `hermes_cli/plugins*.py` | `plugins/AGENTS.md` | plugin kinds, native compat contract, in-tree policy, boundary lint |
 | `plugin-catalog/` | `plugin-catalog/README.md` | catalog admission rules (mirrored in the developer guide; keep identical) |
@@ -155,7 +154,7 @@ Every former god file is a **facade** (public entry points + the names other pac
 | `web/`, `hermes_cli/web_routers/` | `web/AGENTS.md` | dashboard embeds the real TUI |
 | `apps/desktop/` | `apps/desktop/AGENTS.md`, `apps/desktop/src/AGENTS.md` | `serve` backend, slash palette, Bot Mode |
 | `skills/`, `optional-skills/`, `agent/curator*.py` | `skills/AGENTS.md` | frontmatter, authoring standards, curator |
-| `cron/`, kanban | `cron/AGENTS.md` | scheduler invariants, job fields, kanban dispatcher |
+| `cron/` | `cron/AGENTS.md` | scheduler invariants and job fields |
 | `tests/` | `tests/AGENTS.md` | runner, placement, OS markers, `wine2e`, banned test shapes |
 | `pm/`, `pyproject.toml` | `pm/AGENTS.md` | pinning policy, PM-owned environments, plugin quarantine |
 | `hermes_platform/` | `hermes_platform/AGENTS.md` | host facts, resolvers |

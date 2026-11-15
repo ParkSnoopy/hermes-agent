@@ -18,16 +18,16 @@ class TestLoadConfigExpansion:
         config_yaml = (
             "model:\n"
             "  api_key: ${GOOGLE_API_KEY}\n"
-            "platforms:\n"
-            "  telegram:\n"
-            "    token: ${TELEGRAM_BOT_TOKEN}\n"
+            "auxiliary:\n"
+            "  vision:\n"
+            "    api_key: ${EXAMPLE_API_KEY}\n"
             "plain: no-substitution\n"
         )
         config_file = tmp_path / "config.yaml"
         config_file.write_text(config_yaml)
 
         monkeypatch.setenv("GOOGLE_API_KEY", "gsk-test-key")
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "1234567:ABC-token")
+        monkeypatch.setenv("EXAMPLE_API_KEY", "1234567:ABC-token")
         # Patch the imported function's own globals. Other tests may reload
         # hermes_cli.config, making string-target monkeypatches hit a different
         # module object than this collection-time imported load_config().
@@ -36,7 +36,7 @@ class TestLoadConfigExpansion:
         config = load_config()
 
         assert config["model"]["api_key"] == "gsk-test-key"
-        assert config["platforms"]["telegram"]["token"] == "1234567:ABC-token"
+        assert config["auxiliary"]["vision"]["api_key"] == "1234567:ABC-token"
         assert config["plain"] == "no-substitution"
 
 
@@ -124,20 +124,20 @@ class TestExpansionUnderProfileScope:
     def test_scoped_ref_never_reads_another_profiles_environ(self, monkeypatch):
         from agent import secret_scope as ss
 
-        monkeypatch.setenv("MATRIX_ACCESS_TOKEN", "default-token")
+        monkeypatch.setenv("EXAMPLE_API_KEY", "default-token")
         was_active = ss.is_multiplex_active()
         ss.set_multiplex_active(True)
-        token = ss.set_secret_scope({"OTHER_KEY": "x"})  # profile-b: no matrix token
+        token = ss.set_secret_scope({"OTHER_KEY": "x"})  # profile-b: no example token
         try:
-            assert _expand_env_vars("${MATRIX_ACCESS_TOKEN}") == "${MATRIX_ACCESS_TOKEN}"
-            assert _expand_env_vars("${env:MATRIX_ACCESS_TOKEN}") == "${env:MATRIX_ACCESS_TOKEN}"
+            assert _expand_env_vars("${EXAMPLE_API_KEY}") == "${EXAMPLE_API_KEY}"
+            assert _expand_env_vars("${env:EXAMPLE_API_KEY}") == "${env:EXAMPLE_API_KEY}"
         finally:
             ss.reset_secret_scope(token)
-        token = ss.set_secret_scope({"MATRIX_ACCESS_TOKEN": "c-token"})
+        token = ss.set_secret_scope({"EXAMPLE_API_KEY": "c-token"})
         try:
-            assert _expand_env_vars("${MATRIX_ACCESS_TOKEN}") == "c-token"
+            assert _expand_env_vars("${EXAMPLE_API_KEY}") == "c-token"
         finally:
             ss.reset_secret_scope(token)
             ss.set_multiplex_active(was_active)
         # Unscoped (default profile / single-profile CLI): legacy environ read.
-        assert _expand_env_vars("${MATRIX_ACCESS_TOKEN}") == "default-token"
+        assert _expand_env_vars("${EXAMPLE_API_KEY}") == "default-token"

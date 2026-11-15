@@ -117,7 +117,7 @@ When the user reports "the pipeline worked yesterday but nothing is arriving tod
 ## Other pitfalls
 
 - **Transcript not available yet.** Teams takes some time after a meeting ends to generate the transcript artifact. `fetch --meeting-id` on a just-ended meeting may return empty. Wait 2-5 minutes and retry, or let the Graph webhook drive ingestion naturally.
-- **Delivery mode mismatch.** If summaries are produced (`list` shows success) but nothing lands in Teams, check `platforms.teams.extra.delivery_mode` and the matching target config (`incoming_webhook_url` OR `chat_id` OR `team_id`+`channel_id`). The writer reads these from config.yaml or `TEAMS_*` env vars.
+- **Delivery mode mismatch.** If summaries are produced (`list` shows success) but nothing lands in Teams, check `platforms.msgraph_webhook.extra.meeting_pipeline.teams_delivery`: set `enabled: true`, select `delivery_mode`, and configure the matching target (`incoming_webhook_url` OR `chat_id` OR `team_id`+`channel_id`). Explicit configuration takes precedence over the corresponding `TEAMS_*` environment variables.
 - **Graph app permissions.** A token acquires cleanly (`token-health` passes) but Graph API calls return 401/403 when permissions were added but admin consent wasn't re-granted. Have the user revisit the app registration in the Azure portal and click "Grant admin consent" again.
 
 ## Related docs

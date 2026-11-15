@@ -15,7 +15,7 @@ describe('staleAuxFingerprint', () => {
     expect(a).toBe(same)
     expect(a).not.toBe(staleAuxFingerprint('openrouter', slots([['vision', 'alibaba', 'qwen3.6-flash']])))
     expect(a).not.toBe(staleAuxFingerprint('nous', slots([['vision', 'alibaba', 'qwen3.6-flash-v2']])))
-    expect(a).not.toBe(staleAuxFingerprint('nous', slots([['triage_specifier', 'alibaba', 'qwen3.6-flash']])))
+    expect(a).not.toBe(staleAuxFingerprint('nous', slots([['curator', 'alibaba', 'qwen3.6-flash']])))
   })
 
   it('is order-insensitive across slots', () => {

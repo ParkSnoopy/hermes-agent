@@ -28,7 +28,7 @@ from collections import OrderedDict
 from contextvars import Context, copy_context
 from pathlib import Path
 from datetime import datetime
-from typing import Callable, Dict, Optional, Any, List, Tuple, cast
+from typing import Callable, Dict, Optional, Any, List, Tuple
 
 from agent.async_utils import safe_schedule_threadsafe
 from agent.i18n import t
@@ -45,7 +45,7 @@ from agent.message_metadata import ABSORBED_MESSAGE_UIDS, MESSAGE_UID, copy_iden
 from agent.turn_context import compression_made_progress
 from agent.session_activity import ActivityProvenance, AwakeIdleMeter
 from hermes_cli.config import _is_ssh_remote_tilde_cwd, cfg_get, config_exists
-from gateway.run_common import _csv_or_list_to_set
+
 from hermes_cli.fallback_config import pre_agent_fallback_notice
 from gateway.turn_executor import _UnboundedThreadExecutor
 
@@ -53,15 +53,7 @@ from gateway.turn_executor import _UnboundedThreadExecutor
 _AGENT_CACHE_MAX_SIZE = 128
 _AGENT_CACHE_IDLE_TTL_SECS = 3600.0  # evict agents idle for >1h
 _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT = 30.0
-# Telegram connect proves a real getUpdates round trip; must cover polling-start deadlines + readiness.
-_TELEGRAM_CONNECT_TIMEOUT_SECS_DEFAULT = 180.0
-# The initial Telegram connect gates `running` for EVERY platform, so it must not spend the full 180s.
-# Cold-start cap for Telegram (#85993): the initial connect awaited before the gateway reaches `running`
-# must not spend the full 180s budget — an unreachable Telegram would hold EVERY platform's serving state
-# hostage for the whole window. The initial attempt gets one bounded try; on timeout the platform is queued
-# for the reconnect watcher, which retries with the full 180s budget (is_reconnect=True preserves the
-# offline update queue, #46621).
-_TELEGRAM_INITIAL_CONNECT_TIMEOUT_SECS_DEFAULT = 45.0
+
 _ADAPTER_DISCONNECT_TIMEOUT_SECS_DEFAULT = 5.0
 # Size of the separate pool for best-effort session HOUSEKEEPING; why it is separate: _run_housekeeping_in_executor.
 _HOUSEKEEPING_MAX_WORKERS = 4
@@ -72,10 +64,10 @@ _USER_BOUNDARY_END_REASONS = ("session_reset", "user_exit", "session_switch", "n
 # Bounds one stall-notify send so a wedged transport can't block the watcher; on timeout the next tick retries.
 _STALL_NOTIFY_SEND_TIMEOUT_SECONDS = 15.0
 _GATEWAY_PROXY_SSE_BUFFER_MAX_CHARS = 16 * 1024 * 1024
-_TELEGRAM_COMMAND_MENTION_RE = re.compile(r"(?<![\w:/])/([A-Za-z0-9][A-Za-z0-9_-]*)")
+
 _GATEWAY_HYGIENE_PLATFORM = "gateway_hygiene"
 
-_TELEGRAM_NOISY_STATUS_RE = re.compile(
+_GATEWAY_NOISY_STATUS_RE = re.compile(
     r"("  # transient/auxiliary status that should stay in logs, not gateway chats
     r"auxiliary\s+.+\s+failed"
     r"|compression\s+summary\s+failed"
@@ -319,9 +311,9 @@ def _record_hygiene_cooldown(
 
 # ROUTINE compression progress statuses, derived from the SAME template constants the emit sites format.
 # Used ONLY by the opt-in ``compression.progress_notices`` gate below (#52995) to decide which of the noisy
-# statuses matched by _TELEGRAM_NOISY_STATUS_RE are compression progress (deliverable when the user opted
+# statuses matched by _GATEWAY_NOISY_STATUS_RE are compression progress (deliverable when the user opted
 # in) versus unrelated aux/retry chatter (always suppressed on chat surfaces). Failure notices and manual
-# /compress feedback never match _TELEGRAM_NOISY_STATUS_RE in the first place, so they are unaffected by
+# /compress feedback never match _GATEWAY_NOISY_STATUS_RE in the first place, so they are unaffected by
 # this gate.
 _COMPRESSION_PROGRESS_STATUS_RE = re.compile(
     "|".join(
@@ -729,7 +721,7 @@ def _prepare_gateway_status_message(platform: Any, event_type: str, message: str
 
     text = _redact_gateway_user_facing_secrets(text)
     # Opt-in `compression.progress_notices` lets ROUTINE (template-derived) progress through; other noise stays.
-    if _TELEGRAM_NOISY_STATUS_RE.search(text) and not (
+    if _GATEWAY_NOISY_STATUS_RE.search(text) and not (
         _gateway_compression_progress_notices_enabled() and _COMPRESSION_PROGRESS_STATUS_RE.search(text)
     ):
         return None
@@ -788,7 +780,7 @@ def _approval_send_outcome(future, timeout: float) -> str:
     #   * `ambiguous: True` (lost ack, mid-write drop) was flattened into a
     #     DEFINITE failure, which re-sends a card that may well have posted.
     # I fixed the text-marker path and tested only the text-marker path.
-    from gateway.relay.egress import declined_send
+    from gateway.delivery_refusal import declined_send
 
     _raw = getattr(result, "raw_response", None)
     if isinstance(_raw, dict) and _raw.get("ambiguous"):
@@ -811,27 +803,6 @@ def _approval_send_outcome(future, timeout: float) -> str:
     return "failed"
 
 
-def _resolve_progress_thread_id(
-    platform: Any, source_thread_id: Any, event_message_id: Any, *, reply_in_thread: bool = True
-) -> Optional[str]:
-    """Return thread/root ID that progress/status bubbles should target.
-
-    ``reply_in_thread=False`` (Slack): no synthetic-thread fallback, else the final flat reply inherits a thread.
-    A source.thread_id equal to the event's message id is the adapter's synthetic session key: no thread.
-
-    See #18859.
-    """
-    platform_key = str(getattr(platform, "value", platform) or "").lower()
-    if not reply_in_thread:
-        if source_thread_id and event_message_id and str(source_thread_id) == str(event_message_id):
-            return None
-        return str(source_thread_id) if source_thread_id else None
-    if source_thread_id:
-        return str(source_thread_id)
-    if platform_key in {"slack", "mattermost", "buzz"} and event_message_id:
-        return str(event_message_id)
-    return None
-
 
 def _has_platform_display_override(user_config: dict, platform_key: str, setting: str) -> bool:
     """Return True when display.platforms.<platform> explicitly sets setting."""
@@ -850,7 +821,7 @@ def _resolve_gateway_display_bool(
     platform: Any = None, require_platform_override_for: set[Any] | None = None) -> bool:
     """Resolve a boolean display setting with optional platform-only opt-in.
 
-    Scratch-text is too noisy for threaded surfaces (Mattermost): they need an explicit per-platform override.
+    Surfaces may require an explicit per-platform override for scratch-text display.
     """
     current_platform = _gateway_platform_value(platform or platform_key)
     platform_only = {_gateway_platform_value(c) for c in (require_platform_override_for or set())}
@@ -870,20 +841,6 @@ def _resolve_gateway_display_bool(
         return bool(default)
     return bool(value)
 
-
-def _telegramize_command_mentions(text: str, platform: Any) -> str:
-    """Rewrite slash-command mentions to Telegram-valid names (lowercase/digits/underscore); no-op elsewhere."""
-    platform_value = getattr(platform, "value", platform)
-    if platform_value != "telegram":
-        return text
-
-    from hermes_cli.commands_platforms import _sanitize_telegram_name
-
-    def _replace(match: re.Match[str]) -> str:
-        sanitized = _sanitize_telegram_name(match.group(1))
-        return f"/{sanitized}" if sanitized else match.group(0)
-
-    return _TELEGRAM_COMMAND_MENTION_RE.sub(_replace, text)
 
 
 # Auto-continue interrupted turns only while fresh, else stale tool-tail/resume_pending markers revive an old
@@ -990,14 +947,6 @@ def _warm_turn_machinery_sync() -> int:
         logger.debug("model-context warm-up failed (non-fatal)", exc_info=True)
     return len(tool_defs)
 
-
-def _as_thread_info(info: Any) -> Optional[tuple[str, str]]:
-    """*info* as a (thread_id, initial_name) pair, or None if it isn't one.
-
-    The pair crosses the relay connector boundary, so its shape is the connector's word, not ours."""
-    if isinstance(info, tuple) and len(info) == 2 and all(isinstance(x, str) for x in info):
-        return cast(tuple[str, str], info)
-    return None
 
 
 def _float_env(name: str, default: float) -> float:
@@ -1177,39 +1126,6 @@ def _uses_telegram_observed_group_context(channel_prompt: Optional[str]) -> bool
     Observed rows must not replay as ordinary user turns, or a weak wake word makes old chatter look like work.
     """
     return bool(channel_prompt and _TELEGRAM_OBSERVED_CONTEXT_PROMPT_MARKER in channel_prompt)
-
-
-def _slack_ignored_channels_from_gateway_config(config: Any, adapter: Any = None) -> set[str]:
-    """Return Slack channels that the generic gateway must never dispatch.
-
-    Duplicates the adapter's drop as a fail-safe so bypasses can't reach auth, pairing or sessions.
-    ``adapter`` is the source's routed adapter: under multiplex ``config`` is the DEFAULT profile's
-    GatewayConfig, so a secondary Slack bot's list lives only in its adapter's ``extra``."""
-    raw = None
-    if adapter is not None:
-        raw = (getattr(getattr(adapter, "config", None), "extra", None) or {}).get("ignored_channels")
-    platform_cfg = getattr(config, "platforms", {}).get(Platform.SLACK)
-    if raw is None and platform_cfg is not None and adapter is None:
-        raw = getattr(platform_cfg, "extra", {}).get("ignored_channels")
-    if raw is None:
-        # Top-level ``slack.ignored_channels`` arrives via the plugin's YAML→env bridge, not PlatformConfig.extra
-        # (#46925); scoped read so a secondary never inherits the default profile's list (first-writer env).
-        from gateway.platforms._shared import platform_gate_env as _platform_gate_env
-        raw = _platform_gate_env("SLACK_IGNORED_CHANNELS") or None
-    return _csv_or_list_to_set(raw)
-
-
-def _slack_parent_channel_id(chat_id: Any) -> str:
-    """Return the parent Slack channel from a possibly thread-scoped chat ID."""
-    return str(chat_id).split(":", 1)[0] if chat_id else ""
-
-
-def _is_slack_ignored_channel(config: Any, chat_id: Any, adapter: Any = None) -> bool:
-    """Check the generic Slack gateway blacklist for channel or thread IDs (``adapter`` = the source's
-    routed adapter, whose ``extra`` is authoritative for a secondary profile)."""
-    channel_id = _slack_parent_channel_id(chat_id)
-    ignored = _slack_ignored_channels_from_gateway_config(config, adapter)
-    return bool(channel_id and ("*" in ignored or channel_id in ignored))
 
 
 def _message_timestamps_enabled(user_config: Optional[dict]) -> bool:
@@ -1528,17 +1444,6 @@ def _collect_history_media_paths(agent_history: list[dict[str, Any]]) -> set:
                         paths.add(jp)
                         break
     return paths
-
-def _home_target_env_var(platform_name: str) -> str:
-    """Home-target env var: the plugin's ``cron_deliver_env_var``, then
-    ``<PLATFORM>_HOME_CHANNEL``."""
-    from cron.scheduler_delivery import _resolve_home_env_var
-    return _resolve_home_env_var(platform_name) or f"{platform_name.upper()}_HOME_CHANNEL"
-
-
-def _home_thread_env_var(platform_name: str) -> str:
-    """Return the optional thread/topic env var for a platform home target."""
-    return f"{_home_target_env_var(platform_name)}_THREAD_ID"
 
 
 def _restart_notification_pending() -> bool:
@@ -1900,33 +1805,16 @@ async def _discover_gateway_mcp_tools(config: object) -> None:
 
 
 def _platform_has_bot_credential(platform: "Platform", platform_config: "PlatformConfig") -> bool:
-    """Return True when a token-authenticated platform has a usable bot credential; platforms not using
-    ``PlatformConfig.token`` (Signal session paths, port-binding HTTP adapters) always return True."""
-    from gateway.config import PLATFORM_TOKEN_ENV_NAMES, Platform
-    if platform is Platform.WHATSAPP:
-        from hermes_constants import get_hermes_dir
-        session = Path(platform_config.extra.get(
-            "session_path", get_hermes_dir("platforms/whatsapp/session", "whatsapp/session")))
-        return (session / "creds.json").exists()
-    if platform not in PLATFORM_TOKEN_ENV_NAMES:
-        return True
-    for attr in ("token", "api_key"):  # some adapters accept api_key as the primary credential
-        value = getattr(platform_config, attr, None) or ""
-        if isinstance(value, str) and value.strip():
-            return True
-    # Matrix also authenticates by password; a token-only check would evict a reconnectable config from
-    # the retry queue. Read ONLY extra (build_config() copies env there): env fallback = every config OK.
-    # Those credentials land in ``extra`` rather than ``.token``, so a token-only check reads a perfectly
-    # reconnectable password-auth config as credential-less and evicts it from the retry queue on the first
-    # transient failure — after which it stays down until the gateway is restarted by hand. Mirror the
-    # adapter's own gate: homeserver + user_id + password. Read ONLY from extra, never os.getenv:
-    # build_config() already copies all three env vars onto extra, and importing this module loads
-    # ~/.hermes/.env, so an env fallback would report "has credential" for every Matrix config on the box —
-    # including the empty-primary multiplex case (#64674) this check exists to evict.
-    if platform is not Platform.MATRIX:
-        return False
-    extra = getattr(platform_config, "extra", None) or {}
-    return all(str(extra.get(key) or "").strip() for key in ("homeserver", "user_id", "password"))
+    """Use loaded readiness metadata; deferred discovery belongs to the off-loop connect path."""
+    from gateway.config import GatewayConfig, _PLATFORM_CONNECTED_CHECKERS
+    from gateway.platform_registry import platform_registry
+
+    if platform in _PLATFORM_CONNECTED_CHECKERS:
+        return bool(GatewayConfig()._is_platform_connected(platform, platform_config))
+    entry = next((entry for entry in platform_registry.loaded_entries() if entry.name == platform.value), None)
+    # An unregistered plugin may still load on a later reconnect attempt.
+    return entry is None or bool(GatewayConfig()._is_platform_connected(
+        platform, platform_config, registry_entry=entry))
 
 
 _DOCKER_VOLUME_SPEC_RE = re.compile(r"^(?P<host>.+):(?P<container>/[^:]+?)(?::(?P<options>[^:]+))?$")
@@ -2162,22 +2050,16 @@ from gateway.config import (
 from gateway.session import (
     AsyncSessionStore, SessionStore, SessionSource, SessionContext, build_session_key,
     profile_from_session_key_namespace)
-# Telegram topic routing (#22773, regression fixed #52060): a
-# ``telegram:<positive_chat_id>:<numeric_thread_id>`` cron target is ambiguous — a forum-style topic in a
-# private chat and a genuine Bot API channel Direct-Messages topic share the same shape and need OPPOSITE
-# routing. Disambiguate at delivery time via ``_is_channel_dm_topic`` (see its docstring for the full
-# rationale); ``thread_id`` goes in ``route_metadata`` so the anchorless cron send bypasses the
-# DeliveryRouter's private-chat reply-anchor requirement. Compute the routed metadata ONCE so both the text
-# send (via DeliveryRouter) and the media send agree.
+
 from gateway.delivery import DeliveryRouter
 from gateway.turn_lease import SessionTurnLeaseRegistry
 from gateway.session_state import SessionState, legacy_dict_property
 from gateway.authz_mixin import GatewayAuthorizationMixin
-from gateway.kanban_watchers import GatewayKanbanWatchersMixin
+
 from gateway.slash_commands import GatewaySlashCommandsMixin
 from gateway.run_voice import GatewayVoiceMixin
 from gateway.run_adapters import GatewayAdapterLifecycleMixin
-from gateway.run_topics import GatewayTopicThreadsMixin
+
 from gateway.run_turn import GatewayTurnMixin, is_context_overflow_failure_result
 from gateway.run_shutdown import GatewayShutdownMixin, _resolve_gateway_exit_verdict
 from gateway.run_busy import GatewayBusySessionMixin
@@ -3314,8 +3196,8 @@ from gateway.run_runtime_init import GatewayRuntimeInitMixin
 
 
 class GatewayRunner(
-    GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, GatewaySlashCommandsMixin,
-    GatewayVoiceMixin, GatewayAdapterLifecycleMixin, GatewayTopicThreadsMixin, GatewayTurnMixin,
+    GatewayAuthorizationMixin, GatewaySlashCommandsMixin,
+    GatewayVoiceMixin, GatewayAdapterLifecycleMixin, GatewayTurnMixin,
     GatewayShutdownMixin, GatewayBusySessionMixin, GatewayConfigLoadersMixin, GatewayStartupMixin,
     GatewaySessionWatchersMixin, GatewayNotificationsMixin, GatewayInboundMixin, GatewayGoalsMixin,
     GatewayAgentCacheMixin, GatewayRuntimeInitMixin, GatewayProfileReconcileMixin, GatewayPluginRewireMixin):
@@ -3629,28 +3511,9 @@ class GatewayRunner(
             thread_sessions_per_user=getattr(config, "thread_sessions_per_user", False),
             profile=_profile)
 
-    # Telegram General topic in forum-enabled private chats: clients omit message_thread_id or send "1"; both = root.
-    _TELEGRAM_GENERAL_TOPIC_IDS = frozenset({"", "1"})
-    _TELEGRAM_LOBBY_REMINDER_COOLDOWN_S = 30.0
 
-    def _normalize_source_for_session_key(self, source: SessionSource) -> SessionSource:
-        """Apply Telegram DM topic recovery to a source for session-key purposes. Always derive override
-        storage keys from the result: ``_handle_message_with_agent`` rewrites ``thread_id`` before
-        deriving the session key, so keys from the raw ``event.source`` are never read next turn.
 
-        ``_handle_message_with_agent`` rewrites ``source.thread_id`` via
-        ``_recover_telegram_topic_thread_id`` *before* deriving the session key for a normal message turn (a
-        lobby/stripped reply gets pinned to the user's last-active topic). Session-scoped command handlers
-        like ``/model`` and ``/reasoning`` derive their override key from the raw inbound ``event.source``,
-        which skips that recovery — so the override is stored under a different key than the next message
-        turn reads, and the override is silently dropped on Telegram forum topics and after compression
-        session splits (#30479).
-        """
-        try:
-            recovered = self._recover_telegram_topic_thread_id(source)
-        except Exception:
-            return source
-        return source if recovered is None else dataclasses.replace(source, thread_id=recovered)
+
 
     def _resolve_session_key_or_none(self, source, session_key: Optional[str]) -> Optional[str]:
         """``session_key`` if given, else the key for ``source`` (None when it cannot be derived)."""
@@ -3727,7 +3590,7 @@ class GatewayRunner(
     _RECONNECT_WATCHER_SLOW_RETRY_SECS = 300
     # Slow-tier respawns while work is queued; if 30 min of 5-min retries can't keep it up, fail loudly.
     _MAX_SLOW_WATCHER_RESPAWNS = 6
-    _TELEGRAM_CAPABILITY_HINT_COOLDOWN_S = 300.0
+
     _APPROVAL_TIMEOUT_SECONDS = 300  # 5 minutes
     _MAX_INTERRUPT_DEPTH = 3  # Cap recursive interrupt handling
     # Command-specific mid-run reject texts (busy_policy == "reject" with a busy_handler naming an
@@ -3845,31 +3708,10 @@ class GatewayRunner(
             getattr(source, "platform", None), getattr(source, "chat_id", None),
             getattr(source, "thread_id", None), chat_type=getattr(source, "chat_type", None),
             reply_to_message_id=reply_to_message_id or getattr(source, "message_id", None))
-        if getattr(source, "platform", None) == Platform.SLACK:
-            # Per-turn egress identity: Slack chat.startStream needs recipient_user_id/team_id; the relay
-            # adapter's _with_scope fallback reads per-chat caches a CONCURRENT turn overwrites.
-            # Slack's chat.startStream requires recipient_user_id (+ recipient_team_id) when streaming to a
-            # channel, and the relay connector fills those from metadata.user_id / metadata.scope_id. The
-            # relay adapter's _with_scope fallback resolves BOTH from per-chat caches keyed only by chat_id
-            # — mutable state that a CONCURRENT turn overwrites: two users with overlapping turns in one
-            # channel would open U1's stream with U2 as the recipient. Stamp the authentic per-turn values
-            # from THIS turn's source here, where they are still turn-scoped; _with_scope only fills keys
-            # that are absent, so the cache degrades to what it should be — a restart/synthetic-send
-            # fallback. See #210.
-            team_id = getattr(source, "scope_id", None)
-            user_id = getattr(source, "user_id", None)
-            if team_id or user_id:
-                metadata = dict(metadata or {})
-                if team_id:
-                    metadata["slack_team_id"] = str(team_id)
-                    metadata.setdefault("scope_id", str(team_id))
-                if user_id:
-                    metadata.setdefault("user_id", str(user_id))
+
         from gateway.session_context import source_route_metadata
         metadata = source_route_metadata(source, metadata)
-        # Routed profile for shared state.db namespaces: under profile_routes the transport adapter's
-        # stamp is not the profile that wrote the binding (Telegram prune path needs it).
-        # See #76423.
+        # Keep synthetic sends in the source's routed profile namespace.
         profile = str(getattr(source, "profile", None) or "").strip()
         if profile and metadata is not None:
             metadata = dict(metadata)
@@ -3883,52 +3725,13 @@ class GatewayRunner(
         """Build thread metadata for synthetic sends that only have routing state."""
         if thread_id is None:
             return None
-        metadata: dict[str, Any] = {"thread_id": thread_id}
-        if self._is_telegram_dm_topic_target(
-            platform, chat_id, thread_id, chat_type=chat_type, adapter=adapter):
-            metadata["telegram_dm_topic_reply_fallback"] = True
-            # DM topic lanes need direct_messages_topic_id so synthetic sends reach the topic without a reply anchor.
-            tid = str(thread_id)
-            if tid and tid not in {"", "1"}:
-                metadata["direct_messages_topic_id"] = tid
-            if reply_to_message_id is not None:
-                metadata["telegram_reply_to_message_id"] = str(reply_to_message_id)
-        if platform == Platform.SLACK and reply_to_message_id is not None:
-            # Slack's reply_in_thread=false path uses message_id to tell real threads from synthetic keys.
-            metadata["message_id"] = str(reply_to_message_id)
-        return metadata
-
-    @staticmethod
-    def _is_telegram_dm_topic_target(
-        platform: Optional[Platform], chat_id: Optional[str], thread_id: Optional[str], *,
-        chat_type: Optional[str] = None, adapter: Optional[Any] = None) -> bool:
-        """Return True when a target is a Telegram private DM topic lane."""
-        if platform != Platform.TELEGRAM or thread_id is None:
-            return False
-        if chat_type == "dm":
-            return True
-        # Resolve the lookup on the CLASS, not the instance: getattr() on a MagicMock auto-creates callable
-        # children, so an instance lookup would report a DM topic for every test double. Only a dict counts.
-        if adapter is not None and chat_id:
-            get_dm_topic_info = getattr(type(adapter), "_get_dm_topic_info", None)
-            if callable(get_dm_topic_info):
-                try:
-                    topic_info = get_dm_topic_info(adapter, str(chat_id), str(thread_id))
-                except Exception:
-                    logger.debug("Failed to inspect Telegram DM topic metadata", exc_info=True)
-                else:
-                    return isinstance(topic_info, dict)
-        return False
+        return {"thread_id": thread_id}
 
     _reply_anchor_for_event = staticmethod(_reply_anchor_for_event)
 
     # Built-in platforms where ``/update`` is allowed (programmatic interfaces must not trigger updates).
     # Plugin-migrated platforms declare ``allow_update_command=True`` on their ``PlatformEntry`` instead.
-    _UPDATE_ALLOWED_PLATFORMS = frozenset({
-        Platform.TELEGRAM, Platform.SLACK, Platform.WHATSAPP, Platform.SIGNAL, Platform.MATRIX,
-        Platform.EMAIL, Platform.SMS, Platform.DINGTALK,
-        Platform.FEISHU, Platform.WECOM, Platform.WECOM_CALLBACK, Platform.WEIXIN, Platform.BLUEBUBBLES, Platform.QQBOT, Platform.LOCAL,
-    })
+    _UPDATE_ALLOWED_PLATFORMS = frozenset({Platform.LOCAL})
 
     def _set_session_env(self, context: SessionContext) -> list:
         """Set session context variables (contextvars, not os.environ, so concurrent messages can't
@@ -4222,7 +4025,7 @@ class GatewayRunner(
         log_queue: Any = None
         interim_assistant_messages_enabled: Any = None
         _thinking_enabled: Any = None
-        _native_slack_task_cards: Any = None
+
         needs_progress_queue: Any = None
         _generic_status_phrase: Any = None
 

@@ -1,14 +1,14 @@
 ---
 sidebar_position: 3
 title: "Tutorial: Daily Briefing Bot"
-description: "Build an automated daily briefing bot that researches topics, summarizes findings, and delivers them to Telegram or Discord every morning"
+description: "Build an automated daily briefing that researches topics and saves a summary every morning"
 ---
 
 # Tutorial: Build a Daily Briefing Bot
 
-In this tutorial, you'll build a personal briefing bot that wakes up every morning, researches topics you care about, summarizes the findings, and delivers a concise briefing straight to your Telegram or Discord.
+In this tutorial, you'll build a personal briefing that researches topics and saves a concise summary every morning.
 
-By the end, you'll have a fully automated workflow combining **web search**, **cron scheduling**, **delegation**, and **messaging delivery** — no code required.
+By the end, you'll have a fully automated workflow combining **web search**, **cron scheduling**, **delegation**, and **local output** — no code required.
 
 :::tip
 This recipe hits web search, summarization, and optional TTS — all bundled in a Portal subscription. The fastest setup is `hermes setup --portal`. See [Nous Portal](../integrations/nous-portal.md).
@@ -22,7 +22,7 @@ Here's the flow:
 2. **Hermes spins up** a fresh agent session with your prompt
 3. **Web search** pulls the latest news on your topics
 4. **Summarization** distills it into a clean briefing format
-5. **Delivery** sends the briefing to your Telegram or Discord
+5. **Output** saves the briefing locally
 
 The whole thing runs hands-free. You just read your briefing with your morning coffee.
 
@@ -39,10 +39,10 @@ Before starting, make sure you have:
   hermes gateway           # Run in foreground
   ```
 - **Firecrawl API key** — set `FIRECRAWL_API_KEY` in your environment for web search
-- **Messaging configured** (optional but recommended) — [Telegram](../user-guide/messaging/telegram.md) or Discord set up with a home channel
 
-:::tip No messaging? No problem
-You can still follow this tutorial using `deliver: "local"`. Briefings will be saved to `~/.hermes/cron/output/` and you can read them anytime.
+
+:::tip Saved output
+Use `deliver: "none"` to save briefings to `~/.hermes/cron/output/` for later reading.
 :::
 
 ## Step 1: Test the Workflow Manually
@@ -103,7 +103,7 @@ Just tell Hermes what you want:
 ```
 Every morning at 8am, search the web for the latest news about AI agents
 and open source LLMs. Summarize the top 3 stories in a concise briefing
-with links. Use a friendly, professional tone. Deliver to telegram.
+with links. Use a friendly, professional tone. Save the result locally with delivery set to none.
 ```
 
 Hermes will create the cron job for you using the unified `cronjob_manage` tool.
@@ -223,8 +223,8 @@ You'll see output like:
 ```
 ID          | Name              | Schedule    | Next Run           | Deliver
 ------------|-------------------|-------------|--------------------|--------
-a1b2c3d4    | Morning Briefing  | 0 8 * * *   | 2026-03-09 08:00   | telegram
-e5f6g7h8    | Evening Recap     | 0 18 * * *  | 2026-03-08 18:00   | telegram
+a1b2c3d4    | Morning Briefing  | 0 8 * * *   | 2026-03-09 08:00   | none
+e5f6g7h8    | Evening Recap     | 0 18 * * *  | 2026-03-08 18:00   | none
 ```
 
 ### Remove a Job
@@ -263,7 +263,7 @@ You've built a working daily briefing bot. Here are some directions to explore n
 
 - **[Scheduled Tasks (Cron)](../user-guide/features/cron.md)** — Full reference for schedule formats, repeat limits, and delivery options
 - **[Delegation](../user-guide/features/delegation.md)** — Deep dive into parallel sub-agent workflows
-- **[Messaging Platforms](../user-guide/messaging/index.md)** — Set up Telegram, Discord, or other delivery targets
+
 - **[Memory](../user-guide/features/memory.md)** — Persistent context across sessions
 - **[Tips & Best Practices](./tips.md)** — More prompt engineering advice
 

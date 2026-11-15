@@ -18,7 +18,6 @@ Hermes has several distinct pluggable interfaces — some use Python `register_*
 | A **native desktop app** extension (panes, pages, status bar, palette, themes) | [Desktop Plugin SDK](../desktop-plugin-sdk.md) |
 | A **web dashboard** extension (tabs, shell slots, themes) | [Extending the Dashboard](../../user-guide/features/extending-the-dashboard.md) |
 | An **LLM / inference backend** (new provider) | [Model Provider Plugins](../model-provider-plugin.md) |
-| A **gateway channel** (Discord/Telegram/IRC/Teams/etc.) | [Adding Platform Adapters](../adding-platform-adapters.md) |
 | A **memory backend** (Honcho/Mem0/Supermemory/etc.) | [Memory Provider Plugins](../memory-provider-plugin.md) |
 | A **context-compression engine** | [Context Engine Plugins](../context-engine-plugin.md) |
 | An **image-generation backend** | [Image Generation Provider Plugins](../image-gen-provider-plugin.md) |
@@ -372,7 +371,6 @@ List every tool your `register()` registers in `provides_tools`. The field does 
 - **`hermes plugins validate`**: the "declared tools" check fails when the registered tools don't match the list, which blocks catalog admission.
 - **Catalog listing**: the "N tools" chips and tool-name search in the catalog and the dashboard/Desktop Plugins page.
 - **Dashboard auth hint**: only declared tools' availability checks are used to show "needs auth" and the `hermes auth <name>` command.
-- **Bundled `kind: platform` plugins only**: the field is the switch that loads `tools.py` in CLI/TUI sessions while the adapter stays deferred. See [Outbound client tools](../adding-platform-adapters.md#outbound-client-tools-provides_tools).
 
 Optional fields you could add:
 ```yaml
@@ -408,8 +406,8 @@ def register(ctx):
 Known capability ids: `tools.override`, `llm.provider_override`,
 `llm.model_override`, `llm.agent_id_override`, `llm.profile_override`,
 `llm.task_override`, `llm.side_question` (ask the session's own agent after
-a turn, see [Plugin LLM Access](../plugin-llm-access.md#asking-the-sessions-own-agent-ctxside_question)),
-`gateway.platform_actions` (see `hermes_cli/plugin_capabilities.py` for the
+a turn, see [Plugin LLM Access](../plugin-llm-access.md#asking-the-sessions-own-agent-ctxside_question))
+(see `hermes_cli/plugin_capabilities.py` for the
 canonical registry). Unknown ids are ignored. The older per-capability
 config keys (`plugins.entries.<id>.allow_tool_override`, …) still work but
 are deprecated — declare capabilities instead so users get a single,
@@ -623,7 +621,7 @@ this Hermes understands still loads with a warning.
 | `config_keys` | list | Dotted paths in Hermes' own config sections that your code reads (e.g. `memory.retaindb`). Each path covers itself and everything below it, so `hermes config get/set` recognizes those keys instead of warning "not a recognized config key", but only while the plugin is active (enabled, or the selected `memory.provider`). A path must be at least two segments deep, and paths Hermes already defines are ignored, so a declaration never hides a typo elsewhere in the section. Settings for your plugin alone belong in `config_schema`; use this only for a core section your plugin reads. Portable `plugin.json` packages put it under `extensions."com.nousresearch.hermes".config_keys`. |
 | `license` | str | SPDX-style license id (e.g. `MIT`). |
 | `homepage` | str | Project URL. |
-| `tags` | list of str | Free-form discovery tags (e.g. `[gateway, telegram]`). |
+| `tags` | list of str | Free-form discovery tags (e.g. `[automation, reporting]`). |
 | `provides_locales` | list | Language pack declaration: ids (`- pl`) or `{id, endonym, rtl}` mappings whose `locales/<id>[.tui\|.desktop].yaml` the loader registers automatically — see [Ship a language pack](#ship-a-language-pack). |
 | `requires_auth` | list of str | Providers whose sign-in the plugin uses through Hermes (today: `openai-codex`). Required by `credentialed_provider_request`; shown at install and in `hermes plugins show`. See [Use the user's Codex sign-in](#use-the-users-codex-sign-in-core-made-requests). |
 | `oauth` | list of mappings | OAuth clients the plugin uses through Hermes: `id`, `authorize_url`, `token_url`, `scopes`, `client_id_env`, optional `client_secret_env`, `hosts`, optional `authorize_params`. Signed in with `hermes auth add <plugin>:<id>`, used through `credentialed_provider_request`. See [Use your own OAuth client](#use-your-own-oauth-client-google-and-other-apis). |
@@ -1551,16 +1549,11 @@ Each hook is documented in full on the **[Event Hooks reference](../../user-guid
 | [`on_session_delete`](../../user-guide/features/hooks.md#on_session_delete) | A session delete or deliberate archive commits (every surface, sweeps, prune) | `session_id: str, reason: str, profile: str \| None`, optional `deleted_ids: list[str]`, `sessions_dir: str` | ignored |
 | [`post_compaction`](../../user-guide/features/hooks.md#post_compaction) | A compaction committed (any path: auto, `/compress`, gateway, Codex, micro, prune) | `session_id: str, old_session_id: str, kind: str, reason: str, before_tokens: int \| None, after_tokens: int \| None, messages_removed: int \| None` | ignored |
 | [`post_curator_run`](../../user-guide/features/hooks.md#post_curator_run) | A curator pass wrote its report directory | `run_dir: str, run_json_path: str, report_md_path: str, dry_run: bool` | ignored |
-| [`gateway_platform_event`](../../user-guide/features/hooks.md#gateway_platform_event) | An authorized platform-native event is normalized at the gateway boundary (Telegram reactions currently) | `platform: str, event_type: str, payload: dict` | ignored |
-| `kanban_task_claimed` | A kanban task is claimed (dispatcher process, before the worker spawns) | `task_id: str, board: str \| None, assignee: str \| None, run_id: int \| None, profile_name: str` | ignored |
-| `kanban_task_completed` | A kanban task completes (worker process) | `task_id, board, assignee, run_id, profile_name, summary: str \| None` | ignored |
-| `kanban_task_blocked` | A kanban task is blocked (worker process) | `task_id, board, assignee, run_id, profile_name, reason: str \| None` | ignored |
 
 Most hooks are fire-and-forget observers — their return values are ignored. The exceptions are `pre_llm_call`, which can inject context into the conversation or block the turn before it reaches the model, and `pre_tool_call`, which can return a block/approve directive.
 
 All callbacks should accept `**kwargs` for forward compatibility. If a hook callback crashes, it's logged and skipped. Other hooks and the agent continue normally.
 
-The kanban lifecycle hooks fire **after** the board DB change commits, so a callback always sees durable state and can never hold the SQLite write lock. Because kanban workers run as separate `hermes -p <profile> chat -q` subprocesses, `kanban_task_claimed` fires in the **dispatcher** process while `kanban_task_completed` / `kanban_task_blocked` fire in the **worker** process — hook in the dispatcher to observe every transition centrally, or in the worker for per-task in-session context.
 
 The **API request hooks** are observers for the raw provider request, one level below the per-turn `pre_llm_call` / `post_llm_call` pair: a single turn that calls tools makes several API requests, and these hooks fire around each one. They exist for observability plugins (tracing, cost accounting, latency dashboards). The `request` and `response` kwargs are sanitized, size-capped JSON views of the provider payload (sensitive keys redacted, long strings truncated, SDK objects normalized), and `usage` is a plain token-summary dict. Every payload carries the correlation fields `turn_id`, `api_request_id`, `task_id`, `session_id`, and `api_call_count`, so a plugin can stitch requests, tool calls, and turns together. `api_request_error` fires when a provider call raises and adds `status_code`, `retry_count` / `max_retries`, `retryable`, `reason`, and an `error` dict with `type` and `message`.
 
@@ -1786,7 +1779,7 @@ After registration, users can run `hermes my-plugin status`, `hermes my-plugin c
 
 ### Register slash commands
 
-Plugins can register in-session slash commands — commands users type during a conversation (like `/lcm status` or `/ping`). These work in both CLI and gateway (Telegram, Discord, etc.).
+Plugins can register in-session slash commands — commands users type during a conversation (like `/lcm status` or `/ping`). These work in CLI and gateway-owned sessions.
 
 ```python
 def _handle_status(raw_args: str) -> str:
@@ -1803,7 +1796,7 @@ def register(ctx):
     )
 ```
 
-After registration, users can type `/mystatus` in any session. The command appears in autocomplete, `/help` output, and the Telegram bot menu.
+After registration, users can type `/mystatus` in any session. The command appears in autocomplete and `/help` output.
 
 **Signature:** `ctx.register_command(name: str, handler: Callable, description: str = "", args_hint: str = "")`
 
@@ -1811,14 +1804,14 @@ After registration, users can type `/mystatus` in any session. The command appea
 |-----------|------|-------------|
 | `name` | `str` | Command name without the leading slash (e.g. `"lcm"`, `"mystatus"`) |
 | `handler` | `Callable[[str], str \| None]` | Called with the raw argument string, plus any calling-session keywords it declares (see below). May also be `async`. |
-| `description` | `str` | Shown in `/help`, autocomplete, and Telegram bot menu |
+| `description` | `str` | Shown in `/help` and autocomplete |
 
 **Key differences from `register_cli_command()`:**
 
 | | `register_command()` | `register_cli_command()` |
 |---|---|---|
 | Invoked as | `/name` in a session | `hermes name` in a terminal |
-| Where it works | CLI sessions, Telegram, Discord, etc. | Terminal only |
+| Where it works | CLI, TUI and Desktop sessions | Terminal only |
 | Handler receives | Raw args string (+ opt-in session context) | argparse `Namespace` |
 | Use case | Diagnostics, status, quick actions | Complex subcommand trees, setup wizards |
 
@@ -1830,10 +1823,10 @@ After registration, users can type `/mystatus` in any session. The command appea
 |---|---|
 | `session_id` | The calling session's id (the one `on_session_reset` later reports as `old_session_id`). Empty when the chat has no session yet. |
 | `session_key` | The routing key of the calling chat. |
-| `platform` | Where the command came from: `telegram`, `discord`, …, `local` (CLI/Desktop sessions owned by the gateway), `cli`, `tui`, `desktop`. |
+| `platform` | Where the command came from: `local` (CLI/Desktop sessions owned by the gateway), `cli`, `tui`, `desktop`. |
 | `source` | The adapter-derived `gateway.session.SessionSource` (`user_id`, `chat_id`, `chat_type`, `thread_id`, …) when the gateway dispatched the command, else `None`. |
 
-Every surface passes them: messaging platforms, the classic CLI, the TUI and Desktop. Sync handlers run in the gateway executor and async handlers are awaited, as before.
+Every surface passes them: the classic CLI, the TUI and Desktop. Sync handlers run in the gateway executor and async handlers are awaited, as before.
 
 ```python
 def _handle_whoami(raw_args: str, *, session_id: str = "", platform: str = "", source=None) -> str:
@@ -1851,7 +1844,7 @@ def register(ctx):
 - Return the text to show. `print()` writes to the gateway's stdout, and the user never sees it.
 - Take the session's working directory from `agent.runtime_cwd.resolve_agent_cwd()`, not `os.getcwd()`, which is the gateway's own directory. Resolve relative paths against it.
 - Read session identity with `get_session_env("HERMES_SESSION_PLATFORM")`, `get_session_env("HERMES_SESSION_CHAT_ID")` and the other `HERMES_SESSION_*` names, not `os.environ`. Import the function itself with `from gateway.session_context import get_session_env`: that name is the public seam, and `hermes plugins validate` reports `import gateway.session_context` as a private import.
-- For "who asked this turn" (authorization, provenance), read `HERMES_SESSION_ACTOR_ID` / `HERMES_SESSION_ACTOR_NAME`. Both are empty when the turn has no single actor (another member's message joined it), in process and in a terminal or `execute_code` child alike, so treat empty as nobody in particular. `HERMES_SESSION_USER_ID` is the session route, and it is empty in a shared chat (Telegram observe mode), so code that rebuilds a delivery target from it stays on the shared conversation.
+- For "who asked this turn" (authorization, provenance), read `HERMES_SESSION_ACTOR_ID` / `HERMES_SESSION_ACTOR_NAME`. Both are empty when the turn has no single actor (another member's message joined it), in process and in a terminal or `execute_code` child alike, so treat empty as nobody in particular. `HERMES_SESSION_USER_ID` identifies the session route when available.
 
 ```python
 from agent.runtime_cwd import resolve_agent_cwd
@@ -1872,8 +1865,6 @@ A sync slash-command handler can ask the user who ran it to pick one option with
 
 | Surface | What the user sees |
 |---|---|
-| Telegram, Discord, Slack | A card with one button per choice (plus "Other") |
-| Other messaging platforms | A numbered list; the user replies with the number or the label |
 | Classic CLI, Ink TUI, Desktop | The clarify picker |
 
 A choice is a string (the label and the value) or a dict `{"value", "label", "description"}`; the description is shown after the label. A typed value or label, in any case, also picks that choice. `ask_choice` returns `None` when the user cancels, types something that is not a choice, or lets the clarify timeout (`agent.clarify_timeout`) pass. It also returns `None` when nothing can ask: a hook, a cron job, an async handler (blocking would stall the event loop that delivers the answer). The handler then falls back to its text usage:
@@ -1938,25 +1929,7 @@ This is the public, stable interface for tool dispatch from plugin commands. Plu
 
 ### Act from inside a hook (profile + tools)
 
-`ctx._cli_ref` is only populated in an **interactive CLI** session. It is `None` in the gateway, in non-interactive `hermes chat -q` runs, and in **kanban-spawned worker sessions** — so any plugin logic that reaches through `_cli_ref` silently no-ops in exactly those contexts. Two stable, session-agnostic APIs cover what hooks actually need:
-
-- **`ctx.profile_name`** — the active profile name (e.g. `"default"`, or the assignee profile in a kanban worker). Derived from `HERMES_HOME`, so it works everywhere with no `_cli_ref` dependency.
-- **`ctx.dispatch_tool(name, args)`** — invoke any registered tool (built-in or plugin), including the `kanban_*` tools, `delegate_task`, `terminal`, `read_file`, etc. Works from hook callbacks regardless of which process the hook fires in.
-
-Together these let a kanban lifecycle hook observe a transition and act on the board without touching framework internals:
-
-```python
-def register(ctx):
-    def on_blocked(*, task_id, reason=None, **kw):
-        # Runs in the worker process; ctx._cli_ref is None here.
-        ctx.dispatch_tool("kanban_comment", {
-            "task_id": task_id,
-            "comment": f"[{ctx.profile_name}] auto-noted block: {reason}",
-        })
-    ctx.register_hook("kanban_task_blocked", on_blocked)
-```
-
-For running a full `hermes <subcommand>` (e.g. `hermes kanban show`), shell out with the `terminal` tool via `ctx.dispatch_tool("terminal", {"command": "hermes kanban show ..."})` — there is no in-process slash-command bridge for headless worker sessions, and tools are the supported way to drive Hermes from a hook.
+`ctx.profile_name` identifies the active profile. `ctx.dispatch_tool(name, args)` dispatches a registered tool without relying on the private interactive CLI reference, which may be unavailable in gateway or non-interactive sessions.
 
 ### Talk to your own frontend: plugin RPC methods and session events
 
@@ -2099,116 +2072,11 @@ Users then run `/blueprint teamtools:standup` (or just `/blueprint standup`) or 
 
 This needs no manifest capability. It also works under plugin host isolation, because slots are plain dicts.
 
-### Handle Slack Block Kit button clicks
+### Session messages and adapter hooks
 
-Plugins that post Block Kit messages with interactive elements (buttons, overflow menus, datepickers, etc.) can register the click handlers directly with the Slack adapter — no monkey-patching of `slack_bolt.AsyncApp` required.
+`ctx.post_message(text)` posts to the bound session and returns a handle with `ok`, `error`, and `edit(text)`. Async callbacks can use `await ctx.apost_message(text)` and `await handle.aedit(text)`. When no conversation is bound, the handle reports failure rather than raising.
 
-```python
-def register(ctx):
-    async def _on_approve(ack, body, action):
-        # ack within 3 seconds — slack_bolt requirement.
-        await ack()
-        # body["channel"]["id"], body["user"]["id"], body["message"]["ts"]
-        # action["action_id"], action["value"]
-        sweep_id = (action.get("value") or "").split("|", 1)[-1]
-        # ...do the deterministic work, then post a follow-up.
-
-    ctx.register_slack_action_handler("inbox_sweep_approve", _on_approve)
-```
-
-**Signature:** `ctx.register_slack_action_handler(action_id, callback) -> None`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `action_id` | `str \| re.Pattern \| dict` | Whatever `slack_bolt.App.action()` accepts: a literal `action_id`, a compiled regex matching multiple ids, or a constraint dict like `{"action_id": "...", "block_id": "..."}` |
-| `callback` | async callable | Receives `(ack, body, action)` per the slack_bolt convention |
-
-**Runtime behavior:**
-
-- The handler is queued at plugin-load time and wired into the adapter's `slack_bolt.AsyncApp` when the Slack platform connects.
-- Each callback is wrapped defensively: if your handler raises, the gateway logs the error and best-effort-acks the click so Slack stops retrying.
-- Standard slack_bolt rules apply — `await ack()` within 3 seconds, then do longer work.
-- For multi-workspace deployments the handler fires for clicks from any connected workspace; use `body["team"]["id"]` if you need to scope behaviour.
-
-This is the public way for plugins to participate in Slack interactivity. Older plugins may patch `SlackAdapter.connect`; prefer this API instead. For the full slack_bolt surface (events, shortcuts, commands — not just Block Kit actions), use the generic `register_platform_handler("slack", ...)` below.
-
-### Register native platform handlers (any platform)
-
-Plugins that need to receive platform events the core adapter doesn't route — extra update types, native button callbacks, reaction/member events, webhook routes — can register a handler factory that the platform's adapter invokes at connect time. This works on **every** gateway platform.
-
-```python
-def register(ctx):
-    def _wire(native, adapter):
-        # native: the platform's client/app object (see table below)
-        # adapter: the platform adapter instance (treat as read-only)
-        # Import platform SDKs HERE so register() works without them.
-        ...
-
-    ctx.register_platform_handler("discord", _wire)
-```
-
-**Signature:** `ctx.register_platform_handler(platform, factory) -> None`
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `platform` | `str` | Gateway platform name, lowercase (`"telegram"`, `"discord"`, `"slack"`, `"matrix"`, ...) |
-| `factory` | callable | Receives `(native, adapter)` at connect time |
-
-**What `native` is, per platform:**
-
-| Platform | `native` object | Typical hooks |
-|----------|-----------------|---------------|
-| `telegram` | PTB `Application` | `add_handler` — any update type, pattern-scoped callbacks |
-| `discord` | `discord.ext.commands.Bot` | `add_listener` — reactions, member events, threads, voice |
-| `slack` | `slack_bolt.AsyncApp` | `app.event()` / `app.action()` / `app.command()` |
-| `matrix` | Matrix client | event callbacks |
-| `teams` | Teams `App` | `on_message` / `on_card_action` decorators |
-| `dingtalk` | `DingTalkStreamClient` | `register_callback_handler` for other stream topics |
-| `feishu` | lark_oapi client | API calls; event routing |
-| `line`, `api_server`, `msgraph_webhook` | aiohttp `web.Application` | `router.add_get/post` — custom routes (wired before the router freezes) |
-| everything else (whatsapp, signal, irc, email, sms, ntfy, wecom, weixin, bluebubbles, yuanbao, ...) | `None` | connect-time hook; work through the `adapter` handle |
-
-**Runtime behavior:**
-
-- Factories are queued at plugin-load time and invoked when the platform connects — for platforms where dispatch order matters (Telegram, Slack, Teams, aiohttp routers) they run **before** the core handlers register, so scoped plugin handlers take precedence and everything else falls through.
-- **Always scope handlers you add to first-match dispatch tables.** On Telegram, use `CallbackQueryHandler(..., pattern=r"^myplugin:")` — an unscoped handler would swallow the core button flows (exec approvals, model picker, clarify prompts).
-- Each factory is isolated: if it raises, the error is logged and the platform still connects.
-- Import platform SDKs inside the factory body, not at module level — `register()` must work when the SDK isn't installed.
-- One plugin can register factories for several platforms; each fires only when its platform connects.
-
-**Telegram alias:** `ctx.register_telegram_handler(factory)` is a back-compat alias for `ctx.register_platform_handler("telegram", factory)`.
-
-Example — Telegram, pattern-scoped inline buttons:
-
-```python
-def register(ctx):
-    def _wire(application, adapter):
-        from telegram.ext import CallbackQueryHandler
-
-        async def _on_button(update, context):
-            query = update.callback_query
-            await query.answer()
-            # ...handle "myplugin:*" callbacks
-
-        application.add_handler(
-            CallbackQueryHandler(_on_button, pattern=r"^myplugin:")
-        )
-
-    ctx.register_platform_handler("telegram", _wire)
-```
-
-Example — Discord, reaction events:
-
-```python
-def register(ctx):
-    def _wire(bot, adapter):
-        async def on_raw_reaction_add(payload):
-            ...  # e.g. reaction-based voting / moderation
-
-        bot.add_listener(on_raw_reaction_add, "on_raw_reaction_add")
-
-    ctx.register_platform_handler("discord", _wire)
-```
+`ctx.register_platform_handler(platform, factory)` registers a factory called with `(native, adapter)` when a matching adapter connects. Keep adapter-specific imports inside the factory, scope any handlers to avoid intercepting unrelated events, and only target a configured, supported adapter.
 
 ### Mid-run plugin loading: what activates now vs next session
 
@@ -2220,16 +2088,11 @@ re-discovery. Every one of those paths runs a **real forced rescan** (`discover_
 
 ```python
 {"name": "late-mcp", "key": "late-mcp",
- "activated_now": {"gateway_commands": ["late"], "callbacks": ["telegram"]},
+ "activated_now": {"gateway_commands": ["late"], "callbacks": []},
  "deferred": {"tools": ["late_tool"], "prompt": ["late.section"], "mcp_servers": ["worker"]}}
 ```
 
-- **Active immediately** — gateway slash commands, gateway transform hooks / other hooks, and platform
-  callbacks: the gateway runner subscribes at boot and calls every live adapter's idempotent
-  `rewire_plugin_handlers()`, so a `register_platform_handler` factory (or Slack action handler) registered
-  by a late plugin is wired without a restart. Re-wiring is deduped per native client by `(plugin, factory
-  qualname)`; on Telegram the late handlers are hoisted ahead of core's catch-all `filters.COMMAND` /
-  `CallbackQueryHandler` (PTB dispatches the first match per group), exactly as they would sit at connect.
+- **Active immediately** — gateway slash commands and gateway hooks are activated when the running gateway reloads plugins.
 - **Deferred** — `tools` and `prompt` sections apply from the **next session** (the running session's
   prompt/tool schema is cache-stable, same rule as `/skills install`); `mcp_servers` (the plugin's
   `mcp.json` servers, by their mcp.json names) connect on `mcp.reload` or the next session.
@@ -2280,66 +2143,6 @@ description: Acme Inference — OpenAI-compatible direct API
 Lazy-discovered the first time anything calls `get_provider_profile()` or `list_providers()` — `auth.py`, `config.py`, `doctor.py`, `models.py`, `runtime_provider.py`, and the chat_completions transport auto-wire to it. User plugins override bundled ones by name.
 
 **Full guide:** [Model Provider Plugins](../model-provider-plugin.md) — field reference, overridable hooks (`prepare_messages`, `build_extra_body`, `build_api_kwargs_extras`, `fetch_models`), api_mode selection, auth types, testing.
-
-### Platform plugins — add a gateway channel
-
-Drop an adapter into `plugins/platforms/<name>/`:
-
-```python
-# plugins/platforms/myplatform/adapter.py
-from gateway.platforms.base import BasePlatformAdapter
-
-class MyPlatformAdapter(BasePlatformAdapter):
-    async def connect(self): ...
-    async def send(self, chat_id, text): ...
-    async def disconnect(self): ...
-
-def check_requirements():
-    from agent.secret_scope import get_secret
-    return bool(get_secret("MYPLATFORM_TOKEN"))
-
-def _env_enablement():
-    from agent.secret_scope import get_secret
-    tok = (get_secret("MYPLATFORM_TOKEN") or "").strip()
-    if not tok:
-        return None
-    return {"token": tok}
-
-def register(ctx):
-    ctx.register_platform(
-        name="myplatform",
-        label="MyPlatform",
-        adapter_factory=lambda cfg: MyPlatformAdapter(cfg),
-        check_fn=check_requirements,
-        required_env=["MYPLATFORM_TOKEN"],
-        # Auto-populate PlatformConfig.extra from env so env-only setups
-        # show up in `hermes gateway status` without SDK instantiation.
-        env_enablement_fn=_env_enablement,
-        # Opt in to cron delivery: `deliver=myplatform` routes to this var.
-        cron_deliver_env_var="MYPLATFORM_HOME_CHANNEL",
-        emoji="💬",
-        platform_hint="You are chatting via MyPlatform. Keep responses concise.",
-    )
-```
-
-```yaml
-# plugins/platforms/myplatform/plugin.yaml
-name: myplatform-platform
-label: MyPlatform
-kind: platform
-version: 1.0.0
-description: MyPlatform gateway adapter
-requires_env:
-  - name: MYPLATFORM_TOKEN
-    description: "Bot token from the MyPlatform console"
-    password: true
-optional_env:
-  - name: MYPLATFORM_HOME_CHANNEL
-    description: "Default channel for cron delivery"
-    password: false
-```
-
-**Full guide:** [Adding Platform Adapters](../adding-platform-adapters.md) — complete `BasePlatformAdapter` contract, message routing, auth gating, setup wizard integration. Look at `plugins/platforms/irc/` for a stdlib-only working example.
 
 ### Memory provider plugins — add a cross-session knowledge backend
 

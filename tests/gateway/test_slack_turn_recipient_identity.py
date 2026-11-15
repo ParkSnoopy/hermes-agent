@@ -52,33 +52,3 @@ def test_concurrent_turns_carry_their_own_identity():
     assert meta_alice is not None and meta_bob is not None
     assert meta_alice["user_id"] == "U_ALICE"
     assert meta_bob["user_id"] == "U_BOB"
-
-
-def test_relay_with_scope_does_not_override_per_turn_identity():
-    """_with_scope must be fill-only: a turn that already carries user_id /
-    scope_id keeps them even when the per-chat cache holds another user
-    (the overwrite that caused the R3-5 cross-recipient hazard)."""
-    from gateway.relay.adapter import RelayAdapter
-
-    adapter = object.__new__(RelayAdapter)
-    # The mutable cache holds the OTHER user (their turn arrived later).
-    adapter._scope_by_chat = {"C_SHARED": "T_CACHED"}
-    adapter._dm_user_by_chat = {"C_SHARED": "U_BOB"}
-    merged = adapter._with_scope(
-        "C_SHARED", {"user_id": "U_ALICE", "scope_id": "T_TEAM"}
-    )
-    assert merged["user_id"] == "U_ALICE"
-    assert merged["scope_id"] == "T_TEAM"
-
-
-def test_relay_with_scope_still_fills_when_turn_carries_nothing():
-    """Restart/synthetic sends (no per-turn identity) keep the cache
-    fallback — the fix narrows the cache's authority, not its existence."""
-    from gateway.relay.adapter import RelayAdapter
-
-    adapter = object.__new__(RelayAdapter)
-    adapter._scope_by_chat = {"C_SHARED": "T_CACHED"}
-    adapter._dm_user_by_chat = {"C_SHARED": "U_CACHED"}
-    merged = adapter._with_scope("C_SHARED", {"thread_id": "1700.100"})
-    assert merged["user_id"] == "U_CACHED"
-    assert merged["scope_id"] == "T_CACHED"

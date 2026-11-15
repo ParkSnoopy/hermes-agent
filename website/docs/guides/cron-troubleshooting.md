@@ -57,24 +57,7 @@ hermes cron list   # Compare next_run times with local time
 
 ### Check 1: Verify the deliver target is correct
 
-Delivery targets are case-sensitive and require the correct platform to be configured. A misconfigured target silently drops the response.
-
-| Target | Requires |
-|--------|----------|
-| `telegram` | `TELEGRAM_BOT_TOKEN` in `~/.hermes/.env` |
-| `discord` | `DISCORD_BOT_TOKEN` in `~/.hermes/.env` |
-| `slack` | `SLACK_BOT_TOKEN` in `~/.hermes/.env` |
-| `whatsapp` | WhatsApp gateway configured |
-| `signal` | Signal gateway configured |
-| `matrix` | Matrix homeserver configured |
-| `email` | SMTP configured in `config.yaml` |
-| `sms` | SMS provider configured |
-| `local` | Write access to `~/.hermes/cron/output/` |
-| `origin` | Delivers to the chat where the job was created |
-
-Other supported platforms include `mattermost`, `homeassistant` (plugin), `dingtalk`, `feishu`, `wecom`, `weixin`, `bluebubbles`, `qqbot`, and `webhook`. You can also target a specific chat with `platform:chat_id` syntax (e.g., `telegram:-1001234567890`).
-
-If delivery fails, the job still runs — it just won't send anywhere. Check `hermes cron list` for updated `last_error` field (if available).
+Use `local` to retain job output under `~/.hermes/cron/output/`. Check the job's `last_error` in `hermes cron list` when a run fails.
 
 ### Check 2: Check `[SILENT]` usage
 
@@ -82,15 +65,7 @@ If your cron job produces no output, delivery is suppressed. If the agent respon
 
 Use prompts like "respond with only [SILENT] if nothing changed." Avoid asking the agent to include `[SILENT]` inside a longer explanation, because cron treats that marker as a suppression signal.
 
-### Check 3: Platform token permissions
-
-Each messaging platform bot needs specific permissions to receive messages. If delivery silently fails:
-
-- **Telegram**: Bot must be an admin in the target group/channel
-- **Discord**: Bot must have permission to send in the target channel
-- **Slack**: Bot must be added to the workspace and have `chat:write` scope
-
-### Check 4: Response wrapping
+### Check 3: Response wrapping
 
 By default, cron responses are wrapped with a header and footer (`cron.wrap_response: true` in `config.yaml`). Some platforms or integrations may not handle this well. To disable:
 
@@ -98,14 +73,6 @@ By default, cron responses are wrapped with a header and footer (`cron.wrap_resp
 cron:
   wrap_response: false
 ```
-
-### Check 5: Relay-fronted platforms (Hermes Cloud / Team Gateway)
-
-When a platform's credential lives in the relay connector (e.g. Slack or Discord fronted by a Team Gateway) rather than in your local `.env`, the **running gateway's live relay adapter is the only sender** — there is no standalone delivery path.
-
-- Scheduled fires work as long as the gateway is running: its ticker owns relay-fronted delivery.
-- A standalone `hermes cron run <id>` automatically **forwards the run to the gateway** over the api_server (`POST /api/jobs/{id}/run`). This requires the `api_server` platform to be enabled with an `API_SERVER_KEY` (16+ characters). A `--prompt` / `cronjob(action='run', prompt=...)` context is forwarded with it and applies to that single fire only.
-- If the gateway is not reachable, the run fails with a "relay-fronted … start the gateway" error instead of the misleading `platform 'slack' not configured/enabled`. Start the gateway and retry.
 
 ---
 
@@ -147,7 +114,7 @@ In this example, `context-skill` loads before `target-skill`.
 
 If a job ran and failed, you may see error context in:
 
-1. The chat where the job delivers (if delivery succeeded)
+1. The job output under `~/.hermes/cron/output/`
 2. `~/.hermes/logs/agent.log` for scheduler messages (or `errors.log` for warnings)
 3. The job's `last_run` metadata via `hermes cron list`
 
@@ -222,7 +189,7 @@ hermes skills list                  # Verify installed skills
 
 If you've worked through this guide and the issue persists:
 
-1. Run the job with `hermes cron run <job_id>` (fires on next gateway tick) and watch for errors in the chat output
+1. Run the job with `hermes cron run <job_id>` (fires on next gateway tick) and inspect its output
 2. Check `~/.hermes/logs/agent.log` for scheduler messages and `~/.hermes/logs/errors.log` for warnings
 3. Open an issue at [github.com/NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) with:
    - The job ID and schedule

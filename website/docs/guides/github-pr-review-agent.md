@@ -16,10 +16,9 @@ description: "Build an automated AI code reviewer that monitors your repos, revi
 ┌───────────────────────────────────────────────────────────────────┐
 │                                                                   │
 │   Cron Timer  ──▶  Hermes Agent  ──▶  GitHub API  ──▶  Review     │
-│   (every 2h)       + gh CLI           (PR diffs)       delivery   │
-│                    + skill                             (Telegram, │
-│                    + memory                            Discord,   │
-│                                                        local)     │
+│   (every 2h)       + gh CLI           (PR diffs)       saved      │
+│                    + skill                             locally    │
+│                    + memory                                       │
 │                                                                   │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -50,10 +49,10 @@ If you have a public endpoint available, check out [Automated GitHub PR Comments
   # Authenticate
   gh auth login
   ```
-- **Messaging configured** (optional) — [Telegram](../user-guide/messaging/telegram.md) or [Discord](../user-guide/messaging/discord.md)
 
-:::tip No messaging? No problem
-Use `deliver: "local"` to save reviews to `~/.hermes/cron/output/`. Great for testing before wiring up notifications.
+
+:::tip Saved reviews
+Use `deliver: "none"` to save reviews to `~/.hermes/cron/output/`.
 :::
 
 ---
@@ -189,7 +188,7 @@ Steps:
 
 If no new PRs found, say: No new PRs to review." \
   --name "pr-review" \
-  --deliver telegram \
+  --deliver none \
   --skill code-review
 ```
 
@@ -230,7 +229,7 @@ Or from within a chat session:
 
 ### Post Reviews Directly to GitHub
 
-Instead of delivering to Telegram, have the agent comment on the PR itself:
+Have the agent comment on the PR itself:
 
 Add this to your cron prompt:
 
@@ -264,7 +263,7 @@ For each repo show:
 
 Format as a clean summary." \
   --name "weekly-dashboard" \
-  --deliver telegram
+  --deliver none
 ```
 
 ### Multi-Repo Monitoring

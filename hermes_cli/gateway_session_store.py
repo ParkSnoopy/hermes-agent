@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 _READS = frozenset({
     "get_session", "get_session_title", "get_session_by_title", "resolve_resume_session_id",
     "get_messages_as_conversation", "get_resume_conversations", "assert_resume_safe",
-    "is_kanban_owned_session", "list_sessions_rich", "search_sessions", "get_next_title_in_lineage",
+    "list_sessions_rich", "search_sessions", "get_next_title_in_lineage",
     "get_handoff_state", "get_meta", "get_compression_tip", "resolve_session_by_title", "get_messages",
     "session_count", "sanitize_title", "session_yolo_enabled",
     "get_session_model_config_value",

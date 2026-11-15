@@ -579,40 +579,26 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
 
     def _build_stream_consumer_config(
         self, source: SessionSource, scfg: Any, adapter: Any, *, on_missing_cursor: str,
-    ) -> tuple[Any, Optional[Callable[[], None]]]:
-        """Build the shared ``StreamConsumerConfig`` and optional Telegram pause-typing closure.
+    ) -> Any:
+        """Build the shared ``StreamConsumerConfig`` for the adapter's capabilities.
         For non-editing adapters ``on_missing_cursor="fallback"`` streams with an empty cursor;
         ``"raise"`` raises ``RuntimeError`` so the caller skips streaming entirely."""
         from gateway.stream_consumer import StreamConsumerConfig
-        _pause_typing_before_finalize = None
-        if source.platform == Platform.TELEGRAM and hasattr(adapter, "pause_typing_for_chat"):
-            def _pause_typing_before_finalize(_adapter=adapter, _chat_id=source.chat_id) -> None:
-                _adapter.pause_typing_for_chat(_chat_id)
-        # Non-editing platforms (QQ, WeChat) skip streaming — the partial first message could never
-        # be updated — unless they have a native-streaming transport (WeCom msgtype "stream").
+        # Non-editing adapters need an incremental transport to update a partial message.
         _adapter_supports_edit = getattr(adapter, "SUPPORTS_MESSAGE_EDITING", True)
         _adapter_supports_native_stream = bool(getattr(adapter, "SUPPORTS_NATIVE_STREAMING", False))
         if not _adapter_supports_edit and not _adapter_supports_native_stream and on_missing_cursor == "raise":
             raise RuntimeError("skip streaming for non-editable platform")
         _effective_cursor = scfg.cursor if _adapter_supports_edit else ""
-        # Some Matrix clients render the cursor as tofu: stream text, no cursor.
-        if source.platform == Platform.MATRIX:
-            _effective_cursor = ""
-        # Fresh-final applies to Telegram only (others edit in place cheaply).
-        # Fresh-final applies to Telegram only — other platforms either edit in place cheaply (Discord,
-        # Slack) or don't have the timestamp-on-edit / edit-timestamp-stays-stale problem. (Ported from
-        # openclaw/openclaw#72038.)
-        _fresh_final_secs = (
-            float(getattr(scfg, "fresh_final_after_seconds", 0.0) or 0.0)
-            if source.platform == Platform.TELEGRAM else 0.0
-        )
+
         _consumer_cfg = StreamConsumerConfig(
             edit_interval=scfg.edit_interval, buffer_threshold=scfg.buffer_threshold,
             cursor=_effective_cursor,
-            fresh_final_after_seconds=_fresh_final_secs, transport=scfg.transport or "edit",
+            fresh_final_after_seconds=float(getattr(scfg, "fresh_final_after_seconds", 0.0) or 0.0),
+            transport=scfg.transport or "edit",
             chat_type=getattr(source, "chat_type", "") or "",
         )
-        return _consumer_cfg, _pause_typing_before_finalize
+        return _consumer_cfg
 
     def _run_still_current_fn(self, session_key: Optional[str], run_generation: Optional[int]) -> Callable[[], bool]:
         """Predicate: does this run's generation still own ``session_key``? (always True when untracked)."""
@@ -648,12 +634,12 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             _adapter = self._delivery_adapter_for(source)
             if not _adapter:
                 return None
-            _consumer_cfg, _pause_typing_before_finalize = self._build_stream_consumer_config(
+            _consumer_cfg = self._build_stream_consumer_config(
                 source, _scfg, _adapter, on_missing_cursor="fallback",
             )
             return GatewayStreamConsumer(
                 adapter=_adapter, chat_id=source.chat_id, config=_consumer_cfg,
-                metadata=_thread_metadata, on_before_finalize=_pause_typing_before_finalize,
+                metadata=_thread_metadata,
                 initial_reply_to_id=event_message_id, run_still_current=_run_still_current,
             )
         except Exception as _sc_err:
@@ -845,7 +831,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
     def _run_agent_display_settings(self, source: SessionSource) -> GatewayRunner._RunAgentDisplay:
         """Resolve per-platform display, progress, status and streaming-surface settings for a turn."""
         from gateway.run import (
-            _gateway_platform_value, _has_platform_display_override, _load_gateway_config,
+            _load_gateway_config,
             _platform_config_key,
         )
         from agent.secret_scope import get_secret
@@ -873,7 +859,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         # Resolve the mode and its provenance together: null inherits, tier off is not intent.
         # A raw os.getenv here reads whichever profile's env loaded last under multiplexing
         # (#116898); get_secret resolves through the active profile's scope instead.
-        progress_mode, _tool_progress_explicit = resolve_tool_progress(
+        progress_mode, _ = resolve_tool_progress(
             user_config, platform_key, get_secret("HERMES_TOOL_PROGRESS_MODE"),
         )
         # "accumulate" (edit one bubble) or "separate" (one msg per tool)
@@ -883,17 +869,9 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
 
         def _display_surface_mode(
             setting: str, *, default: bool = False,
-            require_platform_override_for: set[Any] | None = None, allow_generic: bool = False,
+            allow_generic: bool = False,
         ) -> str:
             """Return off|raw|generic for a gateway visibility surface."""
-            if require_platform_override_for:
-                current_platform = _gateway_platform_value(source.platform)
-                platform_only = {_gateway_platform_value(item) for item in require_platform_override_for}
-                if (
-                    current_platform in platform_only
-                    and not _has_platform_display_override(user_config, platform_key, setting)
-                ):
-                    return "off"
             value = resolve_display_setting(user_config, platform_key, setting, default)
             if isinstance(value, str) and value.strip().lower() == "generic":
                 return "generic" if allow_generic else "off"
@@ -921,33 +899,14 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         )
         # "log" mode: tool calls go to ~/.hermes/logs/tool_calls.log instead of the chat. Gateway-only.
         log_mode_enabled = progress_mode == "log" and not is_webhook
-        # Interim assistant messages and thinking_progress are independent of tool progress (same
-        # queue). Mattermost requires a per-platform opt-in: scratch text leaks into public threads.
+        # Interim assistant messages and thinking progress are independent of tool progress.
         interim_assistant_messages_mode = _display_surface_mode(
-            "interim_assistant_messages", default=True, require_platform_override_for={Platform.MATTERMOST},
+            "interim_assistant_messages", default=True,
         )
         interim_assistant_messages_enabled = not is_webhook and not bot_peer and interim_assistant_messages_mode != "off"
         _thinking_enabled = _display_surface_mode(
-            "thinking_progress", default=False, require_platform_override_for={Platform.MATTERMOST},
+            "thinking_progress", default=False,
         ) != "off" and not bot_peer
-        # Slack-native task cards (#29483): when the Slack adapter's opt-in is set, tool progress renders as
-        # native plan/task cards via chat.startStream — the progress queue is needed even though Slack keeps
-        # ordinary text tool_progress off by default (requiring both flags would silently leave the native
-        # feature inactive).
-        # Cards are still tool progress. Slack's TIER default (``off``) only quiets the text lane so
-        # cards stay on for unconfigured installs, but an operator who WRITES ``tool_progress: off``
-        # (global, platform override, or legacy overrides) has asked for no tool progress at all and
-        # gets no cards either. Every other explicit mode keeps the card lane.
-        _native_slack_task_cards = False
-        if (
-            source.platform == Platform.SLACK
-            and hasattr(adapter, "native_task_cards_enabled")
-            and not (_tool_progress_explicit and progress_mode == "off") and not bot_peer
-        ):
-            try:
-                _native_slack_task_cards = bool(adapter.native_task_cards_enabled())
-            except Exception:
-                logger.debug("Slack native task-card config check failed", exc_info=True)
         return self._RunAgentDisplay(
             user_config=user_config, platform_key=platform_key, enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets, resolve_display_setting=resolve_display_setting,
@@ -957,8 +916,8 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             _live_status_adapter=_live_status_adapter, log_mode_enabled=log_mode_enabled,
             log_queue=queue.Queue() if log_mode_enabled else None,
             interim_assistant_messages_enabled=interim_assistant_messages_enabled,
-            _thinking_enabled=_thinking_enabled, _native_slack_task_cards=_native_slack_task_cards,
-            needs_progress_queue=tool_progress_enabled or _thinking_enabled or _native_slack_task_cards,
+            _thinking_enabled=_thinking_enabled,
+            needs_progress_queue=tool_progress_enabled or _thinking_enabled,
             _generic_status_phrase=_generic_status_phrase,
         )
 
@@ -967,7 +926,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         "_live_status_adapter", "_live_status_mode", "_thinking_enabled", "progress_mode",
         "progress_grouping", "tool_progress_enabled", "log_queue", "resolve_display_setting",
         "user_config", "enabled_toolsets", "disabled_toolsets", "log_mode_enabled",
-        "interim_assistant_messages_enabled", "needs_progress_queue", "_native_slack_task_cards",
+        "interim_assistant_messages_enabled", "needs_progress_queue",
     )
 
     def _run_agent_build_turn_context(
@@ -978,9 +937,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         session_id, persist_user_*, …) are stored verbatim. Returns ``(turn_ctx, turn_runner,
         cleanup_adapter)``."""
         from gateway.run_turn_runner import TurnRunner
-        # Discord voice "verbal ack" on the FIRST tool call (discord.voice_fx.enabled): resolve the
-        # guild whose voice connection is bound to this text channel (mirrors DiscordAdapter.play_tts).
-        _voice_ack_guild: list[Optional[int]] = [self._voice_ack_guild_for(source)]
+
 
         # Auto-cleanup of temporary progress bubbles needs a real ``delete_message`` (getattr on the
         # type: a fake adapter without it means "can't delete", not a crash).
@@ -1000,7 +957,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             run_generation=run_generation, _cleanup_progress=_cleanup_progress,
             _run_still_current=self._run_still_current_fn(session_key, run_generation),
             progress_queue=queue.Queue() if disp.needs_progress_queue else None,
-            _voice_ack_guild=_voice_ack_guild, _voice_ack_loop=asyncio.get_running_loop(),
+
             **{name: getattr(disp, name) for name in self._DISPLAY_TO_TURN_CTX}, **turn_params,
         )
         turn_runner = TurnRunner(self, turn_ctx)
@@ -1008,98 +965,15 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             turn_ctx.persist_user_display_metadata, source.platform, turn_ctx.user_config)
         # Agent tool-lifecycle callbacks live on the runner (bound methods, same signatures).
         turn_ctx.progress_callback = turn_runner.progress_callback
-        turn_ctx.voice_ack_callback = turn_runner.voice_ack_callback
-        turn_ctx.native_tool_start_callback = turn_runner.combined_tool_start_callback
-        turn_ctx.native_tool_complete_callback = turn_runner.native_tool_complete_callback
+
         return turn_ctx, turn_runner, _cleanup_adapter
 
-    def _thread_metadata_for_progress(
-        self, source: SessionSource, event_message_id: Optional[str], _progress_thread_id: Any,
-        _relay_prospective_thread_id: Optional[str],
-    ) -> Optional[dict[str, Any]]:
-        """Thread metadata for a progress-lane send; relay Discord auto-thread lane falls back to the reply anchor.
-
-        The connector will auto-thread on the reply anchor (thread is born on its FIRST send), so
-        carrying it routes progress / status bubbles into the same thread as the final reply."""
-        if not _progress_thread_id:
-            metadata = None
-        elif _progress_thread_id == source.thread_id:
-            metadata = self._thread_metadata_for_source(source, event_message_id)
-        else:
-            metadata = self._thread_metadata_for_target(
-                source.platform, source.chat_id, _progress_thread_id,
-                chat_type=getattr(source, "chat_type", None), reply_to_message_id=event_message_id,
-            )
-        if metadata is None and _relay_prospective_thread_id:
-            metadata = {"reply_to_message_id": event_message_id}
-        return metadata
-
     def _run_agent_progress_threading(
-        self, source: SessionSource, event_message_id: Optional[str], _native_slack_task_cards: bool
+        self, source: SessionSource, event_message_id: Optional[str],
     ) -> tuple[Optional[dict], Optional[str], Optional[dict]]:
-        """Resolve where progress bubbles are threaded (platform-specific).
-
-        Returns ``(progress_metadata, progress_reply_to, status_thread_metadata)``; the latter is
-        for status / approval / stream sends (Feishu topics need the triggering message id via the
-        reply API, so carry it as a fallback). Slack and Buzz honour the user's reply_in_thread
-        opt-out: never synthesise a thread for progress, or every later reply inherits it."""
-        from gateway.run import _non_conversational_metadata, _resolve_progress_thread_id
-        is_buzz = str(getattr(source.platform, "value", source.platform) or "").lower() == "buzz"
-        _progress_reply_in_thread = True
-        _adapter = self._delivery_adapter_for(source) if source.platform == Platform.SLACK or is_buzz else None
-        if _adapter is not None:
-            try:
-                if is_buzz:
-                    _progress_reply_in_thread = getattr(_adapter, "_reply_to_mode", "first") != "off"
-                else:
-                    # Relay lane: the adapter owns mode resolution; native lane: flat extra key.
-                    _mode_fn = getattr(_adapter, "_effective_reply_in_thread", None)
-                    _progress_reply_in_thread = bool(
-                        _mode_fn() if callable(_mode_fn) else _adapter.config.extra.get("reply_in_thread", True)
-                    )
-            except Exception:
-                _progress_reply_in_thread = True
-        _progress_thread_id = _resolve_progress_thread_id(
-            source.platform, source.thread_id, event_message_id, reply_in_thread=_progress_reply_in_thread,
-        )
-        # Relay Discord auto-thread lane: the connector stamps prospective_thread_id at ingest.
-        _relay_prospective_thread_id = (
-            str(getattr(source, "prospective_thread_id", None))
-            if source.platform == Platform.DISCORD
-            and getattr(source, "delivered_via_upstream_relay", False)
-            and getattr(source, "prospective_thread_id", None)
-            and not source.thread_id
-            else None
-        )
-        _progress_metadata = _non_conversational_metadata(
-            self._thread_metadata_for_progress(
-                source, event_message_id, _progress_thread_id, _relay_prospective_thread_id,
-            ),
-            platform=source.platform,
-        )
-        if _native_slack_task_cards:
-            # chat.startStream in channels requires the recipient team/user pair; harmless elsewhere.
-            _progress_metadata = dict(_progress_metadata or {})
-            if source.scope_id:
-                _progress_metadata.setdefault("recipient_team_id", source.scope_id)
-                _progress_metadata.setdefault("slack_team_id", source.scope_id)
-            if source.user_id:
-                _progress_metadata.setdefault("recipient_user_id", source.user_id)
-        # Buzz has no native thread_id: thread via reply-to unless the user opted out.
-        _progress_reply_to = (
-            event_message_id
-            if (source.platform in (Platform.FEISHU, Platform.MATTERMOST) and source.thread_id and event_message_id)
-            or (is_buzz and event_message_id and _progress_reply_in_thread)
-            or _relay_prospective_thread_id
-            else None
-        )
-        if source.platform == Platform.FEISHU and source.thread_id and event_message_id:
-            _status_thread_metadata = {"thread_id": _progress_thread_id, "reply_to_message_id": event_message_id}
-        else:
-            _status_thread_metadata = self._thread_metadata_for_progress(
-                source, event_message_id, _progress_thread_id, _relay_prospective_thread_id,
-            )
-        return _progress_metadata, _progress_reply_to, _status_thread_metadata
+        """Keep progress and status sends on the source's existing route."""
+        metadata = self._thread_metadata_for_source(source, event_message_id)
+        return metadata, None, metadata
 
     async def _run_agent_write_tool_log(self, log_queue: Any) -> None:
         """Drain log_queue and append tool-call lines to tool_calls.log (tool_progress=log).
@@ -1721,7 +1595,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         # distinct from the reply anchor above (None in forum topics). Carry it or two chained
         # topic turns with the same text would collide on one obligation id (queued-final-ledger).
         next_inbound_id = None
-        # Queued Discord turns carry the same routing note as first turns; persist the authored text.
+        # Queued follow-ups persist their own prepared text, never the interrupted turn's text.
         next_persist_message = None
         next_display_kind = display_kind_for_event(pending_event)
         next_reply_expected = pending_event.reply_expected if pending_event is not None else None
@@ -1748,8 +1622,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             )
             if next_message is None:
                 return result
-            from gateway.run_inbound import strip_discord_triggering_note
-            next_persist_message = strip_discord_triggering_note(pending_event, next_message)
+            next_persist_message = next_message
             next_message_id = self._reply_anchor_for_event(pending_event)
             next_inbound_id = str(pending_event.message_id) if getattr(pending_event, "message_id", None) else None
             next_channel_prompt, next_source = self._pinned_channel_inputs(
@@ -2033,13 +1906,13 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
 
     def _run_agent_bind_turn_wiring(
         self, turn_ctx: TurnContext, turn_runner: TurnRunner, source: SessionSource,
-        event_message_id: Optional[str], _native_slack_task_cards: bool,
+        event_message_id: Optional[str],
     ) -> Optional[dict[str, Any]]:
         """Resolve progress threading, then publish progress metadata and the sync→async bridges onto
         ``turn_ctx`` (the one-slot holders shared with run_sync's executor thread are TurnContext
         defaults). Returns ``_status_thread_metadata``."""
         turn_ctx._progress_metadata, turn_ctx._progress_reply_to, _status_thread_metadata = (
-            self._run_agent_progress_threading(source, event_message_id, _native_slack_task_cards)
+            self._run_agent_progress_threading(source, event_message_id)
         )
         # Bridges: sync step/event/status callbacks → async hooks.emit and adapter.send.
         turn_ctx._loop_for_step = asyncio.get_running_loop()
@@ -2166,7 +2039,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             # Keep status callbacks intact for approvals and actionable failures. Interim messages keep the chat's
             # setting (TurnRunner drops them for a heartbeat): an agent this turn builds takes its mode from it.
             disp = dataclasses.replace(
-                disp, tool_progress_enabled=False, _thinking_enabled=False, _native_slack_task_cards=False,
+                disp, tool_progress_enabled=False, _thinking_enabled=False,
                 needs_progress_queue=False,
             )
         turn_ctx, turn_runner, _cleanup_adapter = self._run_agent_build_turn_context(
@@ -2184,7 +2057,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             voice_turn=str(getattr(message_type, "value", message_type) or "").lower() == "voice",
         )
         _status_thread_metadata = self._run_agent_bind_turn_wiring(
-            turn_ctx, turn_runner, source, event_message_id, disp._native_slack_task_cards,
+            turn_ctx, turn_runner, source, event_message_id,
         )
         # Two independent quiet reasons: a muted diagnostic wake (ours) and a scheduled heartbeat.
         if not (scheduled_heartbeat or turn_ctx.mute_notification_reply):

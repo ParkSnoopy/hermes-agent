@@ -2,10 +2,10 @@
 
 Teknium's ruling: a messaging chat's ``/new`` must not lock Desktop / Webapp / mobile users out of
 the conversation they have open, and the chat must not get that conversation's replies once it is on
-another one. A Discord chat's conversation A is open in an app; the chat sends ``/new`` and then a
+another one. A plugin chat's conversation A is open in an app; the chat sends ``/new`` and then a
 message, which runs in its new conversation B. The app's prompt on A runs in A on A's own key, and
 the chat adapter receives nothing from it; B's turns and the chat's replies are untouched. A
-``/resume`` of A on the chat brings A's replies back to the chat. Real GatewayRunner, DiscordAdapter
+``/resume`` of A on the chat brings A's replies back to the chat. Real GatewayRunner, a test plugin adapter,
 (its ``send`` recorded), SessionAuthority, drain and session resolver over a real SessionDB; the
 agent run is a stand-in that answers with the session and route it was given.
 """
@@ -22,18 +22,19 @@ async def _gateway(monkeypatch):
     from gateway.run import GatewayRunner
     from gateway.session_authority import initialize_session_authority
     from gateway.session_results import execution_result
-    from plugins.platforms.discord.adapter import DiscordAdapter
+    from tests.gateway.test_platform_reconnect import StubAdapter, register_test_platform
 
-    monkeypatch.setenv('DISCORD_ALLOWED_USERS', '42')
+    monkeypatch.setenv('GATEWAY_ALLOW_ALL_USERS', 'true')
     runner = GatewayRunner(GatewayConfig())
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token='fixture-token', typing_indicator=False))
+    platform = register_test_platform(monkeypatch)
+    adapter = StubAdapter(platform=platform)
     sent = []
 
     async def send(chat_id, content, reply_to=None, metadata=None):
         sent.append(content)
         return SendResult(success=True, message_id='s')
     monkeypatch.setattr(adapter, 'send', send)
-    runner.adapters = {Platform.DISCORD: adapter}
+    runner.adapters = {platform: adapter}
     monkeypatch.setattr(runner, '_read_user_config', lambda: {'approvals': {'destructive_slash_confirm': False}})
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='owner')
     runner._wire_adapter_handlers(adapter)
@@ -135,25 +136,13 @@ async def test_the_old_conversation_runs_beside_the_chats_turn_and_resume_brings
 
 @pytest.mark.asyncio
 async def test_the_old_conversation_never_drives_the_chats_topic_or_claims_a_reset(monkeypatch):
-    """Review on #144840: a detached turn's compression must not rewrite the chat's Telegram topic
-    binding (the chat would fall back into A), and its context exhaustion has no route to reset."""
-    from gateway.session_detached import detach
-    from gateway.session_identity import replace_source
+    """A detached turn's context exhaustion has no chat route to reset."""
     runner, adapter, authority, source, sent, _ran, _gates = await _gateway(monkeypatch)
     await _chat(adapter, source, sent, 'hello')
     ref_a = authority.register(source)
     await _chat(adapter, source, sent, '/new')
     detached = authority.sessions[ref_a.session_id].source
     assert detached.detached_route  # /new detached A
-    monkeypatch.setattr(runner, '_is_telegram_dm', lambda source: True)
-    monkeypatch.setattr(runner, '_telegram_topic_mode_enabled', lambda source: True)
-    topic = replace_source(source, thread_id='9')
-    assert runner._is_telegram_topic_lane(topic)
-    live = authority.sessions[ref_a.session_id]
-    live.source = replace_source(topic, detached_route=None)
-    live.route = runner.session_store._generate_session_key(topic)
-    detach(authority, live, ref_a.session_id)
-    assert not runner._is_telegram_topic_lane(live.source)
 
     entry = runner.session_store.get_or_create_session(detached)
     response, kept = await runner._hmwa_compression_exhaustion_reset(

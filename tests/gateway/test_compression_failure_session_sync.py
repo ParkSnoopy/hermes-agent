@@ -5,6 +5,8 @@ import types
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 import gateway.run as gateway_run
 from gateway.config import Platform
 from gateway.session import SessionSource
@@ -96,7 +98,7 @@ def _runner(session_store):
     runner.hooks = SimpleNamespace(loaded_hooks=False, emit=AsyncMock())
     runner.session_store = session_store
     runner._session_db = MagicMock()
-    runner._session_db.get_telegram_topic_binding_by_session.return_value = None
+
     runner._agent_cache = {}
     runner._agent_cache_lock = threading.Lock()
     runner._running_agents = {}
@@ -121,7 +123,7 @@ def _runner(session_store):
     runner._agent_config_signature = lambda *_args, **_kwargs: ("sig",)
     runner._extract_cache_busting_config = lambda _config: ()
     runner._thread_metadata_for_source = lambda *_args, **_kwargs: None
-    runner._sync_telegram_topic_binding = MagicMock()
+
     runner._release_running_agent_state = MagicMock()
     return runner
 
@@ -175,9 +177,51 @@ def test_failed_turn_still_syncs_compression_session_split(monkeypatch):
     assert session_store.peer_records == [
         ("session-after-compression", SESSION_KEY, source)
     ]
-    runner._sync_telegram_topic_binding.assert_called_once_with(
-        source, session_store.entry, reason="agent-run-compression"
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail_clear", [False, True])
+async def test_exhaustion_reset_releases_fresh_fifo_after_scope_clear(monkeypatch, fail_clear):
+    from gateway import session_automation
+    from gateway.run_turn_persistence import GatewayTurnPersistenceMixin
+
+    events = []
+    old = SimpleNamespace(session_id="old")
+    new = SimpleNamespace(session_id="new")
+    queued = ["first", "second"]
+    state = SimpleNamespace(conversation=SimpleNamespace(queued_events=[]))
+
+    async def reset(runner, key, session_id):
+        assert (key, session_id) == (SESSION_KEY, "old")
+        events.append("reset")
+        return new, lambda: events.append("release")
+
+    async def move(runner, key, session_id):
+        events.append("move")
+
+    def clear(key, *, reason):
+        assert reason == "compression_exhausted_reset"
+        events.append("clear")
+        if fail_clear:
+            raise RuntimeError("clear failed")
+
+    monkeypatch.setattr(session_automation, "reset_and_rehome_messages", reset)
+    monkeypatch.setattr(session_automation, "move_route_wakes", move)
+    runner = SimpleNamespace(
+        _evict_cached_agent=lambda key: events.append("evict"),
+        _overflow_queue=lambda key: queued,
+        _clear_conversation_scope=clear,
+        _session_state=lambda key: state,
     )
+    if fail_clear:
+        with pytest.raises(RuntimeError, match="clear failed"):
+            await GatewayTurnPersistenceMixin._hmwa_rotate_exhausted_session(runner, old, SESSION_KEY, None)
+    else:
+        result = await GatewayTurnPersistenceMixin._hmwa_rotate_exhausted_session(runner, old, SESSION_KEY, None)
+        assert result is new
+        assert state.conversation.queued_events == queued
+    assert events == ["reset", "move", "evict", "clear", "release"]
 
 
 class _RateLimitFailureAgent(_CompressionThenFailureAgent):

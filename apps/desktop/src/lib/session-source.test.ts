@@ -2,13 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { isMessagingSource, sessionSourceSearchTerms } from './session-source'
 
-// Regression guard for #46761 / PR #47395: Photon (iMessage) must keep its own
-// sidebar section. refreshMessagingSessions() filters rows through
-// isMessagingSource(), so this entry is the sole condition that keeps Photon
-// sessions out of generic recents. A silent removal would regress the feature
-// with no test failure — these asserts pin the contract.
-describe('photon messaging source registration', () => {
-  it('treats photon as a messaging source (own sidebar section)', () => {
+describe('legacy photon session source', () => {
+  it('classifies photon as a messaging source', () => {
     expect(isMessagingSource('photon')).toBe(true)
   })
 

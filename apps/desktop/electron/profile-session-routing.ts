@@ -132,7 +132,7 @@ export function tagRegistrySessionResponse(path: string, data: unknown, connecti
   if (pathname === '/api/profiles/sessions/sidebar') {
     const response = data as Record<string, unknown>
 
-    for (const key of ['recents', 'cron', 'messaging']) {
+    for (const key of ['recents', 'cron']) {
       tagRowsWithConnection(rowsOf(response[key]), connectionId)
     }
 
@@ -210,11 +210,10 @@ export function mergeProfileSessionWindow(rows: unknown[], offset: number, limit
 
 export interface SidebarSessionSliceParams {
   cron: URLSearchParams
-  messaging: URLSearchParams
   recents: URLSearchParams
 }
 
-/** Build the three remote-profile sidebar reads from one workspace scope. */
+/** Build the two remote-profile sidebar reads from one workspace scope. */
 export function buildSidebarSessionSliceParams(searchParams: URLSearchParams): SidebarSessionSliceParams {
   const profile = (searchParams.get('recents_profile') || 'all').trim() || 'all'
 
@@ -235,16 +234,8 @@ export function buildSidebarSessionSliceParams(searchParams: URLSearchParams): S
     recents.set('exclude_sources', recentsExclude)
   }
 
-  const messaging = slice('messaging_limit', '100', { profile })
-  const messagingExclude = searchParams.get('messaging_exclude')
-
-  if (messagingExclude) {
-    messaging.set('exclude_sources', messagingExclude)
-  }
-
   return {
     cron: slice('cron_limit', '50', { profile, source: 'cron' }),
-    messaging,
     recents
   }
 }
@@ -294,10 +285,10 @@ export async function fetchPrimaryProfileSessions(
   }
 }
 
-/** Reassemble the batched sidebar response from its three per-slice reads,
+/** Reassemble the batched sidebar response from its two per-slice reads,
  *  keeping each slice's `errors` so a failed scan is never read as an
  *  authoritative empty slice. */
-export function assembleSidebarSessionSlices(recents: unknown, cron: unknown, messaging: unknown) {
+export function assembleSidebarSessionSlices(recents: unknown, cron: unknown) {
   const slice = (data: unknown) => {
     const errors = errorsOf(data)
 
@@ -313,10 +304,6 @@ export function assembleSidebarSessionSlices(recents: unknown, cron: unknown, me
       profile_totals: recentsSlice?.profile_totals || {}
     },
     cron: slice(cron),
-    messaging: {
-      ...slice(messaging),
-      total: Number((messaging as Partial<SessionListResponse> | undefined)?.total) || rowsOf(messaging).length
-    },
     errors: []
   }
 }
@@ -1243,7 +1230,7 @@ export async function findRemoteOwnerProfileForSession(
 // The backend's `/api/profiles/sessions` page cap (FastAPI `le=500`).
 const PROFILE_SESSION_PAGE_CAP = 500
 
-const SIDEBAR_SLICES = ['recents', 'cron', 'messaging'] as const
+const SIDEBAR_SLICES = ['recents', 'cron'] as const
 
 type FetchProfilePage = (profile: string, path: string) => Promise<unknown>
 
@@ -1394,7 +1381,7 @@ async function allProfilesSidebar(url: URL, profiles: readonly string[], fetchPa
   const cap = (key: string, fallback: number) =>
     Math.min(Math.max(Number(url.searchParams.get(key)) || fallback, 1), PROFILE_SESSION_PAGE_CAP)
 
-  const caps = { recents: cap('recents_limit', 20), cron: cap('cron_limit', 50), messaging: cap('messaging_limit', 100) }
+  const caps = { recents: cap('recents_limit', 20), cron: cap('cron_limit', 50) }
 
   const reads = await readEachProfile(profiles, profile => {
     const params = new URLSearchParams(url.searchParams)
@@ -1409,13 +1396,12 @@ async function allProfilesSidebar(url: URL, profiles: readonly string[], fetchPa
     return fetchPage(profile, `${url.pathname}?${params}`)
   })
 
-  const rows: Record<(typeof SIDEBAR_SLICES)[number], unknown[]> = { recents: [], cron: [], messaging: [] }
+  const rows: Record<(typeof SIDEBAR_SLICES)[number], unknown[]> = { recents: [], cron: [] }
   const truncated: Record<string, boolean> = {}
   const usage: Record<string, unknown> = {}
   const errors: SessionScanError[] = []
   const storage: Record<string, unknown> = {}
   const failed: SessionScanError[] = []
-  let messagingTotal = 0
   let contributed = false
 
   for (const read of reads) {
@@ -1448,7 +1434,6 @@ async function allProfilesSidebar(url: URL, profiles: readonly string[], fetchPa
     contributed ||= SIDEBAR_SLICES.some(key => rowsOf(data?.[key]).length > 0)
     Object.assign(truncated, data?.recents?.profiles_truncated)
     Object.assign(usage, data?.recents?.profiles_usage)
-    messagingTotal += Number(data?.messaging?.total) || rowsOf(data?.messaging).length
   }
 
   const live = profiles.filter(profile => !(profile in storage))
@@ -1459,7 +1444,6 @@ async function allProfilesSidebar(url: URL, profiles: readonly string[], fetchPa
     return {
       recents: failedSlice({ profiles_truncated: {}, profiles_usage: {} }),
       cron: failedSlice(),
-      messaging: failedSlice({ total: 0 }),
       errors,
       storage
     }
@@ -1472,7 +1456,6 @@ async function allProfilesSidebar(url: URL, profiles: readonly string[], fetchPa
       profiles_usage: usage
     },
     cron: { sessions: sortedWindow(rows.cron, recencyOf, 0, caps.cron) },
-    messaging: { sessions: sortedWindow(rows.messaging, recencyOf, 0, caps.messaging), total: messagingTotal },
     errors,
     storage
   }

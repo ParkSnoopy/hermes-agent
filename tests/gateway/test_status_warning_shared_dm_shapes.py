@@ -1,18 +1,15 @@
-"""The DM-only blocked-overflow warning (#101003) reaches a one-to-one chat only: a Slack group DM (keyed
-``dm`` for session scoping) and a handoff into a group home whose thread could not be created are shared
-chats, so the warning stays out of them, while a real DM still gets it."""
+"""DM-only blocked-overflow warnings stay out of shared chats and handoff homes."""
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from agent.conversation_compression import CONTEXT_OVERFLOW_BLOCKED_WARNING_TEMPLATE
-from gateway.config import Platform
-from gateway.session import build_session_key
+from gateway.session import SessionSource
 from tests.gateway.test_handoff_thread_session_key import _handoff_destination
-from tests.gateway.test_slack import SlackAdapter  # installs the slack SDK stand-in
+from tests.gateway.test_automation_compression_media import _plugin_platform
 
 WARNING = CONTEXT_OVERFLOW_BLOCKED_WARNING_TEMPLATE.format(tokens=85_000, threshold=72_000, reason="cooldown:30")
 
@@ -44,28 +41,15 @@ def _delivered(source):
     return sent
 
 
-@pytest.mark.parametrize(("channel_type", "shown"), [("mpim", False), ("im", True)])
-def test_slack_group_dm_is_not_a_dm_for_the_warning(channel_type, shown):
-    from gateway.config import PlatformConfig
-
-    adapter = SlackAdapter(PlatformConfig(enabled=True, token="***"))
-    adapter._app = MagicMock()
-    adapter._app.client = AsyncMock()
-    adapter._bot_user_id, adapter._running, adapter.handle_message = "U_BOT", True, AsyncMock()
-    channel = "G123" if channel_type == "mpim" else "D123"
-    asyncio.run(adapter._handle_slack_message({
-        "text": "<@U_BOT> hi", "user": "U_USER", "channel": channel, "channel_type": channel_type,
-        "team": "T1", "ts": "1.000001"}))
-    source = adapter.handle_message.call_args[0][0].source
-    assert source.chat_type == "dm"  # Slack's session scoping still treats both as DM-style
-    assert build_session_key(source).split(":")[3] == "dm"
+@pytest.mark.parametrize(("chat_type", "shown"), [("group", False), ("dm", True)])
+def test_warning_only_reaches_private_chats(monkeypatch, chat_type, shown):
+    source = SessionSource(platform=_plugin_platform(monkeypatch), chat_id="chat", chat_type=chat_type)
     assert _delivered(source) == ([WARNING] if shown else [])
 
 
-@pytest.mark.parametrize(("platform", "home_type", "shown"), [
-    (Platform.DISCORD, "channel", False), (Platform.DISCORD, "dm", True),
-    (Platform.MATTERMOST, "group", False), (Platform.SIGNAL, "dm", True)])
-def test_a_handoff_without_a_thread_keeps_the_home_chats_type(platform, home_type, shown):
+@pytest.mark.parametrize(("home_type", "shown"), [("channel", False), ("group", False), ("dm", True)])
+def test_a_handoff_without_a_thread_keeps_the_home_chats_type(monkeypatch, home_type, shown):
+    platform = _plugin_platform(monkeypatch)
     adapter = SimpleNamespace(get_chat_info=AsyncMock(return_value={"type": home_type}))
     dest, _ = _handoff_destination(platform, "home-1", None, None, adapter)
     assert _delivered(dest.source) == ([WARNING] if shown else [])

@@ -1,8 +1,7 @@
 """A ``hold_stream`` plugin's session shows the user only the rewritten final, on every chat shape.
 
 Real ``GatewayRunner._run_agent`` + real ``AIAgent`` against a loopback model streaming a reply
-that a ``transform_llm_output`` redactor rewrites. The adapters are recording transports (and the
-real ``RelayAdapter`` over the stub connector for Slack's stream-is-the-message lane); the base
+that a ``transform_llm_output`` redactor rewrites. The adapters are recording transports; the base
 adapter's own ``_process_message_background`` runs the typing loop and the final send. With
 ``hold_stream=True`` no draft, edit, native stream frame, split head or commentary bubble ever
 carries the raw text, the typing indicator runs while the reply is held, and the final goes out
@@ -11,6 +10,7 @@ once, rewritten. The same plugin without the declaration keeps today's stream (c
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,14 +20,30 @@ from gateway.platforms.event import MessageEvent, MessageType
 from gateway.session import SessionSource
 from tests.fakes.fake_llm_provider import FakeLLMServer
 from tests.fakes.redactor_plugin import REWRITE, raw_leaks, redactor_home, redactor_turn
-from tests.gateway.test_run_progress_topics import _make_runner
+from tests.gateway.test_automation_compression_media import _plugin_platform
+
+
+def _make_runner(adapter):
+    from gateway.run import GatewayRunner
+    runner = object.__new__(GatewayRunner)
+    runner.adapters = {adapter.platform: adapter}
+    runner._voice_mode, runner._prefill_messages = {}, []
+    runner._ephemeral_system_prompt = ""
+    runner._reasoning_config = None
+    runner._provider_routing, runner._fallback_model = {}, None
+    runner._session_db, runner._running_agents = None, {}
+    runner.session_store = SimpleNamespace(_entries={}, _save=lambda: None)
+    runner.hooks = SimpleNamespace(loaded_hooks=False)
+    runner.config = SimpleNamespace(thread_sessions_per_user=False, group_sessions_per_user=False,
+                                    stt_enabled=False)
+    return runner
 
 
 class _Chat(BasePlatformAdapter):
     """Recording transport: every send/edit/frame lands in ``log`` as ``(kind, text)``."""
 
-    def __init__(self, *, editable=True, limit=4096):
-        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.TELEGRAM)
+    def __init__(self, platform, *, editable=True, limit=4096):
+        super().__init__(PlatformConfig(enabled=True, token="***"), platform)
         self.SUPPORTS_MESSAGE_EDITING, self.MAX_MESSAGE_LENGTH = editable, limit
         self.log, self.typing, self._ids = [], 0, 0
 
@@ -69,18 +85,6 @@ class _NativeStreamChat(_Chat):
         return True
 
 
-def _relay_slack():
-    """Slack fronted by the relay: native ``chat.*Stream`` drafts ARE the message."""
-    from gateway.relay.adapter import RelayAdapter
-    from tests.gateway.relay.stub_connector import StubConnector
-    from tests.gateway.relay.test_relay_slack_dm_streaming import _slack_desc
-
-    desc = _slack_desc(supports_draft_streaming=True)
-    adapter = RelayAdapter(PlatformConfig(), desc, transport=StubConnector(desc))
-    assert adapter.draft_stream_is_message is True
-    return adapter
-
-
 def _frames(chat):
     if hasattr(chat, "log"):
         return chat.log
@@ -88,11 +92,11 @@ def _frames(chat):
 
 
 CHATS = {
-    "edits_in_place": lambda: _Chat(editable=True),
-    "cannot_edit": lambda: _Chat(editable=False),
-    "splits_long_replies": lambda: _Chat(editable=True, limit=60),
-    "native_stream": lambda: _NativeStreamChat(editable=False),
-    "relay_stream_is_the_message": _relay_slack,
+    "edits_in_place": lambda p: _Chat(p, editable=True),
+    "cannot_edit": lambda p: _Chat(p, editable=False),
+    "splits_long_replies": lambda p: _Chat(p, editable=True, limit=60),
+    "native_stream": lambda p: _NativeStreamChat(p, editable=False),
+
 }
 
 
@@ -101,7 +105,7 @@ async def _deliver(chat, *, hold, monkeypatch):
     from hermes_cli import plugins
 
     home = Path(os.environ["HERMES_HOME"])
-    platform = Platform.SLACK if chat.platform == Platform.RELAY else Platform.TELEGRAM
+    platform = chat.platform
     source = SessionSource(platform=platform, chat_id="c1", chat_type="dm", user_id="u1")
     event = MessageEvent(text="show me the config", source=source, message_type=MessageType.TEXT)
     session_key = f"agent:main:{platform.value}:dm:c1"
@@ -135,7 +139,7 @@ async def _deliver(chat, *, hold, monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("shape", CHATS)
 async def test_a_held_reply_reaches_the_chat_only_as_the_rewrite(shape, monkeypatch):
-    chat = CHATS[shape]()
+    chat = CHATS[shape](_plugin_platform(monkeypatch))
     frames = await _deliver(chat, hold=True, monkeypatch=monkeypatch)
 
     assert raw_leaks(text for _, text in frames) == []
@@ -147,8 +151,8 @@ async def test_a_held_reply_reaches_the_chat_only_as_the_rewrite(shape, monkeypa
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("shape", ["edits_in_place", "relay_stream_is_the_message"])
+@pytest.mark.parametrize("shape", ["edits_in_place", "native_stream"])
 async def test_a_transform_that_did_not_ask_keeps_streaming(shape, monkeypatch):
-    frames = await _deliver(CHATS[shape](), hold=False, monkeypatch=monkeypatch)
+    frames = await _deliver(CHATS[shape](_plugin_platform(monkeypatch)), hold=False, monkeypatch=monkeypatch)
 
     assert raw_leaks(text for _, text in frames), frames  # the raw reply streamed, as before

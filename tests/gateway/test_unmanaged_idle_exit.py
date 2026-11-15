@@ -35,10 +35,10 @@ def _runner(tmp_path, monkeypatch, *, window=0.2):
         _profile_adapters={}, _profile_failed_platforms={}, _failed_platforms={},
         config=SimpleNamespace(platforms={}), session_ticket_store=TicketStore("i", frozenset({str(home)})),
         session_runtime_descriptor={"state": "ready", "capabilities": ["x"]}, _exit_reason=None,
-        _active_work_count=lambda: 0, _scale_to_zero_has_live_background_work=lambda: False, stop=stop)
+        _active_work_count=lambda **kwargs: 0, _scale_to_zero_has_live_background_work=lambda: False, stop=stop)
     monkeypatch.setattr(run_idle_exit, "idle_exit_seconds", lambda r: window)
     monkeypatch.setattr("gateway.run._cron_tick_profile_homes", lambda config: [("default", home)])
-    monkeypatch.setattr(run_idle_exit, "_kanban_busy", lambda: None)
+
     monkeypatch.setattr(run_idle_exit, "_store_gates_busy", lambda homes: None)
     run_idle_exit.note_client_activity(runner)
     runner._idle_exit_last_activity -= 10
@@ -78,7 +78,7 @@ async def test_queued_work_clients_adapters_and_cron_each_keep_it_up(tmp_path, m
         runner.session_ticket_store.mint(profile_id=str(home), subject="u", purpose="interactive")
         assert run_idle_exit.busy_reason(runner, window=0.2) == "client attaching"
         runner.session_ticket_store.revoke()
-        runner.config.platforms[Platform.TELEGRAM] = SimpleNamespace(enabled=True)
+        runner.config.platforms[Platform.API_SERVER] = SimpleNamespace(enabled=True)
         assert "messaging" in run_idle_exit.busy_reason(runner, window=0.2)
         runner.config.platforms.clear()
         from cron.jobs import create_job, use_cron_store
@@ -144,8 +144,8 @@ def test_secondary_local_session_adapter_does_not_count_as_messaging(tmp_path, m
         runner._profile_adapters["secondary"] = {Platform.LOCAL: object()}
         assert run_idle_exit.busy_reason(runner, window=0.2) is None
 
-        runner._profile_adapters["secondary"][Platform.TELEGRAM] = object()
-        assert "telegram" in run_idle_exit.busy_reason(runner, window=0.2)
+        runner._profile_adapters["secondary"][Platform.API_SERVER] = object()
+        assert "api_server" in run_idle_exit.busy_reason(runner, window=0.2)
     finally:
         secondary_db.close()
         db.close()

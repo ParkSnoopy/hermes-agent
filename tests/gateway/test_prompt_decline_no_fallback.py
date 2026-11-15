@@ -20,9 +20,9 @@ from types import SimpleNamespace
 import pytest
 
 DECLINE_ERROR = (
-    "discord egress declined: target is not an approved destination for this connection"
+    "connector egress declined: target is not an approved destination for this connection"
 )
-LANE_ERROR = "relay prompt op unavailable"
+LANE_ERROR = "connector prompt op unavailable"
 
 
 def _future(result):
@@ -74,10 +74,10 @@ def test_success_and_timeout_verdicts_unchanged():
     "error",
     [
         DECLINE_ERROR,
-        "slack egress declined: destination not permitted",
+        "plugin egress declined: destination not permitted",
         # Case-insensitivity is part of the contract (`.lower()` in
         # is_egress_decline), so a connector that capitalises still classifies.
-        "WhatsApp Egress Declined: target refused",
+        "Connector Egress Declined: target refused",
     ],
 )
 def test_decline_recognised_across_lanes(error):
@@ -125,10 +125,8 @@ def test_non_decline_error_text_is_not_laundered_into_declined():
 
 
 def _result_raw(raw, *, error=None):
-    from gateway.relay.egress import decline_error
-
     return SimpleNamespace(
-        success=False, error=error if error is not None else decline_error(raw),
+        success=False, error=error if error is not None else raw.get("error"),
         raw_response=raw,
     )
 
@@ -136,9 +134,8 @@ def _result_raw(raw, *, error=None):
 def test_code_only_decline_is_declined_not_failed():
     """A decline carrying `code` and NO text must not fall back.
 
-    `decline_error()` renders it as "relay egress declined" — no marker colon —
-    so a string-based check returns `failed`, which is the fallback cue. This
-    is the shape the connector actually sends when it has no human text.
+    A structured refusal may have no error text at all, so a string-based
+    check returns `failed`, which is the fallback cue.
     """
     from gateway.run import _approval_send_outcome
 
@@ -171,7 +168,7 @@ def test_ambiguous_wins_over_decline_text():
     raw = {
         "success": False,
         "ambiguous": True,
-        "error": "discord egress declined: target is not approved",
+        "error": "connector egress declined: target is not approved",
     }
     assert _approval_send_outcome(_future(_result_raw(raw)), timeout=5) == "ambiguous"
 
@@ -202,7 +199,7 @@ def test_declined_clarify_aborts_instead_of_waiting_for_a_reply():
     """
     from types import SimpleNamespace
 
-    from gateway.relay.egress import EGRESS_DECLINE_CODE
+    from gateway.delivery_refusal import EGRESS_DECLINE_CODE
     from gateway.run_turn_runner_clarify_delivery import _clarify_send_disposition
 
     cleared = []

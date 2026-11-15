@@ -24,10 +24,7 @@ export interface SidebarSessionGroup {
   // collapses all main-checkout sessions, labeled by the worktree's LIVE branch
   // (defaulting to `main`). Renders a home glyph and pins to the top.
   isHome?: boolean
-  // True for the synthetic lane that collapses all of a repo's kanban task
-  // worktrees (`<repo>/.worktrees/t_*`) into one row, so a heavy board doesn't
-  // spray hundreds of throwaway branch lanes across the sidebar.
-  isKanban?: boolean
+
   // False ONLY for the non-git heuristic lane of a plain folder (backend
   // `_place_by_heuristic`): it renders like a main lane but `git switch` on it
   // dies with "fatal: not a git repository", so branch-targeted actions must
@@ -124,15 +121,6 @@ const pathKey = (path: null | string | undefined): string => comparisonSegments(
 /** Last path segment. */
 export const baseName = (path: string): string | undefined => segments(path).pop()
 
-// The `.worktrees` dir for a KANBAN-TASK worktree path, else null. Only matches
-// task worktrees (`<repo>/.worktrees/t_<hex>`, the `t_…` id kanban_db mints) so
-// the many ephemeral task worktrees collapse into one lane — while user-named
-// "New worktree" dirs (`<repo>/.worktrees/<slug>`) stay as their own lanes.
-const KANBAN_DIR_RE = /^(.*[/\\]\.worktrees)[/\\]t_[0-9a-f]+[/\\]?$/
-
-export function kanbanWorktreeDir(path: string): null | string {
-  return path.match(KANBAN_DIR_RE)?.[1] ?? null
-}
 
 /** Label for a main-checkout lane whose session recorded no branch. */
 export const DEFAULT_BRANCH_LABEL = 'main'
@@ -196,7 +184,7 @@ const laneActivity = (group: SidebarSessionGroup): number =>
 // everything (it's "where you are", labeled by its live branch), then trunk,
 // then ordinary branches/worktrees, then the kanban aggregate.
 const laneRank = (group: SidebarSessionGroup): number =>
-  group.isHome ? 0 : isTrunkLane(group) ? 1 : group.isKanban ? 3 : 2
+  group.isHome ? 0 : isTrunkLane(group) ? 1 : 2
 
 /**
  * Sort by tier (home → trunk → branches/worktrees → kanban); within a tier, by
@@ -268,7 +256,7 @@ export function mergeRepoWorktreeGroups(
   //     opens a different, stale checkout. The home checkout is folded
   //     separately (below), never here.
   const reconcile = (group: SidebarSessionGroup): SidebarSessionGroup => {
-    if (group.isMain || group.isKanban) {
+    if (group.isMain) {
       return group
     }
 
@@ -360,12 +348,6 @@ export function mergeRepoWorktreeGroups(
       continue
     }
 
-    // Kanban task worktrees never get their own lane — they fold into the
-    // session-derived `::kanban` bucket. Listing every `git worktree list` entry
-    // here is exactly what blew the sidebar up to hundreds of empty rows.
-    if (!worktree.isMain && kanbanWorktreeDir(wtPath)) {
-      continue
-    }
 
     const label =
       (worktree.isMain ? worktree.branch?.trim() || DEFAULT_BRANCH_LABEL : worktree.branch?.trim()) ||
@@ -452,7 +434,7 @@ export function liveSessionProjectId(
   const repoRoot = (session.git_repo_root || '').trim() || cwd
   const anchor = cwd || repoRoot
 
-  if (!anchor || kanbanWorktreeDir(anchor)) {
+  if (!anchor) {
     return null
   }
 
@@ -675,11 +657,9 @@ function liveLaneForRepo(repoRoot: string, session: SessionInfo): null | Sidebar
   const wt = sessionPath.match(/^(.*[/\\]\.worktrees)[/\\]([^/\\]+)/)
 
   if (wt) {
-    const [worktreeRoot, worktreesDir, slug] = [wt[0], wt[1], wt[2]]
+    const [worktreeRoot, , slug] = [wt[0], wt[1], wt[2]]
 
-    return /^t_[0-9a-f]+$/.test(slug)
-      ? { id: `${repoRoot}::kanban`, isKanban: true, isMain: false, label: 'kanban', path: worktreesDir, sessions: [] }
-      : { id: worktreeRoot, isMain: false, label: slug, path: worktreeRoot, sessions: [] }
+    return { id: worktreeRoot, isMain: false, label: slug, path: worktreeRoot, sessions: [] }
   }
 
   const branch = (session.git_branch || '').trim() || DEFAULT_BRANCH_LABEL
@@ -779,7 +759,7 @@ export function overlayRepoLanes(
         (placed.isMain && placedKey
           ? lanes.find(
               g =>
-                g.isMain && pathKey(g.path) === placedKey && !g.id.includes('::branch::') && !g.id.includes('::kanban')
+                g.isMain && pathKey(g.path) === placedKey && !g.id.includes('::branch::')
             )
           : undefined) ??
         (!placed.isMain && placedKey ? lanes.find(g => pathKey(g.path) === placedKey) : undefined)

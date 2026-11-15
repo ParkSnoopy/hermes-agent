@@ -19,7 +19,7 @@ from contextvars import copy_context
 from pathlib import Path
 from agent.i18n import t
 from gateway.config import Platform
-from gateway.delivery import looks_like_telegram_private_chat_id
+
 from gateway.platforms.base import BasePlatformAdapter
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.session import SessionSource, build_session_key
@@ -1131,41 +1131,7 @@ class GatewayStartupMixin:
             from hermes_cli.plugins_cmd_remove import sweep_pending_plugin_deletes
             sweep_pending_plugin_deletes()  # trees a previous life still held when they were uninstalled
             discover_plugins()
-        # Relay entrypoints share the effective profile opt-out, including when a
-        # deployment injects a URL. No URL or explicitly disabled -> no side effects.
-        try:
-            from gateway.relay import (
-                register_relay_adapter, relay_url, self_provision_relay, send_relay_policy
-            )
-            # Relay self-provision sets GATEWAY_RELAY_* in os.environ BEFORE registration reads them.
-            self_provision_relay()
-            if register_relay_adapter():
-                logger.info("relay adapter registered (connector at %s)", relay_url())
-                # Declare the relevance policy to the connector so the SAME behavior governs relay delivery.
-                send_relay_policy()
-        except Exception:
-            logger.warning("relay adapter registration failed at gateway startup", exc_info=True)
         GatewayStartupMixin._register_launch_profile_config_hooks()
-
-    def _start_relay_provision_retry(self) -> None:
-        """Keep provisioning in the background when the boot attempt left the relay without
-        credentials; cancelled with ``_background_tasks`` at shutdown. Never raises."""
-        try:
-            from gateway.relay import relay_provision_pending, retry_self_provision
-            if relay_provision_pending():
-                self._retain_background_task(asyncio.create_task(
-                    retry_self_provision(self._on_relay_provisioned), name="relay-provision-retry"))
-        except Exception:
-            logger.warning("relay self-provision retry could not start", exc_info=True)
-
-    def _on_relay_provisioned(self) -> None:
-        """Credentials arrived after boot: the reconnect watcher builds every relay adapter from
-        the live env, so pull its queued retry forward instead of waiting out the backoff.
-        ``retry_now`` keeps it forward if a pass that began without them is still dialing."""
-        info = getattr(self, "_failed_platforms", {}).get(Platform.RELAY)
-        if info is not None:
-            info["next_retry"] = 0.0
-            info["retry_now"] = True
 
     @staticmethod
     def _register_launch_profile_config_hooks() -> None:
@@ -1229,7 +1195,7 @@ class GatewayStartupMixin:
         """Plugins, relay, hooks, then crash/clean-exit recovery of processes and sessions."""
         from gateway.run import _hermes_home
         self._start_register_plugins_relay_hooks()
-        self._start_relay_provision_retry()
+
         # Plugins that load later (force re-discovery, install/enable nudge) re-wire live adapters (#87770).
         with _log_suppressed(logging.WARNING, "plugin re-wire subscription failed", exc_info=True):
             from hermes_cli.plugins import get_plugin_manager
@@ -1486,9 +1452,6 @@ class GatewayStartupMixin:
                     "the platform is not being served. Add its token to the profile that should "
                     "own it, or disable the platform.", _skipped.value,
                 )
-        # The mirror image: a SECONDARY enabled shared ingress (WhatsApp/Relay) that only the default can run.
-        for _line in self._unserved_shared_ingress_warnings():
-            logger.warning(_line)
         return False, connected_count
 
     def _start_handle_no_connections(
@@ -1613,18 +1576,13 @@ class GatewayStartupMixin:
 
     async def _start_finish_wiring(self, connected_count: int) -> None:
         """Post-connect wiring: services, boot notifications, startup restore, recovered watchers."""
-        from gateway.run import _planned_restart_notification_pending, _restart_notification_pending
+        from gateway.run import _planned_restart_notification_pending
         from gateway.shutdown_flush import recover_gateway_pending
         await self._start_post_connect_services(connected_count)
-        # Let fresh adapters settle before lifecycle sends (helps Discord thread deliveries).
+        # Let fresh adapters settle before lifecycle sends.
         if connected_count > 0:
             await asyncio.sleep(1.0)
-        # Before _send_restart_notification() unlinks the marker: did we boot from a chat /restart?
-        # One-shot signal for _is_stale_restart_redelivery.
-        if _restart_notification_pending():
-            self._booted_from_restart = True
-        # Boot-path adapter.send() calls must not pin the inbound restore gate (a Telegram flood-
-        # control sleep here once froze every platform).
+        # Boot-path adapter.send() calls must not pin the inbound restore gate.
         # Restart notification, home-channel startup notice, and obligation redelivery all call
         # adapter.send(). Bound them the same way _finish_startup_restore bounds resume turns. See #91969.
         await self._await_startup_boot_sends(
@@ -1665,7 +1623,7 @@ class GatewayStartupMixin:
     # name minus the leading underscore.
     _PRE_RECONNECT_WATCHERS = (
         "_session_housekeeping_watcher", "_model_catalog_refresh_watcher", "_session_stall_watcher",
-        "_kanban_notifier_watcher", "_kanban_dispatcher_watcher",
+
     )
     _POST_RECONNECT_WATCHERS = (
         "_handoff_watcher", "_async_delegation_watcher", "_loop_wakeup_watcher", "_profile_reconcile_watcher",
@@ -1687,19 +1645,7 @@ class GatewayStartupMixin:
             self._spawn_supervised(getattr(self, method), method[1:])
         from gateway.runtime_downgrade_exit import runtime_downgrade_watcher
         self._spawn_supervised(lambda: runtime_downgrade_watcher(self), "runtime_downgrade_watcher")
-        # Scale-to-zero watcher ONLY when opted in, messaging is relay-only/absent, and a wakeUrl exists.
-        try:
-            if self._scale_to_zero_should_arm():
-                logger.info(
-                    "scale-to-zero: armed (idle timeout %.0fs) — watching for idle",
-                    self._scale_to_zero_idle_timeout_seconds(),
-                )
-                self._spawn_supervised(self._scale_to_zero_watcher, "scale_to_zero_watcher")
-            else:
-                # Say WHY an OPTED-IN instance didn't arm (non-opted stays silent).
-                self._log_scale_to_zero_not_armed_reason()
-        except Exception:
-            logger.debug("scale-to-zero: arm check failed at startup", exc_info=True)
+
         # Drain-control watcher: reconciles new-turn acceptance with the dashboard's ``.drain_request.json``
         # marker (prior-instantiation markers are ignored via epoch).
         self._spawn_supervised(self._drain_control_watcher, "drain_control_watcher")
@@ -1821,7 +1767,6 @@ class GatewayStartupMixin:
     ) -> GatewayStartupMixin._HandoffDestination:
         """Resolve platform, transport, home channel, thread and destination source for a row."""
         from gateway.delivery import resolve_delivery_transport
-        cli_session_id = row["id"]
         platform_name = (row.get("handoff_platform") or "").strip().lower()
         if not platform_name:
             raise RuntimeError("handoff_platform is empty")
@@ -1830,61 +1775,25 @@ class GatewayStartupMixin:
         except (ValueError, KeyError):
             raise RuntimeError(f"unknown platform '{platform_name}'")
         handoff_config, handoff_adapters = self._handoff_resolve_scope(profile_name)
-        # Alias-aware transport: a relay-fronted gateway registers ONE Platform.RELAY adapter fronting
-        # N logical platforms, so a literal adapters.get() would miss a deliverable one.
         transport = resolve_delivery_transport(platform, handoff_config, handoff_adapters)
         if not transport:
             raise RuntimeError(f"platform '{platform_name}' is not active in this gateway")
         home = handoff_config.get_home_channel(platform)
         if not home or not home.chat_id:
             raise RuntimeError(
-                f"no home channel configured for {platform_name}; run /sethome on the desired chat first"
+                f"no home channel configured for {platform_name}; configure its home_channel first"
             )
         home_chat_id = str(home.chat_id)
-        # Fresh thread for the handoff's own scrollback; None when unsupported or creation failed.
-        cli_title = row.get("title") or cli_session_id[:8]
-        try:
-            new_thread_id = await transport.adapter.create_handoff_thread(
-                home_chat_id, t("gateway.startup.handoff_thread_title", title=cli_title),
-            )
-        except Exception as exc:
-            logger.debug("Handoff: create_handoff_thread raised on %s: %s", platform_name, exc, exc_info=True)
-            new_thread_id = None
-        effective_thread_id = new_thread_id or (str(home.thread_id) if home.thread_id else None)
-        # Telegram private-chat DM topics use the DM-topic source shape (user_id == chat_id) so the
-        # synthetic turn binds the same key later inbound turns arrive on (`dm`, not `thread`).
-        is_telegram_private_chat = (
-            platform == Platform.TELEGRAM and looks_like_telegram_private_chat_id(home_chat_id)
-        )
-        is_thread = bool(new_thread_id) and not is_telegram_private_chat
-        chat_type = "thread" if is_thread else "dm"
-        scope_id = None
-        if platform == Platform.TELEGRAM and not is_telegram_private_chat:
-            # The Telegram adapter keys forum-topic replies ``group:<chat>:<topic>`` (never
-            # ``thread``); bind the handoff on the same slot.
-            chat_type = "group"
-        if platform == Platform.SLACK:
-            # Slack keys a thread reply on the parent channel's type ("dm" for a D… channel, else
-            # "group") plus the workspace id — never on a "thread" slot. Mirror the adapter's inbound
-            # source shape or the first reply after a restart lands on a different key (#111896).
-            chat_type = "dm" if home_chat_id.startswith("D") else "group"
-            scope_for_chat = getattr(transport.adapter, "scope_id_for_chat", None)
-            scope_id = home.scope_id or (scope_for_chat(home_chat_id) if callable(scope_for_chat) else None)
-        if platform == Platform.MATRIX or (not is_thread and platform not in (Platform.TELEGRAM, Platform.SLACK)):
-            # Matrix keys replies on the room's type (#112918); a turn in no fresh thread keeps the home's
-            # real type on every platform: a group home is not a DM (its DM-only statuses, #101003).
-            chat_type = await self._handoff_home_chat_type(transport.adapter, home_chat_id, platform)
-        # Discord builds in-thread messages with ``chat_id == thread id``: key on the thread's OWN id.
+        effective_thread_id = str(home.thread_id) if home.thread_id else None
+        chat_type = await self._handoff_home_chat_type(transport.adapter, home_chat_id, platform)
         dest_source = SessionSource(
             platform=platform,
-            chat_id=str(effective_thread_id) if (
-                is_thread and platform == Platform.DISCORD and effective_thread_id
-            ) else home_chat_id,
+            chat_id=home_chat_id,
             chat_name=home.name,
             chat_type=chat_type,
-            user_id=home_chat_id if is_telegram_private_chat else "system:handoff",
+            user_id="system:handoff",
             user_name="Handoff", thread_id=effective_thread_id, profile=profile_name,
-            scope_id=scope_id,
+            scope_id=home.scope_id,
         )
         # The handoff turn answers through the queuing profile's own bot; naming it keeps the
         # turn's authorization home and the saved receiving bot on that profile, not a primary guess.
@@ -1897,17 +1806,13 @@ class GatewayStartupMixin:
 
     @staticmethod
     async def _handoff_home_chat_type(adapter, home_chat_id: str, platform: Platform) -> str:
-        """The home chat's type by the adapter's own ``get_chat_info``. Matrix and Discord key a room or
-        guild channel ``group`` (unknown/failed → ``group``, the common handoff target); elsewhere the
-        reported shared label is kept, and an unclassifiable home keeps ``dm``."""
+        """Keep the adapter's recognized home-chat type; use ``dm`` when it is unclassifiable."""
         try:
             info = await adapter.get_chat_info(home_chat_id)
         except Exception:
             logger.debug("Handoff: get_chat_info failed for %s", home_chat_id, exc_info=True)
             info = None
         kind = str(info.get("type") or "").strip().lower() if isinstance(info, dict) else ""
-        if platform in (Platform.MATRIX, Platform.DISCORD):
-            return "dm" if kind == "dm" else "group"
         return kind if kind in _HANDOFF_SHARED_CHAT_TYPES else "dm"
 
     def _handoff_session_key(self, dest, profile_name: Optional[str]) -> str:
@@ -1961,7 +1866,7 @@ class GatewayStartupMixin:
         cli_session_id = row["id"]
         dest = await self._handoff_resolve_destination(row, profile_name)
         session_key = self._handoff_session_key(dest, profile_name)
-        await self._handoff_repoint_with_topic_binding(dest, session_key, cli_session_id)
+        await self._handoff_repoint(dest, session_key, cli_session_id)
         # Evict the cached AIAgent (rebuild against the CLI session_id, like /resume) and clear stale
         # running-agent state so the synthetic turn isn't queued behind it.
         self._evict_cached_agent(session_key)
@@ -1987,8 +1892,7 @@ class GatewayStartupMixin:
         if not response_text:
             # Streaming may have delivered inline; the agent ran without raising — success.
             return
-        # Reply into the new thread (else the home channel) via the resolved transport, so a relay-fronted
-        # logical platform is stamped on the outbound frame.
+        # Reply through the configured home channel and optional thread.
         send_metadata = {"thread_id": dest.effective_thread_id} if dest.effective_thread_id else None
         try:
             result = await dest.transport.send(

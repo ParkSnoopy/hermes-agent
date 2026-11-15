@@ -27,8 +27,8 @@ def _make_runner():
 
 
 @pytest.mark.asyncio
-async def test_help_sanitizes_slash_command_mentions_for_telegram(monkeypatch):
-    """Telegram help output must not expose invalid uppercase/hyphenated slashes."""
+async def test_help_preserves_skill_command_names(monkeypatch):
+    """Help preserves registered skill names without transport-specific rewriting."""
     monkeypatch.setattr(
         "agent.skill_commands.get_skill_commands",
         lambda: {
@@ -37,29 +37,26 @@ async def test_help_sanitizes_slash_command_mentions_for_telegram(monkeypatch):
         },
     )
 
-    result = await _make_runner()._handle_help_command(
-        _make_event("/help", Platform.TELEGRAM)
+    result = await _make_runner()._gateway_plain_command_handlers()["help"](
+        _make_event("/help", Platform.API_SERVER)
     )
 
-    assert "`/linear`" in result
-    assert "`/custom_thing`" in result
-    assert "`/Linear`" not in result
-    assert "`/Custom-Thing`" not in result
+    assert "`/Linear`" in result
+    assert "`/Custom-Thing`" in result
 
 
 @pytest.mark.asyncio
-async def test_commands_sanitizes_slash_command_mentions_for_telegram(monkeypatch):
-    """Paginated Telegram /commands output uses Telegram-valid slash mentions."""
+async def test_commands_preserves_skill_command_names(monkeypatch):
+    """Paginated commands preserve the registered skill spelling."""
     monkeypatch.setattr(
         "agent.skill_commands.get_skill_commands",
         lambda: {"/Linear": {"description": "Open Linear"}},
     )
 
-    result = await _make_runner()._handle_commands_command(
-        _make_event("/commands 999", Platform.TELEGRAM)
+    result = await _make_runner()._gateway_plain_command_handlers()["commands"](
+        _make_event("/commands 999", Platform.API_SERVER)
     )
 
-    assert "`/linear`" in result
-    assert "`/Linear`" not in result
+    assert "`/Linear`" in result
 
 

@@ -195,9 +195,7 @@ class GatewayTurnPersistenceMixin:
                 await self.async_session_store._record_gateway_session_peer(
                     session_entry.session_id, session_key, source,
                 )
-                await asyncio.to_thread(
-                    self._sync_telegram_topic_binding, source, session_entry, reason="agent-result-compression",
-                )
+
             else:
                 logger.info(
                     "Skipping agent-result session split sync for %s because the session binding "
@@ -208,13 +206,12 @@ class GatewayTurnPersistenceMixin:
 
     # reasoning_style → (header catalog key, per-line quote prefix for blank / non-blank lines)
     _REASONING_QUOTE_STYLES = {
-        "subtext": ("gateway.reasoning.quote_label_discord", "-# ", "-#"),
+
         "blockquote": ("gateway.reasoning.quote_label_md", "> ", ">"),
     }
 
     def _hmwa_prepend_reasoning(self, agent_result, response, source, _intentional_silence):
-        """Prepend the last reasoning block when show_reasoning is on for this platform. Mattermost
-        requires an explicit per-platform opt-in (scratch text, not final-answer content)."""
+        """Prepend the last reasoning block when show_reasoning is on for this surface."""
         if source.platform == Platform.LOCAL and not _acp_launch(self, source):
             # Local viewers receive reasoning.delta through their event stream; projecting it into
             # the final response duplicates it and leaks messaging-platform formatting into Desktop.
@@ -223,13 +220,10 @@ class GatewayTurnPersistenceMixin:
         try:
             _show_reasoning_effective = _resolve_gateway_display_bool(
                 _load_gateway_config(), _platform_config_key(source.platform), "show_reasoning",
-                default=bool(getattr(self, "_show_reasoning", False)), platform=source.platform,
-                require_platform_override_for={Platform.MATTERMOST},
+                default=bool(getattr(self, "_show_reasoning", False)),
             )
         except Exception:
-            _show_reasoning_effective = (
-                False if source.platform == Platform.MATTERMOST else getattr(self, "_show_reasoning", False)
-            )
+            _show_reasoning_effective = getattr(self, "_show_reasoning", False)
         last_reasoning = agent_result.get("last_reasoning")
         if not (_show_reasoning_effective and response and not _intentional_silence and last_reasoning):
             return response
@@ -240,7 +234,7 @@ class GatewayTurnPersistenceMixin:
             display_reasoning = "\n".join(lines[:15]) + t("gateway.reasoning.more_lines", count=len(lines) - 15)
         else:
             display_reasoning = last_reasoning.strip()
-        # Per-platform render style: Discord defaults to "-# " subtext, others keep the code block.
+        # Resolve the surface's configured reasoning render style.
         try:
             from gateway.display_config import resolve_display_setting
             _reasoning_style = resolve_display_setting(
@@ -453,23 +447,10 @@ class GatewayTurnPersistenceMixin:
             if queued:
                 self._session_state(session_key).conversation.queued_events.extend(queued)
             if new_entry is not None:
-                # Re-point the Telegram topic binding at the fresh session, or the binding-heal walk
-                # switches the next message back onto the bloated child and re-triggers exhaustion
-                # forever. No-op on non-topic lanes.
-                # Compression rotated session_entry.session_id to the oversized compressed child earlier
-                # this turn (the agent-result sync above), and that _sync also rewrote the (chat_id,
-                # thread_id) -> bloated-child binding. reset_session swaps in a clean, parentless session,
-                # but without re-syncing the binding the next inbound message in this topic gets
-                # switch_session'd back onto the bloated child by the binding-heal walk, reloads the
-                # oversized transcript, and re-triggers compression exhaustion forever (#35809 — regression
-                # of the #9893/#10063 auto-reset).
                 session_entry = new_entry
-                await asyncio.to_thread(
-                    self._sync_telegram_topic_binding, source, session_entry, reason="compression-exhausted-reset",
-                )
         finally:
             # Only now may the fresh session's FIFO claim (it is fenced until here, against every
-            # scheduler): after eviction, scope clear and binding sync.
+            # scheduler): after eviction and scope clear.
             release_fresh()
         return session_entry
 

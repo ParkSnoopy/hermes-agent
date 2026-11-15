@@ -8,7 +8,7 @@ it has served nobody and has nothing to do for ``gateway.unmanaged_idle_exit_sec
 
 - no attached client (live ticketed WebSocket, outstanding ticket, or recent HTTP/WS activity);
 - no messaging adapter configured, connected or reconnecting (any profile);
-- no runnable cron job and no kanban task the dispatcher must act on;
+- no runnable cron job;
 - no queued/started admission, live managed worker, in-flight agent/cron/API run, background
   process or async delegation, active heartbeat/loop, pending handoff or hosted-room task.
 
@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import sqlite3
+
 import time
 from pathlib import Path
 
@@ -34,8 +34,7 @@ IDLE_EXIT_REASON = "idle_exit"
 # Head of the ``exit_reason`` persisted with ``stopped``: a reconnecting client's ``--recover``
 # (ui-tui/scripts/gateway_bootstrap.py) tells this self-ended exit from an operator stop by it.
 IDLE_EXIT_STOP_PREFIX = "auto-started gateway idle"
-# Kanban statuses the embedded dispatcher acts on without a human (promotion, spawn, reclaim).
-_KANBAN_DUE_STATUSES = ("scheduled", "ready", "running", "review")
+
 
 
 def idle_exit_seconds(runner) -> float:
@@ -108,19 +107,6 @@ def _cron_busy(homes) -> str | None:
     return None
 
 
-def _kanban_busy() -> str | None:
-    from hermes_cli import kanban_db
-    marks = ",".join("?" * len(_KANBAN_DUE_STATUSES))
-    for meta in kanban_db.list_boards(include_archived=False):
-        path = kanban_db.kanban_db_path(board=meta.get("slug"))
-        if not path.exists():
-            continue
-        with contextlib.closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)) as conn:
-            if conn.execute(f"SELECT 1 FROM tasks WHERE status IN ({marks}) LIMIT 1",
-                            _KANBAN_DUE_STATUSES).fetchone():
-                return f"kanban work on board {meta.get('slug')}"
-    return None
-
 
 def _ledger_busy(runner) -> str | None:
     from gateway.session_authorities import all_authorities
@@ -190,13 +176,13 @@ def busy_reason(runner, *, window: float, count_clients: bool = True) -> str | N
             return "client attaching"
         if runner._draining or not runner._running:
             return "already stopping"
-        if runner._active_work_count():
+        if runner._active_work_count(fail_closed=True):
             return "agent work in flight"
         if runner._scale_to_zero_has_live_background_work():
             return "background work in flight"
         homes = _served_homes(runner)
         return (_messaging_busy(runner) or _ledger_busy(runner) or _profile_start_busy(runner)
-                or _cron_busy(homes) or _kanban_busy() or _store_gates_busy(homes))
+                or _cron_busy(homes) or _store_gates_busy(homes))
     except Exception as exc:
         logger.debug("idle-exit probe failed; staying up", exc_info=True)
         return f"idle probe failed ({type(exc).__name__})"
@@ -244,7 +230,7 @@ async def unmanaged_idle_exit_watcher(runner) -> None:
     if window <= 0:
         logger.info("Auto-started gateway idle exit disabled (gateway.unmanaged_idle_exit_seconds=0)")
         return
-    logger.info("Auto-started gateway: exits after %.0fs with no clients, adapters, cron/kanban work or "
+    logger.info("Auto-started gateway: exits after %.0fs with no clients, adapters, cron work or "
                 "admissions (gateway.unmanaged_idle_exit_seconds)", window)
     interval = min(30.0, max(0.5, window / 4))
     idle_since = None
@@ -256,7 +242,7 @@ async def unmanaged_idle_exit_watcher(runner) -> None:
             continue
         if await _retired_for_restart(runner, window):
             return
-        # The store/cron/kanban reads touch disk; keep them off the loop, then re-check the
+        # The store/cron reads touch disk; keep them off the loop, then re-check the
         # loop-only facts (clients, tickets, draining) synchronously right before acting.
         reason = await asyncio.to_thread(busy_reason, runner, window=window)
         if reason is not None:
