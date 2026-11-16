@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import functools
+
 import logging
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -53,14 +53,13 @@ def _connector_entry(name: str, connector: str, slug: str, schema: dict[str, Any
 def connector_entries_by_group(
     queries: list[str],
     connector_search: Optional[Any] = None,
-    call: Optional[Any] = None,
 ) -> tuple[list[list[CatalogEntry]], Optional[str]]:
     per_query: list[list[CatalogEntry]] = [[] for _ in queries]
     try:
         if connector_search is None:
             from tools.connectors.gateway.bridge import connector_search_hits
 
-            connector_search = functools.partial(connector_search_hits, call=call)
+            connector_search = connector_search_hits
         leg = connector_search([{"use_case": q} for q in queries])
         if leg.failure:
             return per_query, leg.failure
@@ -107,7 +106,6 @@ def remote_schemas_for(
     names: list[str],
     current_tool_defs: list[dict[str, Any]],
     connector_describe: Optional[Any] = None,
-    call: Optional[Any] = None,
 ) -> tuple[dict[str, dict[str, Any]], Optional[str]]:
     connector_names = [n for n in names if is_connector_name(n)]
     if not connector_names or not connections_in_scope(current_tool_defs):
@@ -116,7 +114,7 @@ def remote_schemas_for(
         if connector_describe is None:
             from tools.connectors.gateway.bridge import connector_describe as describe
 
-            connector_describe = functools.partial(describe, call=call)
+            connector_describe = describe
         leg = connector_describe(connector_names)
         if leg.failure:
             return {}, leg.failure

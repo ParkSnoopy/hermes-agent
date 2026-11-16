@@ -57,7 +57,7 @@
           "anthropic"
           "azure-identity"
           "bedrock"
-          "daytona"
+
 
           "edge-tts"
           "exa"
@@ -65,7 +65,7 @@
 
           "firecrawl"
 
-          "modal"
+
           "parallel-web"
           "tts-premium"
           "vercel"

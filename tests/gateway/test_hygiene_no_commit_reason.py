@@ -55,9 +55,8 @@ async def test_aborted_attempt_on_db_backed_agent_keeps_the_transcript(caplog):
 
 @pytest.mark.asyncio
 async def test_committed_in_place_compaction_is_adopted_not_warned_about(caplog):
-    # #71097 reporter 1: split_status=in_place_committed. compress_context sets
-    # `_last_compaction_in_place` from the same `compacted_in_place` variable that produces that
-    # telemetry, so a committed in-place attempt reaches the adopt step flagged and is adopted.
+    # A committed in-place attempt reaches adoption with `_last_compaction_in_place` set,
+    # even though it did not rotate the session.
     agent = _agent(_last_compaction_in_place=True, _last_compression_attempt_in_place=True)
     attempt, entry, (rotated, in_place, count, _tokens) = await _adopt(agent, caplog)
     assert (rotated, in_place, count) == (False, True, len(_COMPRESSED))

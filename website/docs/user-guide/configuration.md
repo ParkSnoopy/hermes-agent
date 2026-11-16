@@ -255,11 +255,11 @@ For git installs, Hermes auto-stashes dirty tracked files, plus any untracked fi
 
 ## Terminal Backend Configuration
 
-Hermes ships six terminal backends. Each determines where the agent's shell commands actually execute — your local machine, a Docker container, a remote server via SSH, a Modal cloud sandbox (direct or via the Nous-managed gateway), a Daytona workspace, or a Vercel Sandbox. Plugins add more, such as the official [Singularity/Apptainer](#singularityapptainer-backend) and [Sprites](#sprites-backend) backends.
+Hermes ships four terminal backends. Each determines where the agent's shell commands actually execute — your local machine, a Docker container, a remote server via SSH, or a Vercel Sandbox. Plugins add more, such as the official [Singularity/Apptainer](#singularityapptainer-backend) and [Sprites](#sprites-backend) backends.
 
 ```yaml
 terminal:
-  backend: local    # local | docker | ssh | modal | daytona | vercel_sandbox | <plugin backend>
+  backend: local    # local | docker | ssh | vercel_sandbox | <plugin backend>
   cwd: "."          # Gateway/cron working directory (CLI always uses launch dir)
   temp_dir: ""      # Session temp root; empty = TMPDIR, else ~/.hermes/cache/terminal
   font_family: ""   # Desktop terminal font; e.g. "MesloLGS NF"
@@ -268,8 +268,7 @@ terminal:
   env_passthrough: []  # Env var names to forward to sandboxed execution (terminal + execute_code)
   client_env_passthrough: []  # Extra non-secret toolchain names (e.g. GEM_HOME) a local CLI/TUI session's tools take from its launching shell
   sync_back_max_bytes: 2147483648  # Remote backends: refuse to extract a state archive larger than this (bytes)
-  modal_image: "nousresearch/hermes-sandbox:desktop"                 # Container image for Modal backend
-  daytona_image: "nousresearch/hermes-sandbox:desktop"               # Container image for Daytona backend
+
 ```
 
 `terminal.temp_dir` controls where Hermes puts session temp artifacts on the
@@ -321,7 +320,7 @@ warns about directories over 1 GB elsewhere under `cache/` that no pruner covers
 
 `terminal.font_family` controls the embedded terminal in Hermes Desktop. It accepts either one locally installed family name (for example, `MesloLGS NF`) or a CSS font stack. Hermes appends its bundled JetBrains Mono stack as a fallback, and an empty value keeps the default. You can edit the same profile-scoped setting in **Settings → Appearance → Terminal Font**; no Google Fonts download or system-font permission is required.
 
-For cloud sandboxes such as Modal, Daytona, Vercel Sandbox, and Sprites, `container_persistent: true` means Hermes will try to preserve filesystem state across sandbox recreation. It does not promise that the same live sandbox, PID space, or background processes will still be running later.
+For cloud sandboxes such as Vercel Sandbox and Sprites, `container_persistent: true` means Hermes will try to preserve filesystem state across sandbox recreation. It does not promise that the same live sandbox, PID space, or background processes will still be running later.
 
 ### Backend Overview
 
@@ -330,8 +329,6 @@ For cloud sandboxes such as Modal, Daytona, Vercel Sandbox, and Sprites, `contai
 | **local** | Your machine directly | None | Development, personal use |
 | **docker** | Single persistent Docker container (shared across session, `/new`, subagents) | Full (namespaces, cap-drop) | Safe sandboxing, CI/CD |
 | **ssh** | Remote server via SSH | Network boundary | Remote dev, powerful hardware |
-| **modal** | Modal cloud sandbox | Full (cloud VM) | Ephemeral cloud compute, evals |
-| **daytona** | Daytona workspace | Full (cloud container) | Managed cloud dev environments |
 | **vercel_sandbox** | Vercel Sandbox | Full (cloud microVM) | Cloud execution with snapshot-backed filesystem persistence |
 | **singularity** (plugin) | Singularity/Apptainer container | Namespaces (--containall) | HPC clusters, shared machines |
 | **sprites** (plugin) | Sprite on Fly.io | Full (cloud microVM) | Stateful cloud sandboxes that persist between sessions |
@@ -563,43 +560,6 @@ AcceptEnv NEXTCLOUD_URL NEXTCLOUD_*      # or the names your skills need
 
 Without a matching `AcceptEnv`, the server silently drops the variables and the remote shell sees them unset. Hermes provider credentials (`OPENAI_API_KEY`, …) are never forwarded even if listed. See [Env Var Passthrough](security.md#environment-variable-passthrough).
 
-### Modal Backend
-
-Runs commands in a [Modal](https://modal.com) cloud sandbox. Each task gets an isolated VM with configurable CPU, memory, and disk. Filesystem can be snapshot/restored across sessions.
-
-```yaml
-terminal:
-  backend: modal
-  container_cpu: 1                 # CPU cores
-  container_memory: 5120           # MB (5GB)
-  container_disk: 51200            # MB (50GB)
-  container_persistent: true       # Snapshot/restore filesystem
-```
-
-**Required:** Either `MODAL_TOKEN_ID` + `MODAL_TOKEN_SECRET` environment variables, or a `~/.modal.toml` config file.
-
-**Persistence:** When enabled, the sandbox filesystem is snapshotted on cleanup and restored on next session. Snapshots are tracked in `~/.hermes/modal_snapshots.json` and are retained until you delete them (Hermes opts out of the Modal SDK's 30-day snapshot expiry). This preserves filesystem state, not live processes, PID space, or background jobs.
-
-**Credential files:** Automatically mounted from `~/.hermes/` (OAuth tokens, etc.) and synced before each command.
-
-### Daytona Backend
-
-Runs commands in a [Daytona](https://daytona.io) managed workspace. Supports stop/resume for persistence.
-
-```yaml
-terminal:
-  backend: daytona
-  container_cpu: 1                 # CPU cores
-  container_memory: 5120           # MB → converted to GiB
-  container_disk: 10240            # MB → converted to GiB (max 10 GiB)
-  container_persistent: true       # Stop/resume instead of delete
-```
-
-**Required:** `DAYTONA_API_KEY` environment variable.
-
-**Persistence:** When enabled, sandboxes are stopped (not deleted) on cleanup and resumed on next session. Sandbox names follow the pattern `hermes-{task_id}`.
-
-**Disk limit:** Daytona enforces a 10 GiB maximum. Requests above this are capped with a warning.
 
 ### Vercel Sandbox Backend
 
@@ -701,8 +661,6 @@ If terminal commands fail immediately or the terminal tool is reported as disabl
 - **Local** — No special requirements. The safest default when getting started.
 - **Docker** — Run `docker version` to verify Docker is working. If it fails, fix Docker or `hermes config set terminal.backend local`.
 - **SSH** — Both `TERMINAL_SSH_HOST` and `TERMINAL_SSH_USER` must be set. Hermes logs a clear error if either is missing.
-- **Modal** — Needs `MODAL_TOKEN_ID` env var or `~/.modal.toml`. Run `hermes doctor` to check.
-- **Daytona** — Needs `DAYTONA_API_KEY`. The Daytona SDK handles server URL configuration.
 - **Singularity** — Needs the `singularity` plugin (`hermes plugins install singularity`) and `apptainer` or `singularity` in `$PATH`. Common on HPC clusters.
 - **Sprites** — Needs the `sprites` plugin and `SPRITES_TOKEN`. `hermes doctor` shows the token, SDK and naming checks.
 
@@ -710,12 +668,12 @@ When in doubt, set `terminal.backend` back to `local` and verify that commands r
 
 ### Remote-to-Host State Sync on Teardown
 
-For the **SSH**, **Modal**, and **Daytona** backends, Hermes pushes your `~/.hermes/` state (credential files, skills, cache) into the remote sandbox during the session, and on teardown **syncs changed state files back** to their original host locations. Files that differ from what was originally pushed (compared by content hash) are applied back in place; new remote files under a synced directory (e.g. a skill the agent created remotely) are mapped back to the corresponding host path. Upload-only credential files are never overwritten on the host.
+For the **SSH** and **Vercel Sandbox** backends, Hermes pushes your `~/.hermes/` state (credential files, skills, cache) into the remote sandbox during the session, and on teardown **syncs changed state files back** to their original host locations. Files that differ from what was originally pushed (compared by content hash) are applied back in place; new remote files under a synced directory (e.g. a skill the agent created remotely) are mapped back to the corresponding host path. Upload-only credential files are never overwritten on the host.
 
 - The sync-back retries up to 3 times with backoff and refuses to extract remote archives larger than 2 GiB; set `terminal.sync_back_max_bytes` (bytes) in `config.yaml` to raise the cap for a larger state tree. Live sockets under the remote `~/.hermes/` (e.g. `gateway.sock`) are skipped rather than failing the transfer.
 - The downloaded archive is staged under the system temp directory (`hermes-sync-back-<pid>-*`); leftovers from a hard-killed process are reclaimed on the next sync-back.
 - Docker and Singularity use bind mounts (live host filesystem view) and don't need this. Sprites keeps its own persistent filesystem and does not sync back either.
-- This covers Hermes state (`~/.hermes/`), **not** arbitrary working-tree files inside the sandbox — have the agent copy important artifacts out explicitly (e.g. `scp`, `modal volume put`) before the sandbox is destroyed.
+- This covers Hermes state (`~/.hermes/`), **not** arbitrary working-tree files inside the sandbox — have the agent copy important artifacts out explicitly (e.g. `scp`) before the sandbox is destroyed.
 
 ### Docker Volume Mounts
 
@@ -859,7 +817,7 @@ export TERMINAL_LOCAL_PERSISTENT=false              # local
 | SSH | `TERMINAL_SSH_PERSISTENT`, else `terminal.persistent_shell` (`TERMINAL_PERSISTENT_SHELL`) | `true` |
 | Local | `TERMINAL_LOCAL_PERSISTENT` | `true` |
 
-Docker, Modal, Daytona, Vercel Sandbox and plugin backends (Singularity included) ignore these settings.
+Docker, Vercel Sandbox and plugin backends (Singularity included) ignore these settings.
 
 See [Code Execution](features/code-execution.md) and the [Terminal section of the README](features/tools.md) for details on each backend.
 
@@ -3198,7 +3156,7 @@ See also:
 |---------|---------|
 | **CLI (`hermes`)** | Current directory where you run the command |
 | **Gateway / cron** | `terminal.cwd` from `~/.hermes/config.yaml`; if unset, home directory `~` |
-| **Docker / Singularity / Modal / SSH** | User's home directory inside the container or remote machine |
+| **Docker / Singularity / SSH** | User's home directory inside the container or remote machine |
 
 Override the working directory:
 ```yaml

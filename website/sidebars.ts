@@ -488,7 +488,6 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/optional/mlops/mlops-flash-attention',
                     'user-guide/skills/optional/mlops/mlops-lambda-labs',
                     'user-guide/skills/optional/mlops/mlops-inference-llama-cpp',
-                    'user-guide/skills/optional/mlops/mlops-modal',
                     'user-guide/skills/optional/mlops/mlops-nemo-curator',
                     'user-guide/skills/optional/mlops/mlops-obliteratus',
                     'user-guide/skills/optional/mlops/mlops-peft',
@@ -763,9 +762,7 @@ const sidebars: SidebarsConfig = {
             'developer-guide/cron-internals',
             'developer-guide/chronos-managed-cron-contract',
             'developer-guide/egress-internals',
-            'developer-guide/gateway-monitoring',
 
-            'developer-guide/relay-shared-metrics',
             'developer-guide/streaming-tts',
             'developer-guide/billing-lifecycle',
             'developer-guide/trajectory-format',

@@ -307,8 +307,6 @@ class _AuxiliaryCancellationDecision:
 # for non-empty payloads and the host extends its deadline while tokens move. Thread-local:
 # the call and its stream consumption run on the installing thread.
 _aux_progress = threading.local()
-_aux_dispatch = threading.local()
-_aux_provider_response = threading.local()
 # Absolute monotonic deadline of the waiting HOST. The stream's own ceiling
 # (_aux_stream_total_ceiling, >= the host's and started later) would otherwise leave an
 # orphaned stream still billing after every host-ceiling timeout.
@@ -335,23 +333,6 @@ def _tick_hook(local: threading.local, label: str) -> None:
 def _notify_aux_progress() -> None:
     """Tick the installed forward-progress hook, if any."""
     _tick_hook(_aux_progress, "progress")
-
-
-def _notify_aux_dispatch() -> None:
-    """Record an actual provider dispatch without claiming response progress."""
-    _tick_hook(_aux_dispatch, "dispatch")
-
-
-def _notify_aux_timing_response() -> None:
-    """Record a content-free frame (keepalive/empty delta): counts toward
-    ``time_to_first_progress_ms`` but must not reset a compression inactivity fence."""
-    _tick_hook(_aux_provider_response, "provider response")
-
-
-def _notify_aux_provider_response() -> None:
-    """Record a provider response/chunk, then preserve the liveness signal."""
-    _notify_aux_timing_response()
-    _notify_aux_progress()
 
 
 def _aux_progress_active() -> bool:
@@ -385,9 +366,7 @@ def _anthropic_aux_stream_event_hook() -> Callable[[Any], None]:
 
     def _on_event(event: Any) -> None:
         if _anthropic_event_has_content(event):
-            _notify_aux_provider_response()
-        else:
-            _notify_aux_timing_response()
+            _notify_aux_progress()
         if _aux_interrupt_cancel_requested():
             raise AuxiliaryExplicitCancellation()
         if host_deadline is not None and time.monotonic() >= host_deadline:
@@ -465,11 +444,8 @@ def _run_protected_sync_provider_call(callback: Callable[[dict[str, Any]], Any],
     cancel_check = _AuxiliaryCancellationDecision(source_cancel_check)
     if cancel_check():
         raise AuxiliaryExplicitCancellation()
-    # Thread-locals do not cross into the daemon: timing hooks fire from the thread running
-    # the callback, and the host deadline is inert unless carried along.
+    # Thread-locals do not cross into the daemon, so carry progress and the host deadline.
     progress_hook = getattr(_aux_progress, "hook", None)
-    dispatch_hook = getattr(_aux_dispatch, "hook", None)
-    provider_response_hook = getattr(_aux_provider_response, "hook", None)
     host_deadline = getattr(_aux_stream_deadline, "value", None)
     reading_hook = current_prompt_reading_hook()
     # #99692: the stream is consumed on the daemon below, and thread-locals do not cross that boundary — an
@@ -483,8 +459,6 @@ def _run_protected_sync_provider_call(callback: Callable[[dict[str, Any]], Any],
         try:
             with (
                 aux_progress_hook(progress_hook),
-                _aux_thread_local_hook(_aux_dispatch, dispatch_hook),
-                _aux_thread_local_hook(_aux_provider_response, provider_response_hook),
                 aux_stream_deadline(host_deadline), prompt_reading_hook(reading_hook),
                 aux_interrupt_protection(cancel_check=cancel_check),
             ):
@@ -874,14 +848,6 @@ def _resolve_provider_vision_default(provider: str) -> Optional[str]:
 # instead of returning a client that 404s (Kimi Coding Plan Anthropic wire has no image_in).
 _PROVIDERS_WITHOUT_VISION: frozenset = frozenset({"kimi-coding", "kimi-coding-cn"})
 
-# OpenRouter app attribution (always sent). `X-Title` is what the dashboard reads.
-_OR_HEADERS_BASE = {
-    "HTTP-Referer": "https://hermes-agent.nousresearch.com",
-    "X-Title": "Hermes Agent",
-    "X-OpenRouter-Categories": "productivity,cli-agent",
-}
-
-
 def _apply_user_default_headers(headers: dict | None) -> dict | None:
     """Merge user ``model.default_headers`` onto resolved headers (user wins; ``model.extra_headers``
     alias wins over both). Mirrors ``AIAgent._apply_user_default_headers`` so a custom endpoint behind a
@@ -909,7 +875,7 @@ def build_or_headers(or_config: dict | None = None) -> dict:
     ``openrouter.response_cache``; ``HERMES_OPENROUTER_CACHE_TTL`` (1-86400 s) overrides
     ``openrouter.response_cache_ttl``. ``or_config=None`` reads from disk.
     """
-    headers = dict(_OR_HEADERS_BASE)
+    headers = {}
     if or_config is None:
         try:
             from hermes_cli.config import load_config_readonly
@@ -938,19 +904,6 @@ _NVIDIA_NIM_CLOUD_HEADERS = {"X-BILLING-INVOKE-ORIGIN": "HermesAgent"}
 def build_nvidia_nim_headers(base_url: str | None) -> dict:
     """Return NVIDIA NIM cloud attribution headers for build.nvidia.com traffic."""
     return dict(_NVIDIA_NIM_CLOUD_HEADERS) if base_url_host_matches(str(base_url or ""), "integrate.api.nvidia.com") else {}
-
-
-# Vercel AI Gateway attribution (HTTP-Referer → referrerUrl, X-Title → appName).
-from hermes_cli.version_info import hermes_user_agent
-
-
-def _ai_gateway_headers() -> dict[str, str]:
-    return {"HTTP-Referer": "https://hermes-agent.nousresearch.com", "X-Title": "Hermes Agent",
-            "User-Agent": hermes_user_agent("HermesAgent")}
-
-# Nous Portal attribution tags, built per call. They come from agent.portal_tags so the client=
-# marker tracks the canonical base version — never inline a literal here.
-from agent.portal_tags import nous_portal_tags as _nous_portal_tags
 
 
 # _OPENROUTER_MODEL MUST stay a :free SKU (matching the free_only warning): this lane engages
@@ -1362,17 +1315,15 @@ class _CodexStreamGuard:
         self.check_cancelled()
 
     def on_event(self, _event: Any) -> None:
-        # TTFP telemetry records every frame, but forward progress (compression commit fence,
-        # no-progress window) counts only substantive payloads — keepalives must not re-arm,
+        # Forward progress (compression commit fence, no-progress window) counts only
+        # substantive payloads — keepalives must not re-arm,
         # so a zombie stream dies at the same window as a dead connection.
         # #93650: keep bulk wire-format payload out of the SDK's GIL-holding request transform on auxiliary
         # calls too.
         if _codex_event_has_content(_event):
             self.record_progress()
             self.saw_content.set()
-            _notify_aux_provider_response()
-        else:
-            _notify_aux_timing_response()
+            _notify_aux_progress()
         self.check_cancelled()
 
     def finish(self) -> None:
@@ -1869,9 +1820,8 @@ class _BedrockCompletionsAdapter:
             max_tokens=int(max_tokens) if max_tokens else None, temperature=kwargs.get("temperature"),
             top_p=kwargs.get("top_p"), stop_sequences=stop,
         )
-        # Converse is complete-response here: mark provider progress only after
-        # return so TTFP reflects real Bedrock latency, not dispatch/setup.
-        _notify_aux_provider_response()
+        # Converse is complete-response here: mark progress only after return.
+        _notify_aux_progress()
         return response
 
 
@@ -2262,7 +2212,7 @@ def _endpoint_default_headers(
 
 
 def _profile_default_headers(provider: str) -> Optional[dict]:
-    """Client-level attribution headers from the provider profile (e.g. GMI User-Agent), or None."""
+    """Client-level headers from the provider profile, or None."""
     if not provider:
         return None
     with contextlib.suppress(Exception):
@@ -6503,7 +6453,7 @@ def _project_provider_profile(
 def _merge_aux_extra_body(
     extra_body: Optional[dict], projection: _ProfileProjection, reasoning_config: Optional[dict], provider_norm: str,
 ) -> dict[str, Any]:
-    """Caller extra_body + profile body/reasoning + generic reasoning fallback + Nous tags."""
+    """Merge caller and provider body fields, reasoning, and routing affinity."""
     merged_extra = dict(extra_body or {})
     caller_reasoning_fields = {
         key: value for key, value in merged_extra.items()
@@ -6533,12 +6483,9 @@ def _merge_aux_extra_body(
     if isinstance(merged_extra.get("reasoning"), dict):
         from agent.reasoning_effort import clamp_reasoning_config
         merged_extra["reasoning"] = clamp_reasoning_config(merged_extra["reasoning"])
-    # Portal tags + sticky session_id fallback when the profile didn't supply them; session_id
-    # keeps aux calls on the main turn's upstream instance (cache warmth) — tags alone are not
-    # enough on /v1/messages.
+    # Keep auxiliary calls on the main turn's upstream instance when the profile
+    # did not supply a sticky session_id.
     if provider_norm in _NOUS_PROVIDER_NAMES:
-        if "tags" not in merged_extra:
-            merged_extra["tags"] = _nous_portal_tags()
         if "session_id" not in merged_extra:
             try:
                 from agent.portal_tags import get_conversation_context
@@ -6954,7 +6901,6 @@ def _create_with_progress_once(
     error is surfaced to the normal recovery chains instead.
     """
     kwargs = bypass_chat_sdk_request_transform(kwargs, client)
-    _notify_aux_dispatch()
     # Dispatch alone is not forward progress: a 401/retry/fallback dispatch must not
     # reset the compression inactivity fence, or a zero-output attempt runs to the
     # total ceiling instead of idling out (#114938). Progress ticks only for
@@ -6962,7 +6908,7 @@ def _create_with_progress_once(
     if (not _aux_progress_active() and not force_stream) or _client_streams_internally(client):
         response = client.chat.completions.create(**kwargs)
         if not _client_streams_internally(client):
-            _notify_aux_provider_response()
+            _notify_aux_progress()
         return response
     stream_kwargs, model, total_ceiling = _stream_request_plan(kwargs, client)
     try:
@@ -6981,14 +6927,13 @@ def _create_with_progress_once(
                      task or "call", exc)
         chunks = _STREAM_REJECTED
     if chunks is _STREAM_REJECTED:
-        _notify_aux_dispatch()
         response = client.chat.completions.create(**kwargs)
-        _notify_aux_provider_response()
+        _notify_aux_progress()
         return response
     # Some shims (MoA quiet mode, defensive adapters) return a complete response despite
     # stream=True; it counts as provider response + forward progress.
     if hasattr(chunks, "choices"):
-        _notify_aux_provider_response()
+        _notify_aux_progress()
         return chunks
     from agent.auxiliary_stream_watchdog import chat_stream_windows
     return _aggregate_chat_stream(
@@ -7089,9 +7034,7 @@ class _ChatStreamAccumulator:
         return made_progress
 
     def feed(self, chunk: Any) -> bool:
-        # Every frame records transport timing (TTFP); only a substantive payload ticks the
-        # forward-progress hook that keeps compression alive (and is reported as True).
-        _notify_aux_timing_response()
+        # Only a substantive payload ticks the forward-progress hook that keeps compression alive.
         progress = prompt_progress(chunk)
         # Count the reading before the deadline check it extends.
         read_more = progress is not None and self._prompt_reading.tick(progress)
@@ -7192,12 +7135,11 @@ async def _acreate_with_progress(
     """Async :func:`_create_with_progress`: stream + re-aggregate (ticking the hook per substantive
     chunk) when a progress hook is active or the provider is stream-only; plain create otherwise."""
     kwargs = bypass_chat_sdk_request_transform(kwargs, client)
-    _notify_aux_dispatch()
     # Same contract as the sync twin (#114938): dispatch alone is not progress.
     if (not _aux_progress_active() and not force_stream) or _async_client_streams_internally(client):
         response = await client.chat.completions.create(**kwargs)
         if not _async_client_streams_internally(client):
-            _notify_aux_provider_response()
+            _notify_aux_progress()
         return response
     stream_kwargs, model, total_ceiling = _stream_request_plan(kwargs, client)
     try:
@@ -7215,12 +7157,11 @@ async def _acreate_with_progress(
                      task or "call", exc)
         chunks = _STREAM_REJECTED
     if chunks is _STREAM_REJECTED:
-        _notify_aux_dispatch()
         response = await client.chat.completions.create(**kwargs)
-        _notify_aux_provider_response()
+        _notify_aux_progress()
         return response
     if hasattr(chunks, "choices"):  # shims may hand back a complete response despite stream=True
-        _notify_aux_provider_response()
+        _notify_aux_progress()
         return chunks
     return await _aggregate_chat_stream_async(chunks, model=model, total_ceiling=total_ceiling)
 
@@ -7877,17 +7818,6 @@ async def _drive_ladder_async(ladder, perform: Callable[[_LadderStep], Any]) -> 
         resume, value = (ladder.send, value) if exc is None else (ladder.throw, exc)
 
 
-def _elapsed_ms(started_at: float, now: Optional[float] = None) -> int:
-    """Whole milliseconds since ``started_at`` (clamped at 0)."""
-    return max(0, int(((time.monotonic() if now is None else now) - started_at) * 1000))
-
-
-def _stamp_latency_once(latency_info: Optional[dict[str, int]], key: str, started_at: float) -> None:
-    """Record ``key`` in ``latency_info`` the first time it fires."""
-    if latency_info is not None and key not in latency_info:
-        latency_info[key] = _elapsed_ms(started_at)
-
-
 @_relay_auxiliary_call
 def call_llm(
     task: str | None = None, *, provider: str | None = None, model: str | None = None, base_url: str | None = None,
@@ -7896,30 +7826,13 @@ def call_llm(
     timeout: float | None = None, extra_body: dict | None = None, reasoning_config: Optional[dict] = None,
     extra_headers: Optional[dict[str, str]] = None, api_mode: str | None = None, stream: bool = False,
     stream_options: dict | None = None, route_info: Optional[dict[str, str]] = None,
-    latency_info: Optional[dict[str, int]] = None,
 ) -> Any:
     """Run an auxiliary LLM request, applying the configured task limit."""
-    queue_started_at = time.monotonic()
     semaphore = _acquire_sync_aux_semaphore(task)
     if semaphore is not None:
         semaphore.acquire()
-    request_started_at = time.monotonic()
-    if latency_info is not None:
-        latency_info["queue_wait_ms"] = _elapsed_ms(queue_started_at, request_started_at)
-    prior_progress_hook = getattr(_aux_progress, "hook", None)
     try:
-        with (
-            scoped_runtime_main(main_runtime),
-            aux_progress_hook(
-                prior_progress_hook
-                if callable(prior_progress_hook)
-                else ((lambda: None) if latency_info is not None else None)
-            ),
-            _aux_thread_local_hook(_aux_dispatch, functools.partial(
-                _stamp_latency_once, latency_info, "provider_dispatch_ms", request_started_at)),
-            _aux_thread_local_hook(_aux_provider_response, functools.partial(
-                _stamp_latency_once, latency_info, "time_to_first_progress_ms", request_started_at)),
-        ):
+        with scoped_runtime_main(main_runtime):
             response = _call_llm_impl(
                 task=task, provider=provider, model=model, base_url=base_url, api_key=api_key,
                 main_runtime=main_runtime, messages=messages, temperature=temperature,
@@ -7933,8 +7846,6 @@ def call_llm(
             return _release_sync_semaphore_after_stream(response, stream_semaphore)
         return response
     finally:
-        if latency_info is not None:
-            latency_info["summary_generation_ms"] = _elapsed_ms(request_started_at)
         if semaphore is not None:
             semaphore.release()
 

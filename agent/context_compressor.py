@@ -40,7 +40,6 @@ from agent.context_compressor_tail import (
     demote_stale_tail_tools, lean_tail_budget, is_demoted_stub, skill_view_names_by_call_id, tail_cut_pricer,
     elide_keeping_skill_safety_rule, with_skill_safety_rule, without_skill_safety_rule, tail_cut_progress_floor,
 )
-from agent.context_compressor_telemetry import CompressionTelemetryMixin
 from agent.error_classifier import ClassifiedError, FailoverReason, classify_api_error
 from agent.micro_compaction import MicroCompactionMixin
 from agent.prompt_builder import STEER_DISPLAY_KIND
@@ -688,7 +687,7 @@ class _HandoffScan:
 
 
 def _short_error_text(e: Exception, limit: int = 220) -> str:
-    """Error text (or class name) capped for durable cooldown rows and telemetry."""
+    """Error text (or class name) capped for durable cooldown rows."""
     text = str(e).strip() or e.__class__.__name__
     return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
@@ -754,39 +753,39 @@ def _classify_summary_failure(e: Exception, verdict: ClassifiedError) -> _Summar
 
 
 # Summary failures that abort compress() regardless of abort_on_summary_failure, in precedence
-# order: (flag attribute, telemetry failure_class, user-facing warning with %d preserved messages).
+# order: (flag attribute, user-facing warning with %d preserved messages).
 _TERMINAL_SUMMARY_FAILURES = (
     (
         "_last_summary_auth_failure",
-        "summary_auth_failure",
+
         "Summary generation failed with a terminal access or quota error — aborting compression. %d "
         "message(s) preserved unchanged; the session was NOT rotated. Check the provider credential, "
         "permission, quota, or inference endpoint, then retry with /compress or start fresh with /new.",
     ),
     (
         "_last_summary_network_failure",
-        "summary_network_failure",
+
         "Summary generation failed with a network/connection error — aborting compression. %d message(s) "
         "preserved unchanged; the session was NOT rotated. This is transient: retry with /compress once "
         "connectivity recovers, or continue the conversation as-is.",
     ),
     (
         "_last_summary_truncated_failure",
-        "summary_truncated_failure",
+
         "Summary generation failed (output hit the token cap; summary is incomplete) — aborting compression. "
         "%d message(s) preserved unchanged; the session was NOT rotated. A truncated summary would silently "
         "lose context: retry with /compress, or raise the summarizer's output budget.",
     ),
     (
         "_last_summary_empty_content_failure",
-        "summary_empty_content_failure",
+
         "Summary generation failed (LLM returned empty content) — aborting compression. %d message(s) "
         "preserved unchanged; the session was NOT rotated. This indicates upstream provider degradation: "
         "retry with /compress once the provider recovers, or continue the conversation as-is.",
     ),
     (
         "_last_summary_overload_failure",
-        "summary_overload_failure",
+
         "Summary generation failed because the provider is overloaded — aborting compression. %d message(s) "
         "preserved unchanged; the session was NOT rotated. Retry with /compress once capacity recovers, "
         "or continue the conversation as-is.",
@@ -2135,7 +2134,7 @@ Describe agent/tool work only as completed actions, state, or historical work.]"
 
 
 class ContextCompressor(
-    SummaryDispatchMixin, PreLlmSkipMixin, CompressionTelemetryMixin, MicroCompactionMixin,
+    SummaryDispatchMixin, PreLlmSkipMixin, MicroCompactionMixin,
     ProactivePruneMixin, CompactionWindowMixin, ContextEngine,
 ):
     """Default context engine: prune tool results, protect head/tail, summarize the middle
@@ -2150,7 +2149,7 @@ class ContextCompressor(
         super().on_session_reset()
         self._reset_session_compaction_state()
         self._reset_micro_compact_cursor_state()
-        self._micro_compact_passes = self._micro_compact_tokens_saved_total = self._micro_compact_turns_since_pass = 0
+        self._micro_compact_turns_since_pass = 0
 
     def _reset_micro_compact_cursor_state(self) -> None:
         """Forget the rolling micro summary and its cursor/failure bookkeeping."""
@@ -2287,8 +2286,7 @@ class ContextCompressor(
         # Wall-clock probe deadline; 0.0 = unarmed (durable copy re-read via _load_anti_thrash_recovery_deadline).
         self._anti_thrash_recovery_deadline = self._structural_no_op_backoff_until = 0.0
         self._structural_no_op_len = 0
-        # Observability only; never feeds the strike latch or the fallback streak.
-        self._prellm_skip_count = 0
+
         # Only a healthy completed summary resets this; ordinary fitting responses do not.
         self._fallback_compression_streak = 0
         # Wall-clock time of the next summary-model probe while the fallback streak benches it; 0.0 = unarmed.
@@ -2305,8 +2303,6 @@ class ContextCompressor(
         self._last_compress_aborted = self._last_compress_refused_would_grow = False
         self._context_probed = self._context_probe_persistable = False
         self._reset_real_usage_pairing()
-        self._last_compression_telemetry = self._active_compression_telemetry = None
-        self._compression_telemetry_seed = None
         self._reset_proactive_prune_rearm()
 
     def bind_session_state(self, session_db: Any = None, session_id: str = "") -> None:
@@ -2320,7 +2316,7 @@ class ContextCompressor(
         self._last_summary_error = None
         self._consecutive_timeout_failures = self._consecutive_truncation_failures = self._fallback_compression_streak = 0
         self._consecutive_overload_aborts = 0
-        self._ineffective_compression_count = self._prellm_skip_count = 0
+        self._ineffective_compression_count = 0
         self._anti_thrash_recovery_deadline = self._structural_no_op_backoff_until = self._fallback_probe_at = 0.0
         self._reset_proactive_prune_rearm()
         self.get_active_compression_failure_cooldown()
@@ -2441,7 +2437,7 @@ class ContextCompressor(
 
     def _clear_terminal_summary_failures(self) -> None:
         """Clear every terminal summary-failure flag."""
-        for flag, _class, _msg in _TERMINAL_SUMMARY_FAILURES:
+        for flag, _msg in _TERMINAL_SUMMARY_FAILURES:
             setattr(self, flag, False)
 
     def _reset_consecutive_overload_aborts(self) -> None:
@@ -2697,7 +2693,6 @@ class ContextCompressor(
         self._reset_real_usage_pairing()
         # Strikes were judged against the previous threshold; void them durably too.
         self._record_ineffective_compression_verdict(0)
-        self._prellm_skip_count = 0
         if runtime_changed:
             self._fallback_compression_streak = 0
             self._persist_fallback_compression_streak()
@@ -2858,7 +2853,7 @@ class ContextCompressor(
         # consumed by finalize_turn to invalidate the agent's bounded flush-scan cursor (sibling of the
         # #75170 site).
         self._flush_scan_cursor_invalidated: bool = False
-        self._micro_compact_passes = self._micro_compact_tokens_saved_total = self._micro_compact_turns_since_pass = 0
+        self._micro_compact_turns_since_pass = 0
         # Cadence dial: how often the cache-breaking pass is paid. 1 = every turn.
         self._micro_compact_every_n_turns: int = 1
         # Deferred: get_model_context_length() may issue a sync HTTP probe that must not block construction.
@@ -3621,47 +3616,19 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         head_len = (limit - marker_reserve) // 2
         return elide_middle(record, head_len, limit - marker_reserve - head_len)
 
-    def _record_summary_input_coverage(self, coverage: dict[str, int]) -> None:
-        """Expose lean sampling coverage without including transcript content in telemetry."""
-        telemetry = getattr(self, "_active_compression_telemetry", None)
-        if not isinstance(telemetry, dict):
-            return
-        telemetry.update({
-            "summary_input_chars": coverage["input_chars"],
-            "summary_input_sampled_chars": coverage["sampled_chars"],
-            "summary_input_omitted_chars": coverage["omitted_chars"],
-            "summary_input_record_count": coverage["record_count"],
-            "summary_input_sampled_record_count": coverage["sampled_record_count"],
-            "summary_input_elided_record_count": coverage["elided_record_count"],
-        })
 
     @classmethod
-    def _sample_summary_records(cls, records: Sequence[str]) -> tuple[str, dict[str, int]]:
-        """Sample complete serialized records while retaining the character bound.
-
-        Returns the bounded transcript and record-level coverage counters for compression
-        telemetry. `input_chars` counts raw serialized record content; `sampled_chars` counts the
-        *display* chars of retained records (after intra-record truncation by
-        `_bound_oversized_record`); neither includes separators or elision markers, so
-        `omitted_chars = input_chars - sampled_chars` also covers truncated-away bytes.
-        """
+    def _sample_summary_records(cls, records: Sequence[str]) -> str:
+        """Sample complete serialized records while retaining the character bound."""
         input_chars = sum(len(r) for r in records)
 
-        def _coverage(sampled_chars: int, sampled_record_count: int) -> dict[str, int]:
-            return {
-                "input_chars": input_chars, "sampled_chars": sampled_chars,
-                "omitted_chars": input_chars - sampled_chars, "record_count": len(records),
-                "sampled_record_count": sampled_record_count,
-                "elided_record_count": len(records) - sampled_record_count,
-            }
-
         if not records:
-            return "", _coverage(0, 0)
+            return ""
 
         separator = "\n\n"
         total_len = input_chars + len(separator) * (len(records) - 1)
         if total_len <= cls._SUMMARY_INPUT_MAX_CHARS:
-            return separator.join(records), _coverage(input_chars, len(records))
+            return separator.join(records)
 
         n = max(1, min(cls._SAMPLED_INPUT_SLICES, len(records)))
         marker_template = (
@@ -3754,8 +3721,7 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         # pre-bounded to `target`), there are <= n-1 markers each <= `marker_len` (widths computed
         # at their maxima), and n*target + (n-1)*marker_len <= _SUMMARY_INPUT_MAX_CHARS by
         # construction; the extension pass above only adds a record when the result stays <= cap.
-        shown = [i for s, e in selected for i in range(s, e)]
-        return _render(selected), _coverage(sum(len(display_records[i]) for i in shown), len(shown))
+        return _render(selected)
 
     def _fallback_to_main_for_compression(
         self, e: Exception, reason: str, failed_model: Optional[str] = None
@@ -3775,14 +3741,10 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         )
         self._last_aux_model_failure_error = _short_error_text(e)
         self._last_aux_model_failure_model = failed or None
-        telemetry = getattr(self, "_active_compression_telemetry", None)
-        if isinstance(telemetry, dict):
-            telemetry["fallback_used"] = True
-            telemetry["failure_class"] = telemetry.get("failure_class") or "aux_model_fallback"
         self.summary_model = ""  # empty = use main model
         self._clear_compression_failure_cooldown()  # no cooldown — retry immediately
 
-    def _call_summary_llm(self, prompt: str, prompt_started_at: float) -> str:
+    def _call_summary_llm(self, prompt: str) -> str:
         """Issue the single aux summary call; return validated content text.
         Raises RuntimeError for empty content or a length-truncated (PARTIAL) summary so the failure
         routes through main-model fallback + cooldown instead of wiping the compacted turns."""
@@ -3804,34 +3766,22 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         # Without this, an incoming user message aborts the summary and compression falls back to a degraded
         # static marker, losing the real handoff (#23975). Re-entrant: a main-model retry (_generate_summary
         # recursion) re-enters harmlessly.
-        _aux_call_start = time.monotonic()
-        _latency_info: dict[str, int] = {"prompt_build_ms": max(0, int((_aux_call_start - prompt_started_at) * 1000))}
-        call_kwargs["latency_info"] = _latency_info
+
         # Per-attempt observable (#114594): with this line a stalled attempt is distinguishable from a slow
         # one — silence before it is prompt build, silence after it is the summary provider.
         logger.info(
-            "Compression summary call dispatched: model=%s prompt_chars=%s prompt_build_ms=%s",
-            self.summary_model or self.model, f"{len(prompt):,}", _latency_info["prompt_build_ms"],
+            "Compression summary call dispatched: model=%s",
+            self.summary_model or self.model,
         )
         try:
             with aux_interrupt_protection():
                 response = call_llm(**call_kwargs)
         finally:
-            route_known = bool(_aux_route.get("provider") and _aux_route.get("model"))
+
             _aux_model = _aux_route.get("model") or self.summary_model or self.model or ""
             # Remember the resolved model for the failure path: an ``auto`` route picks one per call
             # without setting ``summary_model``, so only this names it in the user warning (#116472).
             self._last_aux_resolved_model = _aux_model or None
-            self._record_aux_compression_call(
-                prompt_messages=call_kwargs["messages"],
-                # max_tokens is intentionally absent; .get() keeps the telemetry hook from breaking the call.
-                max_tokens=call_kwargs.get("max_tokens"),
-                duration_ms=int((time.monotonic() - _aux_call_start) * 1000),
-                aux_provider=_aux_route.get("provider") or self.provider or "",
-                aux_model=_aux_model,
-                effective_aux_context=self.context_length if route_known and _aux_model == self.model else None,
-                phase_timings=_latency_info,
-            )
         if self._compression_cancelled():
             raise AuxiliaryExplicitCancellation()
         self._note_aux_route_fallback(_aux_route)
@@ -3899,8 +3849,7 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         # Lean mode even-samples oversized input (one bounded request, never a second).
         if getattr(self, "tail_mode", "lean") == "lean":
             records = self._serialize_records_for_summary(turns_to_summarize)
-            content_to_summarize, coverage = self._sample_summary_records(records)
-            self._record_summary_input_coverage(coverage)
+            content_to_summarize = self._sample_summary_records(records)
         else:
             content_to_summarize = self._bound_summary_input(self._serialize_for_summary(turns_to_summarize))
         has_user_turn = getattr(self, "_summary_has_user_turn", None)
@@ -3908,7 +3857,7 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
             has_user_turn = self._transcript_has_real_user_turn(turns_to_summarize)
         prompt = self._build_summary_prompt(content_to_summarize, summary_budget, focus_topic, memory_context, has_user_turn)
         try:
-            content = self._call_summary_llm(prompt, prompt_started_at)
+            content = self._call_summary_llm(prompt)
             # Strip <think> blocks: they would be stored, injected, and compounded on every iterative update.
             from agent.agent_runtime_helpers import strip_think_blocks
             content = strip_think_blocks(None, content).strip() or content
@@ -5156,8 +5105,8 @@ Write only the summary body. Do not include any preamble or prefix."""
             scan.tail_start = summary_idx + 1
         return scan
 
-    def _begin_compress_attempt(self, current_tokens: Optional[int], force: bool) -> dict[str, Any]:
-        """Reset per-call result state (callers read it after compress()) and open telemetry."""
+    def _begin_compress_attempt(self, force: bool) -> None:
+        """Reset per-call result state (callers read it after compress())."""
         self._last_summary_dropped_count = 0
         self._last_summary_fallback_used = False
         self._last_feasibility_skip = False
@@ -5170,18 +5119,15 @@ Write only the summary body. Do not include any preamble or prefix."""
         self._last_compression_made_progress = False
         # Do NOT reset the *_failure flags: the cooldown early-return doesn't re-assert them, so a
         # reset would fall through to the destructive static fallback (#29559). Success clears them.
-        telemetry = self._begin_compression_telemetry(current_tokens=current_tokens)
-        telemetry["chunk_count"] = 0
         # Manual /compress bypasses the failure cooldown and the structural no-op backoff (#93022).
         if force:
             self._clear_compression_failure_cooldown()
             self._structural_no_op_backoff_until = 0.0
-        return telemetry
 
-    def _structural_no_op_result(self, telemetry: dict[str, Any], failure_class: str, reason: str,
+
+    def _structural_no_op_result(self, reason: str,
                                  n_messages: int = 0) -> None:
         """Nothing eligible to compress: transient backoff (#93022), never an ineffectiveness strike."""
-        telemetry["failure_class"] = failure_class
         self._last_compression_savings_pct = 0.0
         self._record_structural_no_op(reason, n_messages)
 
@@ -5211,14 +5157,14 @@ Write only the summary body. Do not include any preamble or prefix."""
         )
 
     def _abort_on_summary_failure(
-        self, telemetry: dict[str, Any], n_skipped: int, previous_summary_before_scan: Optional[str],
+        self, n_skipped: int, previous_summary_before_scan: Optional[str],
     ) -> bool:
         """Abort (messages unchanged) on a terminal failure or when configured to; True when aborted.
         Access/quota, network, truncated and empty-content failures ALWAYS abort (#29559); an overload
         aborts only until the sustained-overload escalation (#123167); otherwise
         ``abort_on_summary_failure`` decides between abort and the static fallback."""
         terminal_failure = next(
-            ((failure_class, message) for flag, failure_class, message in _TERMINAL_SUMMARY_FAILURES if getattr(self, flag)),
+            (message for flag, message in _TERMINAL_SUMMARY_FAILURES if getattr(self, flag)),
             None,
         )
         if terminal_failure is None and not self.abort_on_summary_failure:
@@ -5226,12 +5172,10 @@ Write only the summary body. Do not include any preamble or prefix."""
         self._last_summary_dropped_count = 0  # nothing actually dropped
         self._last_summary_fallback_used = False
         self._last_compress_aborted = True
-        failure_class, message = terminal_failure or (
-            "summary_generation_aborted",
+        message = terminal_failure or (
             "Summary generation failed — aborting compression (compression.abort_on_summary_failure=true). "
-            "%d message(s) preserved unchanged. Conversation is frozen until the next /compress or /new.",
+            "%d message(s) preserved unchanged. Conversation is frozen until the next /compress or /new."
         )
-        telemetry["failure_class"] = failure_class
         # Roll back the self-heal rehydration so the aborted attempt is a true no-op (#57835). Only the
         # attempt still owning summary work may roll back: a detached stale attempt (reachable here via
         # the deterministic summary pin) must not revert the fallback's _previous_summary.
@@ -5263,7 +5207,7 @@ Write only the summary body. Do not include any preamble or prefix."""
         return compressed
 
     def _fallback_summary_for_window(
-        self, telemetry: dict[str, Any], turns_to_summarize: list[dict[str, Any]],
+        self, turns_to_summarize: list[dict[str, Any]],
         n_dropped: int, feasibility_skip: bool,
     ) -> str:
         """Deterministic fallback so the model gets recoverable continuity anchors."""
@@ -5273,12 +5217,7 @@ Write only the summary body. Do not include any preamble or prefix."""
             logger.warning("Summary generation failed — inserting deterministic fallback context summary")
         self._last_summary_dropped_count = n_dropped
         self._last_summary_fallback_used = True
-        telemetry["fallback_used"] = True
-        # Feasibility skip is deliberate, not aux-model breakage — keep the telemetry class distinct.
-        # An escalated overload outranks the aux->main retry's earlier aux_model_fallback label.
-        telemetry["failure_class"] = "summary_overload_degraded" if self._last_summary_overload_degraded else (
-            telemetry.get("failure_class") or ("feasibility_skip" if feasibility_skip else "summary_generation_failed")
-        )
+
         summary = self._build_static_fallback_summary(
             turns_to_summarize,
             # A stale error from an earlier failure must not be embedded in a feasibility-skip fallback.
@@ -5398,7 +5337,6 @@ Write only the summary body. Do not include any preamble or prefix."""
         _pruned_replay = _prune_stale_reasoning_replay(compressed)
         if _pruned_replay and not self.quiet_mode:
             logger.info("Pruned stale replay items from %d assistant message(s) during compaction", _pruned_replay)
-        self._record_compression_effect(n_messages, compressed, pre_estimate, pruned_count, _pruned_replay)
         self._last_compression_made_progress = True
 
         # Compaction frees the biggest allocation: hand pages back to the OS (glibc/config-gated,
@@ -5443,14 +5381,13 @@ Write only the summary body. Do not include any preamble or prefix."""
         from agent.conversation_compression import _raise_if_stale_attempt
 
         _raise_if_stale_attempt(self)
-        telemetry = self._begin_compress_attempt(current_tokens, force)
-        telemetry["has_focus_topic"] = bool(focus_topic)
+        self._begin_compress_attempt(force)
         n_messages = len(messages)
         # Only need head + 3 tail messages minimum (token budget decides the real tail size)
         _min_for_compress = self._protect_head_size(messages) + 3 + 1
         if n_messages <= _min_for_compress:
             self._structural_no_op_result(
-                telemetry, "insufficient_messages", f"only {n_messages} messages (need > {_min_for_compress})",
+                f"only {n_messages} messages (need > {_min_for_compress})",
                 n_messages,
             )
             return messages
@@ -5466,11 +5403,8 @@ Write only the summary body. Do not include any preamble or prefix."""
             logger.info("Pre-compression: pruned %d old tool result(s)", pruned_count)
         n_messages = len(messages)
         if compress_start >= compress_end:
-            self._record_compression_regions(
-                head_messages=messages[:compress_start], middle_messages=[], tail_messages=messages[compress_end:],
-            )
             self._structural_no_op_result(
-                telemetry, "no_compressible_window",
+
                 f"compress_start ({compress_start}) >= compress_end ({compress_end}) - transcript fits within tail budget",
                 n_messages,
             )
@@ -5487,15 +5421,11 @@ Write only the summary body. Do not include any preamble or prefix."""
             messages = self._demote_stale_tail_tools(messages, compress_end)
         scan = self._scan_window_handoffs(messages, compress_start, compress_end, turns_to_summarize)
         turns_to_summarize = scan.turns_to_summarize
-        self._record_compression_regions(
-            head_messages=messages[:compress_start], middle_messages=turns_to_summarize, tail_messages=messages[compress_end:],
-        )
-        telemetry["chunk_count"] = 1 if turns_to_summarize else 0
         if not turns_to_summarize:
             # Window is only handoff rows (#59496): skip the aux call; _previous_summary is KEPT —
             # it came from this transcript.
             self._structural_no_op_result(
-                telemetry, "empty_post_handoff_window",
+
                 f"window {compress_start}-{compress_end} holds only already-summarized handoffs",
                 n_messages,
             )
@@ -5513,8 +5443,8 @@ Write only the summary body. Do not include any preamble or prefix."""
 
         _raise_if_stale_attempt(self)
         feasibility_skip = not (force or prepared) and (
-            self._fallback_streak_skip(telemetry)
-            or self._feasibility_skip(telemetry, turns_to_summarize, compress_start, compress_end)
+            self._fallback_streak_skip()
+            or self._feasibility_skip(turns_to_summarize, compress_start, compress_end)
         )
         summary = None  # pre-LLM summary skip (feasibility or benched model): no LLM call; Phase 4 inserts the deterministic fallback
         if prepared:
@@ -5525,12 +5455,12 @@ Write only the summary body. Do not include any preamble or prefix."""
                 messages, turns_to_summarize, scan, focus_topic, memory_context, bypass_cooldown,
             )
             if not summary and self._abort_on_summary_failure(
-                telemetry, compress_end - compress_start, scan.previous_summary_before,
+                compress_end - compress_start, scan.previous_summary_before,
             ):
                 return canonical_messages
         if not summary:
             summary = self._fallback_summary_for_window(
-                telemetry, turns_to_summarize, compress_end - compress_start, feasibility_skip,
+                turns_to_summarize, compress_end - compress_start, feasibility_skip,
             )
         # Phase 4: Assemble compressed message list
         compressed = self._assemble_compressed(messages, compress_start, compress_end, scan, summary)

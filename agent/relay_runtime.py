@@ -231,40 +231,7 @@ class RelaySession:
     closing: bool = False
     handle: Any = None
     context: contextvars.Context | None = None
-    # Segmentation: rotation closes the session scope and pushes segment N+1 at a turn
-    # boundary (the only LIFO-safe point). Flags are set by compaction, consumed at that boundary.
-    segment: int = 0  # index of the CURRENT session scope (0 = first)
-    segment_turns: int = 0  # turns completed within the current segment
-    rotate_pending: bool = False  # consumed at next begin_turn
-    close_pending: bool = False  # rotating compaction hit a live turn; end_turn consumes it
-    cwd: str = ""  # latest logical working directory; reused when a session segment rotates
-
-
-def _load_segments_config() -> dict[str, Any]:
-    """gateway.telemetry.session_segments; both defaults OFF => rotation never fires."""
-    on_compaction = False
-    max_turns = 0
-    try:
-        # Never import gateway.run here: its import-time env setup (_HERMES_GATEWAY, HERMES_QUIET,
-        # TERMINAL_CWD := home) rebinds a CLI/TUI/cron host — hung approvals (#87183), `hermes -z`
-        # running in $HOME without the launch dir's AGENTS.md (#95577). Same reader it delegates to.
-        from hermes_cli.config_effective import load_user_config_effective
-
-        telemetry = (load_user_config_effective().get("gateway") or {}).get("telemetry") or {}
-        segments = telemetry.get("session_segments") or {}
-        on_compaction = bool(segments.get("on_compaction", False))
-        try:
-            max_turns = max(0, int(segments.get("max_turns", 0) or 0))
-        except (TypeError, ValueError):
-            max_turns = 0
-    except Exception:
-        pass
-    return {"on_compaction": on_compaction, "max_turns": max_turns}
-
-
-_SEGMENTS_CONFIG = _Lazy(_load_segments_config)  # cached at first read
-_segments_config = _SEGMENTS_CONFIG.get
-_reset_segments_config_for_tests = _SEGMENTS_CONFIG.reset
+    cwd: str = ""  # latest logical working directory
 
 
 class RelayOperationLease:
@@ -459,17 +426,16 @@ class RelayRuntime:
             return bool(self._execution_consumers)
 
     def _open_session_scope(
-        self, session: RelaySession, scope_metadata: dict[str, Any], *, resolve_parent: bool,
-        exit_fallback: bool = False, **push_kwargs: Any,
+        self, session: RelaySession, scope_metadata: dict[str, Any], **push_kwargs: Any,
     ) -> None:
         """Push a fresh SESSION_SCOPE for ``session`` (bounded by ``SCOPE_OP_TIMEOUT``); record handle + context.
-        Subagents parent under their spawning turn/session handle (``resolve_parent`` creates the parent when
-        unknown). ``exit_fallback``: at interpreter shutdown the executor refuses futures; push synchronously."""
+        Subagents parent under their spawning turn/session handle, creating the parent when unknown.
+        At interpreter shutdown the executor refuses futures; push synchronously."""
         parent_handle = None
         if session.parent_session_id:
             with self._sessions_lock:
                 parent_handle = self._subagent_parent_handles.get(session.session_id)
-            if parent_handle is None and resolve_parent:
+            if parent_handle is None:
                 parent = self.ensure_session({"session_id": session.parent_session_id})
                 if parent is not None:
                     parent_handle = parent.handle
@@ -480,8 +446,6 @@ class RelayRuntime:
         try:
             future = _scope_op_executor().submit(context.run, *args, **push_kwargs)
         except RuntimeError:
-            if not exit_fallback:
-                raise
             session.handle = context.run(*args, **push_kwargs)
         else:
             # future.result() re-raises push's own RuntimeError; keeping it outside the
@@ -517,41 +481,10 @@ class RelayRuntime:
             if session.handle is None:
                 self._open_session_scope(
                     session, {**(metadata or {}), **runtime_metadata(self.runtime_id)},
-                    resolve_parent=True, data=data, exit_fallback=True,
+                    data=data,
                 )
         return session
 
-    def rotate_session_scope(self, session: RelaySession, *, reason: str) -> None:
-        """Close the current session scope and open the next segment (turn boundary ONLY: LIFO).
-        Bookkeeping advances even when a native call fails so a degraded rotation cannot retry every turn."""
-        with session.lock:
-            if session.closing or session.handle is None:
-                return
-            old_handle = session.handle
-            # Bookkeeping FIRST: a failed native call must not leave rotate_pending set.
-            session.segment += 1
-            session.segment_turns = 0
-            session.rotate_pending = False
-            try:
-                self.run_in_session(
-                    session, self.relay.scope.pop, old_handle, output={"hermes.session.segment_reason": reason},
-                    metadata=runtime_metadata(self.runtime_id), timeout=SCOPE_OP_TIMEOUT,
-                )
-            except Exception:
-                logger.warning(
-                    "Hermes Relay segment close failed (session=%s segment=%d); abandoning the old segment span",
-                    session.session_id, session.segment - 1, exc_info=True,
-                )
-            scope_metadata = runtime_metadata(
-                self.runtime_id, **{"hermes.session.segment": session.segment, "hermes.session.segment_reason": reason},
-            )
-            try:
-                self._open_session_scope(session, scope_metadata, resolve_parent=False)
-            except Exception:
-                logger.warning(
-                    "Hermes Relay segment open failed (session=%s segment=%d); keeping the prior scope handle",
-                    session.session_id, session.segment, exc_info=True,
-                )
 
     def register_subagent(
         self, event: dict[str, Any], *, metadata: dict[str, Any] | None = None,
@@ -951,7 +884,7 @@ def managed_callback_guard():
 
 
 def _warn_on_error(what: str, callback: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    """Run fail-open telemetry work: log ``Hermes Relay <what> failed`` and return None on error."""
+    """Run fail-open Relay lifecycle work and return None on error."""
     try:
         return callback(*args, **kwargs)
     except Exception:
@@ -960,7 +893,7 @@ def _warn_on_error(what: str, callback: Callable[..., Any], *args: Any, **kwargs
 
 
 def _fail_open(what: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator form of ``_warn_on_error`` for telemetry hooks that must never block the caller."""
+    """Decorator form of ``_warn_on_error`` for fail-open Relay lifecycle hooks."""
     def wrap(fn: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(fn)
         def guarded(*args: Any, **kwargs: Any) -> Any:
@@ -968,12 +901,6 @@ def _fail_open(what: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         return guarded
     return wrap
 
-
-def _flag_open_session(session: RelaySession, flag: str) -> None:
-    """Set a pending-rotation/close flag unless the session is already closing."""
-    with session.lock:
-        if not session.closing:
-            setattr(session, flag, True)
 
 
 class RelaySessionCoordinator:
@@ -1068,8 +995,7 @@ class RelaySessionCoordinator:
                 turn._active_registered = True
         host = lease.live_runtime() if turn.relay_enabled else None
         if host is not None:
-            # Rotation happens HERE: no live turn scope on the stack, so the session scope can close/reopen LIFO.
-            _warn_on_error("segment rotation", self._maybe_rotate_segment, host, lease.session)
+
             turn_metadata = dict(metadata or {})
             turn_metadata.update(
                 runtime_metadata(
@@ -1088,14 +1014,6 @@ class RelaySessionCoordinator:
         _CURRENT_TURN.set(turn)
         return turn
 
-    @staticmethod
-    def _maybe_rotate_segment(host: RelayRuntime, session: RelaySession) -> None:
-        """Rotate the session scope when compaction flagged it or the turn cap is hit."""
-        config = _segments_config()
-        cap = config["max_turns"]
-        compaction = config["on_compaction"] and session.rotate_pending
-        if compaction or (cap > 0 and session.segment_turns >= cap):
-            host.rotate_session_scope(session, reason="compaction" if compaction else "max_turns")
 
     def end_turn(self, turn: RelayTurnContext, *, outcome: str) -> None:
         with turn.finalize_lock:
@@ -1109,9 +1027,7 @@ class RelaySessionCoordinator:
                 if host is not None:
                     self._close_turn_scope(host, turn, outcome=outcome)
             finally:
-                if turn._active_registered and host is not None:
-                    with contextlib.suppress(Exception), lease.session.lock:  # accounting never blocks
-                        lease.session.segment_turns += 1  # max_turns rotation trigger
+
                 try:
                     # Delegated agents own one turn: close their conversation while the active-turn
                     # guard is held so a parent timeout fallback cannot race it.
@@ -1123,7 +1039,7 @@ class RelaySessionCoordinator:
                 finally:
                     self._unregister_active_turn(turn)
                     self._reset_turn_context(turn)
-                self._consume_deferred_close(lease)
+
 
     def _close_turn_scope(self, host: RelayRuntime, turn: RelayTurnContext, *, outcome: str) -> None:
         """Pop the turn's logical LLM children, then the turn scope itself (LIFO)."""
@@ -1134,40 +1050,6 @@ class RelaySessionCoordinator:
         if failure:
             logger.warning("Hermes Relay turn finalization failed: %s", failure)
 
-    @_fail_open("deferred session close")
-    def _consume_deferred_close(self, lease: ConversationLease) -> None:
-        """Close a session whose rotating-compaction close was deferred (``close_pending``).
-        The last live turn consumes it after its own scope popped and it left the active-turn table."""
-        host = lease.live_runtime()
-        if host is None:
-            return
-        with lease.session.lock:
-            pending = lease.session.close_pending and not lease.session.closing
-        if pending and not self.has_active_turn(profile_key=lease.profile_key, session_id=lease.session_id):
-            host.close_session({"session_id": lease.session_id})
-
-    @_fail_open("compaction notification")
-    def notify_session_compacted(self, *, profile_key: str, session_id: str, old_session_id: str = "") -> None:
-        """React to a completed compaction, per compaction mode; unknown sessions / disabled config are no-ops.
-        In-place (``old_session_id`` empty/equal): flag rotation for the next turn boundary — never rotate
-        immediately, a live turn under it breaks LIFO. Rotating (ids differ): the next turn gets a fresh
-        session under the new id, so close the OLD session now or its scope stays an unexported orphan."""
-        if not _segments_config()["on_compaction"]:
-            return
-        host = self.registry.for_profile(profile_key)
-        if not isinstance(host, RelayRuntime):
-            return
-        if old_session_id and old_session_id != session_id:
-            # A LIVE turn on the old session: closing now would pop under it (LIFO).
-            old_session = host._lookup(old_session_id)
-            if old_session is not None and self.has_active_turn(profile_key=profile_key, session_id=old_session_id):
-                _flag_open_session(old_session, "close_pending")
-            else:
-                host.close_session({"session_id": old_session_id})
-            return
-        session = host._lookup(session_id)
-        if session is not None:
-            _flag_open_session(session, "rotate_pending")
 
     def has_active_turn(self, *, profile_key: str, session_id: str) -> bool:
         """Return whether a turn is still running for one profile/session."""

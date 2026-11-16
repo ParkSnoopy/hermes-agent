@@ -1058,9 +1058,8 @@ def build_cache_parity_fork(
         # ``<scope>::review``. /btw never tags: one prefix-extension call cannot diverge.
         if write_origin == "background_review":
             review_agent._prompt_cache_fork_tag = "review"
-        # Same reason for the Portal ``conversation=`` tag: with no DB the fork's own
-        # _conversation_root_id() falls back to the parent's PHYSICAL id, so after a compression
-        # rotation the review's usage was attributed to a different conversation than its parent.
+        # With no DB the fork's own _conversation_root_id() falls back to the parent's
+        # physical id, so preserve the root for routing after compression rotation.
         review_agent._cached_conversation_root = agent._conversation_root_id()
         _inherit_parent_tool_surface(review_agent, agent)
     _detach_fork_compression(review_agent)

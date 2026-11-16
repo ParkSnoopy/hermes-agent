@@ -169,11 +169,8 @@ _IMAGE_API_INTS = (
     ("output_compression", "compression", lambda v: max(0, min(100, v))), ("seed", "seed", lambda v: v),
 )
 
-_ATTRIBUTION_HEADERS = {
+_JSON_HEADERS = {
     "Content-Type": "application/json",
-    # OpenRouter attribution headers (harmless against Nous Portal).
-    "HTTP-Referer": "https://github.com/NousResearch/hermes-agent",
-    "X-Title": "Hermes Agent",
 }
 
 
@@ -776,7 +773,7 @@ class OpenRouterCompatImageProvider(ImageGenProvider):
             part = _to_image_url_part(ref)
             if part:
                 content.append({"type": "image_url", "image_url": {"url": part}})
-        headers = {"Authorization": f"Bearer {api_key}", **_ATTRIBUTION_HEADERS}
+        headers = {"Authorization": f"Bearer {api_key}", **_JSON_HEADERS}
 
         last_error: Optional[dict[str, Any]] = None
         for i, model_id in enumerate(model_chain):

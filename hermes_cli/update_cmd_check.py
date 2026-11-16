@@ -241,7 +241,6 @@ def select_apply_target(args, branch: str, request: dict, *, git_cmd, stop) -> t
     from hermes_cli.release_channels import retrying_reads
     from hermes_cli.source_releases import resolve_source_target
     from hermes_cli.update_channel import channel_record, rides_default_channel
-    from hermes_cli.update_cmd_common import _record_stop
 
     if getattr(args, "branch", None):
         return f"origin/{branch}", None, False, None
@@ -257,7 +256,6 @@ def select_apply_target(args, branch: str, request: dict, *, git_cmd, stop) -> t
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         print(f"✗ Could not resolve the {selected} source channel: {exc}. No update was applied.")
         stop()
-        _record_stop("channel_unresolved")
         sys.exit(1)
     if target.retired:
         print(f"→ {selected} retired; source destination: {target.channel}")

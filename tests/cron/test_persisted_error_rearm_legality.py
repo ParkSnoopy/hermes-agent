@@ -32,8 +32,7 @@ def cron_store(tmp_path, monkeypatch):
     monkeypatch.setattr(J, "JOBS_FILE", hermes_home / "cron" / "jobs.json")
     monkeypatch.setattr(J, "OUTPUT_DIR", hermes_home / "cron" / "output")
     J._cron_cadence_cache.clear()
-    monkeypatch.setattr(J, "_persisted_error_recoveries", 0)
-    monkeypatch.setattr(J, "_persisted_error_recoveries_recent", [])
+
     return hermes_home
 
 
@@ -70,8 +69,7 @@ class TestCronRearmRespectsScheduleLegality:
         assert next_dt == datetime(2026, 8, 24, 9, 0, tzinfo=UTC), (
             f"expected re-arm to Monday 9am, got {rearmed['next_run_at']}"
         )
-        # The recovery is still counted (the wedge WAS repaired).
-        assert J.get_persisted_error_recovery_stats()["persisted_error_recoveries"] >= 1
+        assert not (cron_store / "cron" / "persisted_error_recoveries.jsonl").exists()
 
     def test_cron_value_parked_at_next_legal_occurrence_left_alone(self, cron_store):
         """A wedged-looking job whose next_run_at already IS the next legal
@@ -87,7 +85,7 @@ class TestCronRearmRespectsScheduleLegality:
         with mock.patch.object(J, "_hermes_now", lambda: now):
             J.get_due_jobs()
         assert datetime.fromisoformat(J.get_job(job["id"])["next_run_at"]) == legal_next
-        assert J.get_persisted_error_recovery_stats()["persisted_error_recoveries"] == 0
+
 
     def test_interval_job_still_rearms_to_now(self, cron_store):
         """Interval jobs (the 2026-08-14 incident class) keep the immediate

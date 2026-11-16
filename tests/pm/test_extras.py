@@ -161,7 +161,7 @@ def test_available_missing_module():
 
 
 @pytest.mark.parametrize(("extra", "module"), [
-    ("teams", "microsoft_teams.apps"),
+    ("fal", "fal_client"),
 ])
 def test_available_counts_sys_modules_fakes(monkeypatch, extra, module):
     monkeypatch.setitem(sys.modules, module, SimpleNamespace())
@@ -280,10 +280,10 @@ def test_every_anchor_extra_exists_in_pyproject():
 
 def test_legacy_selection_carries_extras_the_main_era_venv_lazily_installed(monkeypatch, tmp_path):
     """Migrating a main-era venv must keep opt-in extras it already had (FAL
-    image generation, a messaging SDK), or the first PM launch prompts to
+    image generation, web search), or the first PM launch prompts to
     reinstall them. Umbrella and gated-off extras are never carried."""
     monkeypatch.setattr(extras, "_PLATFORM_GATES", {"piper": "python_version < '0'"})
-    site = main_era_venv(tmp_path, "fal_client", "telegram")
+    site = main_era_venv(tmp_path, "fal_client", "firecrawl")
     (site / "piper").mkdir()
     (site / "google").mkdir()
     (site / "google" / "auth").mkdir()
@@ -293,7 +293,7 @@ def test_legacy_selection_carries_extras_the_main_era_venv_lazily_installed(monk
     selection = extras.legacy_selection(tmp_path)
 
     assert selection[0] == "all"
-    assert {"fal", "telegram", "vertex", "exa"} <= set(selection)
+    assert {"fal", "firecrawl", "vertex", "exa"} <= set(selection)
     assert "messaging" not in selection
     assert "piper" not in selection
     assert "hindsight" not in selection  # Catalog plugin owns this dependency, not a core extra.

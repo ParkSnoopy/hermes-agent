@@ -41,7 +41,7 @@ if str(_checkout_root) not in sys.path:
 
 from cron.worker_bootstrap import WORKER_MARKER, finish_worker_boot
 from hermes_constants import get_hermes_home, hermes_home_key
-from hermes_cli.observability.shared_metrics_gateway import note_cron_execution, note_cron_skipped
+
 from cron.env_settings import cron_env_setting
 from hermes_cli._subprocess_compat import windows_hide_flags
 from hermes_cli.config import (
@@ -640,10 +640,6 @@ _FUTURE_PENDING = object()
 # Identity tokens fence cleanup and late future attachment after recovery.
 _running_registration_owners: dict = {}
 
-# Forced-release count/history for ``get_inflight_guard_stats()``; mirrored to JSONL for probes.
-_forced_release_count: int = 0
-_forced_releases: list = []
-_FORCED_RELEASE_HISTORY = 20
 
 # Stale-allowance floor (minutes); per-job allowance is max(2 * interval, this).
 _INFLIGHT_MIN_ALLOWANCE_MINUTES = 30.0
@@ -924,40 +920,6 @@ def _job_interval_minutes(job: dict) -> Optional[float]:
     return None
 
 
-def get_inflight_guard_stats() -> dict:
-    """Probe-visible snapshot; non-zero ``forced_releases`` means a job wedged and was recovered."""
-    now = time.time()
-    with _running_lock:
-        return {
-            "running": sorted(key[1] for key in _running_job_ids),
-            "running_ages_seconds": {
-                key[1]: round(now - started, 1)
-                for key, started in _running_since.items()
-            },
-            "forced_releases": _forced_release_count,
-            "recent_forced_releases": list(_forced_releases)}
-
-
-def _record_forced_release(job_id: str, name: str, age_seconds: float, allowance_seconds: float) -> None:
-    """Persist a countable signal for one forced release (best-effort)."""
-    entry = {
-        "job_id": job_id,
-        "name": name,
-        "age_seconds": round(age_seconds, 1),
-        "allowance_seconds": round(allowance_seconds, 1),
-        "at": _hermes_now().isoformat()}
-    with _running_lock:
-        _forced_releases.append(entry)
-        del _forced_releases[:-_FORCED_RELEASE_HISTORY]
-    try:
-        path = _get_hermes_home() / "cron" / "inflight_forced_releases.jsonl"
-        _ensure_cron_dir(path.parent)
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry) + "\n")
-    except Exception as e:  # never let telemetry break a tick
-        logger.debug("Could not append forced-release record: %s", e)
-
-
 def _latest_executions_for_releasable_claims() -> dict:
     """Latest durable execution per releasable-looking claim (missing/pending/done future), one
     indexed query so the healthy path pays no DB work. Snapshot under _running_lock — iterating
@@ -1000,7 +962,7 @@ def _row_belongs_to_claim(row: dict, claim_started: float) -> bool:
 
 
 def _record_stale_release(job: dict, job_id: str, age: float, allowance: float, fut, reason: str) -> None:
-    """WARNING log + probe record for one forced release, then ``last_error`` unless the ledger
+    """WARNING log for one forced release, then ``last_error`` unless the ledger
     already holds the run's real outcome or the job has a finite repeat budget."""
     name = job.get("name") or job_id
     future_state = "pending" if fut is _FUTURE_PENDING else "missing" if fut is None else "finished"
@@ -1009,7 +971,7 @@ def _record_stale_release(job: dict, job_id: str, age: float, allowance: float, 
         "id=%s age=%.0fs allowance=%.0fs future=%s — stale in-flight claim "
         "released; the job was skipping every fire with 'already running'",
         reason, name, job_id, age, allowance, future_state)
-    _record_forced_release(job_id, name, age, allowance)
+
     # Ledger already records how the run ended: mark_job_run here would clobber an honest
     # ok status with a synthetic failure or double-write a failure.
     if reason == "ledger-terminal":
@@ -1039,11 +1001,9 @@ def sweep_stale_inflight(due_jobs: Optional[list] = None) -> list:
 
     Stale = older than ``max(2 * interval, floor)`` AND (no live future — submit path hung before
     ``pool.submit`` returned — or finished without discarding the id) — or the claim's OWN ledger
-    row is terminal regardless of age. Each release logs WARNING ``event=forced_release``, bumps
-    the probe counter, mirrors JSONL, and writes ``last_error``.
+    row is terminal regardless of age. Each release logs WARNING ``event=forced_release``
+    and writes ``last_error``.
     """
-    global _forced_release_count
-
     by_id = {j.get("id"): j for j in (due_jobs or []) if isinstance(j, dict)}
     floor_seconds = _inflight_min_allowance_minutes() * 60.0
     now = time.time()
@@ -1093,7 +1053,6 @@ def sweep_stale_inflight(due_jobs: Optional[list] = None) -> list:
             _running_since.pop(key, None)
             _running_allowance_s.pop(key, None)
             _running_futures.pop(key, None)
-            _forced_release_count += 1
             stale.append((job_id, age, allowance, fut, reason))
 
     for job_id, age, allowance, fut, _reason in stale:
@@ -1242,28 +1201,6 @@ def _shutdown_parallel_pool() -> None:
 
 
 atexit.register(_shutdown_parallel_pool)
-# Per-fire usage audit log; resolves via _get_hermes_home() so profile-scoped paths work.
-def _usage_audit_path() -> Path:
-    return _get_hermes_home() / "cron" / "usage_audit.jsonl"
-
-
-def _utcnow_iso_ms() -> str:
-    """RFC3339 UTC timestamp with millisecond precision and 'Z' suffix."""
-    now = datetime.now(UTC)
-    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
-
-
-def _write_usage_audit(record: dict) -> None:
-    """Append one JSONL line to cron/usage_audit.jsonl. NEVER raises — a logger bug must not
-    break cron jobs (the whole write is inside one try)."""
-    try:
-        path = _usage_audit_path()
-        _ensure_cron_dir(path.parent)
-        line = json.dumps(record, ensure_ascii=False)
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except Exception as e:
-        logger.warning("usage_audit write failed: %s", e)
 
 
 def _interpreter_shutting_down(exc: Optional[BaseException] = None) -> bool:
@@ -2281,7 +2218,7 @@ def _prepare_job_prompt(
         _ran_ok, _script_output = prerun_script
         if _ran_ok and not _parse_wake_gate(_script_output):
             logger.info("Job '%s' (ID: %s): wakeAgent=false, skipping agent run", job_name, job_id)
-            note_cron_skipped(job)
+
             silent_doc = (
                 f"# Cron Job: {job_name}\n\n"
                 f"**Job ID:** {job_id}\n"
@@ -2316,7 +2253,7 @@ def _prepare_job_prompt(
         return (False, blocked_doc, "", str(block_exc)), None
     if prompt is None:
         logger.info("Job '%s': script produced no output, skipping AI call.", job_name)
-        note_cron_skipped(job)
+
         return (True, "", SILENT_MARKER, None), None
     return None, prompt
 
@@ -2511,29 +2448,6 @@ def _construct_cron_agent(AIAgent, job: dict, _cfg: dict, setup: _CronAgentSetup
     )
 
 
-class _FireAudit:
-    """One usage_audit.jsonl line per fire (created once the agent exists; fire id + start clock)."""
-
-    def __init__(self, job: dict, job_id: str, model: str):
-        self.job, self.job_id, self.model = job, job_id, model
-        self.fire_id = uuid.uuid4().hex
-        self.t_start = time.monotonic()
-
-    def write(self, result: dict, error: Optional[str]) -> None:
-        _write_usage_audit({
-            "ts": _utcnow_iso_ms(),
-            "job_id": self.job_id,
-            "fire_id": self.fire_id,
-            "prompt_tokens": result.get("prompt_tokens"),
-            "completion_tokens": result.get("completion_tokens"),
-            "total_tokens": result.get("total_tokens"),
-            "response_silent": bool(result.get("response_silent")),
-            "deliver_target": self.job.get("deliver"),
-            "model": self.model or None,
-            "duration_ms": int((time.monotonic() - self.t_start) * 1000),
-            "error": error})
-
-
 
 def run_job(
     job: dict, *, defer_agent_teardown: Optional[list] = None, extra_prompt: Optional[str] = None,
@@ -2576,9 +2490,7 @@ def run_job(
     logger.info("Prompt: %s", prompt[:100])
 
     agent = None
-    model = ""
     _session_db = None
-    _audit: Optional[_FireAudit] = None
     _worker_state: dict = {}
     scope = _CronRunScope(job, job_id, execution_id)
     try:
@@ -2589,18 +2501,15 @@ def run_job(
 
         jc = _load_cron_job_config(job, job_id, job_name)
         _cfg = jc.cfg
-        model = jc.model
         setup = _resolve_cron_agent_setup(job, job_id, job_name, jc)
         if setup.blocked is not None:
             return setup.blocked
-        model = setup.model
 
         # Open state.db only after every early-return gate has passed.
         _session_db = _open_cron_session_db(job)
         agent = _construct_cron_agent(
             AIAgent, job, _cfg, setup, workdir=scope.workdir, session_id=_cron_session_id,
             session_db=_session_db)
-        _audit = _FireAudit(job, job_id, model)
 
         result = _run_agent_with_watchdog(
             agent, prompt, job, job_id, job_name, scope.task_id, cancel_event,
@@ -2623,7 +2532,6 @@ def run_job(
             + f"{_RESPONSE_FRAME}{len(logged_response)}\n{_RESPONSE_HEADING}{logged_response}{_RESPONSE_TERMINATOR}"
         )
         logger.info("Job '%s' completed successfully", job_name)
-        _audit.write(dict(result, response_silent=_is_cron_silence_response(final_response or "")), None)
         return True, output, final_response, None
 
     except (Exception, ConfigBackendUnavailable) as e:  # the plane being down fails THIS fire only
@@ -2644,9 +2552,6 @@ def run_job(
                 job["_quota_hold_seconds"] = _hold_s
         except Exception:  # classification must never mask the real failure
             logger.debug("Job '%s': unreachable-failure classification failed", job_id)
-        # No audit row when we failed before the agent existed; the audit write must never raise.
-        if _audit is not None:
-            _audit.write({}, error_msg)
         from cron.scheduler_diagnostics import format_run_error
         output = (
             _run_doc_header(job, f"{job_name} (FAILED)", job_id, prompt)
@@ -2808,7 +2713,7 @@ def run_one_job(
         job["execution_id"] = execution["id"]
 
     execution_id = str(job["execution_id"])
-    note_cron_execution(job)
+
     external_owner = os.environ.get("_HERMES_CRON_EXTERNAL_WORKER") == execution_id
     if not external_owner:
         try:
@@ -4297,7 +4202,7 @@ def _submit_with_guard(job: dict, pool: concurrent.futures.ThreadPoolExecutor, p
         execution = create_execution(
             job_id, source="builtin", scheduled_instant=job.get("_scheduled_instant"))
         dispatched_job = dict(job, execution_id=execution["id"])
-        note_cron_execution(dispatched_job)
+
         _ctx = contextvars.copy_context()
     except Exception as execution_err:
         # Release the claim so the next tick retries instead of wedging "already running".

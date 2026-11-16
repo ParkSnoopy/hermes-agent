@@ -864,8 +864,6 @@ requirements can still fail that resolution. The table lists common groups;
 | `anthropic` | Native Anthropic SDK (not needed via OpenRouter) |
 | `bedrock` | AWS Bedrock (boto3) |
 | `azure-identity` | Azure Entra ID auth |
-| `modal` | Modal terminal backend |
-| `daytona` | Daytona terminal backend |
 | `exa` | Exa web search |
 | `firecrawl` | Firecrawl web search |
 | `fal` | FAL image generation |

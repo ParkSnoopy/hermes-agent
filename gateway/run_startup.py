@@ -27,7 +27,7 @@ from gateway.restart import (
     DEFAULT_GATEWAY_CRON_DRAIN_TIMEOUT, GATEWAY_FATAL_CONFIG_EXIT_CODE, is_global_startup_conflict
 )
 from gateway.run_shutdown import _log_suppressed, _send_error
-from hermes_cli.observability.shared_metrics_busy import note_running_chat_owner
+
 from gateway.shutdown_watchdog import (
     DEFAULT_HEARTBEAT_INTERVAL_S, DEFAULT_LOOP_WATCHDOG_INTERVAL_S,
     DEFAULT_LOOP_WATCHDOG_MAX_STRIKES, DEFAULT_LOOP_WATCHDOG_TIMEOUT_S, loop_heartbeat_forever,
@@ -680,7 +680,7 @@ class GatewayStartupMixin:
             _resume_state = self._session_state(entry.session_key)
             _resume_state.turn.agent = _AGENT_PENDING_SENTINEL
             _resume_state.turn.started_ts = time.time()
-            note_running_chat_owner(self, entry.session_key, source)  # this loop runs in the launch scope
+
             self._persist_active_agents()
             # Empty-text internal event: the _is_resume_pending branch prepends the reason-aware note.
             event = MessageEvent(text="", message_type=MessageType.TEXT, source=source, internal=True)
@@ -1014,12 +1014,7 @@ class GatewayStartupMixin:
                 logger.warning("Timed out persisting initial gateway runtime status")
         except Exception:
             logger.debug("Initial gateway runtime-status write failed", exc_info=True)
-        with _log_suppressed(logging.DEBUG, "gateway health OTLP export startup failed", exc_info=True):
-            from hermes_cli.config import load_config
-            from agent.monitoring.gateway_health_export import start_gateway_health_export
-            self._gateway_health_export_runtime = start_gateway_health_export(load_config())
-            if getattr(self._gateway_health_export_runtime, "enabled", False):
-                logger.info("Gateway health OTLP export: enabled")
+
         # Supply-chain advisories: log only (never block startup or surface to users; only the operator can act).
         with _log_suppressed(logging.DEBUG, "security advisory check failed at gateway startup", exc_info=True):
             from hermes_cli.security_advisories import detect_compromised, gateway_log_message
@@ -1724,8 +1719,7 @@ class GatewayStartupMixin:
         self._update_runtime_status(self._serving_state())
         await self._start_finish_wiring(connected_count)
         self._start_spawn_background_watchers()
-        from hermes_cli.observability.shared_metrics_startup import record_process_ready
-        record_process_ready("gateway_boot", background=True)
+
         logger.info("Press Ctrl+C to stop")
         return True
 

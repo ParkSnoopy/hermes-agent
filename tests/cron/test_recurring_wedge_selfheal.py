@@ -110,8 +110,8 @@ class TestStaleInflightSelfHeal:
         )
 
 
-    def test_guard_stats_reported(self, cron_env, monkeypatch):
-        """The guard must surface a countable forced-release signal."""
+    def test_guard_releases_claim_without_telemetry(self, cron_env, monkeypatch):
+        """Recovery releases the claim without a separate analytics history."""
         S, _E, env = self._setup(cron_env, monkeypatch)
         import cron.jobs as J
 
@@ -121,8 +121,7 @@ class TestStaleInflightSelfHeal:
         S._running_job_ids.add(S._inflight_key(env["job_id"]))
         S._running_since[S._inflight_key(env["job_id"])] = time.time() - 6 * 60 * 60
         S.sweep_stale_inflight([J.get_job(env["job_id"])])
-        stats = S.get_inflight_guard_stats()
-        assert stats["forced_releases"] >= 1
+        assert not (env["home"] / "cron" / "inflight_forced_releases.jsonl").exists()
         assert env["job_id"] not in S.get_running_job_ids()
 
 

@@ -10,7 +10,7 @@ primary clobbers fallback-owned state:
 1. The late primary's unwind calls ``_restore_compressor_attempt_state``
    with the PRIMARY's pre-attempt snapshot. Landing after the fallback's
    commit, it rolls ``_previous_summary`` / cooldown / provenance /
-   telemetry back to pre-primary values.
+   state back to pre-primary values.
 2. ``_compression_cancelled_check`` is one shared attribute: the late
    primary's ``finally`` clears the callback the fallback just installed.
 

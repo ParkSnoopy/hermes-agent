@@ -203,10 +203,9 @@ dependencies = [
   # Hence the ``sys_platform == 'win32'`` marker: the dep (and its portalocker
   # / pywin32 tree) ships only where it's actually used.
   "concurrent-log-handler==0.9.30; sys_platform == 'win32' and python_version >= '3.14'",
-  # First-party lifecycle and shared-metrics runtime. Relay 0.11 is the supported
-  # native runtime and provider-codec baseline. Managed calls pass request and
-  # response data through this native module in-process; shared metrics installs
-  # no network exporter and consumes only its bounded projection. This marker
+  # First-party lifecycle runtime. Relay 0.11 is the supported native runtime
+  # and provider-codec baseline. Managed calls pass request and response data
+  # through this native module in-process. This marker
   # must stay false anywhere no compatible native wheel tag can match; otherwise
   # installing Python dependencies fails instead of falling back to the no-op
   # Relay host (#76469, Termux).
@@ -260,8 +259,6 @@ kittentts = [
 piper = [
   "piper-tts==1.8.0; (platform_machine != 'ARM64' or sys_platform != 'win32') and (platform_machine != 'x86_64' or sys_platform != 'darwin') and sys_platform != 'android'",
 ]
-modal = ["modal==1.6.2"]
-daytona = ["daytona==0.225.0"]
 vercel = ["vercel==0.12.0"]
 google-meet = ["playwright==1.64.0; sys_platform != 'android'", "websockets==15.0.1; sys_platform != 'android'"]
 
@@ -395,21 +392,13 @@ acp = ["agent-client-protocol==0.9.0"]
 # The `mistralai` PyPI project was quarantined 2026-05-12 after the malicious
 # 2.4.6 release (Mini Shai-Hulud worm); 2.4.6 was removed from PyPI and the
 # project is serving clean releases again (2.4.7 2026-05-25, 2.4.8 2026-05-28).
-# 2.9.2+ drops the opentelemetry-semantic-conventions<0.61 cap that blocked
-# the [otlp] OpenTelemetry 1.45.x bump.
+
 # Like other opt-in TTS/STT backends, this is lazy-installed via
 # pm (stt.mistral / tts.mistral) at first use — deliberately
 # NOT re-added to [all] so a future quarantined release can't break fresh
 # installs (see [all] policy comment below).
 mistral = ["mistralai==2.10.1"]
-# OTLP gateway monitoring export (optional). Provides the OpenTelemetry SDK +
-# OTLP/HTTP exporter for monitoring.gateway_health_export. Lazy-installed via
-# PM on first use; never a core dependency and deliberately
-# NOT in [all].
-otlp = [
-  "opentelemetry-sdk==1.45.1",
-  "opentelemetry-exporter-otlp-proto-http==1.45.1",
-]
+
 bedrock = ["boto3==1.43.115"]
 vertex = ["google-auth==2.62.0"]
 azure-identity = ["azure-identity==1.26.0"]
@@ -462,7 +451,7 @@ all = [
   #
   # Removed from [all] on 2026-05-12 (covered by lazy-install):
   #   anthropic, exa, firecrawl, parallel-web, fal, edge-tts,
-  #   modal, daytona, vercel, honcho, voice (faster-whisper),
+  #   vercel, honcho, voice (faster-whisper),
   #   bedrock, tts-premium (elevenlabs)
   #
 
@@ -637,7 +626,6 @@ include = [
 
 [tool.setuptools.package-data]
 hermes_cli = [
-  "observability/schemas/*.json",
   "data/*.json",
   "local_runtime/*.json",
   "process_supervisor.sh",

@@ -7,7 +7,7 @@ The harness speaks CDP to whatever ``tools.browser_session`` resolved for the ca
 """
 
 import contextlib
-import contextvars
+
 import functools
 import importlib
 import importlib.util
@@ -195,7 +195,7 @@ def _base_subprocess_env() -> dict:
     else:
         env.pop("PYTHONPATH", None)
     env["PATH"] = _floor_subprocess_path(env.get("PATH", ""))
-    env.setdefault("ANONYMIZED_TELEMETRY", "false")
+    env["ANONYMIZED_TELEMETRY"] = "false"
     namespace_harness_dirs(env, _served_profile_tag())  # a served profile's own harness runtime/tmp dirs
     # A daemon the CLI starts inherits this tag; _own_harness_daemon owns only one that names us.
     env.update(spawn_env("browser-harness-daemon"))
@@ -810,7 +810,7 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
     _exec_route_is_sidecar[route_key] = local_sidecar
     local_engine = env.pop(_BOT_DESKTOP_BROWSER_SENTINEL, None)
     bot_desktop_browser = bool(local_engine)
-    _exec_local_engine.set(local_engine)  # only local browsers carry the sentinel
+
 
     # SHARED browser (/browser connect CDP override): pin each named session to its own tab (see
     # _OWN_TAB_PREAMBLE). Private per-name browsers skip this — nothing to collide with.
@@ -1010,26 +1010,12 @@ BROWSER_EXEC_SCHEMA = {
 from tools.registry import registry
 
 
-# The LOCAL browser this context's browser_exec call ran on ("local" Chromium or "lightpanda", from its session),
-# else None: a configured cloud provider did not serve a hybrid ::local sidecar, cloud-fallback or real-profile
-# call, and browser.engine read afterwards may name another engine than the session's, so neither labels it.
-_exec_local_engine: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("browser_exec_local_engine",
-                                                                                   default=None)
-
-
 def _handle_browser_exec(args: dict, **kw):
-    """Registry handler; each call counts against the backend that served it (shared metrics, opt-in)."""
-    from hermes_cli.observability.shared_metrics_loop import record_browser_call
-    from tools.browser_session_cloud import browser_backend_name
-    token = _exec_local_engine.set(None)
-    try:
-        return record_browser_call(lambda: browser_exec(
-            code=args.get("code", ""), session=args.get("session", "") or "",
-            timeout_s=args.get("timeout_s", _DEFAULT_TIMEOUT_S), task_id=kw.get("task_id"),
-            local=bool(args.get("local", False)),
-        ), lambda: browser_backend_name(local_engine=_exec_local_engine.get()))
-    finally:
-        _exec_local_engine.reset(token)
+    return browser_exec(
+        code=args.get("code", ""), session=args.get("session", "") or "",
+        timeout_s=args.get("timeout_s", _DEFAULT_TIMEOUT_S), task_id=kw.get("task_id"),
+        local=bool(args.get("local", False)),
+    )
 
 
 registry.register(

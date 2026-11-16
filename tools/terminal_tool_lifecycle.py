@@ -258,8 +258,8 @@ def ensure_task_env(task_id: Optional[str] = None):
 def is_persistent_env(task_id: str) -> bool:
     """True if *task_id*'s active env persists across turns.
 
-    The agent loop skips per-turn teardown for these (persistent docker,
-    daytona, modal, …); non-persistent backends are torn down at end of turn
+    The agent loop skips per-turn teardown for persistent environments;
+    non-persistent backends are torn down at end of turn
     to prevent leakage, and the idle reaper handles the rest. Session-scoped
     docker containers count as persistent HERE: their lifetime is the session
     (removed by ``AIAgent.close()`` → ``cleanup_vm`` and the idle reaper).

@@ -154,12 +154,6 @@ TOOLSETS = {
 # Toolset -> the session platforms it exists for, from the specs that carry ``platforms``.
 TOOLSET_SESSION_PLATFORMS = {name: spec["platforms"] for name, spec in TOOLSETS.items() if "platforms" in spec}
 
-# Captured before create_custom_toolset() can add user-named tools: shared metrics may export only
-# these names, so a plugin, MCP server or custom toolset name never leaves the machine.
-BUILTIN_TOOL_NAMES = frozenset(tool for spec in TOOLSETS.values() for tool in spec["tools"])
-BUILTIN_TOOLSET_NAMES = frozenset(TOOLSETS)
-
-
 def _registry():
     """Live tool registry, or None when tools.registry can't be imported."""
     try:

@@ -657,7 +657,7 @@ def auto_title_session(
         if not session_db or not session_id or _has_upgraded_title(session_db, session_id):
             return
         # This thread starts AFTER the turn's ambient context was reset; republish it so the call carries
-        # the same Portal ``conversation=`` tag (root-of-lineage) and bills usage to this session.
+        # the same root-of-lineage routing key and bills usage to this session.
         from agent.aux_accounting import set_accounting_context
         from agent.portal_tags import set_conversation_context
         conversation_id = session_id

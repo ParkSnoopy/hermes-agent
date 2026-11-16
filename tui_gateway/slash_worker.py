@@ -146,7 +146,7 @@ def main():
                         compact=True, resume=args.session_key, verbose=False)
     if args.base_url:  # a seed, not launch policy: HermesCLI seeds the default provider's model.base_url (#141953)
         cli.base_url = args.base_url
-    cli._slash_metrics_surface = None  # the TUI/Desktop client already counted the typed command
+
     cli.is_slash_worker = True
     # Spurious stdin-EOF recovery (same shared-file-description O_NONBLOCK issue as the gateway entry
     # point — any child inheriting fd 0 can flip the flag).

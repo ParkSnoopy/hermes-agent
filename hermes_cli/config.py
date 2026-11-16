@@ -615,8 +615,7 @@ ENV_VARS_BY_VERSION: dict[int, list[str]] = {
     3: ["FIRECRAWL_API_KEY", "BROWSERBASE_API_KEY", "BROWSERBASE_PROJECT_ID", "FAL_KEY"],
     4: ["VOICE_TOOLS_OPENAI_KEY", "ELEVENLABS_API_KEY"],
 
-    10: ["TAVILY_API_KEY"],
-    11: ["TERMINAL_MODAL_MODE"]}
+    10: ["TAVILY_API_KEY"]}
 
 # Intentionally empty: the LLM provider is required but handled by the setup wizard's provider
 # selection step, so no single env var is universally required.
@@ -1136,13 +1135,10 @@ def _persist_migration(config: dict[str, Any]) -> None:
     ON, no ``merge_existing``) so the invariant cannot regress one migration at a time. A migration
     is Hermes' own write, never a user turning a feature off. A backend without file tooling
     migrates in memory on read and never writes back (D12)."""
-    from hermes_cli.observability.shared_metrics_disabled import hermes_applied_write
-
     if not supports_file_tooling():
         get_config_backend().apply_in_memory(get_config_path().parent, config)
         return
-    with hermes_applied_write():
-        save_config(config)
+    save_config(config)
 
 
 def _prompt_and_save_env(name: str, info: dict[str, Any], prompt: str, results: dict[str, Any]) -> bool:
@@ -2008,9 +2004,9 @@ TERMINAL_CONFIG_ENV_MAP = {
     **{
         key: f"TERMINAL_{key.upper()}"
         for key in (
-            "modal_mode", "degraded_mode", "cwd", "temp_dir", "timeout", "lifetime_seconds",
-            "docker_image", "docker_forward_env", "modal_image",
-            "daytona_image", "vercel_runtime", "vercel_image", "ssh_host", "ssh_user", "ssh_port", "ssh_key",
+            "degraded_mode", "cwd", "temp_dir", "timeout", "lifetime_seconds",
+            "docker_image", "docker_forward_env",
+            "vercel_runtime", "vercel_image", "ssh_host", "ssh_user", "ssh_port", "ssh_key",
             "container_cpu", "container_memory", "container_disk", "container_persistent",
             "docker_volumes", "docker_env", "docker_mount_cwd_to_workspace", "docker_network",
             "docker_extra_args", "docker_shm_size", "docker_run_as_host_user", "docker_snap_compat",
@@ -2399,10 +2395,6 @@ def save_config(
         _secure_file(config_path)
         _RAW_CONFIG_CACHE.pop(str(config_path), None)
         _LAST_EXPANDED_CONFIG_BY_PATH[str(config_path)] = copy.deepcopy(current_normalized)
-    from hermes_cli.observability.shared_metrics_disabled import record_config_saved
-    record_config_saved(_raw_for_paths, current_normalized)
-
-
 def load_env() -> dict[str, str]:
     """Load ~/.hermes/.env as a dict. Memoised inside ``load_env_file`` (``get_env_value()`` runs
     hundreds of times per interactive menu render). Each assignment's value is opaque data for
@@ -3274,8 +3266,7 @@ def _exit_invalid(msg: str) -> None:
 def _write_user_config(config_path: Path, user_config: dict[str, Any]) -> None:
     """Write only the user's raw config back (never the merged defaults)."""
     ensure_hermes_home()
-    from hermes_cli.observability.shared_metrics_disabled import recording_raw_config_write
-    recording_raw_config_write(config_path, user_config, atomic_config_replace)
+    atomic_config_replace(config_path, user_config)
 
 
 def _print_unknown_key_notice(key: str, suggestion: Optional[str]) -> None:

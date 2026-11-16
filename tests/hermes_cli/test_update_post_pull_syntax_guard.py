@@ -354,3 +354,17 @@ def test_a_marker_arm_that_times_out_still_rolls_the_broken_pull_back(tmp_path, 
     assert "Rollback complete" in capsys.readouterr().out
     assert git("rev-parse", "HEAD") == previous
     assert source.read_text(encoding="utf-8") == "print('runnable')\n"
+
+
+def test_slow_target_read_skips_preflight(monkeypatch, capsys):
+    """A timed-out object read skips the preflight rather than aborting the update."""
+    import subprocess
+    from pathlib import Path
+    from hermes_cli import update_cmd_commit
+
+    def slow(git_cmd, args, **kwargs):
+        raise subprocess.TimeoutExpired([*git_cmd, *args], 120)
+
+    monkeypatch.setattr(update_cmd_commit, "run_git", slow)
+    assert update_cmd_commit.target_syntax_error(["git"], Path("."), "a" * 40, ["cli.py", "run_agent.py"]) is None
+    assert "Syntax preflight skipped (slow object fetch)" in capsys.readouterr().out

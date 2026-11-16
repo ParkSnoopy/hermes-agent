@@ -92,7 +92,7 @@ def test_lazy_installable_extras_excluded_from_all():
         "edge-tts", "tts-premium",
         "voice",  # faster-whisper / sounddevice / numpy (composes stt-whisper + audio-io)
         "stt-whisper",
-        "modal", "daytona", "vercel",
+        "vercel",
 
         "wake", "wake-openwakeword", "wake-sherpa", "wake-porcupine",
 

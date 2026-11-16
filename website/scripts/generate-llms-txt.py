@@ -288,7 +288,7 @@ def emit_llms_index() -> str:
     lines.append(
         "> The self-improving AI agent built by Nous Research. A terminal-native "
         "autonomous coding and task agent with persistent memory, agent-created skills, "
-        "with CLI, TUI and Desktop interfaces. Runs on local, Docker, SSH, Daytona, Modal, Vercel Sandbox or plugin "
+        "with CLI, TUI and Desktop interfaces. Runs on local, Docker, SSH, Vercel Sandbox or plugin "
         "backends. Works with Nous Portal, OpenRouter, OpenAI, Anthropic, Google, or any "
         "OpenAI-compatible endpoint."
     )

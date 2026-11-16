@@ -7713,12 +7713,7 @@
      "effort": "high",
      "enabled": true
     },
-    "session_id": "wire-snapshot",
-    "tags": [
-     "product=hermes-agent",
-     "client=hermes-client-v<VERSION>",
-     "conversation=wire-snapshot"
-    ]
+    "session_id": "wire-snapshot"
    },
    "messages": [
     {
@@ -7811,12 +7806,7 @@
   "model": "anthropic/claude-opus-5.5",
   "off": {
    "extra_body": {
-    "session_id": "wire-snapshot",
-    "tags": [
-     "product=hermes-agent",
-     "client=hermes-client-v<VERSION>",
-     "conversation=wire-snapshot"
-    ]
+    "session_id": "wire-snapshot"
    },
    "messages": [
     {
@@ -7912,12 +7902,7 @@
      "effort": "medium",
      "enabled": true
     },
-    "session_id": "wire-snapshot",
-    "tags": [
-     "product=hermes-agent",
-     "client=hermes-client-v<VERSION>",
-     "conversation=wire-snapshot"
-    ]
+    "session_id": "wire-snapshot"
    },
    "messages": [
     {

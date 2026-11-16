@@ -438,7 +438,7 @@ class TestBuildCallKwargsMaxTokens:
 
 
 class TestNousTagsScoping:
-    def test_tags_injected_when_provider_is_nous(self):
+    def test_tags_not_injected_when_provider_is_nous(self):
         import agent.auxiliary_client as aux
 
         kwargs = aux._build_call_kwargs(
@@ -447,7 +447,7 @@ class TestNousTagsScoping:
             messages=[{"role": "user", "content": "hi"}],
         )
 
-        assert kwargs["extra_body"]["tags"] == aux._nous_portal_tags()
+        assert "tags" not in kwargs.get("extra_body", {})
 
     def test_tags_not_injected_for_non_nous_provider_when_main_is_nous(self):
         import agent.auxiliary_client as aux

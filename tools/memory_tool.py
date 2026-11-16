@@ -41,7 +41,7 @@ def get_memory_dir() -> Path:
 
 
 from tools.memory_tool_store import (
-    ENTRY_DELIMITER, FAILURE_CLASS, MEMORY_BLOCK_HEADERS, PATCH_DROP_HINT, MemoryStore, _scan_memory_content)
+    ENTRY_DELIMITER, MEMORY_BLOCK_HEADERS, PATCH_DROP_HINT, MemoryStore, _scan_memory_content)
 
 
 def load_on_disk_store() -> MemoryStore:
@@ -92,11 +92,9 @@ def _gate_or_stage(store: MemoryStore, summary: str, detail: str, payload: dict[
     if decision.allow:
         return None
     if decision.blocked:
-        FAILURE_CLASS.set("gate_refused")
         return tool_error(decision.message, success=False)
     if (unmatched := _pin_matched_entries(store, payload)) is not None:
         return unmatched
-    FAILURE_CLASS.set("staged")
     record = wa.stage_write(wa.MEMORY, payload, summary=f"{summary}: {detail[:120]}", origin=wa.current_origin())
     return json.dumps({"success": True, "staged": True, "pending_id": record["id"], "message": decision.message},
                       ensure_ascii=False)
@@ -145,10 +143,9 @@ def _validate_single_op(store, action, target, content, old_text) -> Optional[st
     Missing ``old_text`` is recoverable (it can't be schema-required — needs a combinator
     the Codex backend rejects): return the inventory plus a retry instruction."""
     if action == "add" and not content:
-        FAILURE_CLASS.set("missing_content")
         return tool_error("Content is required for 'add' action.", success=False)
     if action in ("remove", "patch") and not old_text:
-        FAILURE_CLASS.set("missing_old_text")
+
         return json.dumps({
             "success": False,
             "error": (f"'{action}' needs old_text -- a short unique substring of the entry "
@@ -156,7 +153,6 @@ def _validate_single_op(store, action, target, content, old_text) -> Optional[st
                       f"set to part of one of the current_entries below."),
             "current_entries": store._entries_for(target), "usage": store._usage(target)}, ensure_ascii=False)
     if action == "patch" and not content:
-        FAILURE_CLASS.set("missing_content")
         return tool_error(f"content (the new text for the old_text span) is required for 'patch' action. "
                           f"{PATCH_DROP_HINT}", success=False)
     return None
@@ -199,7 +195,6 @@ def _background_delete_gate(store, action, operations, target="memory", content=
         if (unmatched := _pin_matched_entries(store, payload)) is not None:
             return unmatched
         from tools import write_approval as wa
-        FAILURE_CLASS.set("staged")
         record = wa.stage_write(
             wa.MEMORY, payload,
             summary=(f"background review consolidation ({'batch' if operations is not None else action} "
@@ -213,7 +208,6 @@ def _background_delete_gate(store, action, operations, target="memory", content=
         }, ensure_ascii=False)
     except Exception:
         logger.warning("Failed to stage background-review consolidation; denying", exc_info=True)
-        FAILURE_CLASS.set("gate_refused")
         return tool_error(
             "Background review may not delete memory entries ('patch'/'remove', including in a "
             "batch); 'add' is still available.", success=False)
@@ -227,66 +221,48 @@ def memory_tool(action: str | None = None, target: str = "memory", content: str 
     aliases ``content``."""
     if store is None:
         return tool_error("Memory is not available. It may be disabled in config or this environment.", success=False)
-    token = FAILURE_CLASS.set("other")
-    try:
-        outcome, result = _memory_tool(action, target, content, old_text, new_text, operations, store)
-        failure_class = "none" if outcome == "success" else FAILURE_CLASS.get()
-    finally:
-        FAILURE_CLASS.reset(token)
-    from hermes_cli.observability.shared_metrics_loop import record_builtin_memory_call
-    record_builtin_memory_call(action, operations, outcome=outcome, failure_class=failure_class)
-    return result
+    return _memory_tool(action, target, content, old_text, new_text, operations, store)
 
 
-def _applied(result: dict[str, Any]) -> tuple[str, str]:
-    return ("success" if result.get("success") else "failed"), json.dumps(result, ensure_ascii=False)
-
-
-def _invalid(message: str) -> tuple[str, str]:
-    FAILURE_CLASS.set("invalid_args")
-    return "rejected", tool_error(message, success=False)
-
-
-def _memory_tool(action, target, content, old_text, new_text, operations, store) -> tuple[str, str]:
-    """``(outcome, result_json)``: ``rejected`` when refused or held before touching the store."""
+def _memory_tool(action, target, content, old_text, new_text, operations, store) -> str:
     # An omitted optional string can arrive as "" (#90468): let the new_text alias fill it.
     if not content and new_text:
         content = new_text
     target_error = _memory_target_error(store, target, operations)
     if target_error is not None:
-        return "rejected", json.dumps(target_error)
+        return json.dumps(target_error)
     if operations:
         if not isinstance(operations, list):
-            return _invalid("operations must be a list of {action, content?, old_text?} objects.")
+            return tool_error("operations must be a list of {action, content?, old_text?} objects.", success=False)
         if any(isinstance(op, dict) and op.get("action") == "replace" for op in operations):
-            return _invalid(_REPLACE_REMOVED)
+            return tool_error(_REPLACE_REMOVED, success=False)
         denied = _background_delete_gate(store, action, operations, target)
         if denied is not None:
-            return "rejected", denied
+            return denied
         # Approval gate: stages (background/gateway) or prompts inline (CLI); off by default.
         gate_result = _apply_write_gate(store, "batch", target, None, None, operations)
         if gate_result is not None:
-            return "rejected", gate_result
-        return _applied(store.apply_batch(target, operations))
+            return gate_result
+        return json.dumps(store.apply_batch(target, operations), ensure_ascii=False)
     # Reject calls with neither operations[] nor the legacy top-level action.
     # Without this guard the dispatch falls through to the generic
     # "Unknown action 'None'" error, which gives the model no signal about
     # *why* the call was malformed and can trigger repeated retries. (#64291)
     if not action and not operations:
-        return _invalid(
+        return tool_error(
             "Missing required parameter: 'operations', a list of {action: add/patch/remove, "
-            "content?, old_text?} changes; a single change is a one-item list."
+            "content?, old_text?} changes; a single change is a one-item list.", success=False
         )
     if action == "replace":
-        return _invalid(_REPLACE_REMOVED)
+        return tool_error(_REPLACE_REMOVED, success=False)
     if action not in _STORE_ACTIONS:
-        return _invalid(f"Unknown action '{action}'. Use: add, patch, remove")
+        return tool_error(f"Unknown action '{action}'. Use: add, patch, remove", success=False)
     invalid = (_validate_single_op(store, action, target, content, old_text)
                or _background_delete_gate(store, action, None, target, content, old_text)
                or _apply_write_gate(store, action, target, content, old_text))
     if invalid is not None:
-        return "rejected", invalid
-    return _applied(_STORE_ACTIONS[action][0](store, target, content, old_text))
+        return invalid
+    return json.dumps(_STORE_ACTIONS[action][0](store, target, content, old_text), ensure_ascii=False)
 
 
 def get_builtin_memory_config(config: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -323,14 +299,12 @@ def _memory_target_error(
 ) -> dict[str, Any] | None:
     """Validate one explicit store before writing, staging, or replaying a batch."""
     if target is None:
-        FAILURE_CLASS.set("invalid_args")
         return {"success": False, "error": (
             "Missing required target. Retry with target='memory' or target='user' at the top level. "
             "For a batch, remove target from every operation; use separate calls for different stores. "
             "Nothing was written or staged.")}
     if not isinstance(target, str) or target not in {"memory", "user"}:
         from tools.registry import _bound_error_text
-        FAILURE_CLASS.set("invalid_args")
         return {"success": False,
                 "error": _bound_error_text(f"Invalid memory target '{target}'. Use 'memory' or 'user'.")}
     if isinstance(operations, list):
@@ -338,7 +312,6 @@ def _memory_target_error(
             # A nested target equal to the call's (or null) is redundant, not wrong; only a
             # different one asks for two stores in one call, which a batch cannot do.
             if isinstance(op, dict) and op.get("target") not in (None, target):
-                FAILURE_CLASS.set("invalid_args")
                 return {"success": False, "error": (
                     f"Operation {index} names a different target than the one at the top level. "
                     "One call writes one store: retry with separate calls for different stores. "
@@ -346,7 +319,7 @@ def _memory_target_error(
     if store.target_enabled(target):
         return None
     label = "USER.md" if target == "user" else "MEMORY.md"
-    FAILURE_CLASS.set("disabled")
+
     return {"success": False, "error": f"Built-in {label} writes are disabled in memory config.", "target": target}
 
 

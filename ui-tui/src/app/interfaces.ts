@@ -594,8 +594,7 @@ export interface SlashSubmission {
   expand: (text: string) => string
 }
 
-/** `typed` is false for programmatic calls (a picker re-issuing `/model <x>`, the backend's alias
- *  re-dispatch) so shared metrics count each user-typed command once. */
+/** `typed` is false for programmatic calls and backend alias re-dispatch. */
 export type SlashHandler = (cmd: string, submission?: SlashSubmission, typed?: boolean) => boolean
 
 export interface SlashHandlerContext {

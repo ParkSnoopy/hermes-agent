@@ -88,7 +88,7 @@ class TestWorkerTeardownOnCeiling:
                 fence.touch_progress()
                 time.sleep(0.01)
             # Cooperative-but-not-instant exit: the unwind after seeing the
-            # poison takes real time (rollback, telemetry). Long enough that
+            # poison takes real time (rollback). Long enough that
             # a host WITHOUT the bounded-grace join returns first; far
             # inside the 5s grace for a host WITH it.
             time.sleep(0.08)

@@ -667,8 +667,7 @@ def _migrate_to_48(results: dict[str, Any], quiet: bool) -> None:
     for legacy in LEGACY_SANDBOX_IMAGES:
         for key, old in (
             ("docker_image", legacy),
-            ("modal_image", legacy),
-            ("daytona_image", legacy),
+
             ("singularity_image", f"docker://{legacy}"),
         ):
             _rewrite_stale_default(

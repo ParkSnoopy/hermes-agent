@@ -2,9 +2,7 @@
 default headers when it rebuilds _client_kwargs from scratch.
 
 Without _apply_client_headers_for_base_url() in the rebuild path, a /model
-switch drops OpenRouter attribution headers (HTTP-Referer / X-Title → logs
-show "Unknown") and, worse, functional headers like Kimi's User-Agent
-sentinel (403 without it).
+switch drops functional headers like Kimi's User-Agent sentinel (403 without it).
 """
 
 from unittest.mock import MagicMock, patch
@@ -43,22 +41,22 @@ def _make_agent(provider="copilot", base_url="https://api.githubcopilot.com") ->
 
 
 @patch("agent.model_metadata.get_model_context_length", return_value=131_072)
-def test_switch_to_openrouter_reapplies_attribution_headers(mock_ctx_len):
-    """Switching to an openrouter.ai base_url must attach the OpenRouter
-    attribution headers (HTTP-Referer / X-Title) to the rebuilt client
-    kwargs — not ship a bare api_key+base_url client (#61099)."""
+def test_switch_to_openrouter_reapplies_cache_headers(mock_ctx_len):
+    """Rebuilt clients retain functional OpenRouter cache settings."""
     agent = _make_agent(provider="copilot", base_url="https://api.githubcopilot.com")
 
-    agent.switch_model(
-        "deepseek/deepseek-chat",
-        "openrouter",
-        api_key="sk-or-new",
-        base_url="https://openrouter.ai/api/v1",
-    )
+    with patch("agent.auxiliary_client.build_or_headers", return_value={"X-OpenRouter-Cache": "true"}):
+        agent.switch_model(
+            "deepseek/deepseek-chat",
+            "openrouter",
+            api_key="sk-or-new",
+            base_url="https://openrouter.ai/api/v1",
+        )
 
     headers = agent._client_kwargs.get("default_headers") or {}
-    assert "HTTP-Referer" in headers
-    assert headers.get("X-Title")
+    assert headers["X-OpenRouter-Cache"] == "true"
+    assert "HTTP-Referer" not in headers
+    assert "X-Title" not in headers
 
 
 

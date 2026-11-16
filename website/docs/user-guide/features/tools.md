@@ -75,8 +75,6 @@ The terminal tool can execute commands in different environments:
 | `ssh` | Remote server | Sandboxing, keep agent away from its own code |
 | `singularity` (plugin) | HPC containers | Cluster computing, rootless |
 | `sprites` (plugin) | Stateful Fly.io cloud sandbox | Persistent cloud environments with checkpoint & restore |
-| `modal` | Cloud execution | Serverless, scale |
-| `daytona` | Cloud sandbox workspace | Persistent remote dev environments |
 | `vercel_sandbox` | Vercel Sandbox cloud microVM | Cloud execution with snapshot-backed filesystem persistence |
 
 ### Configuration
@@ -84,7 +82,7 @@ The terminal tool can execute commands in different environments:
 ```yaml
 # In ~/.hermes/config.yaml
 terminal:
-  backend: local    # or: docker, ssh, modal, daytona, vercel_sandbox, or a plugin backend (singularity, sprites)
+  backend: local    # or: docker, ssh, vercel_sandbox, or a plugin backend (singularity, sprites)
   cwd: "."          # Working directory
   timeout: 180      # Command timeout in seconds
 ```
@@ -167,13 +165,6 @@ hermes config set terminal.backend sprites
 # Add SPRITES_TOKEN to ~/.hermes/.env
 ```
 
-### Modal (Serverless Cloud)
-
-```bash
-python -c "import pm; pm.sync_venv(['modal'], explicit=True)"
-modal setup
-hermes config set terminal.backend modal
-```
 
 ### Vercel Sandbox
 
@@ -209,7 +200,7 @@ Configure CPU, memory, disk, and persistence for all container backends:
 
 ```yaml
 terminal:
-  backend: docker  # or modal, daytona, vercel_sandbox, singularity (plugin)
+  backend: docker  # or vercel_sandbox, singularity (plugin)
   container_cpu: 1              # CPU cores (default: 1)
   container_memory: 5120        # Memory in MB (default: 5GB)
   container_disk: 51200         # Disk in MB (default: 50GB)

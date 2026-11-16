@@ -448,7 +448,7 @@ class UndoIntent(WireEnum):
 
 
 class SessionUndoParams(SessionParams):
-    # ``retry``: the client resends the dropped turn (Ink /retry), so metrics count a retry, not an undo.
+    # ``retry``: the client resends the dropped turn (Ink /retry), so omit the undo rollback hint.
     intent: UndoIntent | None = None
 
 

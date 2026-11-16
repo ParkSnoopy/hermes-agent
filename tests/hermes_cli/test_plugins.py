@@ -1703,31 +1703,6 @@ class TestPreToolCallBlocking:
 class TestPreToolCallDirective:
     """Tests for the extended (block | approve) directive helper."""
 
-    def test_first_party_observer_receives_pre_tool_call(self, monkeypatch):
-        from hermes_cli import observability
-        from hermes_cli.plugins import get_pre_tool_call_directive
-
-        observed = []
-        monkeypatch.setattr(
-            observability,
-            "observe_lifecycle",
-            lambda hook_name, **kwargs: observed.append((hook_name, kwargs)),
-        )
-        monkeypatch.setattr(
-            "hermes_cli.plugins.invoke_hook",
-            lambda hook_name, **kwargs: [],
-        )
-
-        assert get_pre_tool_call_directive(
-            "write_file",
-            {"path": "README.md"},
-            task_id="task-1",
-            session_id="session-1",
-            tool_call_id="call-1",
-        ) == (None, None)
-        [(hook_name, payload)] = observed
-        assert hook_name == "pre_tool_call"
-        assert (payload["tool_name"], payload["args"], payload["tool_call_id"]) == ("write_file", {"path": "README.md"}, "call-1")
 
     def test_approve_directive_returned(self, monkeypatch):
         from hermes_cli.plugins import get_pre_tool_call_directive

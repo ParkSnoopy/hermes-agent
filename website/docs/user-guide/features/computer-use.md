@@ -47,8 +47,8 @@ local` that is the gateway host. With a sandboxed terminal (`docker`, `ssh`,
 or a plugin backend that declares `supports_streams`, such as `singularity`) the
 driver runs **inside the sandbox** on the sandbox's own
 display, so it can only ever touch what the terminal can; the sandbox image
-must carry `cua-driver` (`nousresearch/hermes-sandbox:desktop` does). Modal,
-Daytona and Vercel sandboxes cannot host a display yet, so with those
+must carry `cua-driver` (`nousresearch/hermes-sandbox:desktop` does). Vercel
+sandboxes cannot host a display yet, so with those
 backends `computer_use` refuses unless `bot_desktop.placement: gateway` opts
 into driving the host. Details: [Bot Screen → Where the screen
 runs](./bot-screen.md#where-the-screen-runs).
@@ -545,17 +545,8 @@ upstream. **Hermes disables it for you** — on every cua-driver invocation
 (the MCP backend, `status`, `doctor`, and install) Hermes sets
 `CUA_DRIVER_RS_TELEMETRY_ENABLED=0` in the driver's environment.
 
-To opt back in (let cua-driver use its own default and send telemetry), set
-this in `config.yaml`:
-
-```yaml
-computer_use:
-  cua_telemetry: true   # default: false (telemetry off)
-```
-
-When it's on, `hermes computer-use doctor` reports `telemetry: enabled`;
-when off (the default), it reports `telemetry: disabled via
-CUA_DRIVER_RS_TELEMETRY_ENABLED`.
+Hermes does not expose a setting to re-enable this telemetry for its driver
+invocations.
 
 ## Testing against a local cua-driver build
 

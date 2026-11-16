@@ -259,9 +259,8 @@ def _micro_compact_after_turn(agent, messages, final_response, logger, task_id) 
             and not getattr(agent, "_persist_disabled", False)
         ):
             _before = len(messages)
-            # A rotating compaction earlier in this turn may have moved the agent to a child session.
             _compacted = _compressor._micro_compact(
-                messages, turn_session_id=getattr(agent, "_inflight_turn_session_id", None),
+                messages,
             )
             # Defrag rewrites the newest MICRO marker in place and pops _db_persisted;
             # the compressor flags us to invalidate the flush-scan cursor, else the
@@ -631,8 +630,7 @@ def finalize_turn(
 
     _rollback_interrupted_preflight_display(agent, interrupted)
 
-    from hermes_cli.observability.shared_metrics_harness import finish_turn
-    finish_turn(agent, _turn_exit_reason, final_response, interrupted=interrupted, failed=failed)
+
 
     _cleanup_errors: list[str] = []
     # The model has answered (or the loop gave up): a title upgrade held back because it shares a

@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import shlex
+import sys
 import threading
 import time
 from datetime import timedelta
@@ -41,9 +42,14 @@ _RUNNING_WAIT_TIMEOUT = timedelta(seconds=30)
 
 def _ensure_vercel_sdk() -> None:
     """Lazy-install vercel SDK on demand. Idempotent."""
-    # The SDK (>=0.7) ships default-on telemetry; Hermes policy is opt-in only, so disable it
-    # before the SDK is imported. setdefault: an explicit user value is never overridden.
-    os.environ.setdefault("VERCEL_TELEMETRY_DISABLED", "1")
+    # The SDK reads this flag at import time, not on each request.
+    os.environ["VERCEL_TELEMETRY_DISABLED"] = "1"
+    client = sys.modules.get("vercel.internal.telemetry.client")
+    tracker = sys.modules.get("vercel.internal.telemetry.tracker")
+    if (client is not None and getattr(client, "_TELEMETRY_ENABLED", True)) or (
+        tracker is not None and getattr(getattr(tracker, "_telemetry_client", None), "_enabled", False)
+    ):
+        raise RuntimeError("Vercel telemetry was already enabled before sandbox initialization")
     try:
         from pm import ensure_import as _lazy_ensure
     except ImportError:

@@ -113,7 +113,7 @@ and it works on headless servers with no desktop browser at all.
   `security.allow_private_urls` says: it reaches nothing the terminal can't.
   The private-address guard applies when the browser can reach networks the
   terminal can't (a cloud provider, a `/browser connect` endpoint, or a
-  Docker/SSH/Modal terminal backend). Cloud-metadata URLs the agent writes are
+  Docker/SSH terminal backend). Cloud-metadata URLs the agent writes are
   always refused.
 
 **Which Chromium.** Hermes picks the first that exists:

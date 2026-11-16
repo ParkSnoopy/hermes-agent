@@ -51,7 +51,7 @@ DESKTOP_PAGE = "desktop_page"
 CARD_RETRY = "card_retry"
 
 
-def managed_client(*, creates_guest: bool, initiator: Optional[str] = AGENT_TOOL, call: Optional[Any] = None):
+def managed_client(*, creates_guest: bool, initiator: Optional[str] = AGENT_TOOL):
     """The real gateway client for a user action. ``creates_guest`` is the caller's declaration that
     it may create the guest identity when the user has none (a connect, an explicit list); a page
     read passes False and holds a token already. ``initiator`` names who asked, so every link the
@@ -61,7 +61,7 @@ def managed_client(*, creates_guest: bool, initiator: Optional[str] = AGENT_TOOL
 
     if creates_guest and (setup_error := ensure_guest_identity()):
         raise ToolGatewayError(setup_error, code=GUEST_SETUP_FAILED, retryable=True)
-    return ConnectorClient(initiator=initiator, call=call)
+    return ConnectorClient(initiator=initiator)
 
 
 def managed_kind(client: Any, action: str, force: bool) -> Kind:
@@ -387,14 +387,14 @@ def _status_result(client: Any, connectors: list[str]) -> str:
 
 
 def _display_result(client: Any, suggested: list[str], *, session_id: Optional[str], tool_call_id: Optional[str],
-                    connection_callback: Optional[Callable[[dict[str, Any]], Optional[str]]], call: Any) -> str:
+                    connection_callback: Optional[Callable[[dict[str, Any]], Optional[str]]]) -> str:
     """The desktop card when one can draw; elsewhere the status list and where to connect."""
     from tools.connectors.display import OFF_DESKTOP_NOTE, run_display
 
     if connection_callback is None:
         return json.dumps({**json.loads(_status_result(client, [])), "note": OFF_DESKTOP_NOTE}, ensure_ascii=False)
     return run_display(client, suggested, session_key=operation_session_key(session_id), tool_call_id=tool_call_id,
-                       connection_callback=connection_callback, call=call)
+                       connection_callback=connection_callback)
 
 
 def _rename_result(target: HostedTarget) -> str:
@@ -437,23 +437,22 @@ def run_managed_action(
     client_factory: Optional[Callable[[], Any]] = None,
     session_id: Optional[str] = None,
     tool_call_id: Optional[str] = None,
-    turn_id: Optional[str] = None,
+
     connection_callback: Optional[Callable[[dict[str, Any]], Optional[str]]] = None,
     connectors_available: Optional[Callable[[], bool]] = None,
     card_surface: bool = False,
 ) -> str:
-    from tools.managed_gateway_identity import CallRef
+
 
     if connectors_available is not None and not connectors_available():
         return tool_error("Connectors are not available in this session.")
     try:
         if action == "rename":
             return _rename_result(targets[0])
-        call = CallRef(turn_id=turn_id, tool_call_id=tool_call_id)
-        client = client_factory() if client_factory else managed_client(creates_guest=True, call=call)
+        client = client_factory() if client_factory else managed_client(creates_guest=True)
         if action == "display":
             return _display_result(client, [t.name for t in targets], session_id=session_id, tool_call_id=tool_call_id,
-                                   connection_callback=connection_callback if card_surface else None, call=call)
+                                   connection_callback=connection_callback if card_surface else None)
         if action == "status":
             return _status_result(client, [t.name for t in targets])
         if not targets:
@@ -469,7 +468,7 @@ def run_managed_action(
             _targets(targets, action),
             managed_kind(client, action, force),
             session_key=session_key, tool_call_id=tool_call_id, tick_seconds=WATCH_TICK_SECONDS,
-            connection_callback=connection_callback, with_urls_in_result=False, call=call,
+            connection_callback=connection_callback, with_urls_in_result=False,
         )
     except Exception as exc:
         logger.warning("manage_connections %s failed: %s", action, exc)

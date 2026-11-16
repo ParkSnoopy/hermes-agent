@@ -1,6 +1,5 @@
 """Contract tests for the opt-in non-reasoning compression fast lane."""
 
-import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -101,58 +100,6 @@ def test_summary_model_override_is_certified_against_the_effective_model():
     assert drifted.certified_non_reasoning is False
 
 
-def test_compression_latency_records_delayed_first_provider_chunk():
-    from agent.auxiliary_client import _notify_aux_progress, call_llm
-
-    class _DelayedSemaphore:
-        def acquire(self):
-            time.sleep(0.01)
-
-        def release(self):
-            pass
-
-    timings = {}
-
-    client = MagicMock()
-    client.base_url = "http://127.0.0.1:11434/v1"
-
-    def _chunks():
-        time.sleep(0.02)
-        yield SimpleNamespace(
-            id="chunk-1",
-            model="qwen3:8b",
-            usage=None,
-            choices=[
-                SimpleNamespace(
-                    finish_reason="stop",
-                    delta=SimpleNamespace(content="summary", tool_calls=None),
-                )
-            ],
-        )
-
-    def _resolve_client(*_args, **_kwargs):
-        # Pre-dispatch liveness must not count as provider response progress.
-        _notify_aux_progress()
-        return client, "qwen3:8b"
-
-    client.chat.completions.create.side_effect = lambda **_kwargs: _chunks()
-
-    with (
-        patch("agent.auxiliary_client._acquire_sync_aux_semaphore", return_value=_DelayedSemaphore()),
-        patch("agent.auxiliary_client._get_cached_client", side_effect=_resolve_client),
-    ):
-        response = call_llm(
-            task="compression",
-            messages=[{"role": "user", "content": "summary request"}],
-            latency_info=timings,
-        )
-
-    assert response.choices[0].message.content == "summary"
-    assert timings["queue_wait_ms"] >= 5
-    assert timings["provider_dispatch_ms"] >= 0
-    assert timings["time_to_first_progress_ms"] >= 15
-    assert timings["time_to_first_progress_ms"] >= timings["provider_dispatch_ms"]
-    assert timings["summary_generation_ms"] >= timings["time_to_first_progress_ms"]
 
 
 def test_certified_fast_lane_ignores_legacy_cap_and_preserves_reasoning():
@@ -254,7 +201,7 @@ def test_legacy_boolean_cap_does_not_bypass_route_certification():
     assert "reasoning" not in request.get("extra_body", {})
 
 
-def test_bedrock_converse_ttfp_waits_for_the_nonstreaming_response():
+def test_bedrock_converse_returns_the_nonstreaming_response():
     from agent.auxiliary_client import BedrockAuxiliaryClient, call_llm
 
     config = {
@@ -272,29 +219,19 @@ def test_bedrock_converse_ttfp_waits_for_the_nonstreaming_response():
         ],
         usage=None,
     )
-    timings = {}
-
-    def _delayed_converse(**_kwargs):
-        time.sleep(0.02)
-        return response
-
     with (
         patch("agent.auxiliary_client._get_auxiliary_task_config", return_value=config),
         patch(
             "agent.auxiliary_client._get_cached_client",
             return_value=(client, "amazon.nova-lite-v1:0"),
         ),
-        patch("agent.bedrock_adapter.call_converse", side_effect=_delayed_converse),
+        patch("agent.bedrock_adapter.call_converse", return_value=response),
     ):
         assert call_llm(
             task="compression",
             messages=[{"role": "user", "content": "summary request"}],
-            latency_info=timings,
         ) is response
 
-    assert timings["provider_dispatch_ms"] >= 0
-    assert timings["time_to_first_progress_ms"] >= 15
-    assert timings["time_to_first_progress_ms"] >= timings["provider_dispatch_ms"]
 
 
 def test_summary_model_override_cap_uses_the_actual_primary_request():
@@ -403,45 +340,6 @@ def test_reasoning_effort_aliases_certify_like_none():
         assert lane.certified_non_reasoning is False, not_disabled
 
 
-def test_timing_hooks_propagate_to_protected_call_worker_thread():
-    """The protected daemon path must carry the timing hooks across threads.
-
-    _run_protected_sync_provider_call runs the provider callback on a daemon
-    worker. The dispatch/provider-response hooks are threading.local, so
-    without explicit propagation provider_dispatch_ms and
-    time_to_first_progress_ms silently vanish whenever compression takes the
-    protected path (the common case: aux_interrupt_protection + hard-cancel
-    source both active).
-    """
-    from agent.auxiliary_client import (
-        _aux_thread_local_hook,
-        _aux_dispatch,
-        _aux_provider_response,
-        _notify_aux_dispatch,
-        _notify_aux_provider_response,
-        _run_protected_sync_provider_call,
-        aux_interrupt_protection,
-    )
-
-    seen = []
-
-    def _callback(_kwargs):
-        # Runs on the daemon worker thread — both notifies must reach the
-        # hooks installed on the owner thread.
-        _notify_aux_dispatch()
-        _notify_aux_provider_response()
-        return "ok"
-
-    with (
-        _aux_thread_local_hook(_aux_dispatch, lambda: seen.append("dispatch")),
-        _aux_thread_local_hook(_aux_provider_response, lambda: seen.append("response")),
-        aux_interrupt_protection(cancel_check=lambda: False),
-    ):
-        result = _run_protected_sync_provider_call(_callback, {})
-
-    assert result == "ok"
-    assert "dispatch" in seen
-    assert "response" in seen
 
 
 def test_explicit_caller_max_tokens_keeps_provider_quirk_handling():

@@ -737,7 +737,7 @@ def _explicit_client_kwargs(agent, api_key, base_url, _provider_timeout) -> dict
                                         api_key=api_key if isinstance(api_key, str) else ""):
         client_kwargs["default_headers"] = _route_headers
     elif "default_headers" not in client_kwargs:
-        # Static profile.default_headers (Vercel AI Gateway attribution, Kimi UA on non-kimi.com endpoints).
+        # Static profile.default_headers (e.g. required provider protocol headers).
         with suppress(Exception):
             from providers import get_provider_profile as _gpf
             _ph = _gpf(agent.provider)

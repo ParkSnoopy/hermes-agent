@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Terminal tool: run shell commands in the configured backend.
 
-Backends (``TERMINAL_ENV``): local (default), docker, modal (direct or
-managed gateway), daytona, vercel_sandbox, ssh, plus plugin-registered
+Backends (``TERMINAL_ENV``): local (default), docker, vercel_sandbox, ssh, plus plugin-registered
 backends (the ``singularity`` catalog plugin, ...). Handles background
 processes, sandbox lifecycle (per-task cache, idle reaper, atexit teardown)
 and sudo password plumbing.
@@ -55,7 +54,6 @@ from tools.terminal_tool_backends import (
     _record_unavailable_reason, terminal_backend_unavailable_reason,
 )
 # display_hermes_home imported lazily at call site (stale-module safety during hermes update)
-from tools.tool_backend_helpers import coerce_modal_mode, managed_nous_tools_enabled
 
 
 def _safe_parse_import_env(name: str, default: Any, converter, type_label: str):
@@ -327,8 +325,7 @@ def _sanitize_cwd_for_live_env(env: Any, new_cwd: str) -> Optional[str]:
 
 
 def register_task_env_overrides(task_id: str, overrides: dict[str, Any]):
-    """Register per-task sandbox overrides (``docker_image``/``modal_image``/
-    ``daytona_image`` or a plugin backend's ``<backend>_image``, ``env_type``,
+    """Register per-task sandbox overrides (``docker_image`` or a plugin backend's ``<backend>_image``, ``env_type``,
     ``cwd``) before the agent loop runs.
 
     A ``cwd`` override takes effect immediately: it becomes the session's
@@ -633,8 +630,6 @@ def resolve_task_overrides(task_id: Optional[str]) -> dict[str, Any]:
 # Backends that take an image, keyed to the override/config key carrying it.
 _IMAGE_KEY_BY_BACKEND = {
     "docker": "docker_image",
-    "modal": "modal_image",
-    "daytona": "daytona_image",
 }
 
 
@@ -840,12 +835,9 @@ def _get_env_config() -> dict[str, Any]:
 
     return {
         "env_type": env_type,
-        "modal_mode": coerce_modal_mode(_tenv("TERMINAL_MODAL_MODE", "auto")),
         "docker_image": _tenv("TERMINAL_DOCKER_IMAGE", default_image),
         "docker_image_pinned": _tenv("TERMINAL_DOCKER_IMAGE_PINNED", "0") == "1",
         "docker_forward_env": docker_forward_env,
-        "modal_image": _tenv("TERMINAL_MODAL_IMAGE", default_image),
-        "daytona_image": _tenv("TERMINAL_DAYTONA_IMAGE", default_image),
         "vercel_runtime": _tenv("TERMINAL_VERCEL_RUNTIME", "").strip(),
         "vercel_image": _tenv("TERMINAL_VERCEL_IMAGE", "").strip(),
         "cwd": cwd,
@@ -1343,11 +1335,8 @@ def _run_foreground(
     command: str, env: Any, plan: _ExecPlan, *,
     task_id: Optional[str], session_id: Optional[str], session_key: str,
     workdir: Optional[str], approval_note: Optional[str], clear_interrupt: bool,
-    metered: bool = True,
 ) -> str:
-    """Execute in the foreground with retry on transient errors, then finalize. ``metered``
-    is False for Hermes' own control-plane commands (``_host_local``)."""
-    from hermes_cli.observability.shared_metrics_harness import record_terminal_outcome
+    """Execute in the foreground with retry on transient errors, then finalize."""
     max_retries = 3
     env_type, eff, effective_timeout = plan.env_type, plan.effective_task_id, plan.effective_timeout
 
@@ -1398,8 +1387,7 @@ def _run_foreground(
             "status": "yielded_to_background", "session_id": result["yielded_session_id"],
             "pid": result.get("pid"), "notify_on_complete": True, "note": _YIELDED_NOTE,
         }, ensure_ascii=False)
-    if metered:
-        record_terminal_outcome(command, env_type, result)
+
     return finalize_foreground_result(
         command=command, result=result, env=env, env_type=env_type, effective_task_id=eff,
         task_id=task_id, session_id=session_id, session_key=session_key, workdir=workdir,
@@ -1506,7 +1494,7 @@ def terminal_tool(
     ``_host_local`` forces the local backend for Hermes-owned control-plane
     children (kept in a separate env cache from the configured backend).
     """
-    from hermes_cli.observability.shared_metrics_loop import record_terminal_backend as _metered
+
     plan = None
     try:
         plan = _plan_execution(
@@ -1584,19 +1572,18 @@ def terminal_tool(
                 )
                 if plan.promoted_from_foreground_timeout is not None:
                     result = _with_promoted_note(result, plan.promoted_from_foreground_timeout)
-                return _metered(None if _host_local else plan, result)
-            return _metered(None if _host_local else plan, _run_foreground(
+                return result
+            return _run_foreground(
                 command, env, plan,
                 task_id=task_id, session_id=session_id, session_key=session_key,
                 workdir=workdir, approval_note=verdict.note, clear_interrupt=verdict.approved_run,
-                metered=not _host_local,
-            ))
+            )
     except _Rejected as r:
         return r.result_json
     except EnvironmentConnectionError as e:
-        return _metered(None if _host_local else plan, _degraded_result(e, task_id), error_class="tool_error")
+        return _degraded_result(e, task_id)
     except Exception as e:
-        return _metered(None if _host_local else plan, _fatal_error_json(e), error_class="exception")
+        return _fatal_error_json(e)
 
 
 def check_terminal_requirements() -> bool:

@@ -31,6 +31,7 @@ def test_density_stats_count_isolated_nodes():
     assert stats["nodes"] == 3
     assert stats["linked_nodes"] == 2
     assert stats["isolated_pct"] == round(100 / 3, 1)
+    assert "used" not in stats
 
 
 
@@ -55,6 +56,7 @@ def test_memory_is_cards_split_on_separator(tmp_path):
     assert all(c["source"] in {"memory", "profile"} for c in graph["memory"])
     assert all("timestamp" in c for c in graph["memory"])
     assert any(n["kind"] == "memory" for n in graph["nodes"])
+    assert all("useCount" not in n for n in graph["nodes"] if n["kind"] == "memory")
 
 
 
@@ -91,6 +93,28 @@ def test_build_skill_nodes_skips_profile_install_swap_leftover(tmp_path):
         (skill_dir / "SKILL.md").write_text(f"---\nname: demo-{body}\n---\n", encoding="utf-8")
 
     assert set(learning_graph.build_skill_nodes([("profile", skills)])) == {"demo-new"}
+
+
+def test_recorded_skill_use_drives_journey_membership_and_ranking(tmp_path):
+    from agent.learning_graph_render import _node_score
+    from tools import skill_usage
+
+    home = tmp_path / ".hermes"
+    skill_dir = home / "skills" / "demo" / "used-local-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: used-local-skill\ndescription: d.\n---\n", encoding="utf-8")
+    token = set_hermes_home_override(home)
+    try:
+        assert not any(n["id"] == "used-local-skill" for n in learning_graph.build_learning_graph()["nodes"])
+        skill_usage.bump_use("used-local-skill")
+        skill_usage.bump_use("used-local-skill")
+        node = next(n for n in learning_graph.build_learning_graph()["nodes"] if n["id"] == "used-local-skill")
+    finally:
+        reset_hermes_home_override(token)
+
+    assert node["useCount"] == 2
+    assert _node_score(node, 0.5) > _node_score({**node, "useCount": 0}, 0.5)
 
 
 def test_foreground_created_skill_is_in_journey_before_first_use(tmp_path):

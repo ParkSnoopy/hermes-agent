@@ -13,7 +13,7 @@ Behaviour contracts, with the summariser stubbed at its model boundary:
   cannot publish (a same-session rebind keeps the candidate);
 * manual, focus, overflow-recovery and memory-context compactions summarise fresh, and memory-provider
   context stops further passes;
-* a splice leaves the live compressor as the inline call would: main-model fallback state and telemetry.
+* a splice leaves the live compressor as the inline call would: main-model fallback state.
 """
 from __future__ import annotations
 
@@ -596,10 +596,10 @@ def test_failed_pass_backs_off_without_touching_live_failure_state(tmp_path, mon
     assert call.call_count == 1
 
 
-def test_splice_carries_the_passs_main_model_fallback_and_call_telemetry(monkeypatch):
+def test_splice_carries_the_passs_main_model_fallback(monkeypatch):
     """The summary model failed inside the pass and the main model answered: the live compressor ends up
-    as the inline call would leave it (sticky main-model route, the user warning's source, the call's
-    telemetry), not as if the broken summary model had worked."""
+    as the inline call would leave it (sticky main-model route and the user warning's source),
+    not as if the broken summary model had worked."""
     import agent.context_compressor as module
 
     cc = _compressor()
@@ -623,10 +623,6 @@ def test_splice_carries_the_passs_main_model_fallback_and_call_telemetry(monkeyp
     assert calls == ["compaction-prepare"] * 2, "summary model failed, main model answered, both in the pass"
     assert cc.summary_model == "", "later compactions go straight to the main model, as inline"
     assert cc._last_aux_model_failure_model == "broken/summary-model"
-    telemetry = cc._last_compression_telemetry
-    assert telemetry["prepared_summary"] is True and telemetry["fallback_used"] is True
-    assert telemetry["aux_model"] and telemetry["aux_call_duration_ms"] is not None
-    assert telemetry["method"] == "aux_fallback_main"
 
 
 # --------------------------------------------------------------------------- the real turn loop

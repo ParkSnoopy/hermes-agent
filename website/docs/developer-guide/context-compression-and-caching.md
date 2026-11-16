@@ -226,56 +226,6 @@ attempt anyway:
   the next failure would extend the ladder (#100661). If that attempt fails,
   the cooldown is recorded normally.
 
-#### Attempt telemetry
-
-Every `compress_context` call that returns logs one content-free INFO line,
-`context compression attempt telemetry: {...}` (logger
-`agent.conversation_compression`). It never carries message text, summary
-text, the focus topic or error messages.
-
-- `trigger_source` names why the attempt ran: `manual`, `idle`,
-  `turn_start_threshold`, `engine_preflight`, `pre_api`, `post_tool`,
-  `gateway_hygiene` or `overflow`. An automatic caller that passes no label
-  reads `auto`; a refusal before any attempt began (pool saturation) reads
-  `unknown`.
-- `route` is `hermes` for the local compressor and `codex_app_server` when the
-  Codex thread owns compaction.
-- `commit_status` is `committed`, `aborted`, `failed`, `skipped` or `blocked`.
-  A `blocked` attempt was refused by an automatic guard; its `failure_class`
-  names the guard (`blocked:cooldown`, `blocked:structural_backoff`,
-  `blocked:ineffective`). Under the session lease, `session_ownership_lost`
-  (`skipped`) means another path already rotated the session, and
-  `session_ownership_unreadable` / `cooldown_state_unreadable` (`aborted`)
-  mean that state could not be read. `empty_transcript` (`aborted`) means the
-  engine returned no messages, so nothing was committed.
-- `attempt_id` names this attempt and `session_id` the session it started
-  in, even when the attempt then adopts a rotated child session or unwinds
-  after a newer attempt (a stall fallback) has begun. An attempt
-  that stops before the compressor runs, or rolls its state back, logs
-  `method: none` and no token counts, never an earlier attempt's numbers.
-- `method` says how the summary was produced: `llm_summary`,
-  `aux_fallback_main` (the summary model failed and the main model wrote it),
-  `deterministic_fallback` (static anchors summary; `items_dropped` counts the
-  replaced messages), `provider` (Codex) or `none`.
-- `messages_before` / `messages_after` and `tokens_before` / `tokens_after` /
-  `tokens_reclaimed` describe the transcript that crossed the commit boundary,
-  including retained `/compress here N` tail rows and boundary anchors.
-  A refused or rolled-back candidate never reached the transcript, so its
-  record has no `messages_after`, `tokens_after`, `tokens_reclaimed` or
-  `items_dropped`.
-  `token_count_method: estimate_rough` marks them as rough message-only
-  estimates (system prompt and tool schemas excluded), so they compare like
-  for like. `tool_results_pruned` and `reasoning_items_pruned` count the
-  deterministic passes that ran before and after the summary.
-
-The opt-in `hermes.compression.count` shared metric keeps coarse triggers
-(`auto`, `manual`, `overflow`) and counts only attempts the local compressor
-ran; blocked and Codex-routed attempts appear in the log line only. When the
-NeMo Relay runtime is live, the same record, plus micro-compaction passes and
-committed proactive prunes, is also emitted as a `hermes.compaction` mark (see
-[NeMo Relay Shared Metrics](./relay-shared-metrics.md#compaction-marks)).
-
-
 ## Configuration
 
 All compression settings are read from `config.yaml` under the `compression` key:
@@ -698,8 +648,7 @@ alignment) or later never discards the summary, because one prepared summary per
 redone. The pass planned its own window with a full tail, so the tail is never empty. Summary placement and
 alternation handling are the normal Phase 4 assembly. The splice leaves the live compressor as the
 inline call would have: a pass that recovered on the main model after the summary model failed hands
-over that fallback (later compactions use the main model, and the user sees the broken-model
-warning), and the attempt telemetry carries the pass's aux call with `prepared_summary: true`.
+over that fallback (later compactions use the main model, and the user sees the broken-model warning).
 
 When no completed candidate fits but the pass still running would, compaction waits for that pass
 instead of writing the same summary again. Each streamed chunk of the pass touches the waiting
@@ -717,9 +666,7 @@ cannot publish, and its summary stream is closed rather than billed to completio
 eviction or process restart simply means the next compaction runs inline; releasing the agent (cache
 eviction, a rewind, `close()`) also cancels a running pass. A held summary therefore helps only an
 agent that lives across turns (interactive CLI, TUI/Desktop and messaging sessions); a `-q --resume`
-chain builds a new agent per run and gets no head start. Pass log lines carry `session=<id>`, and
-opt-in shared metrics count adoption and every pass and splice outcome
-(`hermes.prepared_compaction.count`, see the shared-metrics guide). Plugin context engines,
+chain builds a new agent per run and gets no head start. Pass log lines carry `session=<id>`. Plugin context engines,
 Codex app-server sessions, native Responses compaction and micro-compaction are not prepared.
 
 

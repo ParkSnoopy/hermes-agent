@@ -680,12 +680,10 @@ def _dispatch_bridge_tool(function_name: str, function_args: dict[str, Any],
     except Exception:
         current_defs = []
     args = function_args or {}
-    from tools.managed_gateway_identity import CallRef
-    call = CallRef(turn_id=ids.turn_id, tool_call_id=ids.tool_call_id) if ids else None
     if function_name == ts.TOOL_SEARCH_NAME:
-        return ts.dispatch_tool_search(args, current_tool_defs=current_defs, call=call), None
+        return ts.dispatch_tool_search(args, current_tool_defs=current_defs), None
     if function_name == ts.TOOL_DESCRIBE_NAME:
-        return ts.dispatch_tool_describe(args, current_tool_defs=current_defs, call=call), None
+        return ts.dispatch_tool_describe(args, current_tool_defs=current_defs), None
     # Session-scoped names for the error path below: a core tool stripped from this
     # session (clarify in a subagent) must not be told to "call it directly".
     underlying_name, underlying_args, err = ts.resolve_underlying_call(args, ts.session_tool_names(current_defs))
@@ -795,7 +793,7 @@ def _execute_tool(function_name: str, function_args: dict[str, Any], original_ar
     def _dispatch(next_args: dict[str, Any]) -> Any:
         from tools.connectors import dispatch_connector_call, is_connector_name
         if is_connector_name(function_name):
-            return dispatch_connector_call(function_name, next_args, ids.tool_call_id, ids.turn_id, ids.task_id)
+            return dispatch_connector_call(function_name, next_args, ids.tool_call_id, task_id=ids.task_id)
         return registry.dispatch(function_name, next_args, **dispatch_kwargs)
 
     with _approval_observability(ids):

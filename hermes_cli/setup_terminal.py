@@ -1,4 +1,4 @@
-"""Terminal-backend setup wizard (local/docker/modal/daytona/vercel/ssh/plugin).
+"""Terminal-backend setup wizard (local/docker/vercel/ssh/plugin).
 setup.py names are resolved through the module object so test patches on ``hermes_cli.setup.<name>``
 take effect; setup.py re-exports the public entry points."""
 
@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from tools import tool_backend_helpers
+
 
 logger = logging.getLogger("hermes_cli.setup")
 
@@ -78,23 +78,6 @@ def _read_nearest_vercel_project(start: Path | None = None) -> dict[str, str]:
     return {}
 
 
-def _prompt_secret_env(label: str, env_var: str, *, confirm_msg: str = "") -> None:
-    """Prompt for a secret and persist it to .env when non-empty."""
-    value = _setup.prompt(label, password=True)
-    if value:
-        _setup.save_env_value(env_var, value)
-        if confirm_msg:
-            _setup.print_success(confirm_msg)
-
-
-def _existing_secret_keeps(env_var: str, label: str, question: str) -> bool:
-    """True when ``env_var`` is already set and the user declines to update it."""
-    if not _setup.get_env_value(env_var):
-        return False
-    _setup.print_info(f"  {label}: already configured")
-    return not _setup.prompt_yes_no(question, False)
-
-
 def _ensure_sdk(extra: str) -> None:
     """Enable a declared SDK extra without mutating the running interpreter."""
     import pm
@@ -146,7 +129,7 @@ def _setup_backend_docker(config: dict) -> None:
     _setup._info(None, "Docker sandboxes can be protected with the egress credential firewall.",
                  "It routes sandbox traffic through iron-proxy so containers receive "
                  "proxy tokens instead of real API keys.",
-                 "   Docker only for now; Modal, SSH, Daytona and plugin backends are not wired yet.")
+                 "   Docker only for now; SSH, Vercel and plugin backends are not wired yet.")
     if _setup.prompt_yes_no("  Enable egress firewall for Docker sandboxes?", False):
         proxy_cfg = config.setdefault("proxy", {})
         proxy_cfg["enabled"] = True
@@ -156,55 +139,6 @@ def _setup_backend_docker(config: dict) -> None:
             "Run `hermes egress setup` then `hermes egress start` to mint tokens and launch the proxy.")
     else:
         _setup.print_info("Skipping egress firewall. You can enable it later with `hermes egress setup`.")
-
-
-def _setup_backend_modal(config: dict) -> None:
-    _setup.print_success("Terminal backend: Modal")
-    _setup.print_info("Serverless cloud sandboxes. Each session gets its own container.")
-    from tools.managed_tool_gateway import is_managed_tool_gateway_ready
-    from tools.tool_backend_helpers import normalize_modal_mode
-    from hermes_cli import nous_subscription
-    managed_modal_available = bool(
-        tool_backend_helpers.managed_nous_tools_enabled()
-        and nous_subscription.get_nous_subscription_features(config).nous_auth_present
-        and is_managed_tool_gateway_ready("modal"))
-    modal_mode = normalize_modal_mode(_setup.cfg_get(config, "terminal", "modal_mode"))
-    use_managed_modal = False
-    if managed_modal_available:
-        # Default to the configured mode; when unset, to "direct" only if Modal creds exist.
-        default_idx = {"managed": 0, "direct": 1}.get(modal_mode, 1 if _setup.get_env_value("MODAL_TOKEN_ID") else 0)
-        use_managed_modal = _setup.prompt_choice(
-            "Select how Modal execution should be billed:",
-            ["Use my Nous subscription", "Use my own Modal account"], default_idx) == 0
-    if use_managed_modal:
-        config["terminal"]["modal_mode"] = "managed"
-        _setup.print_info("Modal execution will use the managed Nous gateway and bill to your subscription.")
-        if _setup.get_env_value("MODAL_TOKEN_ID") or _setup.get_env_value("MODAL_TOKEN_SECRET"):
-            _setup.print_info(
-                "Direct Modal credentials are still configured, but this backend is pinned to managed mode.")
-        return
-    config["terminal"]["modal_mode"] = "direct"
-    _setup.print_info("Requires a Modal account: https://modal.com")
-    _ensure_sdk("modal")
-    _setup._info(None, "Modal authentication:", "  Get your token at: https://modal.com/settings")
-    if _existing_secret_keeps("MODAL_TOKEN_ID", "Modal token", "  Update Modal credentials?"):
-        return
-    _prompt_secret_env("    Modal Token ID", "MODAL_TOKEN_ID")
-    _prompt_secret_env("    Modal Token Secret", "MODAL_TOKEN_SECRET")
-
-
-def _setup_backend_daytona(config: dict) -> None:
-    _setup.print_success("Terminal backend: Daytona")
-    _setup._info("Persistent cloud development environments.",
-                 "Each session gets a dedicated sandbox with filesystem persistence.",
-                 "Sign up at: https://daytona.io")
-    _ensure_sdk("daytona")
-    print()
-    had_key = bool(_setup.get_env_value("DAYTONA_API_KEY"))
-    if not _existing_secret_keeps("DAYTONA_API_KEY", "Daytona API key", "  Update API key?"):
-        _prompt_secret_env("    Daytona API key", "DAYTONA_API_KEY",
-                           confirm_msg="    Updated" if had_key else "    Configured")
-    config["terminal"].setdefault("daytona_image", _SANDBOX_IMAGE)
 
 
 def _setup_backend_vercel(config: dict) -> None:
@@ -263,16 +197,14 @@ def _setup_backend_plugin(config: dict, backend: str) -> None:
 _BUILTIN_TERMINAL_BACKENDS = [
     ("local", "Local - run directly on this machine (default)"),
     ("docker", "Docker/Podman - isolated container with configurable resources"),
-    ("modal", "Modal - serverless cloud sandbox"), ("ssh", "SSH - run on a remote machine"),
-    ("daytona", "Daytona - persistent cloud development environment"),
+    ("ssh", "SSH - run on a remote machine"),
     ("vercel_sandbox", "Vercel Sandbox - cloud microVM with snapshot filesystem persistence")]
 _TERMINAL_BACKEND_SETUP = {
-    "local": _setup_backend_local, "docker": _setup_backend_docker, "modal": _setup_backend_modal,
-    "daytona": _setup_backend_daytona, "vercel_sandbox": _setup_backend_vercel, "ssh": _setup_backend_ssh}
+    "local": _setup_backend_local, "docker": _setup_backend_docker,
+    "vercel_sandbox": _setup_backend_vercel, "ssh": _setup_backend_ssh}
 # Backend -> env var mirrored from config after setup (config.yaml is the source of truth, but
 # terminal_tool reads these from .env).
-_BACKEND_ENV_MIRROR = {"modal": ("TERMINAL_MODAL_MODE", "modal_mode", "auto"),
-                       "vercel_sandbox": ("TERMINAL_VERCEL_IMAGE", "vercel_image", DEFAULT_VERCEL_IMAGE)}
+_BACKEND_ENV_MIRROR = {"vercel_sandbox": ("TERMINAL_VERCEL_IMAGE", "vercel_image", DEFAULT_VERCEL_IMAGE)}
 
 
 def setup_terminal_backend(config: dict):

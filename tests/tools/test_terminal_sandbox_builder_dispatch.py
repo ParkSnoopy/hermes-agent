@@ -8,7 +8,6 @@ from tools import terminal_tool_backends as backends
 @pytest.mark.parametrize(
     ("env_type", "expects_image"),
     [
-        ("daytona", True),
         ("vercel_sandbox", False),
     ],
 )
@@ -42,6 +41,14 @@ def test_create_environment_dispatches_each_sandbox_builder_once(
     assert received["timeout"] == 42
     assert received["task_id"] == "test-task"
     assert ("image" in received) is expects_image
+
+
+@pytest.mark.parametrize("name", ["daytona", "modal", "managed_modal"])
+def test_retired_backends_fail_as_unknown_without_a_plugin(monkeypatch, name):
+    monkeypatch.setattr(backends, "_get_plugin_env_provider", lambda _: None)
+    assert not backends._check_plugin_requirements({"env_type": name})
+    with pytest.raises(ValueError, match="Unknown environment type"):
+        backends._create_environment(name, "image", "/workspace", 42)
 
 
 def test_create_environment_keeps_env_type_for_plugin_backends(monkeypatch):

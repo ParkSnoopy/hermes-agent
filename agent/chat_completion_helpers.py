@@ -1387,7 +1387,7 @@ def _build_anthropic_kwargs(agent, api_messages, tools_for_api, reasoning_config
         base_url=getattr(agent, "_anthropic_base_url", None),
         fast_mode=request_overrides.get("speed") == "fast",
         drop_context_1m_beta=bool(getattr(agent, "_oauth_1m_beta_disabled", False)))
-    # Portal reads ``tags`` / ``session_id`` on its Messages route too, but the profile hook
+    # Portal reads ``session_id`` on its Messages route too, but the profile hook
     # is only consulted by the OpenAI-wire transport — merge here to keep sticky routing.
     return _merge_nous_portal_messages_extra_body(agent, anthropic_kwargs, api_messages)
 
@@ -2078,8 +2078,7 @@ def try_activate_fallback(agent, reason: FailoverReason | None = None, reset_at=
             agent._provider_fallback_active = True
             agent._provider_fallback_route = (str(fb_model), str(fb_provider))
             _log_fallback_activated(agent, reason, old_model, old_provider, fb_model, fb_provider)
-            from hermes_cli.observability.shared_metrics_events import record_fallback
-            record_fallback(from_provider=old_provider, to_provider=fb_provider, reason=reason)
+
             # The stale-call streak measured the OLD provider; carrying it over would
             # short-circuit the fresh fallback before its first stream attempt.
             _reset_stale_streak(agent)

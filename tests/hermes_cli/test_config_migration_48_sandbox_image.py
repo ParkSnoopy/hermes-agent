@@ -10,6 +10,9 @@ import os
 from unittest.mock import patch
 
 import hermes_yaml as yaml
+import pytest
+
+from hermes_cli.config_defaults import LEGACY_SANDBOX_IMAGES
 
 
 def _run(tmp_path, config):
@@ -21,21 +24,22 @@ def _run(tmp_path, config):
     return yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))["terminal"]
 
 
-def test_stale_default_is_dropped_and_a_user_pin_survives(tmp_path):
+@pytest.mark.parametrize("legacy_image", LEGACY_SANDBOX_IMAGES)
+def test_stale_default_is_dropped_and_a_user_pin_survives(tmp_path, legacy_image):
     from hermes_cli.config import load_config
-    from hermes_cli.config_defaults import DEFAULT_SANDBOX_IMAGE, LEGACY_SANDBOX_IMAGE, LEGACY_SANDBOX_IMAGES
+    from hermes_cli.config_defaults import DEFAULT_SANDBOX_IMAGE
 
     terminal = _run(tmp_path, {"_config_version": 46, "terminal": {
         "backend": "docker",
-        "docker_image": LEGACY_SANDBOX_IMAGE,
-        "daytona_image": LEGACY_SANDBOX_IMAGES[1],  # the 3.14 pin that shipped between the two, unmigrated
-        "singularity_image": f"docker://{LEGACY_SANDBOX_IMAGE}",
-        "modal_image": "ghcr.io/me/custom:1",
+        "docker_image": legacy_image,
+        "singularity_image": f"docker://{legacy_image}",
     }})
     assert "docker_image" not in terminal, "the old default is the template copied, not a pin: drop it"
     assert "singularity_image" not in terminal
-    assert "daytona_image" not in terminal, "both plain defaults are template copies"
-    assert terminal["modal_image"] == "ghcr.io/me/custom:1", "a user's own image must never be rewritten"
+
     with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
         merged = load_config()["terminal"]
     assert merged["docker_image"] == DEFAULT_SANDBOX_IMAGE, "the dropped key follows the new default"
+
+    pinned = {"backend": "docker", "docker_image": "ghcr.io/me/custom:1"}
+    assert _run(tmp_path, {"_config_version": 46, "terminal": pinned}) == pinned

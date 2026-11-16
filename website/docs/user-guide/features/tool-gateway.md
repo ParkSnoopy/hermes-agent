@@ -240,9 +240,6 @@ Tools routed through the gateway stop working until you renew or swap in direct 
 
 Yes — the [Nous Portal dashboard](https://portal.nousresearch.com) breaks usage down by tool so you can see what's driving your bill.
 
-### Is Modal (serverless terminal) included?
-
-Modal is available as an **optional add-on** through the Nous subscription, not part of the default Tool Gateway bundle. Configure it via `hermes setup terminal` or directly in `config.yaml` when you want a remote sandbox for shell execution.
 
 ### Do I need to delete my existing API keys when I enable the gateway?
 

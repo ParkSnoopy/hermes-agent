@@ -2427,7 +2427,7 @@ def _strip_stale_thinking_for_estimate(messages: list[dict[str, Any]]) -> list[d
 # value-equality); numbers/bools/None by value; dicts/lists structurally in key order (``str(shadow)``
 # depends on it); any other type aborts the memo. api_messages shallow-copies dicts but shares the strings.
 # ``estimate_messages_tokens_rough`` is called on the full history every loop iteration (conversation_loop
-# preflight), repeatedly during compaction telemetry, and inside an O(n^2) shrink loop in moa_loop. The
+# preflight), during compaction, and inside an O(n^2) shrink loop in moa_loop. The
 # per-message helpers are pure functions of the message's value, so a memo keyed on a fingerprint that
 # uniquely determines the value is exactly equivalent. Fingerprint design (soundness argument): While the
 # entry lives, that id cannot be reused by another object, so id-equality implies object-equality — strings

@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 from hermes_time import now as _hermes_now
 from hermes_time import get_timezone
-from hermes_cli.observability.shared_metrics_gateway import record_cron_missed
+
 from utils import atomic_replace, atomic_write_text, fsync_directory, mkstemp_beside
 
 # croniter is imported lazily (slow import, only needed for cron exprs). HAS_CRONITER stays a
@@ -974,14 +974,6 @@ def _classify_dispatch_lateness(lateness_seconds: float, grace_seconds: int) -> 
     return "on_time"
 
 
-# Recovery counter for recurring jobs wedged in stale ``last_status == "error"`` with a future
-# next_run_at.
-_persisted_error_recoveries: int = 0
-# Bounded in-memory history kept by every probe-visible fire-path counter.
-_TELEMETRY_RECENT_HISTORY = 20
-_persisted_error_recoveries_recent: list = []
-
-
 def _job_is_stale_error_recurring(
     job: dict[str, Any], schedule: dict[str, Any], now: datetime,
 ) -> bool:
@@ -1059,43 +1051,6 @@ def _schedule_cadence_seconds(schedule: dict[str, Any]) -> Optional[float]:
     return result
 
 
-def _append_telemetry_record(filename: str, entry: dict[str, Any], recent: list) -> None:
-    """Record ``entry`` in the bounded ``recent`` list and append to ``<cron_dir>/<filename>``
-    (best effort — telemetry must never break a tick). Counters stay module-level ints per
-    metric because tests reset them by name."""
-    recent.append(entry)
-    del recent[:-_TELEMETRY_RECENT_HISTORY]
-    try:
-        path = _current_cron_store().cron_dir / filename
-        _ensure_cron_dir(path.parent)
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry) + "\n")
-    except Exception as exc:
-        logger.debug("Could not append %s record: %s", filename, exc)
-
-
-def _record_persisted_error_recovery(job: dict[str, Any], previous_next_run: str) -> None:
-    """Persist a countable, probe-visible signal for one stale-error re-arm."""
-    global _persisted_error_recoveries
-    entry = {
-        "job_id": job.get("id"),
-        "name": job.get("name") or job.get("id"),
-        "previous_next_run_at": previous_next_run,
-        "rearmed_at": _hermes_now().isoformat(),
-    }
-    _persisted_error_recoveries += 1
-    _append_telemetry_record(
-        "persisted_error_recoveries.jsonl", entry, _persisted_error_recoveries_recent)
-
-
-def get_persisted_error_recovery_stats() -> dict[str, Any]:
-    """Probe-visible snapshot of persisted-error recoveries."""
-    return {
-        "persisted_error_recoveries": _persisted_error_recoveries,
-        "recent": list(_persisted_error_recoveries_recent),
-    }
-
-
 def _cron_next_run_matches_expr(schedule: dict[str, Any], next_run_dt: datetime) -> bool:
     """Whether ``next_run_dt`` is an occurrence of the schedule's current expr (detects a
     hand-edited ``schedule.expr`` whose stored ``next_run_at`` came from the old one).
@@ -1152,38 +1107,6 @@ def _classify_stale_cron_next_run(
     if wall_clock_shifted and _cron_next_run_matches_expr(schedule, raw_next_run_dt):
         return STALE_CRON_TIMEZONE_MIGRATION
     return STALE_CRON_EXPR_EDIT
-
-
-# Offset-migration catch-ups on the fire path: climbing after a deploy = draining; steady = TZ
-# churn.
-_timezone_migration_catchups: int = 0
-_timezone_migration_catchups_recent: list = []
-
-
-def _record_timezone_migration_catchup(
-    job: dict[str, Any], raw_next_run_dt: datetime, next_run_dt: datetime,
-) -> None:
-    """Persist a countable signal for one offset-migration catch-up fire."""
-    global _timezone_migration_catchups
-    entry = {
-        "job_id": job.get("id"),
-        "name": job.get("name") or job.get("id"),
-        "expr": (job.get("schedule") or {}).get("expr"),
-        "stored_next_run_at": raw_next_run_dt.isoformat(),
-        "normalized_next_run_at": next_run_dt.isoformat(),
-        "fired_at": _hermes_now().isoformat(),
-    }
-    _timezone_migration_catchups += 1
-    _append_telemetry_record(
-        "timezone_migration_catchups.jsonl", entry, _timezone_migration_catchups_recent)
-
-
-def get_timezone_migration_catchup_stats() -> dict[str, Any]:
-    """Probe-visible snapshot of offset-migration catch-up fires."""
-    return {
-        "timezone_migration_catchups": _timezone_migration_catchups,
-        "recent": list(_timezone_migration_catchups_recent),
-    }
 
 
 def compute_next_run(
@@ -3061,7 +2984,6 @@ def _rearm_stale_error_recurring(d: _DueJob) -> datetime:
         "job wedged in stale last_status=error without re-firing for "
         "a full cadence; re-arming next_run_at to %s so it re-dispatches without force-run/resume",
         d.job.get("name", jid), jid, recovered_next)
-    _record_persisted_error_recovery(d.job, d.next_run)
     d.job["next_run_at"] = recovered_next
     d.scan.persist(jid, next_run_at=recovered_next)
     return recovered_next_dt
@@ -3101,7 +3023,6 @@ def _reanchor_stale_cron(d: _DueJob) -> bool:
             "occurrence at its own wall clock; firing the due run instead of re-anchoring past it.",
             d.label, d.job.get("id"), d.schedule.get("expr"), d.next_run,
             d.next_run_dt.isoformat(), d.raw_next_run_dt.utcoffset(), d.scan.now.utcoffset())
-        _record_timezone_migration_catchup(d.job, d.raw_next_run_dt, d.next_run_dt)
     return False
 
 

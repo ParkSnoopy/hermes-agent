@@ -88,14 +88,7 @@
   "moa.save_traces",
   "moa.trace_dir",
   "models_dev.url",
-  "monitoring.gateway_health_export.diagnostic_events_enabled",
-  "monitoring.gateway_health_export.export_interval_seconds",
-  "monitoring.gateway_health_export.logs_export_interval_seconds",
-  "monitoring.gateway_health_export.metrics_enabled",
-  "monitoring.gateway_health_export.resource_attributes.deployment.environment.name",
-  "monitoring.gateway_health_export.resource_attributes.service.name",
-  "monitoring.gateway_health_export.warning_error_events_enabled",
-  "monitoring.install_id",
+
   "nous.guest",
   "paste_collapse_char_threshold",
   "paste_collapse_threshold",
@@ -111,11 +104,11 @@
   "stt.elevenlabs.model_id",
   "stt.elevenlabs.tag_audio_events",
 
-  "telemetry.shared_metrics.endpoint",
+
   "terminal.daemon_term_grace_seconds",
   "terminal.degraded_mode",
   "terminal.docker_shm_size",
-  "terminal.modal_mode",
+
   "tts.deepinfra.model",
   "tts.deepinfra.voice",
   "updates.refresh_cua_driver",

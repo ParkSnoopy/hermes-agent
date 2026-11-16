@@ -412,7 +412,11 @@ def _proactive_tool_result_prune(agent: Any, compressor: Any, messages: list, cu
     # _DB_PERSISTED_MARKER, and on a stale in-place flag the helper could seed unpersisted rows.
     if not pruned_n or pruned_msgs is messages:
         return messages
-    from agent.compaction_events import publish_prune
+    if not getattr(agent, "_persist_disabled", False):
+        from agent.compaction_events import notify_compaction
 
-    publish_prune(agent, messages, pruned_msgs, pruned_n)
+        notify_compaction(
+            session_id=getattr(agent, "session_id", "") or "", kind="prune_tool_results", reason="proactive_prune",
+            messages_before=messages, messages_after=pruned_msgs,
+        )
     return pruned_msgs

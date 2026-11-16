@@ -345,8 +345,7 @@ class TestBuildApiKwargsAIGateway:
 
 
 class TestBuildApiKwargsNousPortal:
-    def test_includes_nous_product_tags(self, monkeypatch):
-        from agent.portal_tags import nous_portal_tags
+    def test_does_not_include_nous_product_tags(self, monkeypatch):
         agent = _make_agent(
             monkeypatch,
             "nous",
@@ -356,7 +355,7 @@ class TestBuildApiKwargsNousPortal:
         messages = [{"role": "user", "content": "hi"}]
         kwargs = agent._build_api_kwargs(messages)
         extra = kwargs.get("extra_body", {})
-        assert extra.get("tags") == nous_portal_tags(session_id=agent.session_id)
+        assert "tags" not in extra
 
     @pytest.mark.parametrize("data_use,provider", [
         (None, None),

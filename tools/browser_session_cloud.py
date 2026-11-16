@@ -265,20 +265,3 @@ def is_local_backend() -> bool:
     # Scope-aware: under multiplexing the routed profile's terminal backend lives in the per-turn scope (#68559).
     from tools.terminal_scope import terminal_env
     return terminal_env("TERMINAL_ENV", "local").strip().lower() in ("local", "")
-
-
-def browser_backend_name(local_engine: Optional[str] = None) -> str:
-    """Shared-metrics label for the active profile's backend in session-creation precedence
-    (CDP override > cloud provider > local engine). ``local_engine``: the call ran on a LOCAL browser (the
-    hybrid ``::local`` sidecar, a cloud failure's local fallback, the real profile) of that engine (``local``
-    or ``lightpanda``, as its session was created), so neither a configured provider nor ``browser.engine``
-    names it. Config reads only, no network I/O."""
-    from tools.browser_session_cdp import get_cdp_override_raw
-    if get_cdp_override_raw():
-        return "cdp"
-    if local_engine:
-        return local_engine
-    provider = get_cloud_provider()
-    if provider is not None:
-        return str(getattr(provider, "name", "") or "other")
-    return "lightpanda" if get_browser_engine() == "lightpanda" else "local"

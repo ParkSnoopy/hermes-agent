@@ -221,7 +221,6 @@
     "plugins/model-providers/nebius-token-factory/__init__.py agent.reasoning_effort.clamp_effort": 1,
     "plugins/model-providers/nous/__init__.py agent.portal_tags.get_affinity_scope": 1,
     "plugins/model-providers/nous/__init__.py agent.portal_tags.get_conversation_context": 1,
-    "plugins/model-providers/nous/__init__.py agent.portal_tags.nous_portal_tags": 1,
     "plugins/model-providers/nous/__init__.py agent.transports.codex._cache_scope_from_session_id": 1,
     "plugins/model-providers/nous/__init__.py hermes_cli.models.get_nous_recommended_aux_model": 1,
     "plugins/model-providers/nous/__init__.py hermes_cli.models_reasoning_caps.nous_model_reasoning_capabilities": 1,

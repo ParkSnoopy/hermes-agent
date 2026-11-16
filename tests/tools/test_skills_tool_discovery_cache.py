@@ -42,7 +42,7 @@ def _write_skill(root, category, name, description="a skill"):
 
 def test_cache_hit_serves_copies_not_cache_objects(tmp_path):
     """Callers mutate the returned dicts (web_server annotates
-    s['enabled']/s['usage']) — the cache must hand out per-call copies."""
+    s['enabled']/s['locked']) — the cache must hand out per-call copies."""
     _write_skill(tmp_path, "cat-a", "skill-one")
     first = st.find_all_skills()
     assert [s["name"] for s in first] == ["skill-one"]

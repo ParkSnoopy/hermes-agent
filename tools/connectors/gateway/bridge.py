@@ -9,7 +9,7 @@ from tools.connectors.gateway.errors import GatewayAuthError, GatewayUnavailable
 from tools.connectors.gateway.files import FileInputError, model_parameters, save_outputs, stage_inputs
 from tools.connectors.gateway.merge import fill_remote_failure, splice_remote_results
 from tools.connectors.gateway.names import parse_connector_name, vendor_slug_candidates
-from tools.managed_gateway_identity import CallRef
+
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +52,13 @@ def _leg_failure(exc: Exception) -> Optional[str]:
     return UNREACHABLE
 
 
-def _default_client_factory(call: Optional[CallRef] = None):
+def _default_client_factory():
     """The real client for the model's read and execute legs. These never create an identity."""
     from tools.connectors.gateway.client import ConnectorClient
 
     if guest_identity_pending():
         raise GatewayAuthError(NOT_SET_UP_MESSAGE, code=NOT_SET_UP)
-    return ConnectorClient(call=call)
+    return ConnectorClient()
 
 
 def connector_search_hits(
@@ -66,13 +66,12 @@ def connector_search_hits(
     *,
     availability: Optional[Callable[[], bool]] = None,
     client_factory: Optional[Callable[[], Any]] = None,
-    call: Optional[CallRef] = None,
 ) -> ConnectorLeg:
     try:
         available = (availability or connectors_available)()
         if not available or not queries:
             return ConnectorLeg()
-        client = client_factory() if client_factory else _default_client_factory(call)
+        client = client_factory() if client_factory else _default_client_factory()
         return ConnectorLeg(payload=client.search(list(queries)) or {})
     except GatewayUnavailable:
         logger.debug("Connector search skipped: gateway dark")
@@ -87,7 +86,6 @@ def connector_describe(
     *,
     availability: Optional[Callable[[], bool]] = None,
     client_factory: Optional[Callable[[], Any]] = None,
-    call: Optional[CallRef] = None,
 ) -> ConnectorLeg:
     try:
         available = (availability or connectors_available)()
@@ -107,7 +105,7 @@ def connector_describe(
                     request_slugs.append(slug)
         if not wanted:
             return ConnectorLeg()
-        client = client_factory() if client_factory else _default_client_factory(call)
+        client = client_factory() if client_factory else _default_client_factory()
         response = client.schemas(request_slugs) or {}
         schemas = response.get("schemas") if isinstance(response.get("schemas"), dict) else {}
         tools: dict[str, Any] = {}
@@ -138,7 +136,7 @@ def run_remote(
     *,
     availability: Optional[Callable[[], bool]],
     client_factory: Optional[Callable[[], Any]],
-    turn_id: Optional[str] = None,
+
     task_id: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     try:
@@ -161,8 +159,7 @@ def run_remote(
         for plan in planned
     ]
     try:
-        client = client_factory() if client_factory else _default_client_factory(
-            CallRef(turn_id=turn_id, tool_call_id=dispatch_id))
+        client = client_factory() if client_factory else _default_client_factory()
         entries = splice_remote_results(planned, _execute_with_files(client, wire_planned, task_id))
     except ToolGatewayError as exc:
         logger.warning(

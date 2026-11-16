@@ -78,6 +78,7 @@ def test_run_job_stamps_workdir_on_cron_session_row(tmp_path):
         rows = _cron_rows(db)
         assert len(rows) == 1
         assert rows[0]["cwd"] == str(repo)
+        assert not (tmp_path / "cron" / "usage_audit.jsonl").exists()
     finally:
         db.close()
 
@@ -93,5 +94,6 @@ def test_run_job_without_workdir_leaves_cron_session_cwd_null(tmp_path):
         rows = _cron_rows(db)
         assert len(rows) == 1
         assert rows[0]["cwd"] is None
+        assert not (tmp_path / "cron" / "usage_audit.jsonl").exists()
     finally:
         db.close()

@@ -35,8 +35,7 @@ from gateway.session import (
     neutralize_untrusted_inline_text,
 )
 from gateway.turn_lease import TurnLeaseTimeoutError
-from hermes_cli.observability.shared_metrics_busy import (
-    note_busy_admitting, note_busy_outcome, settle_busy_arrival, stamp_busy_arrival)
+
 from typing import Any, Dict, List, Optional, Tuple
 
 if TYPE_CHECKING:  # string annotations only; never imported at runtime (cycle)
@@ -718,7 +717,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
                     and self._effective_busy_text_mode(source) == "queue")):
             return False
         outcome = await self._resolve_busy_steer_or_redirect(event, _quick_key, mode, running_agent)
-        note_busy_outcome(event, outcome)
+
         await self._busy_interrupt_and_ack(event, _quick_key, adapter, state, running_agent, outcome)
         return bool(outcome.steered or outcome.redirected)
 
@@ -1198,12 +1197,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
                 # A message the adapter saw as idle still waits when an earlier queued turn runs
                 # outside its session guard: the running-turn check is the busy test that counts.
                 busy = self._is_session_running(_quick_key) and not getattr(event, "_fifo_only", False)
-                if busy:
-                    stamp_busy_arrival(self._delivery_adapter_for(source), event)
-                try:
-                    return await self._hm_admit_to_fifo(authority, event, source, _quick_key, busy)
-                finally:
-                    settle_busy_arrival(event)  # never admitted, refused or dropped: its fate is known
+                return await self._hm_admit_to_fifo(authority, event, source, _quick_key, busy)
         if (authority is None and not is_internal and not event.get_command()
                 and getattr(self, 'session_authority', None) is not None):
             # Scoped to a home this process does not serve: never fall back to the launch ledger.
@@ -1233,7 +1227,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             return True, None  # a /stop or /new came after its command, as it clears the slot
         # A failed admit stays the authority's answer (refusal notice or turn error), never a
         # pending legacy turn: that would run unadmitted, outside the FIFO's order.
-        note_busy_admitting(event)
+
         return True, await admit_message(authority, event)
 
     async def _handle_message(self, event: MessageEvent) -> Optional[str]:
@@ -1244,9 +1238,6 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         if _admitted is None:
             return None
         event, source, is_internal = _admitted
-        if not is_internal:
-            from hermes_cli.observability.shared_metrics_events import record_gateway_slash_command
-            record_gateway_slash_command(event)
         # TERMINAL-DECLINE LATCH TEARDOWN. Deliberately placed AFTER admission,
         # not on the adapter's raw inbound: profile routing, the ignored-channel
         # guard, plugin hooks and user authorization all reject events above,
@@ -1307,8 +1298,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         _claim_state.turn.agent = _AGENT_PENDING_SENTINEL
         _claim_state.turn.event = event
         _claim_state.turn.started_ts = time.time()
-        from hermes_cli.observability.shared_metrics_gateway import start_reply_clock
-        start_reply_clock(source, internal=is_internal)
+
         self._persist_active_agents()
         _run_generation = self._begin_session_run_generation(_quick_key)
 

@@ -132,47 +132,6 @@ def test_select_provider_and_model_warns_if_named_custom_provider_disappears(
 
 
 
-def test_modal_setup_persists_direct_mode_when_user_chooses_their_own_account(tmp_path, monkeypatch):
-    monkeypatch.setattr("tools.tool_backend_helpers.managed_nous_tools_enabled", lambda: True)
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.delenv("MODAL_TOKEN_ID", raising=False)
-    monkeypatch.delenv("MODAL_TOKEN_SECRET", raising=False)
-    config = load_config()
-
-    def fake_prompt_choice(question, choices, default=0):
-        if question == "Select terminal backend:":
-            return 2
-        if question == "Select how Modal execution should be billed:":
-            return 1
-        raise AssertionError(f"Unexpected prompt_choice call: {question}")
-
-    prompt_values = iter(["token-id", "token-secret", ""])
-
-    monkeypatch.setattr("hermes_cli.setup.prompt_choice", fake_prompt_choice)
-    monkeypatch.setattr("hermes_cli.setup.prompt", lambda *args, **kwargs: next(prompt_values))
-    monkeypatch.setattr(
-        "hermes_cli.nous_subscription.get_nous_subscription_features",
-        lambda config: type("Features", (), {"nous_auth_present": True})(),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "tools.managed_tool_gateway",
-        types.SimpleNamespace(
-            is_managed_tool_gateway_ready=lambda vendor: vendor == "modal",
-            resolve_managed_tool_gateway=lambda vendor: None,
-        ),
-    )
-    monkeypatch.setitem(sys.modules, "swe_rex", object())
-    monkeypatch.setitem(sys.modules, "modal", types.ModuleType("modal"))
-
-    from hermes_cli.setup import setup_terminal_backend
-
-    setup_terminal_backend(config)
-
-    assert config["terminal"]["backend"] == "modal"
-    assert config["terminal"]["modal_mode"] == "direct"
-
-
 # test_setup_slack_* moved to tests/gateway/test_slack_plugin_setup.py — the
 # _setup_slack wizard migrated to the slack plugin's interactive_setup (#41112).
 
@@ -186,7 +145,7 @@ def test_vercel_setup_configures_access_token_auth(tmp_path, monkeypatch):
 
     def fake_prompt_choice(question, choices, default=0):
         if question == "Select terminal backend:":
-            return 5
+            return next(i for i, label in enumerate(choices) if label.startswith("Vercel Sandbox"))
         raise AssertionError(f"Unexpected prompt_choice call: {question}")
 
     prompt_values = iter(["vercel/sandbox/python:3.14", "yes", "2", "4096", "token", "project", "team"])
@@ -227,7 +186,7 @@ def test_vercel_setup_prefills_project_and_team_from_link_file(tmp_path, monkeyp
 
     def fake_prompt_choice(question, choices, default=0):
         if question == "Select terminal backend:":
-            return 5
+            return next(i for i, label in enumerate(choices) if label.startswith("Vercel Sandbox"))
         raise AssertionError(f"Unexpected prompt_choice call: {question}")
 
     prompt_values = iter(["", "no", "1", "5120", "token", "", ""])
@@ -256,7 +215,7 @@ def test_vercel_setup_prefills_project_and_team_from_link_file(tmp_path, monkeyp
     assert defaults["    Vercel team ID"] == "linked-team"
 
 
-@pytest.mark.parametrize("extra", ["neutts", "kittentts", "modal", "daytona", "vercel"])
+@pytest.mark.parametrize("extra", ["neutts", "kittentts", "vercel"])
 @pytest.mark.parametrize("succeeds", [True, False])
 def test_python_setup_uses_declared_extras_and_reports_restart(extra, succeeds, monkeypatch, capsys):
     import pm

@@ -171,8 +171,7 @@ class OpenRouterVideoGenProvider(VideoGenProvider):
                 (str(runtime.get("base_url") or "").strip() or DEFAULT_BASE_URL).rstrip("/"))
 
     def _headers(self, api_key: str) -> dict[str, str]:
-        return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/NousResearch/hermes-agent", "X-Title": "Hermes Agent"}
+        return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     def _session(self) -> Any:
         import requests

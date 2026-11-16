@@ -51,7 +51,6 @@ def test_cut_inside_the_first_tool_group_still_compacts_past_the_handoff():
     with patch.object(cc, "_generate_summary", return_value="NEW SUMMARY BODY"):
         result = cc.compress(messages, current_tokens=12_800)
 
-    assert (cc._last_compression_telemetry or {}).get("failure_class") is None
     assert cc._last_compression_made_progress is True
     assert len(result) < len(messages)
     assert sum(1 for m in result if cc._is_context_summary_message(m)) == 1
@@ -72,7 +71,6 @@ def test_first_tool_group_right_before_the_active_request_still_compacts():
     with patch.object(cc, "_generate_summary", return_value="NEW SUMMARY BODY"):
         result = cc.compress(messages, current_tokens=12_800)
 
-    assert (cc._last_compression_telemetry or {}).get("failure_class") is None
     assert cc._last_compression_made_progress is True
     assert len(result) < len(messages)
     assert sum(1 for m in result if cc._is_context_summary_message(m)) == 1

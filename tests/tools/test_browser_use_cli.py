@@ -79,8 +79,11 @@ def _fake_cli(tmp_path, body):
 
 
 class TestSubprocessEnvironment:
-    def test_browser_use_telemetry_defaults_off(self, monkeypatch):
-        monkeypatch.setattr(bs, "build_browser_env", dict)
+    @pytest.mark.parametrize("inherited", [None, "true", "false"])
+    def test_browser_use_telemetry_is_forced_off(self, monkeypatch, inherited):
+        monkeypatch.setattr(bs, "build_browser_env", lambda: (
+            {} if inherited is None else {"ANONYMIZED_TELEMETRY": inherited}
+        ))
         env = bu_cli._base_subprocess_env()
         assert env["ANONYMIZED_TELEMETRY"] == "false"
 

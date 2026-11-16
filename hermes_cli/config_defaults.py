@@ -6,7 +6,7 @@ docs of config.yaml.
 
 from hermes_cli.config_defaults_auxiliary import _aux
 
-#: Image every container terminal backend (docker/modal/daytona, the singularity plugin) uses unless the
+#: Image every container terminal backend (docker, the singularity plugin) uses unless the
 #: user pins one. LEGACY_SANDBOX_IMAGES are the plain defaults that preceded the desktop stack
 #: (the 3.14 pin shipped between the two without a migration); a saved config still holding one
 #: is the template copied, and the config migration unsets it, never a user's own pin.
@@ -282,7 +282,7 @@ DEFAULT_CONFIG = {
 
     "terminal": {
         "backend": "local",
-        "modal_mode": "auto",
+
         # Remote-backend connection-class failures (SSH host unreachable, Docker daemon down):
         # "warn" = structured degraded tool result with reason + retry hint; "fail" = raise error +
         # traceback.
@@ -339,11 +339,10 @@ DEFAULT_CONFIG = {
         # reads host values) — useful under systemd without the user's shell env. Example:
         # {"SSH_AUTH_SOCK": "/run/user/1000/ssh-agent.sock"}
         "docker_env": {},
-        "modal_image": DEFAULT_SANDBOX_IMAGE,
-        "daytona_image": DEFAULT_SANDBOX_IMAGE,
+
         "vercel_image": DEFAULT_VERCEL_IMAGE,  # vercel_sandbox backend only: a Vercel-managed or VCR image
         "vercel_runtime": "",  # deprecated by Vercel; a legacy runtime pin (node24 | node22 | python3.13) overrides vercel_image
-        # Container limits (docker, modal, daytona, vercel_sandbox, container plugin backends; not local/ssh).
+        # Container limits (docker, vercel_sandbox, container plugin backends; not local/ssh).
         "container_cpu": 1,
         "container_memory": 5120,       # MB (default 5GB)
         "container_disk": 51200,        # MB (default 50GB)
@@ -1837,29 +1836,7 @@ DEFAULT_CONFIG = {
         # TCP timeout before falling back. True skips IPv6 entirely.
         "force_ipv4": False,
     },
-    # Gateway monitoring: service health + redacted operational diagnostics exported over OTLP to an
-    # operator endpoint (OTEL Collector, DataDog, ...). Content-free by construction: no prompts,
-    # messages, tool args/results, session history, usage analytics, audit logs, or trajectories.
-    # Nothing is collected or sent until enabled with an endpoint.
-    "monitoring": {
-        # Stable install identifier on exported signals so operators can tell instances apart. "" =
-        # mint a fresh UUID on first use; clear it to rotate. Carries no account identity.
-        "install_id": "",
-        "gateway_health_export": {  # Gateway health & diagnostics export.
-            "enabled": False,
-            "metrics_enabled": True,
-            "diagnostic_events_enabled": True,
-            "warning_error_events_enabled": True,
-            "export_interval_seconds": 60,
-            "logs_export_interval_seconds": 5,
-            "resource_attributes": {
-                "service.name": "hermes-gateway", "deployment.environment.name": "production"
-            },
-        },
-        # OTLP destination. headers_env maps header names to ENVIRONMENT VARIABLE NAMES (never
-        # secret values); values are read from the environment at export time.
-        "export": {"otlp": {"enabled": False, "endpoint": "", "headers_env": {}}},
-    },
+
     # Native hosted-room Discussion ceilings, shared by all members per discussion.
     # Positive integers only (no unlimited/0). Read from the root owner's config at service
     # startup for all hosted rooms; restart the owning service after changing them.
@@ -2058,20 +2035,6 @@ DEFAULT_CONFIG = {
         # Desktop first run, root profile only (onboarding_run.py): None = fresh install; true = next launch; false = done
         "run": None,
     },
-    # Privacy-safe aggregate metrics in this profile's local telemetry dir. Collection (`enabled`)
-    # and upload to Nous (`send`) are separate keys that every consent surface sets together; see
-    # website/docs/developer-guide/relay-shared-metrics.md Appendix A for consent/retention.
-    "telemetry": {
-        "shared_metrics": {
-            "enabled": False,
-            # Requires `enabled` (`send` alone logs an error). A package is sent only if its whole
-            # period is inside a recorded consent window.
-            "send": False,
-            # Ingest endpoint (override for staging/local). Deliberately NOT env- overridable.
-            # Non-HTTPS refused unless the host is localhost.
-            "endpoint": "https://telemetry.nousresearch.com/v1/telemetry",
-        },
-    },
 
     "doctor": {
         # Per-probe timeout (seconds) for `hermes doctor --live` real-call probes.
@@ -2265,7 +2228,7 @@ DEFAULT_CONFIG = {
         # Where the screen (and with it computer_use and the bot's browser) runs.
         #   auto      follow the terminal backend: inside the docker / ssh / streaming plugin sandbox when one is
         #             configured, on the gateway host when terminal.backend is local. A sandbox backend that
-        #             cannot host a screen (modal, daytona, vercel) REFUSES rather than quietly running the
+        #             cannot host a screen (vercel or a non-streaming plugin) REFUSES rather than quietly running the
         #             desktop on the host beside the sandbox you chose for the agent.
         #   terminal  always inside the terminal backend (error when it cannot host one).
         #   gateway   always on the gateway host, even with a sandbox terminal: the agent's screen, browser
@@ -2274,9 +2237,7 @@ DEFAULT_CONFIG = {
         "placement": "auto",
     },
     "computer_use": {
-        # cua-driver's upstream PostHog telemetry defaults ON; Hermes sets
-        # CUA_DRIVER_RS_TELEMETRY_ENABLED=0 in every child env unless this is true.
-        "cua_telemetry": False,
+
         # Windows only: opt IN to the per-boot cua-driver-serve logon task. False (default)
         # keeps the driver on-demand — Computer Use starts it per session, exactly as on
         # macOS/Linux, and install/enable flows register no scheduled task (#97389). True

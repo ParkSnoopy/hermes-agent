@@ -11,7 +11,6 @@ would-grow refusals returned the mutated list instead.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from pathlib import Path
@@ -62,11 +61,6 @@ def _empty_transcript_engine(_compressor):
 
 def _growing_engine(compressor):
     def _compress(msgs, **_kw):
-        # A real compressor records the candidate's effect before the commit checks see it.
-        compressor._active_compression_telemetry = compressor._last_compression_telemetry = (
-            compressor._begin_compression_telemetry(current_tokens=120_000)
-        )
-        compressor._active_compression_telemetry.update(messages_after=2, tokens_after=9, tokens_reclaimed=99)
         msgs.pop()
         return list(msgs) + [{"role": "assistant", "content": "GROWN " * 20_000}]
 
@@ -128,11 +122,6 @@ def test_refused_candidate_from_mutating_engine_returns_original_transcript(
         ).fetchone()[0] == 0
         assert db.get_session(session_id)["end_reason"] is None
         assert db.get_compression_lock_holder(session_id) is None
-        # The record must not claim an effect the refused candidate never had on the transcript.
-        prefix = "context compression attempt telemetry: "
-        [record] = [json.loads(r.getMessage()[len(prefix):]) for r in caplog.records if r.getMessage().startswith(prefix)]
-        assert record["commit_status"] == "aborted"
-        assert [record.get(k) for k in ("messages_after", "tokens_after", "tokens_reclaimed")] == [None] * 3
     finally:
         agent.close()
 

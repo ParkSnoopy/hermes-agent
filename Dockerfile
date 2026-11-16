@@ -246,7 +246,7 @@ FROM runtime_base AS python_deps
 # frontend stats the readme path during dep resolution, so we `touch` an
 # empty placeholder — the real README is restored by `COPY . .` below.
 #
-# `pm.build_env --no-install-project --extra all --extra otlp`
+# `pm.build_env --no-install-project --extra all`
 # installs the deps reachable through the composite `[all]` extra
 # (handpicked set intended for the production image; dependency groups are not selected),
 # We do NOT use `--all-extras`:
@@ -258,9 +258,7 @@ FROM runtime_base AS python_deps
 # so Docker users can use these providers without requiring runtime
 # lazy-install access to PyPI (often blocked in containerized envs).
 #
-# The [otlp] extra contains the SDK/exporter imported by Hermes when Gateway
-# Health export is enabled. Collector and observability-backend dependencies
-# remain external and are not part of the Hermes production image.
+
 #
 
 # [fal] is baked because the image tool's availability check imports
@@ -291,7 +289,7 @@ RUN touch ./README.md
 RUN python3 -m pm.build_env --source /opt/hermes --python /usr/local/bin/python3 \
     --cache /opt/hermes/uv-cache \
     --out /opt/hermes/.venv --no-install-project --sealed --record-selection \
-    --extra all --extra otlp --extra anthropic --extra bedrock \
+    --extra all --extra anthropic --extra bedrock \
     --extra azure-identity --extra fal --extra documents
 
 # Frontend dependencies never enter the runtime layers.

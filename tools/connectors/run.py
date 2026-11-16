@@ -61,7 +61,7 @@ def reissue(operation: ConnectionOperation, names: Sequence[str], *, initiator: 
     if targets[0].kind == "connector":
         from tools.connectors.managed import CARD_RETRY, managed_client, mint
 
-        client = managed_client(creates_guest=True, initiator=initiator or CARD_RETRY, call=operation.call)
+        client = managed_client(creates_guest=True, initiator=initiator or CARD_RETRY)
         mint(client, operation, stale, reinitiate=True, actor=Actor.user)
         return None
     from tools.connectors import catalog
@@ -101,11 +101,11 @@ def run_operation(
     connection_callback: Optional[Callback],
     tick_seconds: Optional[float] = None,
     with_urls_in_result: bool,
-    call: Optional[Any] = None,
+
 ) -> str:
     """Block the tool thread until the operation settles; return the tool's JSON string."""
     return open_and_drive(
-        ConnectionOperation(targets, session_key=session_key, tool_call_id=tool_call_id, call=call),
+        ConnectionOperation(targets, session_key=session_key, tool_call_id=tool_call_id),
         kind,
         connection_callback=connection_callback,
         tick_seconds=tick_seconds,

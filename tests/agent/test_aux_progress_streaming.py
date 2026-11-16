@@ -24,8 +24,6 @@ from agent.auxiliary_client import (
     _aggregate_chat_stream,
     _aggregate_chat_stream_async,
     _anthropic_event_has_content,
-    _aux_dispatch,
-    _aux_thread_local_hook,
     _create_with_progress,
     _create_with_progress_once,
     _notify_aux_progress,
@@ -203,10 +201,8 @@ class TestCreateWithProgress:
 
     def test_dispatch_only_auth_failure_does_not_tick_progress(self):
         """Bug pin (#114938): a dispatch that dies before any payload (401) must
-        not reset the compression inactivity fence. Dispatch telemetry still
-        fires, but progress_observed stays False."""
+        not reset the compression inactivity fence."""
         fence = CompressionCommitFence()
-        dispatches = []
 
         class _AuthError(Exception):
             status_code = 401
@@ -214,14 +210,12 @@ class TestCreateWithProgress:
         client = _FakeClient(stream_error=_AuthError("unauthorized"))
         with (
             aux_progress_hook(fence.touch_progress),
-            _aux_thread_local_hook(_aux_dispatch, lambda: dispatches.append(1)),
             pytest.raises(_ClassifiedAttempt) as raised,
         ):
             _create_with_progress_once(
                 client, {"model": "m1", "messages": [], "timeout": 30},
             )
         assert isinstance(raised.value.failure.error, _AuthError)
-        assert dispatches == [1]  # dispatch telemetry preserved
         assert fence.progress_observed is False
 
 
@@ -692,27 +686,6 @@ class TestContentBearingProgress:
             accumulator.feed(_chunk(content="token"))
         assert fence.seconds_since_progress() < 0.05
 
-    def test_content_free_frames_still_record_ttfp_timing(self):
-        """The fast-lane telemetry contract (#96945/#96963) survives the
-        #96707 gating: the provider-response (time_to_first_progress_ms)
-        hook must fire on the FIRST frame of any kind (transport liveness),
-        not only on the first token."""
-        from agent.auxiliary_client import (
-            _aux_provider_response,
-            _aux_thread_local_hook,
-        )
-
-        responses: list = []
-        keepalive = SimpleNamespace(id=None, model=None, choices=[], usage=None)
-        accumulator = _ChatStreamAccumulator()
-
-        with (
-            _aux_thread_local_hook(_aux_provider_response, lambda: responses.append("response")),
-            aux_progress_hook(lambda: None),
-        ):
-            accumulator.feed(keepalive)
-
-        assert responses, "content-free first frame must still record TTFP"
 
 
 
@@ -860,7 +833,6 @@ class TestAsyncStreamAggregation:
         """Async twin of the #114938 pin: a 401 dispatch must not reset the
         compression inactivity fence."""
         fence = CompressionCommitFence()
-        dispatches = []
 
         class _AuthError(Exception):
             status_code = 401
@@ -875,12 +847,10 @@ class TestAsyncStreamAggregation:
 
         with (
             aux_progress_hook(fence.touch_progress),
-            _aux_thread_local_hook(_aux_dispatch, lambda: dispatches.append(1)),
             pytest.raises(_ClassifiedAttempt) as raised,
         ):
             await _acreate_with_progress(
                 _AsyncClient(), {"model": "m1", "messages": [], "timeout": 30},
             )
         assert isinstance(raised.value.failure.error, _AuthError)
-        assert dispatches == [1]
         assert fence.progress_observed is False

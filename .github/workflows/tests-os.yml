@@ -115,7 +115,7 @@ jobs:
           # scripts/build/node-deps.mjs and source builds need it on PATH.
           packages: ${{ matrix.marker == 'windows' && 'git,ripgrep,pnpm' || 'ripgrep,pnpm' }}
           # keychain: the vault-key tests run against the host's real Keychain / Credential Manager.
-          extras: '["all", "anthropic", "mistral", "fal", "modal", "daytona", "parallel-web", "keychain"]'
+          extras: '["all", "anthropic", "mistral", "fal", "parallel-web", "keychain"]'
           test-environment: 'true'
           prune-python-cache: true
 
@@ -244,7 +244,7 @@ jobs:
         uses: ./.github/actions/setup-pm
         with:
           packages: git,ripgrep
-          extras: '["all", "anthropic", "mistral", "fal", "modal", "daytona", "parallel-web"]'
+          extras: '["all", "anthropic", "mistral", "fal", "parallel-web"]'
           test-environment: 'true'
           prune-python-cache: true
 

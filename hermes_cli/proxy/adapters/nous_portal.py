@@ -124,7 +124,7 @@ class NousPortalAdapter(UpstreamAdapter):
             with _auth_store_lock():
                 store = _load_auth_store()
                 if quarantine_error is not None and quarantine_reason:
-                    _quarantine_nous_pool_entries(store, quarantine_error, reason=quarantine_reason)
+                    _quarantine_nous_pool_entries(store)
                 providers = store.setdefault("providers", {})
                 providers["nous"] = state
                 _save_auth_store(store)

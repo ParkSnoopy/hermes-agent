@@ -241,7 +241,7 @@ def _skill_catalog(*, skip_disabled: bool = False, include_hidden: bool = False)
     cached = _SKILLS_CACHE.get(cache_key)
     if cached is not None and cached[0] == signature and (now - cached[1]) < _SKILLS_CACHE_TTL_SECONDS:
         # Shallow copies: callers mutate the returned dicts (web_server annotates
-        # s["enabled"]/s["usage"]); handing out cached objects would poison the cache.
+        # s["enabled"]/s["locked"]); handing out cached objects would poison the cache.
         return [dict(s) for s in cached[2]]
     scanned = []
     for tier, scan_dir in roots:  # project dirs go through the quarantine chokepoint

@@ -73,15 +73,15 @@ TRACEBACK = "Traceback (most recent call last)"
 _OPTIONAL_IMPORTS = {
     "acp": "agent-client-protocol", "anthropic": "anthropic",
     "azure": "azure-identity", "boto3": "boto3", "botocore": "boto3",
-    "daytona": "daytona",
+
     "edge_tts": "edge-tts",
     "elevenlabs": "elevenlabs", "exa_py": "exa-py", "fal_client": "fal-client",
     "faster_whisper": "faster-whisper", "firecrawl": "firecrawl-py", "google": "google-auth",
     "google_auth_oauthlib": "google-auth-oauthlib", "googleapiclient": "google-api-python-client",
     "httplib2": "httplib2",
     "mcp": "mcp", "mistralai": "mistralai",
-    "modal": "modal", "numpy": "numpy", "pyopen_wakeword": "pyopen-wakeword",
-    "opentelemetry": "opentelemetry-sdk", "parallel": "parallel-web", "pvporcupine": "pvporcupine",
+    "numpy": "numpy", "pyopen_wakeword": "pyopen-wakeword",
+    "parallel": "parallel-web", "pvporcupine": "pvporcupine",
     "pyasn1": "pyasn1", "sentencepiece": "sentencepiece", "sherpa_onnx": "sherpa-onnx",
     "sounddevice": "sounddevice", "uvloop": "uvloop",
     "vercel": "vercel", "youtube_transcript_api": "youtube-transcript-api",

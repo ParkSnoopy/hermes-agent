@@ -98,7 +98,11 @@ def test_retired_methods_are_absent():
     from tui_gateway import server
     from tui_gateway.contracts import registry
 
-    retired = {"handoff.request", "handoff.state", "handoff.fail", "i18n.catalog", "i18n.languages"}
+    retired = {"handoff.request", "handoff.state", "handoff.fail", "i18n.catalog", "i18n.languages",
+               "shared_metrics.status", "shared_metrics.set", "shared_metrics.slash_command",
+               "shared_metrics.startup_latency", "shared_metrics.update_run", "shared_metrics.desktop_feature_use",
+               "shared_metrics.desktop_friction", "shared_metrics.desktop_onboarding", "shared_metrics.desktop_dislike",
+               "shared_metrics.desktop_daily"}
     assert retired.isdisjoint(server._methods)
     assert retired.isdisjoint(registry.METHODS)
     assert retired.isdisjoint(registry.CANONICAL_METHODS)

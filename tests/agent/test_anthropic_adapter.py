@@ -73,27 +73,14 @@ class TestBuildAnthropicClient:
             assert "claude-code-20250219" not in betas  # OAuth-only beta NOT present
 
 
-    def test_opencode_endpoint_gets_attribution_headers(self):
-        """OpenCode identifies clients by request headers, like OpenRouter.
-
-        The OpenAI-wire paths get HTTP-Referer / X-Title / User-Agent from
-        profile.default_headers. The Anthropic Messages route builds its
-        client here and must merge the same set.
-        """
+    def test_opencode_keeps_auth_and_betas_without_attribution(self):
         with patch("agent.anthropic_adapter._anthropic_sdk") as mock_sdk:
-            build_anthropic_client(
-                "sk-opencode-secret",
-                base_url="https://opencode.ai/zen/go/v1",
-            )
-            kwargs = mock_sdk.Anthropic.call_args[1]
+            build_anthropic_client("sk-opencode-test", base_url="https://opencode.ai/zen/go/v1")
+            kwargs = mock_sdk.Anthropic.call_args.kwargs
             headers = kwargs["default_headers"]
-            assert headers["HTTP-Referer"] == "https://hermes-agent.nousresearch.com"
-            assert headers["X-Title"] == "Hermes Agent"
-            from hermes_cli.version_info import get_version_info
-            assert headers["User-Agent"] == f"HermesAgent/{get_version_info().base_version}"
-            # Auth branch is unchanged: x-api-key via api_key, betas kept.
-            assert kwargs["api_key"] == "sk-opencode-secret"
+            assert kwargs["api_key"] == "sk-opencode-test"
             assert "anthropic-beta" in headers
+            assert not {"HTTP-Referer", "X-Title", "User-Agent"} & headers.keys()
 
     def test_minimax_anthropic_endpoint_uses_bearer_auth_for_regular_api_keys(self):
         with patch("agent.anthropic_adapter._anthropic_sdk") as mock_sdk:

@@ -15,7 +15,7 @@ The security model has eight layers:
 1. **User authorization** — who can talk to the agent (allowlists, DM pairing)
 2. **Dangerous command approval** — human-in-the-loop for destructive operations
 3. **File write safety** — denylist and optional write sandbox for `write_file`/`patch`
-4. **Container isolation** — Docker/Modal (and the Singularity plugin) sandboxing with hardened settings
+4. **Container isolation** — Docker (and the Singularity plugin) sandboxing with hardened settings
 5. **MCP credential filtering** — environment variable isolation for MCP subprocesses
 6. **Context file scanning** — prompt injection detection in project files
 7. **Cross-session isolation** — sessions cannot access each other's data or state; cron job storage paths are hardened against path traversal attacks
@@ -244,7 +244,7 @@ The following patterns trigger approval prompts (defined in `tools/approval.py`)
 | `podman --remote`/`-r`/`--url`/`--connection`/`--identity`, `CONTAINER_HOST=` | Podman remote daemon redirect |
 
 :::info
-**Container bypass**: When running in `docker`, `modal`, `daytona`, or `vercel_sandbox` backends (or a container plugin backend such as `singularity` or `sprites`), dangerous command checks are **skipped** because the container itself is the security boundary. Destructive commands inside a container can't harm the host.
+**Container bypass**: When running in `docker` or `vercel_sandbox` backends (or a container plugin backend such as `singularity` or `sprites`), dangerous command checks are **skipped** because the container itself is the security boundary. Destructive commands inside a container can't harm the host.
 :::
 
 ### `execute_code` Scripts {#execute-code-scripts}
@@ -618,7 +618,7 @@ terminal:
 - **Ephemeral mode** (`container_persistent: false`): Uses tmpfs for workspace — everything is lost on cleanup
 
 :::tip
-For production gateway deployments, use `docker`, `modal`, `daytona`, or `vercel_sandbox` backend to isolate agent commands from your host system. This eliminates the need for dangerous command approval entirely.
+For production gateway deployments, use `docker` or `vercel_sandbox` backend to isolate agent commands from your host system. This eliminates the need for dangerous command approval entirely.
 :::
 
 :::warning
@@ -634,15 +634,13 @@ If you add names to `terminal.docker_forward_env`, those variables are intention
 | **docker** | Container | ❌ Skipped (container is boundary) | Production gateway |
 | **singularity** (plugin) | Container | ❌ Skipped | HPC environments |
 | **sprites** (plugin) | Cloud microVM | ❌ Skipped | Stateful cloud sandboxes |
-| **modal** | Cloud sandbox | ❌ Skipped | Scalable cloud isolation |
-| **daytona** | Cloud sandbox | ❌ Skipped | Persistent cloud workspaces |
 | **vercel_sandbox** | Cloud microVM | ❌ Skipped | Cloud execution with snapshot persistence |
 
 ## Environment Variable Passthrough {#environment-variable-passthrough}
 
 Both `execute_code` and `terminal` strip sensitive environment variables from child processes to prevent credential exfiltration by LLM-generated code. However, skills that declare `required_environment_variables` legitimately need access to those vars.
 
-First-party platform credentials — the `BUZZ_*` variables used by the Buzz messaging platform — are passed through to `terminal` children (foreground and background/PTY spawns) **only when the session is actually operating as a Buzz agent**: the process is a Buzz-ACP managed agent (`BUZZ_MANAGED_AGENT` set by the Buzz Desktop harness) or the live gateway session's platform is `buzz`. This lets a Buzz platform agent invoke its platform-mandated CLI (e.g. `buzz`) from the terminal tool, while Telegram/CLI/cron sessions on the same host keep the variables stripped. Because `_sanitize_subprocess_env` also feeds search workers (e.g. the ddgs web-search subprocess), the computer-use driver binary, and user-script runners (bang `!` commands, quick commands, cron scripts, webhook-filter scripts), those children receive the variables too when spawned from a Buzz session. The carve-out is **terminal-only**: it does not apply to `execute_code`, browser/TUI-host spawns (`hermes_subprocess_env`), Docker/Modal children, or `env_passthrough` registration, which remain sealed.
+First-party platform credentials — the `BUZZ_*` variables used by the Buzz messaging platform — are passed through to `terminal` children (foreground and background/PTY spawns) **only when the session is actually operating as a Buzz agent**: the process is a Buzz-ACP managed agent (`BUZZ_MANAGED_AGENT` set by the Buzz Desktop harness) or the live gateway session's platform is `buzz`. This lets a Buzz platform agent invoke its platform-mandated CLI (e.g. `buzz`) from the terminal tool, while Telegram/CLI/cron sessions on the same host keep the variables stripped. Because `_sanitize_subprocess_env` also feeds search workers (e.g. the ddgs web-search subprocess), the computer-use driver binary, and user-script runners (bang `!` commands, quick commands, cron scripts, webhook-filter scripts), those children receive the variables too when spawned from a Buzz session. The carve-out is **terminal-only**: it does not apply to `execute_code`, browser/TUI-host spawns (`hermes_subprocess_env`), Docker children, or `env_passthrough` registration, which remain sealed.
 
 ### How It Works
 
@@ -660,10 +658,10 @@ required_environment_variables:
     help: Get a key from https://developers.google.com/tenor
 ```
 
-After loading this skill, `TENOR_API_KEY` passes through to `execute_code`, `terminal` (local), **and remote backends (Docker, Modal)** — no manual configuration needed.
+After loading this skill, `TENOR_API_KEY` passes through to `execute_code`, `terminal` (local), **and remote backends such as Docker** — no manual configuration needed.
 
-:::info Docker & Modal
-Prior to v0.5.1, Docker's `forward_env` was a separate system from the skill passthrough. They are now merged — skill-declared env vars are automatically forwarded into Docker containers and Modal sandboxes without needing to add them to `docker_forward_env` manually.
+:::info Docker
+Prior to v0.5.1, Docker's `forward_env` was a separate system from the skill passthrough. They are now merged — skill-declared env vars are automatically forwarded into Docker containers without needing to add them to `docker_forward_env` manually.
 :::
 
 **2. Config-based passthrough (manual)**
@@ -694,7 +692,6 @@ required_credential_files:
 When loaded, Hermes checks if these files exist in the active profile's `HERMES_HOME` and registers them for mounting:
 
 - **Docker**: Read-only bind mounts (`-v host:container:ro`)
-- **Modal**: Mounted at sandbox creation + synced before each command (handles mid-session OAuth setup)
 - **Local**: No action needed (files already accessible)
 
 You can also list credential files manually in `config.yaml`:
@@ -727,7 +724,6 @@ With the switch off Hermes never reads or refreshes those files: the `claude_cod
 | **terminal** (local) | Blocks explicit Hermes infrastructure vars (provider keys, gateway tokens, tool API keys) | ✅ Passthrough vars bypass the blocklist |
 | **terminal** (Docker) | No host env vars by default | ✅ Passthrough vars + `docker_forward_env` forwarded via `-e` |
 | **terminal** (SSH) | No host env vars by default | ✅ Passthrough vars forwarded via `SendEnv`; the remote `sshd_config` needs a matching `AcceptEnv` (see [SSH backend](configuration.md#ssh-backend)) |
-| **terminal** (Modal) | No host env/files by default | ✅ Credential files mounted; env passthrough via sync |
 | **MCP** | Blocks everything except safe system vars + explicitly configured `env` | ❌ Not affected by passthrough (use MCP `env` config instead) |
 
 ### Security Considerations
@@ -829,7 +825,7 @@ not stop every route to a private host. With it `false`:
 |---|---|
 | `web_extract` | Refused before any backend is called. With it `true`, hosted extract backends still fetch from their own servers and cannot reach your LAN. |
 | `vision_analyze` URL fetches, image/video result downloads, gateway media downloads | Refused |
-| `browser_exec` on a cloud provider with `browser.auto_local_for_private_urls: false`, on a `/browser connect` (CDP) endpoint, or with a Docker/SSH/Modal terminal backend | Refused (`Blocked: URL targets a private or internal address`) |
+| `browser_exec` on a cloud provider with `browser.auto_local_for_private_urls: false`, on a `/browser connect` (CDP) endpoint, or with a Docker/SSH terminal backend | Refused (`Blocked: URL targets a private or internal address`) |
 | `browser_cdp` raw CDP calls on those same backends | Refused while a private page is open, and when an absolute `http(s)://` URL the call fetches (a `url` param, a script, injected HTML) is private. A scheme-relative `//host` URL is checked for cloud metadata only |
 | `browser_exec` on a cloud provider with `browser.auto_local_for_private_urls: true` (the default) | **Opens**, in a local Chromium sidecar on the Hermes host ([hybrid routing](./features/browser.md#hybrid-routing-cloud-for-public-urls-local-for-lanlocalhost)) |
 | `browser_exec` on the local Chromium with a local terminal backend | **Opens**: the browser reaches nothing the terminal can't |

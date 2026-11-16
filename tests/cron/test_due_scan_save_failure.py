@@ -21,6 +21,7 @@ import os
 import shutil
 import sqlite3
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from datetime import datetime, timezone, UTC
@@ -138,7 +139,7 @@ def test_tick_on_unwritable_store_returns_cleanly_without_dispatch(cron_store, m
 
 @pytest.mark.parametrize("site,exc,ledger_fails", [
     ("claim_job_for_fire", RuntimeError, False),
-    ("note_cron_execution", RuntimeError, False),
+    ("copy_context", RuntimeError, False),
     # Full disk: the executions.db write fails too; the store-unwritable skip must not raise.
     ("claim_job_for_fire", OSError, True),
 ])
@@ -158,7 +159,10 @@ def test_dispatch_failure_after_receipt_never_leaves_it_claimed(
     monkeypatch.setattr(executions, "EXECUTIONS_FILE", cron_store / "cron" / "executions.db")
     monkeypatch.setattr(scheduler, "run_one_job", lambda job, **k: True)
     monkeypatch.setattr(scheduler, "_should_yield_tick_to_fresh_gateway", lambda: None)
-    monkeypatch.setattr(scheduler, site, boom)
+    if site == "copy_context":
+        monkeypatch.setattr(scheduler, "contextvars", SimpleNamespace(copy_context=boom))
+    else:
+        monkeypatch.setattr(scheduler, site, boom)
     if ledger_fails:
         monkeypatch.setattr(executions, "finish_execution", ledger_full)
         monkeypatch.setattr(scheduler, "finish_execution", ledger_full)
@@ -169,7 +173,7 @@ def test_dispatch_failure_after_receipt_never_leaves_it_claimed(
         return
     row = executions.latest_execution("due-job")
     assert row is not None and row["status"] == "failed"
-    if site == "note_cron_execution":  # the receipt exists, so creation did not fail
+    if site == "copy_context":  # the receipt exists, so creation did not fail
         assert "dispatch preparation failed" in caplog.text
 
 

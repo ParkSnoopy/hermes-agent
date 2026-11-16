@@ -6,7 +6,7 @@ Central map of registered pluggable terminal backends, populated by plugins via
 terminal/file/approval/prompt surfaces. Unlike the image/video/web/browser registries there
 is **no active-provider resolution**: the active backend is whatever ``TERMINAL_ENV`` /
 ``terminal.backend`` names. Built-in names are reserved (registration raises) so a plugin can
-never shadow the in-tree docker/modal/... implementations. Scope semantics mirror
+never shadow the in-tree docker/ssh/vercel implementations. Scope semantics mirror
 :mod:`agent.browser_registry` (per-profile scope or the global base map).
 """
 
@@ -22,10 +22,9 @@ logger = logging.getLogger(__name__)
 
 
 #: Names owned by in-tree backends in tools/environments/ — never
-#: registrable by plugins. Includes internal-mode aliases (managed_modal).
+#: registrable by plugins.
 BUILTIN_BACKEND_NAMES = frozenset({
-    "local", "docker", "modal", "managed_modal",
-    "daytona", "vercel_sandbox", "ssh",
+    "local", "docker", "vercel_sandbox", "ssh",
 })
 
 
@@ -71,7 +70,7 @@ def provider_flag(name: str, attr: str, default=False, *, scope: Optional[str] =
 def plugin_strip_env_keys() -> frozenset:
     """Union of every registered provider's ``strip_env_keys`` — across ALL scopes, not
     just the active backend: a token in the process environment is strippable regardless of
-    which backend is selected (as MODAL_*/DAYTONA_API_KEY sit in the static tier-1 set)."""
+    which backend is selected (as cloud credentials sit in the static tier-1 set)."""
     keys: set = set()
     with _registry._lock:
         all_providers = list(_registry._providers.values())

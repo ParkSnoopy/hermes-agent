@@ -3001,50 +3001,6 @@ class TestRunConversation:
         agent.compression_enabled = False
         agent.save_trajectories = False
 
-    def test_task_start_failure_closes_relay_turn_and_lease(self, agent):
-        relay_lease = SimpleNamespace(
-            parent_session_id="",
-            profile_key="/profile",
-            session_id=agent.session_id or "",
-        )
-        relay_turn = object()
-        coordinator = MagicMock()
-        coordinator.acquire_conversation.return_value = relay_lease
-        coordinator.begin_turn.return_value = relay_turn
-        start_error = RuntimeError("task metrics start failed")
-
-        with (
-            patch("agent.relay_runtime.SESSION_COORDINATOR", coordinator),
-            patch(
-                "agent.relay_runtime.current_profile_key",
-                return_value="/profile",
-            ),
-            patch(
-                "hermes_cli.observability.relay_shared_metrics.start_task_run",
-                side_effect=start_error,
-            ),
-            patch(
-                "hermes_cli.observability.relay_shared_metrics.finish_task_run"
-            ) as finish_task_run,
-            patch("agent.conversation_loop.run_conversation") as run_conversation,
-        ):
-            with pytest.raises(RuntimeError) as caught:
-                agent.run_conversation("hello", task_id="task-1")
-
-        assert caught.value is start_error
-        run_conversation.assert_not_called()
-        finish_task_run.assert_not_called()
-        coordinator.finish_logical_calls.assert_called_once_with(
-            relay_turn,
-            outcome="failed",
-        )
-        coordinator.end_turn.assert_called_once_with(
-            relay_turn,
-            outcome="failed",
-        )
-        coordinator.release_conversation.assert_called_once_with(relay_lease)
-        assert agent._relay_pending_turn_id is None
-
     def test_stop_finish_reason_returns_response(self, agent):
         self._setup_agent(agent)
         resp = _mock_response(content="Final answer", finish_reason="stop")
@@ -3249,7 +3205,7 @@ class TestRunConversation:
         assert all("usage" in c and "response" in c for c in post_request_calls)
         assert all("assistant_message" in c["response"] for c in post_request_calls)
 
-    def test_terminal_task_closes_logical_calls_before_metrics_scope(self, agent):
+    def test_terminal_task_closes_logical_calls(self, agent):
         from agent import relay_runtime
 
         order = []
@@ -3266,13 +3222,6 @@ class TestRunConversation:
                 "agent.conversation_loop.run_conversation",
                 return_value=failed_result,
             ),
-            patch(
-                "hermes_cli.observability.relay_shared_metrics.start_task_run",
-            ),
-            patch(
-                "hermes_cli.observability.relay_shared_metrics.finish_task_run",
-                side_effect=lambda **_kwargs: order.append("metrics"),
-            ),
             patch.object(
                 relay_runtime.SESSION_COORDINATOR,
                 "finish_logical_calls",
@@ -3282,7 +3231,7 @@ class TestRunConversation:
             result = agent.run_conversation("private prompt")
 
         assert result is failed_result
-        assert order == ["logical", "metrics"]
+        assert order == ["logical"]
 
 
     def test_request_scoped_api_hooks_skip_payload_work_without_listeners(self, agent, monkeypatch):

@@ -29,8 +29,8 @@ Design notes
 - The job store persists ``schedule`` as an already-parsed DICT
   (``{"kind": "interval", "minutes": N}``), not the string form
   ``parse_schedule`` consumes — the fixtures use the persisted dict shape.
-- The guard's age bookkeeping (``_running_since`` / ``_running_futures`` /
-  ``get_inflight_guard_stats``) does not exist yet on the unfixed scheduler.
+- The guard's age bookkeeping (``_running_since`` / ``_running_futures``)
+  does not exist yet on the unfixed scheduler.
   The helpers reference it defensively (``getattr``/``hasattr``) so the SAME
   file runs cleanly against both the red (unfixed) and the green (fixed)
   implementation; the leak simulation is identical either way — an id in
@@ -55,15 +55,13 @@ def _clean_inflight():
     with the fix, and clearing them keeps the same file hermetic on both.
     """
     sched._running_job_ids.clear()
-    for attr in ("_running_since", "_running_futures", "_forced_releases"):
+    for attr in ("_running_since", "_running_futures"):
         obj = getattr(sched, attr, None)
         if obj is not None:
             obj.clear()
-    if hasattr(sched, "_forced_release_count"):
-        sched._forced_release_count = 0
     yield
     sched._running_job_ids.clear()
-    for attr in ("_running_since", "_running_futures", "_forced_releases"):
+    for attr in ("_running_since", "_running_futures"):
         obj = getattr(sched, attr, None)
         if obj is not None:
             obj.clear()
@@ -146,12 +144,11 @@ class TestStaleInflightLeak:
         assert args[1] is False
         assert "in-flight" in args[2]
 
-        # …and emits the countable forced-release signal (log + probe stats).
+        # …and logs the recovery without a separate analytics history.
         assert any(
             "cron.inflight.forced_release" in r.message for r in caplog.records
         )
-        stats = sched.get_inflight_guard_stats()
-        assert stats["forced_releases"] == 1
+        assert not (tmp_path / "cron" / "inflight_forced_releases.jsonl").exists()
 
     def test_young_inflight_claim_is_not_force_released(self, tmp_path):
         """Bound the guard: a claim younger than its allowance (and with no
@@ -300,7 +297,6 @@ class TestStaleInflightSweep:
             assert sched.sweep_stale_inflight([job]) == [job["id"]]
         assert job["id"] not in sched.get_running_job_ids()
         mark.assert_not_called()
-        assert sched.get_inflight_guard_stats()["forced_releases"] == 1
 
     def test_claim_without_timestamp_is_adopted_then_swept(self, tmp_path):
         """An id injected with no recorded start (pre-guard claim) must not be
@@ -337,7 +333,6 @@ class TestWedgedJobRefiresWithoutRestart:
 
         assert n == 1, "wedged job must fire again without a gateway restart"
         assert job["id"] not in sched.get_running_job_ids()
-        assert sched.get_inflight_guard_stats()["forced_releases"] == 1
 
 
 class TestLedgerTerminalReconciliation:
@@ -496,7 +491,6 @@ class TestLedgerTerminalReconciliation:
              patch.object(sched, "mark_job_run") as mark:
             released = sched.sweep_stale_inflight([job])
 
-        assert job_id in released
+        assert released == [job_id]
         assert job_id not in sched.get_running_job_ids()
-        assert sched.get_inflight_guard_stats()["forced_releases"] == 1
         mark.assert_not_called()  # authoritative ledger row, no synthetic failure

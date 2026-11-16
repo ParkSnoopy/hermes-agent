@@ -175,7 +175,6 @@ hermes skills uninstall <skill-name>
 | [**flash-attention**](../user-guide/skills/optional/mlops/mlops-flash-attention.md) | Speed up long-sequence transformer training and inference. |
 | [**lambda-labs**](../user-guide/skills/optional/mlops/mlops-lambda-labs.md) | On-demand GPU cloud instances for ML training. |
 | [**llama-cpp**](../user-guide/skills/optional/mlops/mlops-inference-llama-cpp.md) | llama.cpp local GGUF inference + HF Hub model discovery. |
-| [**modal**](../user-guide/skills/optional/mlops/mlops-modal.md) | Serverless GPU cloud for ML jobs and model APIs. |
 | [**nemo-curator**](../user-guide/skills/optional/mlops/mlops-nemo-curator.md) | Curate LLM training data: dedupe, filter, PII redaction. |
 | [**obliteratus**](../user-guide/skills/optional/mlops/mlops-obliteratus.md) | OBLITERATUS: abliterate LLM refusals (diff-in-means). |
 | [**peft**](../user-guide/skills/optional/mlops/mlops-peft.md) | Fine-tune large LLMs with LoRA on limited GPU memory. |

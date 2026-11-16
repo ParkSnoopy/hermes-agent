@@ -1,9 +1,9 @@
-"""Each automatic compression entry point names itself in the attempt record.
+"""Each automatic compression entry point names its reason for compaction hooks.
 
 Gateway session hygiene compacts through ``agent._compress_context(..., trigger=...)`` from two
 places: the live codex app-server agent and the detached hygiene agent. Both must label the
-attempt ``gateway_hygiene`` so the content-free attempt telemetry does not report it as plain
-``auto``. These tests drive the real hygiene callers with an agent double that records the
+attempt ``gateway_hygiene`` for generic post-compaction notifications.
+These tests drive the real hygiene callers with an agent double that records the
 label it received.
 """
 

@@ -1,7 +1,7 @@
 # Terminal Environment Provider Plugins
 
 Hermes runs shell commands through a pluggable set of **terminal backends**.
-The built-in backends (local, Docker, Modal, Daytona, Vercel Sandbox, SSH)
+The built-in backends (local, Docker, Vercel Sandbox, SSH)
 live in the core repo under `tools/environments/`. The official
 [Singularity/Apptainer plugin](https://github.com/NousResearch/hermes-official-plugins/tree/main/singularity)
 is a complete worked example of this page. Third-party
@@ -106,7 +106,7 @@ hermes config set terminal.backend acmebox
 ## Rules
 
 - **Reserved names.** Registrations that collide with a built-in backend name
-  (`local`, `docker`, `modal`, `managed_modal`, `daytona`, `vercel_sandbox`,
+  (`local`, `docker`, `vercel_sandbox`,
   `ssh`) are rejected. Plugins extend the backend set; they
   never shadow in-tree backends.
 - **`create_environment` must accept `**kwargs`** and ignore unknown keys —
@@ -119,8 +119,7 @@ hermes config set terminal.backend acmebox
   approval layer ON). Don't rely on exceptions for control flow.
 - **Secrets belong in `strip_env_keys`.** Your vendor token must never be
   readable by a model-authored shell command; listing it strips it from every
-  spawned subprocess unconditionally, like the built-in `MODAL_*` /
-  `DAYTONA_API_KEY` handling.
+  spawned subprocess unconditionally.
 
 ## Environment object contract
 

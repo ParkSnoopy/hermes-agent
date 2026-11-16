@@ -140,7 +140,7 @@ Preview with `/rollback diff <N>` before restoring, and combine checkpoints with
 
 Be clear-eyed about what these controls defend against. As the [Security](../user-guide/security.md#user-defined-deny-rules-approvalsdeny) guide puts it:
 
-> Deny rules are a guardrail against an honest-but-wrong agent, the same threat model as the dangerous-pattern detector. They are not a sandbox against a deliberately adversarial process — for that, use an isolated backend (Docker, Modal) or an egress-restricted environment.
+> Deny rules are a guardrail against an honest-but-wrong agent, the same threat model as the dangerous-pattern detector. They are not a sandbox against a deliberately adversarial process — for that, use an isolated backend such as Docker or an egress-restricted environment.
 
 The same applies to the file-write guards: they apply to `write_file` and `patch` only, while the `terminal` tool runs as the same OS user. The denylist reduces accidental damage and gives models a clear stop signal; it does not sandbox a hostile or compromised agent. If your requirement is containment rather than guardrails, the answer is an isolated terminal backend — that's the boundary designed for it.
 

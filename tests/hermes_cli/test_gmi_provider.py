@@ -207,11 +207,8 @@ class TestGmiAuxiliary:
         assert model
         assert mock_openai.call_args.kwargs["api_key"] == "gmi-test-key"
         assert mock_openai.call_args.kwargs["base_url"] == "https://api.gmi-serving.com/v1"
-        # GMI profile declares default_headers with a HermesAgent User-Agent
-        # for traffic attribution. The generic profile-fallback branch in
-        # resolve_provider_client should carry it through to the OpenAI client.
         headers = mock_openai.call_args.kwargs.get("default_headers", {})
-        assert headers.get("User-Agent", "").startswith("HermesAgent/")
+        assert "User-Agent" not in headers
 
 
 

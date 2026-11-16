@@ -612,7 +612,7 @@ The image uses Debian 13.4 and includes:
 
 - A Python 3.14 environment synchronized from the committed `uv.lock`, followed
   by a no-dependency editable install of Hermes.
-- The curated extras `all`, `messaging`, `otlp`, `anthropic`, `bedrock`,
+- The curated extras `all`, `messaging`, `anthropic`, `bedrock`,
   `azure-identity`, and `matrix`. This is not `--all-extras`.
 - Node.js 26 and npm from the digest-pinned Node source image.
 - PM-pinned uv, full Chromium, FFmpeg, and ripgrep in `/opt/hermes/tools`.
@@ -741,7 +741,7 @@ persisted config manually before letting the new image rewrite it.
 
 When using Docker as the execution environment (not the methods above, but when the agent runs commands inside a Docker sandbox — see [Configuration → Docker Backend](./configuration.md#docker-backend)), Hermes reuses a single long-lived container for all tool calls and automatically bind-mounts the skills directory (`~/.hermes/skills/`) and any credential files declared by skills into that container as read-only volumes. Skill scripts, templates, and references are available inside the sandbox without manual configuration, and because the container persists for the life of the Hermes process, any dependencies you install or files you write stay around for the next tool call.
 
-The same syncing happens for SSH and Modal backends — skills and credential files are uploaded via rsync or the Modal mount API before each command.
+The SSH backend syncs skills and credential files using rsync.
 
 ## Installing more tools in the container
 

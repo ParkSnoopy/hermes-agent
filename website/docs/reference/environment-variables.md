@@ -187,7 +187,6 @@ For native Anthropic auth, Hermes prefers Claude Code's own credential files whe
 | `OPENVIKING_ENDPOINT` | OpenViking server URL (default: `http://127.0.0.1:1933`) |
 | `BRV_API_KEY` | ByteRover API key (optional, for cloud sync — local-first by default) ([app.byterover.dev](https://app.byterover.dev)) |
 | `SUPERMEMORY_API_KEY` | Semantic long-term memory with profile recall and session ingest ([supermemory.ai](https://supermemory.ai)) |
-| `DAYTONA_API_KEY` | Daytona cloud sandboxes ([daytona.io](https://daytona.io/)) |
 | `SPRITES_TOKEN` | Sprites cloud sandboxes, read by the [`sprites` plugin](https://github.com/NousResearch/hermes-plugin-sprites) ([fly.io/sprites](https://fly.io/sprites)) |
 | `VERCEL_TOKEN` | Vercel Sandbox access token ([vercel.com](https://vercel.com/)) |
 | `VERCEL_PROJECT_ID` | Vercel project ID (required with `VERCEL_TOKEN`) |
@@ -206,23 +205,6 @@ Secrets consumed by specific bundled / optional skills. Each is only needed if y
 | `LINEAR_API_KEY` | `linear` | Linear personal API key. |
 | `TENOR_API_KEY` | `gif-search` | Tenor API key for GIF search. |
 
-### Langfuse Observability
-
-Environment variables for the official [`langfuse`](https://github.com/NousResearch/hermes-official-plugins/tree/main/langfuse) catalog plugin (formerly bundled as `observability/langfuse`). Set these in `~/.hermes/.env`. The plugin must be installed (`hermes plugins install langfuse`) before any of these take effect.
-
-| Variable | Description |
-|----------|-------------|
-| `HERMES_LANGFUSE_PUBLIC_KEY` | Langfuse project public key (`pk-lf-...`). Required. |
-| `HERMES_LANGFUSE_SECRET_KEY` | Langfuse project secret key (`sk-lf-...`). Required. |
-| `HERMES_LANGFUSE_BASE_URL` | Langfuse server URL (default: `https://cloud.langfuse.com`). Set for self-hosted. |
-| `HERMES_LANGFUSE_ENV` | Environment tag on traces (`production`, `staging`, …) |
-| `HERMES_LANGFUSE_RELEASE` | Release/version tag on traces |
-| `HERMES_LANGFUSE_SAMPLE_RATE` | SDK sampling rate 0.0–1.0 (default: `1.0`) |
-| `HERMES_LANGFUSE_MAX_CHARS` | Per-field truncation for serialized payloads (default: `12000`) |
-| `HERMES_LANGFUSE_MAX_DEPTH` | Nesting depth kept in captured tool inputs/outputs before values become `<max-depth>` (default: `4`; invalid values warn and keep the default) |
-| `HERMES_LANGFUSE_CAPTURE` | Content capture mode: `metadata` (no content), `sanitized` (default: secret redaction + truncation) or `full` (truncation only) |
-| `HERMES_LANGFUSE_DEBUG` | `true` enables verbose plugin logging to `agent.log` |
-| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | Standard Langfuse SDK names. Accepted as fallbacks when the `HERMES_LANGFUSE_*` equivalents are unset. |
 
 ### Nous Tool Gateway
 
@@ -239,7 +221,7 @@ These variables configure the [Tool Gateway](../user-guide/features/tool-gateway
 
 | Variable | Description |
 |----------|-------------|
-| `TERMINAL_ENV` | Backend: `local`, `docker`, `ssh`, `modal`, `daytona`, `vercel_sandbox`, or a plugin backend (`singularity`, `sprites`) |
+| `TERMINAL_ENV` | Backend: `local`, `docker`, `ssh`, `vercel_sandbox`, or a plugin backend (`singularity`, `sprites`) |
 | `HERMES_DOCKER_BINARY` | Override the container binary Hermes shells out to (e.g. `podman`, `/usr/local/bin/docker`). When unset, Hermes auto-discovers `docker` or `podman` on `PATH`. Needed when both are installed and you want the non-default, or when the binary lives outside `PATH`. |
 | `TERMINAL_DOCKER_IMAGE` | Docker image (default: `nousresearch/hermes-sandbox:desktop`) |
 | `TERMINAL_DOCKER_FORWARD_ENV` | JSON array of env var names to explicitly forward into Docker terminal sessions. Note: skill-declared `required_environment_variables` are forwarded automatically — you only need this for vars not declared by any skill. |
@@ -248,8 +230,6 @@ These variables configure the [Tool Gateway](../user-guide/features/tool-gateway
 | `TERMINAL_DOCKER_EXTRA_ARGS` | JSON array of extra `docker run` arguments (e.g. `["--memory","4g"]`) |
 | `TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE` | Advanced opt-in: mount the launch cwd into Docker `/workspace` (`true`/`false`, default: `false`) |
 | `TERMINAL_SINGULARITY_IMAGE` | Singularity image or `.sif` path (read by the [`singularity` plugin](https://github.com/NousResearch/hermes-official-plugins/tree/main/singularity)) |
-| `TERMINAL_MODAL_IMAGE` | Modal container image |
-| `TERMINAL_DAYTONA_IMAGE` | Daytona sandbox image |
 | `TERMINAL_VERCEL_RUNTIME` | Vercel Sandbox runtime (`node24`, `node22`, `python3.13`) |
 | `TERMINAL_TIMEOUT` | Command timeout in seconds |
 | `TERMINAL_LIFETIME_SECONDS` | Max lifetime for terminal sessions in seconds |
@@ -267,7 +247,7 @@ For cloud sandbox backends, persistence is filesystem-oriented. `TERMINAL_LIFETI
 | `TERMINAL_SSH_PORT` | SSH port (default: 22) |
 | `TERMINAL_SSH_KEY` | Path to private key |
 
-## Container Resources (Docker, Modal, Daytona, container plugin backends)
+## Container Resources (Docker, Vercel Sandbox, container plugin backends)
 
 | Variable | Description |
 |----------|-------------|
@@ -391,7 +371,7 @@ The `TEAMS_*` variables below are fallbacks; values configured in `platforms.msg
 
 | Variable | Description |
 |----------|-------------|
-| `HERMES_NEMO_RELAY_PLUGINS_TOML` | Optional explicit path to a standard NeMo Relay `plugins.toml` loaded process-wide by Hermes core. When unset, Relay uses its normal user configuration followed by the higher-precedence machine-wide system configuration. When set, this file replaces the user configuration while the system configuration still applies above it. The removed `HERMES_NEMO_RELAY_ATOF_*` and `HERMES_NEMO_RELAY_ATIF_*` variables are ignored; `hermes update` / `hermes migrate relay` converts them into `<hermes home>/relay-plugins.toml` and sets this variable — see the [migration note and full example](../user-guide/features/built-in-plugins.md#nemo-relay-native-integration-migration-note). See [NeMo Relay observability configuration](https://docs.nvidia.com/nemo/relay/configure-plugins/observability/about). |
+| `HERMES_NEMO_RELAY_PLUGINS_TOML` | Optional explicit path to a standard NeMo Relay `plugins.toml` loaded process-wide by Hermes core. When unset, Relay uses its normal user configuration followed by the higher-precedence machine-wide system configuration. When set, this file replaces the user configuration while the system configuration still applies above it. See the [Relay integration note](../user-guide/features/built-in-plugins.md#nemo-relay-native-integration-migration-note). |
 
 ## Agent Behavior
 
@@ -441,7 +421,6 @@ The `TEAMS_*` variables below are fallbacks; values configured in `platforms.msg
 | `HERMES_DEBUG_INTERRUPT` | Set to `1`/`true` to log detailed interrupt/cancel tracing to `agent.log`; `0`/`false`/`off` (or unset) keep it off. |
 | `HERMES_DUMP_REQUESTS` | Dump API request payloads to log files (`true`/`false`) |
 | `HERMES_DUMP_REQUEST_STDOUT` | Dump API request payloads to stdout instead of log files. |
-| `HERMES_OAUTH_TRACE` | Set to `1` to log OAuth token exchange and refresh attempts. Includes redacted timing info. |
 | `HERMES_AGENT_HELP_GUIDANCE` | Append additional guidance text to the system prompt for custom deployments. |
 | `HERMES_AGENT_LOGO` | Override the ASCII banner logo at CLI startup. |
 | `DELEGATION_MAX_CONCURRENT_CHILDREN` | Max parallel subagents per `delegate_task` batch (default: `3`, floor of 1, no ceiling). Also configurable via `delegation.max_concurrent_children` in `config.yaml` — the config value takes priority. |
@@ -488,7 +467,7 @@ Hermes sets these itself to carry state across a boundary where no `config.yaml`
 | Variable | Description |
 |----------|-------------|
 | `HERMES_SESSION_ID` | **Exported automatically into every tool subprocess** Hermes spawns (`terminal`, `execute_code`, persistent shell, Docker/Singularity backends, delegated subagent runs). Set by the agent to the current session ID; user scripts called from tools can read it to correlate their output, telemetry, or side effects with the originating Hermes session. **You should not set this manually** — overriding it from a parent shell only takes effect outside an agent run, and is overwritten the moment the agent starts a session. |
-| `AI_AGENT` | **Set to `hermes-agent` by the CLI and gateway entry points** (only when not already set by an outer harness), and exported into every terminal-tool shell — including remote backends (Docker, SSH, Modal, Daytona, Singularity, Vercel). The emerging cross-agent standard for child-process attribution — generic tooling (e.g. huggingface_hub's agent detection) reads it to know it runs under an AI agent. The value matches Hermes' id in the public agent-harness registry. Don't set manually. |
+| `AI_AGENT` | **Set to `hermes-agent` by the CLI and gateway entry points** (only when not already set by an outer harness), and exported into every terminal-tool shell — including remote backends (Docker, SSH, Singularity, Vercel). The emerging cross-agent standard for child-process attribution — generic tooling (e.g. huggingface_hub's agent detection) reads it to know it runs under an AI agent. The value matches Hermes' id in the public agent-harness registry. Don't set manually. |
 | `HERMES_AGENT` | **Set to `true` by the CLI and gateway entry points** and exported into every terminal-tool shell so child processes can detect they run inside Hermes specifically. Don't set manually. |
 
 Terminal session snapshots do not persist injected session/agent attribution

@@ -161,7 +161,7 @@ def _check_git_and_rg(should_fix: bool, f: Finding) -> None:
         check_info(f"Install for faster search: {_system_package_install_cmd('ripgrep')}")
 
 
-_BUILTIN_TERMINAL_BACKENDS = {"local", "docker", "modal", "managed_modal", "daytona", "vercel_sandbox", "ssh"}
+_BUILTIN_TERMINAL_BACKENDS = {"local", "docker", "vercel_sandbox", "ssh"}
 
 
 def _check_docker_backend(terminal_env: str, running_in_container: bool, issues: list[str]) -> None:
@@ -212,17 +212,6 @@ def _require(cond, ok, bad, issue: str, issues: list[str]) -> None:
         issues.append(issue)
 
 
-def _check_daytona_backend(issues: list[str]) -> None:
-    _require(os.getenv("DAYTONA_API_KEY"), ("Daytona API key", "(configured)"),
-             ("Daytona API key missing", "(needed for the 'daytona' terminal backend)"),
-             "run `hermes setup terminal` (Daytona) to enter it.", issues)
-    try:
-        from daytona import Daytona
-        check_ok("daytona SDK", "(installed)")
-    except ImportError:
-        _fail_and_issue("daytona SDK not installed", "(run hermes setup terminal)", "Run hermes setup terminal and select Daytona, then restart Hermes", issues)
-
-
 def _check_vercel_backend(issues: list[str]) -> None:
     from tools.terminal_tool_backends import _SUPPORTED_VERCEL_RUNTIMES
     runtime = os.getenv("TERMINAL_VERCEL_RUNTIME", "node24").strip() or "node24"
@@ -264,12 +253,12 @@ def _check_plugin_backend(terminal_env: str, issues: list[str]) -> None:
         _require(ok, (label, detail), (label, detail), detail.strip("()"), issues)
 
 
-_BACKEND_CHECKS = {"ssh": _check_ssh_backend, "daytona": _check_daytona_backend, "vercel_sandbox": _check_vercel_backend}
+_BACKEND_CHECKS = {"ssh": _check_ssh_backend, "vercel_sandbox": _check_vercel_backend}
 
 
 @doctor_check()
 def _check_terminal_backend(should_fix: bool, f: Finding) -> None:
-    """Docker/SSH/Daytona/Vercel/plugin terminal backends, gated on TERMINAL_ENV."""
+    """Docker/SSH/Vercel/plugin terminal backends, gated on TERMINAL_ENV."""
     terminal_env = os.getenv("TERMINAL_ENV", "local")
     try:
         from hermes_constants import is_container as _is_container

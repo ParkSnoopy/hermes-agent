@@ -12,8 +12,7 @@ from hermes_cli.nous_account import (
 from tools.managed_tool_gateway import is_managed_tool_gateway_ready
 from utils import is_truthy_value
 from tools.tool_backend_helpers import (
-    fal_key_is_configured, has_direct_modal_credentials, normalize_browser_cloud_provider, normalize_modal_mode,
-    resolve_modal_backend_state, resolve_openai_audio_api_key
+    fal_key_is_configured, normalize_browser_cloud_provider, resolve_openai_audio_api_key
 )
 
 
@@ -30,7 +29,7 @@ class _FeatureSpec:
     # the free pool funds image but NOT video; STT shares TTS's "openai-audio" category.
     coverage: str
     gateway: str  # managed gateway probed for readiness (video rides image's fal-queue)
-    # Config (section, selection field) written by apply_gateway_defaults; None = not offered (modal).
+    # Config (section, selection field) written by apply_gateway_defaults.
     section_field: Optional[tuple[str, str]] = None
     offer_label: str = ""
     direct_label: str = ""
@@ -64,7 +63,7 @@ _FEATURES: dict[str, _FeatureSpec] = {
         "Browser automation (Browser Use)", "Browser Use/Browserbase key",
         ("BROWSER_USE_API_KEY", "BROWSERBASE_API_KEY"),
     ),
-    "modal": _FeatureSpec("Modal execution", False, "modal", "modal"),
+
 }
 
 _FEATURE_ORDER = tuple(_FEATURES)
@@ -387,29 +386,6 @@ def _browser_feature(
     )
 
 
-def _modal_feature(terminal_cfg: dict[str, object], tool_enabled: bool, managed: bool, managed_tools_flag: bool) -> NousFeatureState:
-    terminal_backend = _norm(terminal_cfg.get("backend"), "local")
-    modal_mode = normalize_modal_mode(terminal_cfg.get("modal_mode"))
-    direct_modal = has_direct_modal_credentials()
-    modal_state = resolve_modal_backend_state(modal_mode, has_direct=direct_modal, managed_ready=managed, managed_enabled=managed_tools_flag)
-    is_modal = terminal_backend == "modal"
-    # A non-modal terminal backend, or a resolved managed/direct selection, is always "available";
-    # otherwise report what the mode could use.
-    selected = modal_state["selected_backend"] if is_modal else None
-    if not is_modal or selected in ("managed", "direct"):
-        available, active = True, bool(tool_enabled)
-        managed_now = selected == "managed" and bool(tool_enabled)
-        direct_override = is_modal and selected == "direct" and bool(tool_enabled)
-    else:
-        managed_now = direct_override = active = False
-        available = bool({"managed": managed, "direct": direct_modal}.get(modal_mode, managed or direct_modal))
-    return _state(
-        "modal", available=available, active=active, managed_by_nous=managed_now, direct_override=direct_override,
-        toolset_enabled=tool_enabled, current_provider="Modal" if is_modal else terminal_backend or "local",
-        explicit_configured=is_modal,
-    )
-
-
 def get_nous_subscription_features(config: Optional[dict[str, object]] = None, *, force_fresh: bool = False) -> NousSubscriptionFeatures:
     if config is None:
         config = load_config() or {}
@@ -419,7 +395,7 @@ def get_nous_subscription_features(config: Optional[dict[str, object]] = None, *
     # availability is then narrowed by coverage (the pool funds image but not video, etc.).
     nous_auth_present = bool(account_info and account_info.logged_in)
     managed_tools_flag = nous_auth_present and account_info.tool_gateway_entitled
-    enabled = {key: _toolset_enabled(config, key) for key in ("web", "image_gen", "video_gen", "tts", "browser", "terminal")}
+    enabled = {key: _toolset_enabled(config, key) for key in ("web", "image_gen", "video_gen", "tts", "browser")}
     # Stored selections (strict model): "nous" = managed gateway; vendor name = that vendor direct;
     # None = never configured (autodetect). Lockstep with tool_backend_helpers.read_selection: a
     # merged ``stt.provider: local`` here means the raw file holds it — a genuine selection.
@@ -430,7 +406,7 @@ def get_nous_subscription_features(config: Optional[dict[str, object]] = None, *
     use_gateway = {key: value == "nous" for key, value in selected.items()}
     # Managed availability per feature. A stored VENDOR selection pins the category to direct
     # credentials — managed availability must not light it up (the runtime errors, not reroutes).
-    # Features without a config selection field (modal) have no pin and read as unselected.
+
     managed = {
         key: (
             managed_tools_flag and is_managed_tool_gateway_ready(spec.gateway)
@@ -455,7 +431,7 @@ def get_nous_subscription_features(config: Optional[dict[str, object]] = None, *
         "browser": _browser_feature(
             _section(config, "browser"), enabled["browser"], managed["browser"], use_gateway["browser"], direct_firecrawl,
         ),
-        "modal": _modal_feature(_section(config, "terminal"), enabled["terminal"], managed["modal"], managed_tools_flag),
+
     }
     return NousSubscriptionFeatures(
         subscribed=provider_is_nous or nous_auth_present, nous_auth_present=nous_auth_present,

@@ -112,10 +112,7 @@ class TestPersistedStaleErrorRecovery:
             "wedged stale-error job must be re-dispatched without force-run"
         )
         assert latest["status"] == "completed"
-        # The recovery must be countable / probe-visible.
-        from cron import jobs as Jmod
-        stats = Jmod.get_persisted_error_recovery_stats()
-        assert stats["persisted_error_recoveries"] >= 1
+        assert not (env["home"] / "cron" / "persisted_error_recoveries.jsonl").exists()
 
 
     def test_recent_error_within_cadence_not_force_rearmed(self, cron_env, monkeypatch):

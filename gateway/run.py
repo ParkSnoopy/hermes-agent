@@ -1875,8 +1875,6 @@ def _bridge_terminal_config_to_env(_terminal_cfg: dict) -> None:
         "lifetime_seconds": "TERMINAL_LIFETIME_SECONDS",
         "docker_image": "TERMINAL_DOCKER_IMAGE",
         "docker_forward_env": "TERMINAL_DOCKER_FORWARD_ENV",
-        "modal_image": "TERMINAL_MODAL_IMAGE",
-        "daytona_image": "TERMINAL_DAYTONA_IMAGE",
         "vercel_runtime": "TERMINAL_VERCEL_RUNTIME",
         "vercel_image": "TERMINAL_VERCEL_IMAGE",
         "ssh_host": "TERMINAL_SSH_HOST",
@@ -2571,8 +2569,7 @@ def _abandon_timed_out_gateway_turn(
             request_hard_interrupt(agent, _INTERRUPT_REASON_TIMEOUT, tool_reason=_INTERRUPT_TOOL_REASON_TIMEOUT)
         except Exception:
             logger.debug("Timed-out agent interrupt failed", exc_info=True)
-        from hermes_cli.observability.shared_metrics_process import record_watchdog_turn_abort
-        record_watchdog_turn_abort(agent)
+
 
     try:
         _reap_gateway_turn_processes(
@@ -4360,18 +4357,6 @@ async def _shutdown_mcp_servers_nonblocking(timeout: float = 5.0, config: Any = 
     return done
 
 
-def _shutdown_gateway_health_export(runner: Any) -> None:
-    """Idempotently drain and detach Gateway Health OTLP export."""
-    runtime = getattr(runner, "_gateway_health_export_runtime", None)
-    if runtime is None:
-        return
-    runner._gateway_health_export_runtime = None
-    try:
-        runtime.shutdown()
-    except Exception:
-        logger.debug("gateway health OTLP export shutdown failed", exc_info=True)
-
-
 def _gateway_stderr_formatter() -> logging.Formatter:
     """Return the redacting formatter used by the gateway stderr stream."""
     from agent.redact import RedactingFormatter
@@ -4890,9 +4875,9 @@ def main():
 
 
 def _exit_after_graceful_shutdown(exit_code: int) -> None:
-    """Flush stdio, release the PID file + lock, stamp the clean exit, flush opt-in metrics, hard-exit.
+    """Flush stdio, release the PID file + lock, stamp the clean exit, hard-exit.
     ``os._exit`` (not ``sys.exit``): SystemExit runs ``Py_FinalizeEx``, which joins every non-daemon
-    thread — exactly the hang a wedged worker causes. It bypasses ``atexit``, so the metrics flush,
+    thread — exactly the hang a wedged worker causes. It bypasses ``atexit``, so the
     PID/lock release, CPU profile and bounded log drain (``QueueListener`` thread) are done here explicitly.
     The atexit ``remove_pid_file`` / ``release_gateway_runtime_lock`` (``start_gateway``) never run either:
     ``_stop_impl`` releases both on full shutdown, but the EARLY exits (clean-fatal-config #51228,
@@ -4910,14 +4895,10 @@ def _exit_after_graceful_shutdown(exit_code: int) -> None:
     def _mark_exited() -> None:
         # Single funnel every graceful exit passes through, so the next boot's unclean-death detector
         # fires only for genuine SIGKILL/OOM/VM deaths. Ownership-guarded against an old --replace life.
-        from hermes_cli.observability.shared_metrics_process import stamp_exit
-        stamp_exit("clean")  # the exit-metrics marker too: os._exit skips its atexit stamp (never raises)
+
         from gateway.lifecycle_ledger import mark_exited
         mark_exited(exit_code, reason="graceful_shutdown")
 
-    def _flush_metrics() -> None:  # after the clean stamp: a supervisor kill mid-flush is no unclean death
-        from hermes_cli.observability.shared_metrics_process import flush_before_hard_exit
-        flush_before_hard_exit()  # the runtimes' atexit flush: open sessions + queued opt-in rows (bounded)
 
     def _write_cpu_profile() -> None:  # --cpu-profile's atexit writer never runs past os._exit; no-op when off
         from hermes_cli.cpu_profile import write_cpu_profile
@@ -4929,7 +4910,7 @@ def _exit_after_graceful_shutdown(exit_code: int) -> None:
         from hermes_logging import drain_log_queue
         drain_log_queue(timeout=1.0)
 
-    for _step in (_release_locks, _mark_exited, _flush_metrics, _write_cpu_profile, _drain_logs):
+    for _step in (_release_locks, _mark_exited, _write_cpu_profile, _drain_logs):
         _best_effort(_step)
     os._exit(exit_code)
 

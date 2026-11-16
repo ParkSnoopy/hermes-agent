@@ -14,7 +14,7 @@ than the budget (image-heavy history) overshoots it while it runs instead of mis
 overshoot is shed by the first insert after it goes idle. The protected entries pin strings the running
 conversations hold anyway, so the overshoot costs only fingerprint structure.
 
-``close()``, compaction and the compressor telemetry also drop entries they know are dead
+``close()`` and compaction also drop entries they know are dead
 (``forget_message_token_memo``). Eviction never changes an estimate: a later lookup recomputes the same value.
 """
 

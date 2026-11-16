@@ -1142,13 +1142,8 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
                 entry = (name, True)
         return entry
 
-    # Shared-metrics surface for user-typed commands; None where another process owns the count
-    # (the TUI slash worker: tui_gateway records the command it forwards).
-    _slash_metrics_surface: str | None = "cli"
-
-    def process_command(self, command: str, *, redispatch: bool = False) -> bool:
-        """Dispatch a slash command; returns False to exit the REPL. ``redispatch`` marks an internal
-        re-entry (quick-command alias, prefix expansion) so the user's command is counted once."""
+    def process_command(self, command: str) -> bool:
+        """Dispatch a slash command; returns False to exit the REPL."""
         cmd_lower = command.lower().strip()  # lowercase only for matching; args keep their case
         cmd_original = command.strip()
 
@@ -1157,9 +1152,7 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
         _base_word = cmd_lower.split()[0].lstrip("/")
         _cmd_def = _resolve_cmd(_base_word)
         canonical = _cmd_def.name if _cmd_def else _base_word
-        if not redispatch and self._slash_metrics_surface:
-            from hermes_cli.observability.shared_metrics_events import record_slash_command
-            record_slash_command(command=canonical, surface=self._slash_metrics_surface)
+
 
         # A bare `/resume` prompt is one-shot: any other command disarms it so a later
         # number isn't swallowed as a stale selection.
@@ -1232,7 +1225,7 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
             target = qcmd.get("target", "").strip()
             if target:
                 target = target if target.startswith("/") else f"/{target}"
-                return self.process_command(f"{target} {user_args}".strip(), redispatch=True)
+                return self.process_command(f"{target} {user_args}".strip())
             self._console_print('[bold red]' + format(((f"Quick command '{base_cmd}' has no target defined")), '') + '[/]')
             return True
         if qtype != "exec":
@@ -1355,7 +1348,7 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
                     matches = shortest
         if len(matches) == 1 and matches[0] != typed_base:
             # Expand to the full name, preserving arguments.
-            return self.process_command(matches[0] + cmd_original.strip()[len(typed_base):], redispatch=True)
+            return self.process_command(matches[0] + cmd_original.strip()[len(typed_base):])
         if len(matches) > 1:
             _cprint(f"{_ACCENT}{(f'Ambiguous command: {cmd_lower}')}{_RST}")
             _cprint(f"{_DIM}{('Did you mean: {candidates}?').format(candidates=', '.join(sorted(matches)))}{_RST}")
@@ -1414,8 +1407,7 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
         app = self._tui_build_application(layout, kb, style)
         _disable_prompt_toolkit_cpr_warning(app)
         app.after_render += self._pet_flush_kitty_frame
-        from hermes_cli.observability.shared_metrics_startup import cli_prompt_ready_handler
-        app.after_render += cli_prompt_ready_handler()
+
         self._app = app
 
         # Ghost status-bar lines on resize: pt's renderer scrolls the terminal after each

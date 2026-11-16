@@ -241,7 +241,7 @@ same place. `bot_desktop.placement` decides where:
 | `local` | gateway host | The terminal, the screen, the browser and `computer_use` all share the machine running the gateway. |
 | `docker`, `ssh`, `singularity` (plugin) | **inside the sandbox** | Xvnc + Xfce, Chromium and cua-driver run in the container / on the SSH host, spawned through the same `docker exec` / `ssh` channel the terminal uses. The pane streams the sandbox's screen; nothing of the host desktop is reachable. |
 | A plugin backend that declares `supports_streams` | **inside the sandbox** | Same as above, through the plugin's own exec channel. |
-| `modal`, `daytona`, `vercel_sandbox`, other plugin backends | **refused** | These backends cannot host a display yet. Rather than quietly running the screen on the host beside the sandbox you chose for the agent, `Start` explains and points at `placement: gateway`. |
+| `vercel_sandbox`, other plugin backends | **refused** | These backends cannot host a display yet. Rather than quietly running the screen on the host beside the sandbox you chose for the agent, `Start` explains and points at `placement: gateway`. |
 
 `placement: gateway` forces the pre-existing behaviour (screen on the gateway
 host even with a sandboxed terminal) as an explicit opt-in; `placement:
@@ -262,7 +262,7 @@ it, so the restarted gateway re-attaches to a still-running sandbox, and
 ### The sandbox image
 
 The sandbox needs the desktop stack. `nousresearch/hermes-sandbox:desktop` is
-the default image for every container backend (Docker, Modal, Daytona,
+the default image for every container backend (Docker,
 Singularity): the `nikolaik/python-nodejs` base (Python 3.13 / Node 26) plus
 TigerVNC, the Xfce components, a headed Chromium, `cua-driver`
 and the everyday tools that base lacked (jq, ripgrep, fd, tmux, rsync, sudo for
@@ -314,9 +314,7 @@ packages installed inside the container with `apt`/`pip`/`npm -g` are
 reinstalled on demand, and Python 3.11 virtualenvs need a rebuild on 3.13.
 Gateways and cron never decide; they keep the sandbox and log the notice.
 Configs that literally held the old default were unset on upgrade (that value
-was the template copied, not a pin). Modal restores its snapshot and Daytona
-reuses its labeled sandbox regardless of the configured image, so an existing
-sandbox there is untouched and only a fresh one gets the new image. Desktop processes run as the image's unprivileged `pn` (uid 1000);
+was the template copied, not a pin). Desktop processes run as the image's unprivileged `pn` (uid 1000);
 Chromium gets `--no-sandbox` inside containers (Docker's seccomp profile
 denies the user namespaces its own sandbox needs; the container is the
 sandbox).

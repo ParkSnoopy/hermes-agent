@@ -54,14 +54,14 @@ class TestToolResolution:
 class TestCwdHandling:
     """Verify host paths are sanitized for container backends."""
 
-    def test_home_path_replaced_for_modal(self, monkeypatch):
-        """TERMINAL_CWD=/home/user/... should be replaced with /root for modal."""
-        monkeypatch.setenv("TERMINAL_ENV", "modal")
+    def test_home_path_replaced_for_docker(self, monkeypatch):
+        """TERMINAL_CWD=/home/user/... should be replaced with /root for docker."""
+        monkeypatch.setenv("TERMINAL_ENV", "docker")
         monkeypatch.setenv("TERMINAL_CWD", "/home/dakota/github/hermes-agent")
         config = _tt_mod._get_env_config()
         assert config["cwd"] == "/root", (
             f"Expected /root, got {config['cwd']}. "
-            "/home/ paths should be replaced for modal backend."
+            "/home/ paths should be replaced for docker backend."
         )
 
     def test_users_path_replaced_for_docker_by_default(self, monkeypatch):
@@ -87,9 +87,9 @@ class TestCwdHandling:
         assert config["host_cwd"] == "/Users/someone/projects"
         assert config["docker_mount_cwd_to_workspace"] is True
 
-    def test_windows_path_replaced_for_modal(self, monkeypatch):
-        """TERMINAL_CWD=C:\\Users\\... should be replaced for modal."""
-        monkeypatch.setenv("TERMINAL_ENV", "modal")
+    def test_windows_path_replaced_for_docker(self, monkeypatch):
+        """TERMINAL_CWD=C:\\Users\\... should be replaced for docker."""
+        monkeypatch.setenv("TERMINAL_ENV", "docker")
         monkeypatch.setenv("TERMINAL_CWD", "C:\\Users\\someone\\projects")
         config = _tt_mod._get_env_config()
         assert config["cwd"] == "/root"
@@ -114,7 +114,7 @@ class TestCwdHandling:
         config = _tt_mod._get_env_config()
         assert config["cwd"] == "/vercel/sandbox"
 
-    @pytest.mark.parametrize("backend", ["modal", "docker", "daytona"])
+    @pytest.mark.parametrize("backend", ["docker"])
     def test_default_cwd_is_root_for_container_backends(self, backend, monkeypatch):
         """Container backends should default to /root, not ~."""
         monkeypatch.setenv("TERMINAL_ENV", backend)
@@ -179,24 +179,6 @@ class TestCwdHandling:
         assert config["cwd"] == "/home/remote-user/work", (
             "SSH backend should preserve /home/ paths"
         )
-
-
-# =========================================================================
-# Test 5: ephemeral_disk version check
-# =========================================================================
-
-
-
-# =========================================================================
-# Test 6: ModalEnvironment defaults
-# =========================================================================
-
-
-
-# =========================================================================
-# Test 7: ensurepip fix in ModalEnvironment
-# =========================================================================
-
 
 
 # =========================================================================
@@ -269,15 +251,14 @@ class TestDockerHostBindApproval:
             {"env_type": "docker", "docker_volumes": ["C:\\Users:/data"]}) is True
         # Other container backends never report host access.
         assert _tt_mod._docker_has_host_access(
-            {"env_type": "modal", "docker_volumes": ["/tmp:/x"]}) is False
+            {"env_type": "vercel_sandbox", "docker_volumes": ["/tmp:/x"]}) is False
 
     def test_should_skip_container_guards(self):
         """Docker skips only when isolated; other sandboxes always skip."""
         import tools.approval as A
         assert A._should_skip_container_guards("docker", has_host_access=False) is True
         assert A._should_skip_container_guards("docker", has_host_access=True) is False
-        assert A._should_skip_container_guards("modal", has_host_access=True) is True
-        assert A._should_skip_container_guards("daytona") is True
+        assert A._should_skip_container_guards("vercel_sandbox") is True
         assert A._should_skip_container_guards("local") is False
 
     def test_raising_registry_lookup_keeps_container_guards_on(self, monkeypatch):

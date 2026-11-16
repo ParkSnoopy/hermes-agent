@@ -7,8 +7,7 @@ description: "Read-only telemetry contract for plugins: event families, correlat
 
 Hermes observer hooks are the read-only telemetry contract for plugins that
 need to reconstruct agent execution without changing runtime behavior. This
-contract supports trace, metrics, audit, replay, and export integrations such
-as Langfuse, OpenTelemetry-style collectors, and NeMo Relay.
+contract supports integrations that need to inspect lifecycle events.
 
 Observer hooks are intentionally backend-neutral. They expose stable lifecycle
 events, correlation IDs, sanitized payloads, timing, status, and error fields.
@@ -19,9 +18,7 @@ Behavior-changing request or execution wrappers are outside this observer
 contract. Observer hooks should report what happened; they should not replace
 provider requests, tool arguments, or execution callbacks.
 
-Hermes also has a first-party NeMo Relay shared-metrics path. It uses these
-lifecycle boundaries directly and does not require enabling an observability
-plugin. See [Relay shared metrics](relay-shared-metrics.md).
+
 
 ## Contract
 
@@ -332,15 +329,3 @@ def on_post_tool_call(**kwargs):
 Use `session_id`, `turn_id`, `api_request_id`, and `tool_call_id` for span
 correlation. Use subagent and approval hooks when the export format supports
 nested agent work or security lifecycle events.
-
-## Existing Consumers
-
-The official [Langfuse catalog plugin](https://github.com/NousResearch/hermes-official-plugins/tree/main/langfuse) demonstrates direct hook-based
-observability for turns, provider requests, and tool calls.
-
-The native NeMo Relay SDK integration maps Hermes session, turn, LLM, and tool
-lifecycles to Relay. Relay's discovered user and system configuration, or an
-explicit file selected with `HERMES_NEMO_RELAY_PLUGINS_TOML`, can add
-[ATOF, ATIF, or OTEL](https://docs.nvidia.com/nemo/relay/configure-plugins/observability/about)
-exporters and execution middleware; see
-[Relay shared metrics](relay-shared-metrics.md).

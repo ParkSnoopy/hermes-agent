@@ -58,9 +58,9 @@ The same subscription unlocks the [Tool Gateway](../user-guide/features/tool-gat
 | **Image generation** | FAL | Nine models under one endpoint: FLUX 2 Klein 9B, FLUX 2 Pro, Z-Image Turbo, Nano Banana Pro (Gemini 3 Pro Image), GPT Image 1.5, GPT Image 2, Ideogram V3, Recraft V4 Pro, Qwen Image. |
 | **Text-to-speech** | OpenAI TTS | High-quality TTS without a separate OpenAI key. Enables [voice mode](../user-guide/features/voice-mode.md). |
 | **Cloud browser automation** | Browser Use | Headless cloud Chromium sessions that `browser_exec` drives over CDP. No Browserbase account needed. |
-| **Cloud terminal sandbox** | Modal | Serverless terminal sandboxes for code execution (optional add-on). |
 
-Without the gateway, hooking each of those up means a web search account, a FAL account, a Browser Use account, an OpenAI key, and a Modal account — five separate signups, five separate dashboards, five separate top-up flows. With the gateway, all of it routes through one subscription.
+
+Without the gateway, hooking each of those up means a web search account, a FAL account, a Browser Use account, and an OpenAI key. With the gateway, these services route through one subscription.
 
 You can also enable just specific gateway tools (e.g. web search but not image generation) — see [Mixing the gateway with your own backends](#mixing-the-gateway-with-your-own-backends) below.
 

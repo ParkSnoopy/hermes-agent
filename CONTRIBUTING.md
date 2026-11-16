@@ -345,7 +345,7 @@ hermes-agent/
 │   ├── skill_tools.py            # Skill search, load, manage
 │   └── environments/             # Terminal execution backends
 │       ├── base.py                   # BaseEnvironment ABC
-│       ├── local.py, docker.py, ssh.py, modal.py, daytona.py
+│       ├── local.py, docker.py, ssh.py, vercel_sandbox.py
 │
 ├── gateway/                  # Gateway runtime
 │   ├── run.py                    # GatewayRunner facade (~5.5k LOC); phases in run_*.py (startup, inbound, turn, busy, ...)

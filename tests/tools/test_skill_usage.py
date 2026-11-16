@@ -102,7 +102,7 @@ def test_bump_view_increments_and_timestamps(skills_home):
     assert rec["last_viewed_at"] is not None
 
 
-def test_skill_reuse_and_post_patch_reuse_are_derived_atomically(
+def test_skill_lifecycle_preserves_activity_without_reuse_telemetry(
     skills_home,
     monkeypatch,
 ):
@@ -125,18 +125,13 @@ def test_skill_reuse_and_post_patch_reuse_are_derived_atomically(
     bump_use("private-skill-name", task_id="task")
 
     loaded = [event for _, event in events if event["action"] == "loaded"]
-    assert [event["reused"] for event in loaded] == [False, True, True, True]
-    assert [event["reuse_after_patch"] for event in loaded] == [
-        False,
-        False,
-        True,
-        False,
-    ]
+    assert len(loaded) == 4
+    assert all("reused" not in event and "reuse_after_patch" not in event for event in loaded)
     assert all(event["provenance"] == "agent_created" for event in loaded)
     record = get_record("private-skill-name")
     assert record["use_count"] == 4
-    assert record["patch_generation"] == 1
-    assert record["last_reused_patch_generation"] == 1
+    assert "patch_generation" not in record
+    assert "last_reused_patch_generation" not in record
 
 def test_skill_state_events_emit_only_for_real_transitions(skills_home, monkeypatch):
     from hermes_cli import lifecycle
@@ -247,15 +242,15 @@ def test_created_skill_does_not_inherit_stale_identity_or_continuity(
     assert record["created_by"] == "learn"  # foreground re-create: learning-signal marker, not curator opt-in
     assert record["use_count"] == 1
     assert record["patch_count"] == 0
-    assert record["patch_generation"] == 0
-    assert record["last_reused_patch_generation"] == 0
+    assert "patch_generation" not in record
+    assert "last_reused_patch_generation" not in record
     assert record["pinned"] is False
     assert record["state"] == skill_usage.STATE_ACTIVE
     assert [event["provenance"] for event in events] == ["local", "local"]
-    assert events[-1]["reused"] is False
-    assert events[-1]["reuse_after_patch"] is False
+    assert "reused" not in events[-1]
+    assert "reuse_after_patch" not in events[-1]
 
-def test_malformed_usage_counters_recover_without_losing_patch_reuse(
+def test_malformed_usage_counters_recover_without_mutating_historical_reuse(
     skills_home,
     monkeypatch,
 ):
@@ -286,11 +281,11 @@ def test_malformed_usage_counters_recover_without_losing_patch_reuse(
     record = skill_usage.get_record("damaged")
     assert record["view_count"] == 1
     assert record["use_count"] == 2
-    assert record["patch_generation"] == 2
-    assert record["last_reused_patch_generation"] == 2
+    assert record["patch_generation"] == 1
+    assert record["last_reused_patch_generation"] == 999
     loaded = [event for event in events if event["action"] == "loaded"]
-    assert [event["reused"] for event in loaded] == [False, True]
-    assert [event["reuse_after_patch"] for event in loaded] == [False, True]
+    assert len(loaded) == 2
+    assert all("reused" not in event and "reuse_after_patch" not in event for event in loaded)
 
 def test_bumps_do_not_corrupt_other_skills(skills_home):
     from tools.skill_usage import bump_view, bump_use, get_record

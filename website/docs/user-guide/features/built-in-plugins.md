@@ -137,88 +137,12 @@ The file is still written. The model reads the warning in the next turn's tool m
 
 **What it does not do (yet):** the upstream Anthropic plugin has two more layers — an LLM diff review on each agent turn that touched files, and an agentic commit-time review that traces data flow across files. Neither is ported. The agent can already run those reviews on demand via `delegate_task`.
 
-### Langfuse (moved to the plugin catalog)
-
-Langfuse tracing is no longer bundled with Hermes. It ships as the official
-[`langfuse`](https://github.com/NousResearch/hermes-official-plugins/tree/main/langfuse) catalog plugin, with the same hooks, `HERMES_LANGFUSE_*`
-environment variables and capture modes:
-
-```bash
-hermes plugins install langfuse
-```
-
-Profiles that had `observability/langfuse` enabled get the plugin installed and
-enabled automatically by `hermes update` (or on the first start after updating),
-and keep tracing to the same Langfuse project. Setup, tuning and capture modes
-are documented in the [plugin's README](https://github.com/NousResearch/hermes-official-plugins/tree/main/langfuse).
-
 ### NeMo Relay native integration (migration note)
 
 NeMo Relay is no longer a bundled Hermes plugin. Do not run `hermes plugins enable observability/nemo_relay`; Hermes core now owns the Relay session, turn, LLM, and tool lifecycles.
 
-Configure Relay middleware or exporters through a standard Relay `plugins.toml`. Hermes loads Relay's user configuration (`~/.config/nemo-relay/plugins.toml`) and then its machine-wide system configuration (`/etc/nemo-relay/plugins.toml`, or `%ProgramData%\nemo-relay\plugins.toml` on Windows). Set `HERMES_NEMO_RELAY_PLUGINS_TOML` before starting Hermes only when you want an explicit file to replace the user configuration; the system configuration still has higher precedence. The policy is process-wide for every profile hosted by that Hermes process. Run `hermes doctor` to see which files apply. See the [NeMo Relay observability configuration](https://docs.nvidia.com/nemo/relay/configure-plugins/observability/about) for ATOF, ATIF, and OpenTelemetry options.
+Configure Relay middleware through a standard Relay `plugins.toml`. Hermes loads Relay's user configuration (`~/.config/nemo-relay/plugins.toml`) and then its machine-wide system configuration (`/etc/nemo-relay/plugins.toml`, or `%ProgramData%\nemo-relay\plugins.toml` on Windows). Set `HERMES_NEMO_RELAY_PLUGINS_TOML` before starting Hermes only when you want an explicit file to replace the user configuration; the system configuration still has higher precedence. The policy is process-wide for every profile hosted by that Hermes process. Run `hermes doctor` to see which files apply.
 
-The old `HERMES_NEMO_RELAY_ATOF_*` and `HERMES_NEMO_RELAY_ATIF_*` settings no longer configure exporters. When `HERMES_NEMO_RELAY_PLUGINS_TOML` is unset, the gateway warns about remaining legacy variables and `hermes doctor` reports them. Independently discovered Relay user or system exporters still apply.
-
-**Automatic migration.** `hermes update` (and `hermes migrate relay`, or `hermes migrate relay --all-profiles` for every profile home) converts the legacy variables into `<hermes home>/relay-plugins.toml`, sets `HERMES_NEMO_RELAY_PLUGINS_TOML` in that profile's `.env`, and comments the legacy lines out (nothing is deleted). Under a multiplexed gateway every profile home gets its own file. The generated file is validated through Relay before it is written; this is the shape it produces (note the `type = "file"` sink discriminator — a sink without it is rejected):
-
-```toml
-version = 1
-
-[[components]]
-kind = "observability"
-enabled = true
-
-[components.config]
-version = 4
-enable_full_payloads = false
-
-[components.config.atof]
-enabled = true
-
-[[components.config.atof.sinks]]
-type = "file"
-output_directory = "/home/you/.hermes/telemetry/nemo-relay/atof"
-filename = "hermes-atof.jsonl"
-mode = "append"
-
-[components.config.atif]
-enabled = true
-agent_name = "Hermes Agent"
-model_name = "unknown"
-output_directory = "/home/you/.hermes/telemetry/nemo-relay/atif"
-filename_template = "trajectory-{session_id}.json"
-
-[components.config.opentelemetry]
-enabled = false
-endpoints = []
-
-[components.config.policy]
-unknown_component = "warn"
-unknown_field = "warn"
-unsupported_value = "error"
-```
-
-Then add `HERMES_NEMO_RELAY_PLUGINS_TOML=/home/you/.hermes/relay-plugins.toml` to `.env` and restart the gateway.
-
-#### Session-span segmentation (continuous sessions)
-
-Relay exports a span when its scope closes. A continuous gateway session can keep its session span open for days even though each turn span exports normally. Optional segmentation rotates only the session scope at a turn boundary:
-
-```yaml
-gateway:
-  telemetry:
-    session_segments:
-      on_compaction: false  # rotate after context compaction
-      max_turns: 0          # 0 = unlimited; N = turns per segment
-```
-
-| Key | Default | Behavior |
-|---|---:|---|
-| `on_compaction` | `false` | Rotate after compaction completes, at the next turn boundary. |
-| `max_turns` | `0` | Rotate after every N completed turns; `0` disables the cap. |
-
-Both defaults preserve one session scope for the full session. Rotated spans retain the same `session_id` and add `hermes.session.segment` plus `hermes.session.segment_reason` (`compaction` or `max_turns`).
 
 ### google_meet
 
