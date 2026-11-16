@@ -1073,9 +1073,8 @@ def workspace_unavailable_result(policy) -> dict:
     """A failed, never-run turn for a session whose frozen working directory is gone. Nothing ran
     and an unchanged resend fails the same way, so the reply names the folder and the way out
     instead of the generic "something went wrong" apology."""
-    from agent.i18n import t
     from agent.turn_failure_copy import stamp_failure
-    text = t("gateway.errors.workspace_unavailable", path=policy.cwd)
+    text = (f"⚠️ This chat's working folder no longer exists ({policy.cwd}), so your message was not run. Recreate the folder, or move the chat to another one (`/worktree new` in the CLI, Move to project in the desktop app), then send your message again.")
     return stamp_failure({"final_response": text, "messages": [], "api_calls": 0, "tools": [],
                           "failed": True, "completed": False, "error": text},
                          "workspace_unavailable", False)

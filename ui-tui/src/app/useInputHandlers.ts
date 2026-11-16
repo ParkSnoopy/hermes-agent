@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react'
 
 import { DASHBOARD_TUI_MODE, NATIVE_MODE } from '../config/env.js'
 import { DOUBLE_ESC_MS, TYPING_IDLE_MS } from '../config/timing.js'
-import { t } from '../i18n/runtime.js'
+import { sessionEn } from '../copy/session.js'
 import { isAction, isCopyShortcut, isMac, isMacActionFallback, isVoiceToggleKey } from '../lib/platform.js'
 import { computePrecisionWheelStep, initPrecisionWheel } from '../lib/precisionWheel.js'
 import { computeWheelStep, initWheelAccelForHost } from '../lib/wheelAccel.js'
@@ -70,7 +70,7 @@ export function handleIdleHotkeyExit(
   if (!shouldAllowIdleHotkeyExit(dashboardTuiMode)) {
     requestDashboardNewSession?.()
 
-    return actions.sys(t('session.input.dashboardNewSession'))
+    return actions.sys(sessionEn.session.input.dashboardNewSession)
   }
 
   return actions.die()
@@ -309,7 +309,7 @@ export function applyVoiceRecordResponse(
 
   if (response?.status === 'busy') {
     voice.setProcessing(true)
-    sys(t('session.input.voiceStillTranscribing'))
+    sys(sessionEn.session.input.voiceStillTranscribing)
   } else {
     voice.setProcessing(false)
   }
@@ -318,11 +318,11 @@ export function applyVoiceRecordResponse(
 type SensitivePrompt = (typeof SENSITIVE_PROMPTS)[number]
 
 const DISMISSED_PROMPT_NOTICE: { [K in SensitivePrompt]: (req: NonNullable<OverlayState[K]>) => string } = {
-  sudo: () => t('session.input.sudoCancelled'),
-  secret: () => t('session.input.secretCancelled'),
-  vaultUnlock: req => t('session.input.vaultStaysLocked', req.displayName),
-  vaultSaveLogin: req => t('session.input.loginNotSaved', req.site),
-  vaultCode: req => t('session.input.codeSkipped', req.site)
+  sudo: () => sessionEn.session.input.sudoCancelled,
+  secret: () => sessionEn.session.input.secretCancelled,
+  vaultUnlock: req => sessionEn.session.input.vaultStaysLocked(req.displayName),
+  vaultSaveLogin: req => sessionEn.session.input.loginNotSaved(req.site),
+  vaultCode: req => sessionEn.session.input.codeSkipped(req.site)
 }
 
 const dismissedNotice = <K extends SensitivePrompt>(key: K, req: NonNullable<OverlayState[K]>) =>
@@ -486,7 +486,7 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
 
       const settle = () => {
         patchOverlayState({ approval: null })
-        patchTurnState({ outcome: t('session.approval.denied') })
+        patchTurnState({ outcome: sessionEn.session.approval.denied })
       }
 
       // Canonical shared controls deny through the generation-bound RPC; a
@@ -635,7 +635,7 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
   // createGatewayEventHandler turns into UI badges and composer injection.
   const voiceRecordToggle = () => {
     if (!voice.enabled) {
-      return actions.sys(t('session.input.voiceModeOff'))
+      return actions.sys(sessionEn.session.input.voiceModeOff)
     }
 
     const starting = !voice.recording
@@ -660,7 +660,7 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
           voice.setRecording(false)
         }
 
-        actions.sys(t('session.input.voiceError', e.message))
+        actions.sys(sessionEn.session.input.voiceError(e.message))
       })
   }
 
@@ -1000,8 +1000,8 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
       return void cActions.openEditor().catch((err: unknown) => {
         actions.sys(
           err instanceof Error
-            ? t('session.input.failedToOpenEditorWith', err.message)
-            : t('session.input.failedToOpenEditor')
+            ? sessionEn.session.input.failedToOpenEditorWith(err.message)
+            : sessionEn.session.input.failedToOpenEditor
         )
       })
     }
@@ -1009,22 +1009,22 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
     // shift-tab flips yolo without spending a turn (claude-code parity)
     if (key.shift && key.tab && !cState.completions.length) {
       if (!live.sid) {
-        return void actions.sys(t('session.input.yoloNeedsSession'))
+        return void actions.sys(sessionEn.session.input.yoloNeedsSession)
       }
 
       // gateway.rpc swallows errors with its own sys() message and resolves to null,
       // so we only speak when it came back with a real shape. null = rpc already spoke.
       return void gateway.rpc<ConfigSetResponse>('config.set', { key: 'yolo', session_id: live.sid }).then(r => {
         if (r?.value === '1') {
-          return actions.sys(t('session.input.yoloOn'))
+          return actions.sys(sessionEn.session.input.yoloOn)
         }
 
         if (r?.value === '0') {
-          return actions.sys(t('session.input.yoloOff'))
+          return actions.sys(sessionEn.session.input.yoloOff)
         }
 
         if (r) {
-          actions.sys(t('session.input.yoloToggleFailed'))
+          actions.sys(sessionEn.session.input.yoloToggleFailed)
         }
       })
     }

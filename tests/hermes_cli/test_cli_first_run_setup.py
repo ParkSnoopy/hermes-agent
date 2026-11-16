@@ -19,7 +19,7 @@ import types
 import pytest
 
 from hermes_cli.auth import AuthError
-from agent.i18n import t
+
 
 
 def _reset_modules(prefixes: tuple[str, ...]):
@@ -322,11 +322,10 @@ def test_benched_credential_prints_cooldown_instead_of_wizard(monkeypatch, capsy
     shell._maybe_offer_first_run_setup()
 
     out = capsys.readouterr().out
-    assert t("cli.startup.first_run_no_provider") not in out
+    assert "☤ No inference provider is configured yet — let's fix that." not in out
     headline = next(line for line in out.splitlines() if line.strip())
-    assert headline.endswith(t("cli.startup.credential_cooling_down", provider="nous",
-                         cause=t("cli.startup.cooldown_cause_rate_limit"), minutes=1))
-    assert t("cli.startup.cooldown_cause_token_refresh") not in out
+    assert headline.endswith(('The {provider} credential is cooling down {cause}; it re-enters rotation in about {minutes}m.').format(provider="nous", cause='after a rate-limit or quota response', minutes=1))
+    assert 'after a failed token refresh' not in out
     assert "not logged into Nous Portal" in out
     assert "re-authenticate" not in out and "hermes model" not in out
 
@@ -364,7 +363,7 @@ def test_auth_json_only_login_explains_instead_of_wizard(monkeypatch, capsys, tm
     shell._maybe_offer_first_run_setup()
     out = capsys.readouterr().out
     assert "not logged into Nous Portal" in out
-    assert t("cli.startup.first_run_no_provider") not in out
+    assert "☤ No inference provider is configured yet — let's fix that." not in out
 
     offered = []
     monkeypatch.setattr(shell, "_offer_first_run_setup", lambda: offered.append(True) or True)

@@ -11,7 +11,7 @@ import asyncio
 import contextlib
 import uuid
 
-from agent.i18n import t
+
 
 
 def _local_session(runner, source):
@@ -41,15 +41,15 @@ async def refine_local_session(runner, source, focus):
 
     target, history = await asyncio.to_thread(load)
     if not history:
-        return t('gateway.refine.nothing_yet')
+        return 'Nothing to refine yet — send a message first.'
     from agent.background_review import finish_background_review_run, prepare_background_review_run
     from gateway.session_tui_side import _side_agent, _side_scope, _spawn
     # The guard is the session's (its side agent is per call): a /refine while one runs joins it, as
     # the resident agent's does, and the session's next turn cancels it (``_execute_claimed``).
     run = prepare_background_review_run(live.review)
-    tail = t('gateway.refine.focus_suffix', focus=focus) if focus else ''
+    tail = (f' (focus: {focus})') if focus else ''
     if run is None:
-        return t('gateway.refine.started', focus_suffix=tail)
+        return (f'⚗ Reviewing this conversation in the background{tail} — any memory/skill updates will be reported when done.')
     task_id = f'refine_{uuid.uuid4().hex[:6]}'
     holder = [None]
     loop = asyncio.get_running_loop()
@@ -97,5 +97,5 @@ async def refine_local_session(runner, source, focus):
         _spawn(authority, ref, task_id, 'review.summary', body, holder=holder)
     except RuntimeError as exc:  # the review thread could not start
         finish_background_review_run(live.review, run)
-        return t('gateway.refine.start_failed', error=exc)
-    return t('gateway.refine.started', focus_suffix=tail)
+        return (f'/refine failed to start: {exc}')
+    return (f'⚗ Reviewing this conversation in the background{tail} — any memory/skill updates will be reported when done.')

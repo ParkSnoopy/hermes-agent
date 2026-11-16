@@ -1,9 +1,8 @@
 import { Box, Text, useInput } from '@hermes/ink'
 import { useEffect, useState } from 'react'
 
+import { hubsEn } from '../copy/hubs.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { messages } from '../i18n/runtime.js'
-import { useT } from '../i18n/useT.js'
 import { asRpcResult } from '../lib/rpc.js'
 import type { Theme } from '../theme.js'
 
@@ -23,7 +22,7 @@ export async function sendAgentSteer(gw: GatewayClient, sid: string, id: string,
   )
 
   const accepted = result?.status === 'queued'
-  const T = messages().hubs.agentControls
+  const T = hubsEn.hubs.agentControls
 
   return {
     accepted,
@@ -46,7 +45,7 @@ export function AgentSteerForm({
   cols,
   onClose
 }: ControlProps & { cols: number; onClose: () => void }) {
-  const T = useT().hubs.agentControls
+  const T = hubsEn.hubs.agentControls
   const [text, setText] = useState('')
   const [feedback, setFeedback] = useState('')
   const [pending, setPending] = useState(false)
@@ -101,10 +100,10 @@ export function AgentSteerForm({
 }
 
 export function AgentLiveTail({ gw, sid, id, t }: ControlProps) {
-  const T = useT().hubs.agentControls
+  const T = hubsEn.hubs.agentControls
   const [tail, setTail] = useState(() => T.loadingTranscript)
   useEffect(() => {
-    const M = messages().hubs.agentControls
+    const M = hubsEn.hubs.agentControls
     let active = true
     let pending = false
 

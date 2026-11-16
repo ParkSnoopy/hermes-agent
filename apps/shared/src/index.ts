@@ -69,15 +69,6 @@ export { type FuzzyMatch, fuzzyRank, fuzzyScore, fuzzyScoreMulti, type RankedIte
 export * from './gateway-events'
 export { HERMES_CLOUD_MANAGED, isHermesCloudUrl } from './hermes-cloud'
 export {
-  applyDocumentLocale,
-  type EndonymLocale,
-  isRecord,
-  LOCALE_ENDONYMS,
-  mergeTranslations,
-  RTL_LOCALES,
-  type TranslationOverride
-} from './i18n'
-export {
   DEFAULT_HEARTBEAT_DEADLINE_MS,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   type GatewayRequestId,

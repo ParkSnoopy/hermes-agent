@@ -35,7 +35,7 @@ _KNOWN_MANIFEST_FIELDS: set[str] = {
     "pip_dependencies", "provides_browser_providers", "provides_web_providers",
     "manifest_version", "api_version", "requires_plugins", "python_dependencies", "config_schema",
     "license", "homepage", "tags", "capabilities", "emits", "listens", "hermes", "depends",
-    "requires_hermes", "python_runtime", "provides_locales", "requires_auth", "oauth", "config_keys",
+    "requires_hermes", "python_runtime", "requires_auth", "oauth", "config_keys",
 }
 
 # Highest manifest schema version this Hermes understands.
@@ -409,49 +409,9 @@ class PluginManifest:
     # ``<key>:``; ``listens`` fully-qualified ``<plugin>:<event>`` names.
     emits: list[str] = field(default_factory=list)
     listens: list[str] = field(default_factory=list)
-    # Language pack declaration: ids whose ``locales/<id>[.tui|.desktop].yaml`` the loader registers
-    # automatically (no Python needed). ``locale_metadata`` carries the optional per-id
-    # ``{endonym, rtl}`` from the mapping form of a ``provides_locales`` entry.
-    provides_locales: list[str] = field(default_factory=list)
-    locale_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Dotted paths in Hermes' own config sections the plugin reads (``memory.retaindb``), so
     # ``hermes config get/set`` recognizes them while the plugin is active (hermes_cli/config_runtime_keys.py).
     config_keys: list[str] = field(default_factory=list)
-
-
-def parse_provides_locales(raw: Any, key: str = "") -> tuple[list[str], dict[str, dict[str, Any]]]:
-    """``provides_locales`` -> (ids, metadata). Entries are ``"pl"`` or ``{id: pl, endonym: Polski, rtl: false}``;
-    ids are canonicalised (lowercase, ``_`` -> ``-``), invalid or duplicate ones are dropped with a warning."""
-    from agent.i18n_layers import is_language_id, normalize_language_id
-    ids: list[str] = []
-    metadata: dict[str, dict[str, Any]] = {}
-    if raw is None:
-        return ids, metadata
-    if isinstance(raw, (str, Mapping)):
-        raw = [raw]
-    if not isinstance(raw, list):
-        logger.warning("Plugin %s: provides_locales must be a list of language ids, got %s", key, type(raw).__name__)
-        return ids, metadata
-    for item in raw:
-        entry_meta: dict[str, Any] = {}
-        if isinstance(item, Mapping):
-            lang_id = normalize_language_id(item.get("id", ""))
-            if isinstance(item.get("endonym"), str) and item["endonym"].strip():
-                entry_meta["endonym"] = item["endonym"].strip()
-            if "rtl" in item:
-                entry_meta["rtl"] = bool(item["rtl"])
-        else:
-            lang_id = normalize_language_id(item)
-        if not is_language_id(lang_id):
-            logger.warning("Plugin %s: ignoring invalid provides_locales entry %r", key, item)
-            continue
-        if lang_id in ids:
-            logger.warning("Plugin %s: duplicate provides_locales entry %r", key, lang_id)
-            continue
-        ids.append(lang_id)
-        if entry_meta:
-            metadata[lang_id] = entry_meta
-    return ids, metadata
 
 
 # ── requires_hermes version gate ─────────────────────────────────────────────
@@ -566,7 +526,6 @@ def parse_manifest_file(
         kind = _manifest_kind(data, key, plugin_dir)
         logger.debug(
             "Parsed manifest: key=%s name=%s kind=%s source=%s path=%s", key, name, kind, source, plugin_dir)
-        provides_locales, locale_metadata = parse_provides_locales(data.get("provides_locales"), key)
         return PluginManifest(
             name=name, version=str(data.get("version", "")),
             description=data.get("description", ""), author=_display_author(data.get("author", "")),
@@ -579,7 +538,6 @@ def parse_manifest_file(
             capabilities=_parse_declared_capabilities(data.get("capabilities"), name),
             **_parse_manifest_v2_fields(data, key), emits=data.get("emits") or [],
             listens=data.get("listens") or [],
-            provides_locales=provides_locales, locale_metadata=locale_metadata,
         )
     except Exception as exc:
         logger.warning("Failed to parse %s: %s", manifest_file, exc, exc_info=_plugins_debug())

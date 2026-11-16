@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import type { SessionMessage } from '@/types/hermes'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from '@/lib/query-client'
-import { I18nProvider } from '@/i18n'
+
 import { ThemeProvider } from '@/themes/context'
 import { RootTooltipProvider } from '@/components/ui/tooltip'
 import { SystemMessage } from '@/components/assistant-ui/thread/system-message'
@@ -13,7 +13,7 @@ import { toChatMessages } from '@/lib/chat-messages/hydration'
 import { toChatMessages as baselineHydrate } from '@baseline-hydration'
 import { toRuntimeMessage } from '@/lib/chat-runtime'
 function Providers({children}: {children: ReactNode}) {
-  return <QueryClientProvider client={queryClient}><I18nProvider><ThemeProvider><RootTooltipProvider>{children}</RootTooltipProvider></ThemeProvider></I18nProvider></QueryClientProvider>
+  return <QueryClientProvider client={queryClient}><ThemeProvider><RootTooltipProvider>{children}</RootTooltipProvider></ThemeProvider></QueryClientProvider>
 }
 function Delivery({messages}: {messages: ThreadMessage[]}) {
   const runtime = useExternalStoreRuntime<ThreadMessage>({messages, isRunning:false, onNew:async()=>{}})

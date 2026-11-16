@@ -1,7 +1,7 @@
 """Public-name catalogs for shared metrics: the only non-enum names a package may carry.
 
 Every set here is something Nous itself publishes (slash-command registry, bundled and optional
-skills, optional-mcps/ and plugin-catalog/ entries, built-in auxiliary tasks, shipped locales).
+skills, optional-mcps/ and plugin-catalog/ entries, built-in auxiliary tasks).
 A name outside its set is reported as ``custom`` so user-defined identities never leave the machine.
 Loaders are cached: the catalogs only change with the installed Hermes version.
 """
@@ -73,11 +73,6 @@ def aux_task_names() -> frozenset[str]:
     from hermes_cli.main_provider_setup import _AUX_TASKS
 
     return frozenset(key for key, _name, _desc in _AUX_TASKS)
-
-
-@functools.cache
-def display_languages() -> frozenset[str]:
-    return _yaml_stems(_REPO_ROOT / "locales")
 
 
 @functools.cache
@@ -320,8 +315,3 @@ def public_model_ids() -> frozenset[str]:
 _LOCATION_MODEL = re.compile(
     r"arn:|.*:/|.*\.(?:gguf|bin|safetensors)$|(?:localhost|\d{1,3}(?:\.\d{1,3}){3})(?:[:/]|$)|[^/:]+:\d{2,5}(?:/|$)"
 )
-
-
-def display_language_metric_name(raw: object) -> str:
-    name = _norm(raw) or "en"
-    return name if name in _safe(display_languages) else "other"

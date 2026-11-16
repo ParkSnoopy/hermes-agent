@@ -26,8 +26,7 @@ _RED_BELOW = 0.2
 
 # Per-model label on a window plan, as the gateway sends it (``usage_level``). Display words only.
 USAGE_LEVELS = ("free", "low", "medium", "top_tier")
-# Words, limit lines and switch notices come from ``plan_usage.*`` in locales/ (``usage_level_label``,
-# ``_t``); the `hermes model` setup picker passes ``lang="en"`` (its own text is English, as on main).
+# Words, limit lines and switch notices are English on every picker.
 # One line for that picker, shown only when a Large row is listed.
 TOP_TIER_FOOTNOTE = "Large models also use your monthly large-model limit."
 # Window pickers split the list here; messaging pickers just order recommended first.
@@ -132,7 +131,7 @@ class PickerUsage:
         spent = [g for g in self.gauges if g.scope == "all" and g.left_fraction <= 0.0]
         return max(spent, key=lambda g: g.resets_at_ms or 0) if spent else None
 
-    def limit_line(self, lang: Optional[str] = None) -> Optional[str]:
+    def limit_line(self) -> Optional[str]:
         """One line for the top of a window-plan picker once an allowance is full, saying what happens
         next: ``Weekly limit reached · resets in 21h · paid models now use your credits (pay as you go)``.
         None while nothing is full (and while paused: the plan header already says so)."""
@@ -144,27 +143,27 @@ class PickerUsage:
         g = full or top
         if g is None:
             return None
-        head = _capitalize(_t("limit_reached", lang, name=_limit_name(g, lang), resets=_resets(g.resets_at_ms, lang)))
+        head = _capitalize(f'{_limit_name(g)} limit reached · {_resets(g.resets_at_ms)}')
         large = "" if full is not None else "_large"
         if self.credits_pay:
-            return f"{head} · {_t('then_credits' + large, lang)}"
+            return f"{head} · {('Large models now use your credits (pay as you go)' if large else 'paid models now use your credits (pay as you go)')}"
         if self.credits_pay is False:
-            return f"{head} · {_t('then_wait' + large, lang)}"
+            return f"{head} · {('Large models paused until then' if large else 'only Free models until then')}"
         return head
 
-    def large_model_notice(self, model_id: str, *, detail: bool = True, lang: Optional[str] = None) -> str:
+    def large_model_notice(self, model_id: str, *, detail: bool = True) -> str:
         """The warning shown when someone switches to a Large model (never a confirm). ``detail`` adds the
         allowance state; pass False for a stale snapshot, whose percents could mislead."""
         g = self.exhausted_gauge(model_id) if detail and not self.paused_reason else None
         if g is not None:
             if self.credits_pay:
-                return _t("large_notice_credits", lang)
+                return 'Large model: uses more credits per message (pay as you go).'
             key = "large_notice_limit_stops" if self.credits_pay is False else "large_notice_limit"
-            return _t(key, lang, name=_limit_name(g, lang), resets=_resets(g.resets_at_ms, lang))
+            return ({'large_notice_limit_stops': "Large model: your {name} limit is reached ({resets}), so it won't run until then.", 'large_notice_limit': 'Large model: your {name} limit is reached ({resets}).'}[key]).format(name=_limit_name(g), resets=_resets(g.resets_at_ms))
         top = next((g for g in self.gauges if g.scope == GAUGE_TOP_TIER), None) if detail else None
         if top is not None:
-            return _t("large_notice_percent", lang, percent=top.percent_used)
-        return _t("large_notice", lang)
+            return (f"Large model: uses more of your plan's usage per message. Monthly large-model limit: {top.percent_used} used.")
+        return "Large model: uses more of your plan's usage per message."
 
     @property
     def included_summary(self) -> str:
@@ -173,7 +172,7 @@ class PickerUsage:
         if self.paused_reason:
             return "included usage paused"
         # Only the `hermes model` setup picker shows this, and its own text is English.
-        return self.limit_line(lang="en") or "every model below is included"
+        return self.limit_line() or "every model below is included"
 
     def gauges_for_model(self, model_id: str) -> tuple[UsageGauge, ...]:
         """Every all-scope allowance, plus the top-tier ones when the model draws on them."""
@@ -329,24 +328,21 @@ def format_resets_in(resets_at_ms: Optional[int], now_ms: Optional[int] = None) 
     return f"resets in {d}" if d else "resets soon"
 
 
-def _t(key: str, lang: Optional[str] = None, **kwargs: Any) -> str:
-    from agent.i18n import t
-    return t(f"plan_usage.{key}", lang, **kwargs)
 
 
-def _resets(resets_at_ms: Optional[int], lang: Optional[str] = None) -> str:
+def _resets(resets_at_ms: Optional[int]) -> str:
     d = compact_duration(resets_at_ms)
-    return _t("resets_in", lang, duration=d) if d else _t("resets_soon", lang)
+    return (f'resets in {d}') if d else 'resets soon'
 
 
 def _capitalize(text: str) -> str:
     return text[:1].upper() + text[1:]
 
 
-def _limit_name(g: UsageGauge, lang: Optional[str] = None) -> str:
+def _limit_name(g: UsageGauge) -> str:
     """``weekly`` for ``Weekly limit reached`` / ``your weekly limit``; an unknown id shows the server's title."""
     if g.label in (GAUGE_TODAY, GAUGE_WEEK, GAUGE_MONTH, GAUGE_TOP_TIER):
-        return _t(f"limit_{g.label}", lang)
+        return {'reached': '{name} limit reached · {resets}', 'day': 'daily', 'week': 'weekly', 'month': 'monthly', 'top_tier': 'monthly large-model'}[g.label]
     return g.title or g.label
 
 
@@ -355,9 +351,9 @@ def _limit_name(g: UsageGauge, lang: Optional[str] = None) -> str:
 SHOWN_USAGE_LEVELS = ("free", "top_tier")
 
 
-def usage_level_label(level: Optional[str], lang: Optional[str] = None) -> str:
-    """The row tag in the catalog language (``Large`` / ``Free``); "" for every other level."""
-    return _t(f"level_{level}", lang) if level in SHOWN_USAGE_LEVELS else ""
+def usage_level_label(level: Optional[str]) -> str:
+    """The row tag (``Large`` / ``Free``); "" for every other level."""
+    return {'free': 'Free', 'top_tier': 'Large'}[level] if level in SHOWN_USAGE_LEVELS else ""
 
 
 def _get(obj: Any, name: str, default: Any = None) -> Any:
@@ -439,7 +435,7 @@ def _nous_catalog(*, fetch: bool = False) -> dict[str, dict[str, Any]]:
 
 
 def large_model_notice(
-    model_id: str, provider: str, *, fetch: bool = False, lang: Optional[str] = None,
+    model_id: str, provider: str, *, fetch: bool = False,
 ) -> Optional[str]:
     """Warning line for a switch to a Large model, or None. Window plans only. The gateway decides "Large"
     (``usage_level: top_tier``; older gateways ``top_tier: true``) and stamps it ONLY on a usage-window
@@ -458,8 +454,8 @@ def large_model_notice(
         if usage_levels([model_id], {model_id: row}).get(model_id) != "top_tier":
             return None
         if usage is None:
-            return _t("large_notice", lang)
-        return usage.with_pricing({model_id: row}).large_model_notice(model_id, detail=fresh is not None, lang=lang)
+            return "Large model: uses more of your plan's usage per message."
+        return usage.with_pricing({model_id: row}).large_model_notice(model_id, detail=fresh is not None)
     except Exception:
         logging.getLogger(__name__).debug("Large-model notice unavailable", exc_info=True)
         return None

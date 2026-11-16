@@ -24,13 +24,12 @@ def two_homes(tmp_path, monkeypatch):
         (home / "cron").mkdir(parents=True)
     (root / ".env").write_text(
         "HERMES_CRON_TIMEOUT=111\nHERMES_MODEL=default-model\nTERMINAL_ENV=docker\n"
-        "TERMINAL_DOCKER_IMAGE=default-only-image\nHERMES_LANGUAGE=en\n")
-    (alpha / ".env").write_text("HERMES_CRON_TIMEOUT=222\nHERMES_LANGUAGE=zh\n")
+        "TERMINAL_DOCKER_IMAGE=default-only-image\n")
+    (alpha / ".env").write_text("HERMES_CRON_TIMEOUT=222\n")
     # The launch (default) profile's .env is what the multiplexer process loaded into os.environ.
     monkeypatch.setenv("HERMES_HOME", str(root))
     for key, val in (("HERMES_CRON_TIMEOUT", "111"), ("HERMES_MODEL", "default-model"),
-                     ("TERMINAL_ENV", "docker"), ("TERMINAL_DOCKER_IMAGE", "default-only-image"),
-                     ("HERMES_LANGUAGE", "en")):
+                     ("TERMINAL_ENV", "docker"), ("TERMINAL_DOCKER_IMAGE", "default-only-image")):
         monkeypatch.setenv(key, val)
     set_multiplex_active(True)
     home_token = set_hermes_home_override(str(alpha))
@@ -88,7 +87,7 @@ def test_child_env_for_served_profile_drops_launch_profile_settings(two_homes):
         env = strip_launch_profile_env(build_subprocess_env(scrub_secrets=True, inherit_profile_home=True))
     finally:
         reset_secret_scope(token)
-    for key in ("HERMES_MODEL", "TERMINAL_ENV", "TERMINAL_DOCKER_IMAGE", "HERMES_LANGUAGE", "HERMES_CRON_TIMEOUT"):
+    for key in ("HERMES_MODEL", "TERMINAL_ENV", "TERMINAL_DOCKER_IMAGE", "HERMES_CRON_TIMEOUT"):
         assert key not in env, key
     assert env["HERMES_HOME"] == str(alpha)
     assert "PATH" in env

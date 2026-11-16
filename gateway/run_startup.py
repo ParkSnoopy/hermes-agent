@@ -17,7 +17,7 @@ import time
 from contextlib import nullcontext, suppress
 from contextvars import copy_context
 from pathlib import Path
-from agent.i18n import t
+
 from gateway.config import Platform
 
 from gateway.platforms.base import BasePlatformAdapter

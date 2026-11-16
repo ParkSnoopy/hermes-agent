@@ -5,10 +5,11 @@ import { completionToApplyOnSubmit } from '@hermes/shared/slash-input'
 import { type MutableRefObject, useCallback, useEffect, useRef } from 'react'
 
 import { TYPING_IDLE_MS } from '../config/timing.js'
+import { canonicalEn } from '../copy/canonical.js'
+import { sessionEn } from '../copy/session.js'
 import { expandTokens, imageAttachments } from '../domain/attachments.js'
 import type { GatewayClient } from '../gatewayClient.js'
 import { queueItem, type QueueItem } from '../hooks/useQueue.js'
-import { t } from '../i18n/runtime.js'
 import { asRpcResult } from '../lib/rpc.js'
 import type { Msg } from '../types.js'
 
@@ -220,7 +221,7 @@ export function useSubmission(opts: UseSubmissionOptions) {
               const r = asRpcResult<ShellExecResponse>(raw)
 
               if (!r) {
-                throw new Error(t('session.common.invalidResponse', 'shell.exec'))
+                throw new Error(sessionEn.session.common.invalidResponse('shell.exec'))
               }
 
               return [r.stdout, r.stderr].filter(Boolean).join('\n').trim()
@@ -232,7 +233,7 @@ export function useSubmission(opts: UseSubmissionOptions) {
           item?.settle?.(false)
 
           if (isCurrentDestination(destination)) {
-            sys(t('session.common.interpolationFailed', describeShellExecError(error)))
+            sys(sessionEn.session.common.interpolationFailed(describeShellExecError(error)))
             patchUiState({ busy: false, status: 'ready' })
           }
         }
@@ -377,8 +378,8 @@ export function useSubmission(opts: UseSubmissionOptions) {
 
           return { value }
         } catch (error) {
-          sys(t('canonical.queue.notSavedDraftKept', (error as Error).message))
-          patchUiState({ status: t('canonical.queue.statusInputNotSaved') })
+          sys(canonicalEn.canonical.queue.notSavedDraftKept((error as Error).message))
+          patchUiState({ status: canonicalEn.canonical.queue.statusInputNotSaved })
 
           return undefined
         }

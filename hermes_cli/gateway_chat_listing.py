@@ -19,7 +19,6 @@ def _selection(args):
 
 
 def print_tool_listing(args) -> int:
-    from agent.i18n import t
     enabled, disabled = _selection(args)
     if getattr(args, "list_tools", False):
         from model_tools import get_tool_definitions
@@ -28,7 +27,7 @@ def print_tool_listing(args) -> int:
         tools = get_tool_definitions(enabled_toolsets=enabled, disabled_toolsets=disabled, quiet_mode=True,
                                      skip_tool_search_assembly=True)
         if not tools:
-            print(t("cli.tools.none_available"))
+            print('(;_;) No tools available')
             return 0
         grouped = {}
         for tool in sorted(tools, key=lambda item: item["function"]["name"]):
@@ -37,19 +36,19 @@ def print_tool_listing(args) -> int:
             if ". " in desc:
                 desc = desc[:desc.index(". ") + 1]
             grouped.setdefault(registry.get_toolset_for_tool(name) or "unknown", []).append((name, desc))
-        print(t("cli.tools.header"))
+        print('(^_^)/ Available Tools')
         for toolset in sorted(grouped):
             print(f"\n  [{toolset}]")
             for name, desc in grouped[toolset]:
                 print(f"    * {name:<20} - {desc}")
-        print(f"\n  {t('cli.tools.total', count=str(len(tools)))}")
+        print(f"\n  {(f'Total: {len(tools)!s} tools  ヽ(^o^)ノ')}")
         return 0
     from toolsets import get_all_toolsets, get_toolset_info
-    print(t("cli.toolsets.header"))
+    print('(^_^)b Available Toolsets')
     for name in sorted(get_all_toolsets()):
         info = get_toolset_info(name)
         if info:
             marker = "(*)" if name in enabled else "   "
             print(f"  {marker} {name:<18} [{info['tool_count']:>2} tools] - {info['description']}")
-    print(f"\n  {t('cli.toolsets.currently_enabled_legend')}")
+    print(f"\n  {'(*) = currently enabled'}")
     return 0

@@ -13,12 +13,12 @@ import { useStore } from '@nanostores/react'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
 import type { PasteEvent } from '../components/textInput.js'
+import { canonicalEn } from '../copy/canonical.js'
 import { droppedTokens, imageToken, nextImageIndex } from '../domain/attachments.js'
 import { collapsePasteSpan, expandPasteChip, insideSpan, type PasteSpan, shiftSpan } from '../domain/pasteExpand.js'
 import { useCompletion } from '../hooks/useCompletion.js'
 import { useInputHistory } from '../hooks/useInputHistory.js'
 import { useQueue } from '../hooks/useQueue.js'
-import { t } from '../i18n/runtime.js'
 import { isUsableClipboardText, readClipboardText } from '../lib/clipboard.js'
 import { resolveEditor } from '../lib/editor.js'
 import { stageClipboardImage, stageImagePath } from '../lib/imageAttachments.js'
@@ -524,7 +524,7 @@ export function useComposerState({ gw, submitRef, sys }: UseComposerStateOptions
             })
         ).catch((error: Error) => {
           if (!quiet) {
-            sys(t('canonical.queue.clipboardImageFailed', error.message))
+            sys(canonicalEn.canonical.queue.clipboardImageFailed(error.message))
           }
 
           return null
@@ -726,7 +726,7 @@ export function useComposerState({ gw, submitRef, sys }: UseComposerStateOptions
         isCurrentDestination(destination) &&
         (isFresh(draft) || (followTyping && life === draftLife.current))
 
-      const dropped = (count: number) => followTyping && isCurrentDestination(destination) && sys(t('canonical.queue.imagesNotRestored', count))
+      const dropped = (count: number) => followTyping && isCurrentDestination(destination) && sys(canonicalEn.canonical.queue.imagesNotRestored(count))
 
       for (const [done, path] of paths.entries()) {
         if (!destination.sid || !path.trim()) {
@@ -824,7 +824,7 @@ export function useComposerState({ gw, submitRef, sys }: UseComposerStateOptions
 
         if (!live()) {
           if (text.trim()) {
-            sys(t('canonical.queue.pasteNotApplied'))
+            sys(canonicalEn.canonical.queue.pasteNotApplied)
           }
 
           return

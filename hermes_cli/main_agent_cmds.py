@@ -125,8 +125,7 @@ def cmd_insights(args):
         from hermes_cli.config import get_hermes_home
         path = get_hermes_home() / "state.db"
         if not path.exists():
-            from agent.i18n import t
-            print(f"  {t('cli.insights.no_session_data')}")
+            print(f"  {'No session data yet.'}")
             return
         db = SessionDB(db_path=path, read_only=True)
         engine = InsightsEngine(db)
@@ -134,8 +133,7 @@ def cmd_insights(args):
         print(engine.format_terminal(report))
     except Exception as e:
         # Interactive /insights delegates here, so keep main's localized error line.
-        from agent.i18n import t
-        print(t("gateway.insights.error", error=str(e)))
+        print(f'Error generating insights: {e!s}')
     finally:
         if db is not None:
             try:

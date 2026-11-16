@@ -17,7 +17,7 @@ cli.py-internal symbols are imported lazily (import cycle).
 
 from __future__ import annotations
 
-from agent.i18n import t
+
 
 
 _BROWSE_KEYS = ("left", "right", "h", "l", "up", "down", "j", "k", "pageup", "pagedown", "enter", "q", "f")
@@ -89,7 +89,7 @@ class CLIBacktrackMixin:
             self._backtrack_cancel_edit()
         elif not self._backtrack_blocked():
             if not self._backtrack_prompts():
-                _cprint(f"  {t('cli.backtrack.no_previous')}")
+                _cprint(f"  {'No previous message to edit.'}")
             else:
                 self._open_backtrack_picker()
 
@@ -125,7 +125,7 @@ class CLIBacktrackMixin:
             return False
         prompts = self._backtrack_prompts()
         if not prompts:
-            _cprint(f"  {t('cli.backtrack.nothing')}")
+            _cprint(f"  {'(._.) No earlier prompts to rewind to.'}")
             return False
         self._backtrack_state = {
             "entries": list(reversed(list(enumerate(prompts)))), "selected": 0,
@@ -149,7 +149,7 @@ class CLIBacktrackMixin:
         state = self._backtrack_state
         if not state:
             return []
-        return render_pager(state, state["turns"], t("cli.backtrack.title"), t("cli.backtrack.keys_hint"),
+        return render_pager(state, state["turns"], '↺ Transcript — pick a prompt to edit', 'Browsing transcript · ↑↓/jk scroll · ←→/hl prompts · ↵ edit · f fork · esc back',
                              _PANEL_RESERVED_BELOW)
 
     def _backtrack_step(self, older: int) -> None:
@@ -199,7 +199,7 @@ class CLIBacktrackMixin:
         if self._backtrack_edit is None:
             return False
         self._backtrack_edit = None
-        _cprint(f"  {t('cli.backtrack.edit_cancelled')}")
+        _cprint(f"  {'↺ Rewind cancelled; nothing was removed.'}")
         return True
 
     def _backtrack_apply_resend(self, item: BacktrackResend):
@@ -208,14 +208,14 @@ class CLIBacktrackMixin:
         prompts = self._backtrack_prompts()
         if (item.session_id != self.session_id or item.ordinal >= len(prompts)
                 or prompts[item.ordinal] != item.expected or self._agent_running):
-            _cprint(f"  {t('cli.backtrack.target_changed', number=item.number)}")
+            _cprint(f"  {(f'(x_x) The session changed since you picked prompt {item.number}; nothing was removed. Your edit is back in the composer.')}")
             self._prefill_input_buffer(str(item))
             return None
         rewound = self._rewind_to_user_ordinal(item.ordinal, failure_key="cli.backtrack.rewind_failed")
         if rewound is None:
             self._prefill_input_buffer(str(item))
             return None
-        _cprint(f"  {t('cli.backtrack.rewound', number=item.number, count=rewound[1])}")
+        _cprint(f"  {(f'↺ Rewound to prompt {item.number} ({rewound[1]} message(s) archived); sending the edit.')}")
         return str(item)
 
     # ---- fork ----------------------------------------------------------------------------
@@ -229,7 +229,7 @@ class CLIBacktrackMixin:
         rewound = self._rewind_to_user_ordinal(ordinal, failure_key="cli.backtrack.rewind_failed")
         if rewound is None:
             return
-        _cprint(f"  {t('cli.backtrack.forked', number=ordinal + 1, parent=parent_session_id)}")
+        _cprint(f"  {(f'⑂ Forked before prompt {ordinal + 1}; the original session {parent_session_id} is unchanged. Edit the prompt below and press Enter to send.')}")
         self._prefill_input_buffer(rewound[0])
 
     # ---- /rewind -------------------------------------------------------------------------
@@ -237,7 +237,7 @@ class CLIBacktrackMixin:
         """/rewind opens the picker; ``/rewind N`` edits prompt N; ``/rewind fork N`` forks before it."""
         from cli import _cprint
         if self._agent_running:
-            return _cprint(f"  {t('cli.commands.shared.agent_busy', command='/rewind')}")
+            return _cprint(f"  {('Agent is busy. Wait for the current turn to finish, then retry {command}.').format(command='/rewind')}")
         args = cmd_original.split()[1:]
         fork = bool(args) and args[0].lower() == "fork"
         args = args[1:] if fork else args
@@ -245,13 +245,13 @@ class CLIBacktrackMixin:
             self._open_backtrack_picker()
             return None
         if len(args) != 1 or not args[0].isdigit():
-            return _cprint(f"  {t('cli.backtrack.usage')}")
+            return _cprint(f"  {'Usage: /rewind [N | fork N]'}")
         prompts = self._backtrack_prompts()
         number = int(args[0])
         if not prompts:
-            return _cprint(f"  {t('cli.backtrack.nothing')}")
+            return _cprint(f"  {'(._.) No earlier prompts to rewind to.'}")
         if not 1 <= number <= len(prompts):
-            return _cprint(f"  {t('cli.backtrack.invalid', value=args[0], total=len(prompts))}")
+            return _cprint(f"  {(f'(._.) No prompt {args[0]} — pick 1 to {len(prompts)}.')}")
         if fork:
             return self._backtrack_fork(number - 1)
         self._backtrack_begin_edit(number - 1, prompts[number - 1])
@@ -313,9 +313,9 @@ class CLIBacktrackMixin:
         if hint or self._backtrack_state:
             return hint
         if self._backtrack_primed == "hint":
-            return [("class:hint", "  " + t("cli.backtrack.prime_hint"))]
+            return [("class:hint", "  " + 'esc again to edit previous message')]
         if self._backtrack_edit is not None:
-            return [("class:hint", "  " + t("cli.backtrack.editing_hint", number=self._backtrack_edit["number"]))]
+            return [("class:hint", "  " + ('↺ Editing prompt {number} — Enter rewinds here and sends · Esc Esc cancels').format(number=self._backtrack_edit["number"]))]
         return hint
 
     def _tui_hint_height(self):

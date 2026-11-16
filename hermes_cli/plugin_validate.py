@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from hermes_cli.plugin_validate_core_override import check_core_override
 from hermes_cli.plugin_validate_desktop import check_desktop_surface
 from hermes_cli.plugin_validate_private_imports import check_private_imports
-from hermes_cli.plugin_validate_locales import check_language_packs
+
 from hermes_cli.plugins_manifest import _CONFIG_SCHEMA_TYPES
 
 _UPPER_SNAKE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -549,7 +549,7 @@ def validate_plugin_dir(
     _check_config_spec(report, manifest)
     _check_requires_env(report, manifest)
     _check_oauth(report, manifest, plugin_dir)
-    _check_loadable(report, plugin_dir, manifest)
+    _check_loadable(report, plugin_dir)
     _check_python_dependencies(report, plugin_dir)
     recorded = _check_capabilities(report, manifest, plugin_dir, probe)
     _check_builtin_collisions(report, manifest, recorded)
@@ -558,7 +558,7 @@ def validate_plugin_dir(
     check_core_override(report, plugin_dir)
     check_private_imports(report, plugin_dir)
     check_desktop_surface(report, plugin_dir)
-    check_language_packs(report, manifest, plugin_dir)
+
     from hermes_cli.plugin_isolation_audit import audit_plugin_dir
     report.isolation = audit_plugin_dir(plugin_dir, manifest).to_dict()
     return report
@@ -578,17 +578,16 @@ def _check_trusted_inbound(report: ValidationReport, recorded: Optional[dict]) -
 _LOADABLE_ENTRYPOINTS = ("__init__.py", "desktop/plugin.js", "plugin.json")
 
 
-def _check_loadable(report: ValidationReport, plugin_dir: Path, manifest: Optional[dict] = None) -> None:
+def _check_loadable(report: ValidationReport, plugin_dir: Path) -> None:
     """A plugin.yaml with nothing beside it that Hermes can load (no ``register()`` module, no
-    desktop bundle, no portable manifest, no declared language pack) installs "successfully" and does
+    desktop bundle, no portable manifest) installs "successfully" and does
     nothing — a pip-layout repo whose code lives under ``src/`` behind an entry point is the usual shape."""
     present = [rel for rel in _LOADABLE_ENTRYPOINTS if (plugin_dir / rel).is_file()]
-    if (manifest or {}).get("provides_locales") and (plugin_dir / "locales").is_dir():
-        present.append("locales/ (language pack)")
+
     report.add(
         "loadable", bool(present),
         f"entry: {', '.join(present)}" if present else
-        "nothing to load: no __init__.py, desktop/plugin.js, plugin.json or provides_locales + locales/ beside "
+        "nothing to load: no __init__.py, desktop/plugin.js or plugin.json beside "
         "plugin.yaml (pip-layout packages need a directory-plugin wrapper with a pyproject.toml declaring the deps)",
     )
 

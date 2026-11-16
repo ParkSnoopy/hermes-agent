@@ -16,7 +16,6 @@ import sys
 import threading
 
 from rich.markup import escape as _escape
-from agent.i18n import t
 from utils import base_url_host_matches
 from hermes_cli.cli_agent_setup_mixin import _retire_agent
 
@@ -154,8 +153,8 @@ def _print_switch_summary(cli, result, old_model, *, one_turn: bool, strict_cont
         f"via {result.provider_label or result.target_provider}. "
         f"{'This override applies to the next turn only. ' if one_turn else ''}"
         f"Adjust your self-identification accordingly.]")
-    _cprint(f"  {t('cli.model.switched', model=_display_new)}")
-    _cprint(f"    {t('gateway.model.provider_label', provider=result.provider_label or result.target_provider)}")
+    _cprint(f"  {(f'✓ Model switched: {_display_new}')}")
+    _cprint(f"    {(f'Provider: {result.provider_label or result.target_provider}')}")
     if result.target_provider == "moa":
         # The preset name hides who pays: the aggregator runs every tool-loop step (#112359).
         from hermes_cli.moa_config import normalize_moa_config
@@ -163,7 +162,7 @@ def _print_switch_summary(cli, result, old_model, *, one_turn: bool, strict_cont
         agg = normalize_moa_config(moa_cfg)["presets"].get(result.new_model, {}).get("aggregator") or {}
         if agg:
             _acting = f"{agg.get('provider')}:{agg.get('model')}"
-            _cprint(f"    {t('cli.model.acting_model', model=_acting)}")
+            _cprint(f"    {(f'Acting model (billed for the run): {_acting}')}")
 
     # Provider-aware context chain: Codex OAuth / Nous / profile live-catalog caps win over the raw
     # models.dev entry (gpt-5.5 is 1.05M on openai but 272K on Codex OAuth).
@@ -182,18 +181,18 @@ def _print_switch_summary(cli, result, old_model, *, one_turn: bool, strict_cont
         ctx = None
     if ctx:
         from agent.context_pin import context_window_suffix
-        _cprint(f"    {t('gateway.model.context_label', tokens=f'{ctx:,}')}" + context_window_suffix(
+        _cprint(f"    {('Context: {tokens} tokens').format(tokens=f'{ctx:,}')}" + context_window_suffix(
             ctx, getattr(agent, '_config_context_length', None) if agent else None, model=result.new_model,
             provider=result.target_provider, base_url=result.base_url or cli.base_url or ""))
     if mi:
         if mi.max_output:
-            _cprint(f"    {t('gateway.model.max_output_label', tokens=f'{mi.max_output:,}')}")
-        _cprint(f"    {t('gateway.model.capabilities_label', capabilities=mi.format_capabilities())}")
+            _cprint(f"    {('Max output: {tokens} tokens').format(tokens=f'{mi.max_output:,}')}")
+        _cprint(f"    {(f'Capabilities: {mi.format_capabilities()}')}")
     cache_enabled = (
         (base_url_host_matches(result.base_url or "", "openrouter.ai") and "claude" in result.new_model.lower())
         or result.api_mode == "anthropic_messages")
     if cache_enabled:
-        _cprint(f"    {t('gateway.model.prompt_caching_enabled')}")
+        _cprint(f"    {'Prompt caching: enabled'}")
     if result.warning_message:
         _cprint(f"    ⚠ {result.warning_message}")
     if getattr(result, "usage_notice", ""):
@@ -256,8 +255,8 @@ def _one_turn_selection_context(cli):
 def _ask_switch_anyway(cli, title: str, detail: str) -> bool:
     """The model-guard prompt (switch anyway once, or cancel): True only on an explicit yes."""
     choices = [
-        ("once", t("cli.model.choice_switch_anyway"), t("cli.model.desc_switch_anyway")),
-        ("cancel", t("cli.model.choice_cancel"), t("cli.model.desc_keep_current_model"))]
+        ("once", 'Switch anyway', 'Use this model for the current Hermes session.'),
+        ("cancel", 'Cancel', 'Keep the current model.')]
     raw = cli._prompt_text_input_modal(title=f"!!! {title} !!!", detail=detail, choices=choices, timeout=120)
     return cli._normalize_slash_confirm_choice(raw, choices) == "once"
 
@@ -265,14 +264,14 @@ def _ask_switch_anyway(cli, title: str, detail: str) -> bool:
 # `/model` usage block: (invocation form, description key). Forms are command syntax (never
 # translated); descriptions are padded to one column at render time.
 _MODEL_USAGE_ROWS = (
-    ("/model <name>", "cli.model.usage_switch"),
-    ("/model <name> --global", "cli.model.usage_switch_global"),
-    ("/model <name> --once", "cli.model.usage_switch_once"),
-    ("/model <name> --session", "cli.model.usage_switch_session"),
-    ("/model <name> --provider <slug>", "cli.model.usage_switch_provider_model"),
-    ("/model <name> --reasoning <level>", "cli.model.usage_switch_reasoning"),
-    ("/model --provider <slug>", "cli.model.usage_switch_provider"),
-    ("/model --refresh", "cli.model.usage_refresh"))
+    ("/model <name>", 'switch model (this session)'),
+    ("/model <name> --global", 'switch model and persist as default'),
+    ("/model <name> --once", 'switch for the next turn only'),
+    ("/model <name> --session", 'switch for this session only'),
+    ("/model <name> --provider <slug>", 'switch provider + model'),
+    ("/model <name> --reasoning <level>", 'switch and set reasoning effort'),
+    ("/model --provider <slug>", 'switch provider'),
+    ("/model --refresh", 're-fetch live model lists'))
 _MODEL_USAGE_COL = 36
 
 
@@ -293,8 +292,8 @@ def _picker_reasoning_rows() -> list[tuple[str, str]]:
     then a keep-current row (empty value = leave the effort alone)."""
     from hermes_constants import VALID_REASONING_EFFORTS
     rows = [(lvl, lvl) for lvl in VALID_REASONING_EFFORTS]
-    rows.append(("none", t("cli.model.effort_none")))
-    rows.append(("", t("cli.model.effort_keep_current")))
+    rows.append(("none", 'none (disable reasoning)'))
+    rows.append(("", 'Keep current effort'))
     return rows
 
 
@@ -327,7 +326,7 @@ def _apply_reasoning_after_switch(cli, effort: str, *, persist_global: bool, one
             cli.agent.stage_turn_reasoning(parsed)
         elif cli.agent is not None:
             cli.agent.reasoning_config = parsed
-        _cprint(f"    {t('cli.model.reasoning_effort', effort=effort)}")
+        _cprint(f"    {(f'Reasoning effort: {effort}')}")
         return
     cli._reasoning_user_set = True
     if cli.agent is not None:
@@ -340,7 +339,7 @@ def _apply_reasoning_after_switch(cli, effort: str, *, persist_global: bool, one
     saved = persist_global and save_config_value("agent.reasoning_effort", effort)
     if saved:
         CLI_CONFIG.setdefault("agent", {})["reasoning_effort"] = effort
-    _cprint(f"    {t('cli.model.reasoning_effort_saved' if saved else 'cli.model.reasoning_effort', effort=effort)}")
+    _cprint(f"    {('Reasoning effort: {effort} (saved to config)' if saved else 'Reasoning effort: {effort}').format(effort=effort)}")
 
 
 def _commit_model_switch(
@@ -385,11 +384,11 @@ def _commit_model_switch(
     if persist_global:
         from hermes_cli.model_switch import persist_model_selection
         persist_model_selection(result)
-        _cprint(f"    {t('cli.model.saved_global' if picker else 'cli.model.saved')}")
+        _cprint(f"    {('Saved to config.yaml (--global)' if picker else 'Saved to config.yaml')}")
     elif one_turn:
-        _cprint(f"    {t('cli.model.next_turn_only')}")
+        _cprint(f"    {'(next turn only — restores after one response)'}")
     else:
-        _cprint(f"    {t('cli.model.session_only')}")
+        _cprint(f"    {'(session only — add --global to persist)'}")
     # The row records what THIS session runs even on --global (else a later resume restores the
     # stale creation-time model); --once is restored after one turn and never touches the row.
     if not one_turn:
@@ -419,10 +418,10 @@ def _show_model_picker(cli, ctx, force_refresh: bool) -> None:
     except Exception:
         providers = []
     if not providers:
-        _cprint(f"  {t('cli.model.no_authenticated_providers')}")
+        _cprint(f"  {'No authenticated providers found.'}")
         _cprint("")
         for form, desc_key in _MODEL_USAGE_ROWS:
-            _cprint(f"  {form.ljust(_MODEL_USAGE_COL)} {t(desc_key)}")
+            _cprint(f"  {form.ljust(_MODEL_USAGE_COL)} {desc_key}")
         return
     cli._open_model_picker(
         providers, cli.model or "unknown", get_label(cli.provider) if cli.provider else "unknown",
@@ -470,7 +469,7 @@ class CLIModelSwitchMixin:
             if resolved_provider not in _AGGREGATOR_PROVIDERS:
                 _adopt(
                     normalize_model_for_provider(current_model, resolved_provider),
-                    lambda new: t("cli.model.normalized_model", old=current_model, new=new, provider=resolved_provider))
+                    lambda new: (f"Normalized model '{current_model}' to '{new}' for {resolved_provider}."))
         except Exception:
             pass
 
@@ -486,7 +485,7 @@ class CLIModelSwitchMixin:
             return _adopt_with_mode(
                 lambda m: native_id,
                 lambda m: model_derived_api_mode(resolved_provider, m, self.api_key or "") or self.api_mode,
-                lambda new: t("cli.model.normalized_model", old=current_model, new=new, provider=resolved_provider))
+                lambda new: (f"Normalized model '{current_model}' to '{new}' for {resolved_provider}."))
 
         from hermes_cli.models import opencode_provider_family
         if opencode_provider_family(resolved_provider) is not None:
@@ -494,7 +493,7 @@ class CLIModelSwitchMixin:
             return _adopt_with_mode(
                 lambda m: normalize_opencode_model_id(resolved_provider, m),
                 lambda m: opencode_model_api_mode(resolved_provider, m),
-                lambda new: t("cli.model.stripped_provider_prefix", old=current_model, new=new, provider=resolved_provider))
+                lambda new: (f"Stripped provider prefix from '{current_model}'; using '{new}' for {resolved_provider}."))
 
         if resolved_provider != "openai-codex":
             return changed
@@ -504,7 +503,7 @@ class CLIModelSwitchMixin:
             slug = current_model.split("/", 1)[1]
             if not self._model_is_default:
                 self._console_print(
-                    "[yellow]⚠️  " + _escape(t("cli.model.stripped_provider_prefix", old=current_model, new=slug, provider="OpenAI Codex")) + "[/]")
+                    "[yellow]⚠️  " + _escape(("Stripped provider prefix from '{old}'; using '{new}' for {provider}.").format(old=current_model, new=slug, provider="OpenAI Codex")) + "[/]")
             self.model = slug
             current_model = slug
             changed = True
@@ -643,7 +642,7 @@ class CLIModelSwitchMixin:
                     base_url=self.base_url or "", api_mode=self.api_mode or "")
             except Exception:
                 logger.debug("In-place agent model swap on resume failed", exc_info=True)
-        msg = t("cli.model.restored_from_session", model=stored_model)
+        msg = (f'Model restored from session: {stored_model}')
         if stored_provider:
             msg += f" ({stored_provider})"
         if quiet:
@@ -706,12 +705,12 @@ class CLIModelSwitchMixin:
         from cli import _cprint
         try:
             if result.success and not self._confirm_expensive_model_switch(result):
-                _cprint(f"  {t('cli.model.switch_cancelled')}")
+                _cprint(f"  {'Model switch cancelled.'}")
                 return
             self._apply_model_switch_result(
                 result, persist_global, custom_providers=custom_providers, reasoning_effort=reasoning_effort)
         except Exception as exc:
-            _cprint(f"  {t('cli.model.selection_failed', error=exc)}")
+            _cprint(f"  {(f'✗ Model selection failed: {exc}')}")
 
     def _close_model_picker(self) -> None:
         self._model_picker_state = None
@@ -775,8 +774,7 @@ class CLIModelSwitchMixin:
                 # claiming the restore.
                 for key, value in one_turn.items():
                     setattr(self, key, value)
-                notice = t("cli.model.switch_cancelled") if restored is False else t(
-                    "cli.model.switch_failed", model=snapshot.get("model", ""), error=restored, old_model=agent.model)
+                notice = 'Model switch cancelled.' if restored is False else ('⚠ Model switch to {model} failed ({error}); staying on {old_model}.').format(model=snapshot.get("model", ""), error=restored, old_model=agent.model)
                 _cprint(f"  {notice}")
                 return
             if "reasoning_config" in snapshot:
@@ -857,7 +855,7 @@ class CLIModelSwitchMixin:
                     # Declined at the gateway owner's guard prompt: nothing was committed.
                     for _k, _v in _cli_snapshot.items():
                         setattr(self, _k, _v)
-                    _cprint(f"  {t('cli.model.switch_cancelled')}")
+                    _cprint(f"  {'Model switch cancelled.'}")
                     return False
             except Exception as exc:
                 # The agent rolled itself back to the old working model/client. Roll the CLI's own staged
@@ -872,7 +870,7 @@ class CLIModelSwitchMixin:
                     from hermes_cli.cli_chat_error_copy import refusal_text
                     _cprint(f"  {refusal_text(exc)}")
                     return False
-                _cprint(f"  {t('cli.model.switch_failed', model=result.new_model, error=exc, old_model=old_model)}")
+                _cprint(f"  {(f'⚠ Model switch to {result.new_model} failed ({exc}); staying on {old_model}.')}")
                 return False
             finally:
                 self._confirmed_switch_warning = None  # this switch's confirmation only
@@ -1009,11 +1007,11 @@ class CLIModelSwitchMixin:
             # which would otherwise re-plant the model being reset away from after the next turn.
             target, explicit_provider = _configured_default_route()
             if not target:
-                _cprint(f"  ✗ {t('cli.model.reset_no_default')}")
+                _cprint(f"  ✗ {'No model.default in config.yaml — nothing to reset to.'}")
                 return
             if target == self.model and explicit_provider in ("", self.provider):
                 self._pending_one_turn_model_restore = None
-                _cprint(f"  {t('cli.model.reset_none', model=target)}")
+                _cprint(f"  {(f'Already on the configured default ({target}) — nothing to reset.')}")
                 return
         one_turn = request.is_once
         persist_global = not request.is_reset and resolve_persist_behavior(
@@ -1025,7 +1023,7 @@ class CLIModelSwitchMixin:
             try:
                 from hermes_cli.models import clear_provider_models_cache
                 clear_provider_models_cache()
-                _cprint(f"  {t('cli.model.cleared_picker_cache')}")
+                _cprint(f"  {'Cleared model picker cache. Refreshing...'}")
             except Exception:
                 pass
 
@@ -1066,7 +1064,7 @@ class CLIModelSwitchMixin:
         self._one_turn_selection_context = _one_turn_selection_context(self) if one_turn else None
         try:
             if not self._confirm_expensive_model_switch(result):
-                _cprint(f"  {t('cli.model.switch_cancelled')}")
+                _cprint(f"  {'Model switch cancelled.'}")
                 return
             _commit_model_switch(self, result, persist_global=persist_global, one_turn=one_turn,
                                  reasoning_effort=reasoning_effort)
@@ -1094,7 +1092,7 @@ class CLIModelSwitchMixin:
         try:
             from hermes_cli.config import load_config, save_config
         except Exception as exc:
-            _cprint(t("cli.model.could_not_load_config", error=exc))
+            _cprint(f'❌ could not load config: {exc}')
             return
         result = crs.apply(
             load_config(), new_value,
@@ -1103,7 +1101,7 @@ class CLIModelSwitchMixin:
         for line in result.message.splitlines():
             _cprint(f"  {prefix} {line}" if line.startswith("openai_runtime") else f"    {line}")
         if result.success and result.requires_new_session:
-            _cprint(f"    {t('cli.model.tip_reset_new_session')}")
+            _cprint(f"    {'Tip: `/reset` starts a new session immediately.'}")
 
     def _should_handle_model_command_inline(self, text: str, has_images: bool = False) -> bool:
         """Return True when /model should be handled immediately on the UI thread."""
@@ -1142,4 +1140,4 @@ class CLIModelSwitchMixin:
         _retire_agent(self)
         self._pending_moa_disable_after_turn = True
         self._pending_agent_seed = payload
-        _cprint(f"  {t('cli.model.moa_one_shot_queued', preset=preset)}")
+        _cprint(f"  {(f'MoA one-shot queued with preset {preset}; previous model will be restored after this turn.')}")

@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent.i18n import t
 
 
 def _make_voice_cli(**overrides):
@@ -374,7 +373,7 @@ class TestVoiceStopAndTranscribeReal:
             cli._voice_stop_and_transcribe()
 
         messages = [call.args[0] for call in mock_print.call_args_list]
-        assert any(t("cli.voice.transcribing") in message for message in messages)
+        assert any('Transcribing...' in message for message in messages)
         assert all("Hugging Face" not in message for message in messages)
         mock_transcribe.assert_called_once_with("/tmp/test.wav", model="whisper-1")
 

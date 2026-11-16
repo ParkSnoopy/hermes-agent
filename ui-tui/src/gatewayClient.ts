@@ -1,9 +1,8 @@
 /** Ink's gateway client: `@hermes/shared/gateway-client` wired to the `hermes --tui` launcher (its
- *  bootstrap, `HERMES_TUI_*` overrides, launch tool-progress pin, i18n and crash-log breadcrumbs). */
+ *  bootstrap, `HERMES_TUI_*` overrides, launch tool-progress pin and crash-log breadcrumbs). */
 import { type ConnectGateway, GatewayClient as SharedGatewayClient } from '@hermes/shared/gateway-client'
 import { WebSocket as UndiciWebSocket } from 'undici'
 
-import { t } from './i18n/runtime.js'
 import { launchToolProgress } from './launchOptions.js'
 import { recordParentLifecycle } from './lib/parentLog.js'
 import { bootstrapLocalGateway, isTerminalBootstrapFailure } from './localGatewayBootstrap.js'
@@ -24,7 +23,7 @@ export class GatewayClient extends SharedGatewayClient {
       requestTimeoutMs: REQUEST_TIMEOUT_MS,
 
       startupTimeoutMs: STARTUP_TIMEOUT_MS,
-      text: t,
+
       toolProgress: () => launchToolProgress()
     })
   }

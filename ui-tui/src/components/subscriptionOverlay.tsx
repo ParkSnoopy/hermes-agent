@@ -10,8 +10,7 @@ import type {
   SubscriptionResult,
   SubscriptionStepUpRetry
 } from '../app/interfaces.js'
-import { messages } from '../i18n/runtime.js'
-import { useT } from '../i18n/useT.js'
+import { subscriptionEn } from '../copy/subscription.js'
 import type { Theme } from '../theme.js'
 
 import { ActionRow, footer, MenuRow, type MenuRowSpec, UsageBars, useMenu } from './overlayPrimitives.js'
@@ -70,7 +69,7 @@ interface ScreenProps {
 
 /** ISO datetime → YYYY-MM-DD for display, or a soft fallback. */
 function shortDate(iso?: null | string): string {
-  return iso && iso.length >= 10 ? iso.slice(0, 10) : messages().subscription.shared.periodEndFallback
+  return iso && iso.length >= 10 ? iso.slice(0, 10) : subscriptionEn.subscription.shared.periodEndFallback
 }
 
 /** Integer cents → "$X.YY", or null when no amount is quoted. */
@@ -89,7 +88,7 @@ function isScopeDenial(r: { error?: string; ok?: boolean } | null): boolean {
  */
 function errorResult(r: { error?: string; message?: string; portal_url?: null | string } | null): SubscriptionResult {
   return {
-    message: r?.message || r?.error || messages().subscription.result.genericError,
+    message: r?.message || r?.error || subscriptionEn.subscription.result.genericError,
     ok: false,
     recoveryUrl: r?.portal_url ?? null
   }
@@ -102,7 +101,7 @@ function mutationResult(r: null | { message?: string; ok?: boolean }, okMessage:
 
 /** Map an upgrade response, routing SCA / decline to a portal recovery. */
 function upgradeResult(r: null | SubscriptionUpgradeResponse, pendingTierId?: null | string): SubscriptionResult {
-  const T = messages().subscription
+  const T = subscriptionEn.subscription
 
   if (!r) {
     // null = a transport failure (WS drop / request timeout) on the CHARGING
@@ -167,7 +166,7 @@ function upgradeResult(r: null | SubscriptionUpgradeResponse, pendingTierId?: nu
 
 /** Map a failed remote-spending step-up to the right recovery copy (typed). */
 function stepUpDenialResult(res: { error?: string; message?: string }): SubscriptionResult {
-  const T = messages().subscription.stepUpDenial
+  const T = subscriptionEn.subscription.stepUpDenial
 
   if (res.error === 'session_revoked') {
     return { message: T.sessionRevoked, ok: false }
@@ -196,9 +195,9 @@ function stepUpDenialResult(res: { error?: string; message?: string }): Subscrip
 // stepup screen: we're already mounted there (in the 'resuming' phase), so an
 // onPatch({screen:'stepup'}) is a no-op that never remounts → the screen freezes.
 // Post-grant replays pass allowStepUp=false and surface this instead (mirrors the
-// CLI's allow_stepup=False cap). Resolved per call so a locale swap is observed.
+// CLI's allow_stepup=False cap).
 const scopeStillDeniedResult = (): SubscriptionResult => ({
-  message: messages().subscription.result.scopeStillDenied,
+  message: subscriptionEn.subscription.result.scopeStillDenied,
   ok: false
 })
 
@@ -212,7 +211,7 @@ function previewAndRoute(
   return ctx.preview(tierId).then(p => {
     if (!p) {
       return onPatch({
-        result: { message: messages().subscription.result.couldNotPreview, ok: false },
+        result: { message: subscriptionEn.subscription.result.couldNotPreview, ok: false },
         screen: 'result'
       })
     }
@@ -268,7 +267,7 @@ function applyPendingAndRoute(
     return ctx
       .scheduleCancellation()
       .then(r =>
-        isScopeDenial(r) ? toStepUp() : finish(mutationResult(r, messages().subscription.result.cancellationScheduled))
+        isScopeDenial(r) ? toStepUp() : finish(mutationResult(r, subscriptionEn.subscription.result.cancellationScheduled))
       )
   }
 
@@ -281,7 +280,7 @@ function applyPendingAndRoute(
   return ctx
     .scheduleChange(pending.targetTierId ?? '')
     .then(r =>
-      isScopeDenial(r) ? toStepUp() : finish(mutationResult(r, messages().subscription.result.changeScheduled))
+      isScopeDenial(r) ? toStepUp() : finish(mutationResult(r, subscriptionEn.subscription.result.changeScheduled))
     )
 }
 
@@ -299,7 +298,7 @@ function resumeAndRoute(
     }
 
     return onPatch({
-      result: mutationResult(r, messages().subscription.result.resumed),
+      result: mutationResult(r, subscriptionEn.subscription.result.resumed),
       screen: 'result'
     })
   })
@@ -320,7 +319,7 @@ function pendingTransition(c: SubscriptionStateResponse['current']): null | Pend
 
   if (c.cancel_at_period_end) {
     return {
-      to: messages().subscription.status.cancels,
+      to: subscriptionEn.subscription.status.cancels,
       when: c.cancellation_effective_display ?? shortDate(c.cancellation_effective_at)
     }
   }
@@ -336,7 +335,7 @@ function pendingTransition(c: SubscriptionStateResponse['current']): null | Pend
 
 /** Status line — dollars-only, and echoes a pending "Ultra → Plus" transition. */
 function statusLine(s: SubscriptionStateResponse): string {
-  const T = messages().subscription.status
+  const T = subscriptionEn.subscription.status
   const u = s.usage
   const c = s.current
   const plan = c?.tier_name ?? u?.plan_name ?? null
@@ -360,7 +359,7 @@ function statusLine(s: SubscriptionStateResponse): string {
 }
 
 function OverviewScreen({ onClose, onPatch, overlay, t }: ScreenProps) {
-  const T = useT().subscription
+  const T = subscriptionEn.subscription
   const { ctx, state: s } = overlay
   const c = s.current
   const isFree = !c?.tier_id
@@ -512,7 +511,7 @@ function OverviewScreen({ onClose, onPatch, overlay, t }: ScreenProps) {
 // ── Screen: Picker (choose a tier → preview → confirm) ───────────────
 
 function PickerScreen({ onPatch, overlay, t }: ScreenProps) {
-  const T = useT().subscription
+  const T = subscriptionEn.subscription
   const { ctx, state: s } = overlay
   const currentOrder = s.tiers.find(tier => tier.is_current)?.tier_order ?? 0
 
@@ -569,7 +568,7 @@ function PickerScreen({ onPatch, overlay, t }: ScreenProps) {
 // ── Screen: Confirm (show the previewed effect, then apply) ──────────
 
 function ConfirmScreen({ onClose, onPatch, overlay, t }: ScreenProps) {
-  const T = useT().subscription
+  const T = subscriptionEn.subscription
   const { ctx, state: s } = overlay
   const pending: null | SubscriptionPendingChange = overlay.pending ?? null
   const preview = pending?.preview ?? null
@@ -726,7 +725,7 @@ function ConfirmScreen({ onClose, onPatch, overlay, t }: ScreenProps) {
 // ── Screen: Result (outcome + optional portal recovery) ──────────────
 
 function ResultScreen({ onClose, overlay, t }: Omit<ScreenProps, 'onPatch'>) {
-  const T = useT().subscription
+  const T = subscriptionEn.subscription
   const { ctx } = overlay
   const result = overlay.result ?? null
   const recoveryUrl = result?.recoveryUrl ?? null
@@ -838,7 +837,7 @@ function ResultScreen({ onClose, overlay, t }: Omit<ScreenProps, 'onPatch'>) {
 // ── Screen: Step-up (allow remote spending inline, then replay) ───────
 
 function StepUpScreen({ onPatch, overlay, t }: ScreenProps) {
-  const T = useT().subscription
+  const T = subscriptionEn.subscription
   const { ctx } = overlay
   const retry: null | SubscriptionStepUpRetry = overlay.stepUpRetry ?? null
   const [phase, setPhase] = useState<'granted' | 'prompt' | 'resuming' | 'waiting'>('prompt')
@@ -973,7 +972,7 @@ interface TeamContextScreenProps {
 }
 
 function TeamContextScreen({ onClose, s, t }: TeamContextScreenProps) {
-  const T = useT().subscription
+  const T = subscriptionEn.subscription
   useInput((_ch, key) => {
     if (key.escape || key.return) {
       return onClose()

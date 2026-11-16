@@ -13,8 +13,8 @@ import { createGatewayEventHandler } from '../app/createGatewayEventHandler.js'
 import { turnController } from '../app/turnController.js'
 import { $uiState, patchUiState, resetUiState } from '../app/uiStore.js'
 import { useSubmission } from '../app/useSubmission.js'
+import { canonicalEn } from '../copy/canonical.js'
 import { useQueue } from '../hooks/useQueue.js'
-import { t } from '../i18n/runtime.js'
 
 // C22: an explicit HERMES_TUI_GATEWAY_URL owner on another home/machine answers receipts naming ITS
 // profile_id; Ink validates them against the owner identity from the snapshot, not its local
@@ -113,6 +113,6 @@ it.each([
     await expect.poll(() => h.calls.filter(c => c.method === 'prompt.submit').length).toBe(1)
     // A confirmed receipt hands the row to the durable FIFO; a refused one keeps it local.
     await expect.poll(() => h.queue.queueRef.current.length).toBe(refused ? 1 : 0)
-    expect($uiState.get().status === t('canonical.submit.statusAdmissionUnconfirmed')).toBe(refused)
+    expect($uiState.get().status === canonicalEn.canonical.submit.statusAdmissionUnconfirmed).toBe(refused)
   } finally { h.cleanup() }
 })

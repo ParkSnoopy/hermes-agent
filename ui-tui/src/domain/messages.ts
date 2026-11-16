@@ -1,7 +1,7 @@
 import type { SessionInfo } from '@hermes/shared/gateway-types'
 
 import { LONG_MSG } from '../config/limits.js'
-import { t } from '../i18n/runtime.js'
+import { libTextEn } from '../copy/libText.js'
 import { buildToolTrailLine } from '../lib/text.js'
 import type { Msg } from '../types.js'
 
@@ -16,7 +16,7 @@ export const userDisplay = (text: string) => {
   const words = first.split(/\s+/).filter(Boolean)
   const prefix = (words.length > 1 ? words.slice(0, 4).join(' ') : first).slice(0, 80)
 
-  return t('libText.messages.longMessage', prefix || t('libText.messages.messageFallback'))
+  return libTextEn.libText.messages.longMessage(prefix || libTextEn.libText.messages.messageFallback)
 }
 
 /** A resumed user row's durable message row (backtrack browsing finds its prompt by it). */
@@ -58,21 +58,21 @@ export const toTranscriptMessages = (rows: unknown): Msg[] => {
     }
 
     if (display_kind === 'model_switch') {
-      out.push({ kind: 'event', role: 'system', text: t('libText.messages.modelChanged') })
+      out.push({ kind: 'event', role: 'system', text: libTextEn.libText.messages.modelChanged })
       pending = []
 
       continue
     }
 
     if (display_kind === 'auto_continue') {
-      out.push({ kind: 'event', role: 'system', text: t('libText.messages.resumedInterruptedTurn') })
+      out.push({ kind: 'event', role: 'system', text: libTextEn.libText.messages.resumedInterruptedTurn })
       pending = []
 
       continue
     }
 
     if (display_kind === 'personality_switch') {
-      out.push({ kind: 'event', role: 'system', text: t('libText.messages.personalityChanged') })
+      out.push({ kind: 'event', role: 'system', text: libTextEn.libText.messages.personalityChanged })
       pending = []
 
       continue
@@ -84,15 +84,10 @@ export const toTranscriptMessages = (rows: unknown): Msg[] => {
 
       const label =
         display_kind === 'process_complete'
-          ? t('libText.messages.backgroundProcessFinished')
+          ? libTextEn.libText.messages.backgroundProcessFinished
           : count === undefined
-            ? t('libText.messages.backgroundAgentWorkFinished')
-            : t(
-                count === 1
-                  ? 'libText.messages.backgroundAgentsFinishedOne'
-                  : 'libText.messages.backgroundAgentsFinishedOther',
-                count
-              )
+            ? libTextEn.libText.messages.backgroundAgentWorkFinished
+            : (count === 1 ? libTextEn.libText.messages.backgroundAgentsFinishedOne(count) : libTextEn.libText.messages.backgroundAgentsFinishedOther(count))
 
       out.push({
         kind: 'event',

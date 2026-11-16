@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from agent.i18n import t
-from hermes_cli.cli_commands_session_tools import _t
+
 
 
 def enter_new_worktree(cli, wt_info) -> bool:
@@ -20,14 +19,14 @@ def enter_new_worktree(cli, wt_info) -> bool:
     try:
         move_cli_workspace(cli, wt_info)  # the gateway session's tools, then this process
     except GatewayClientError as e:
-        print(f"  {_t('worktree.enter_failed', error=refusal_text(e))}")
+        print(f"  {(f'⚠ Created worktree but could not enter it: {refusal_text(e)}')}")
         active = _cli._active_worktree
         _cli._cleanup_worktree(wt_info)
         _cli._active_worktree = active
         return False
     except OSError as e:
         if gateway_connection(cli) is None:  # a local session: nothing moved
-            print(f"  {_t('worktree.enter_failed', error=e)}")
+            print(f"  {(f'⚠ Created worktree but could not enter it: {e}')}")
             return False
-        print(f"  {t('cli.session.cwd_enter_failed', path=wt_info['path'], error=e)}")
+        print('  ' + format((("⚠ Could not enter session's working directory {path}: {error}").format(path=wt_info['path'], error=e)), ''))
     return True

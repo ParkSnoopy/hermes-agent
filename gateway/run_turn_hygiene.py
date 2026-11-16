@@ -11,7 +11,7 @@ import os
 import queue
 import threading
 import time
-from agent.i18n import t
+
 from agent.session_activity import format_iteration_progress
 from contextlib import nullcontext, suppress
 from contextvars import copy_context
@@ -415,7 +415,7 @@ class GatewayTurnHygieneMixin:
             session_entry.session_id, time.monotonic() - attempt.wait_started, _log_suffix,
         )
         await self._hmwa_hygiene_notify(
-            source, attempt.meta, t("gateway.compress.turnhold_deferred"), "compression-turnhold notice",
+            source, attempt.meta, 'ℹ️ Context compression deferred — summary still streaming. Continuing without compression this turn.', "compression-turnhold notice",
         )
         raise
 
@@ -624,17 +624,17 @@ class GatewayTurnHygieneMixin:
                 # Force-redact: provider exception text may contain credentials; this reaches users.
                 from agent.redact import redact_sensitive_text
                 _err = redact_sensitive_text(
-                    getattr(_comp, "_last_summary_error", None) or t("gateway.shared.unknown_error"), force=True)
+                    getattr(_comp, "_last_summary_error", None) or 'unknown error', force=True)
                 logger.warning("Session hygiene compression aborted: %s", _err)
                 await self._hmwa_hygiene_notify(
-                    source, attempt.meta, t("gateway.compress.hygiene_failed"), "compression-failure warning",
+                    source, attempt.meta, '⚠️ Shortening the conversation history failed, so I kept everything as-is. Run /compress to try again or /new to start fresh. If this keeps happening, run `hermes doctor` on the host.', "compression-failure warning",
                 )
         # Configured aux model failed, recovered on the main model: only the user can fix that config.
         elif _comp is not None and getattr(_comp, "_last_aux_model_failure_model", None):
             _aux_model = getattr(_comp, "_last_aux_model_failure_model", "")
-            _aux_err = getattr(_comp, "_last_aux_model_failure_error", None) or t("gateway.shared.unknown_error")
+            _aux_err = getattr(_comp, "_last_aux_model_failure_error", None) or 'unknown error'
             await self._hmwa_hygiene_notify(
-                source, attempt.meta, t("gateway.compress.aux_failed", model=_aux_model, error=_aux_err),
+                source, attempt.meta, (f'ℹ️ Configured compression model `{_aux_model}` failed ({_aux_err}). Recovered using your main model — context is intact — but you may want to check `auxiliary.compression.model` in config.yaml.'),
                 "aux-model-fallback notice",
             )
 

@@ -1,9 +1,9 @@
 import type { PromptSubmitResponse, SessionActivateResponse } from '@hermes/shared/gateway-types'
 import { isUndeliveredCorrectionRefusal } from '@hermes/shared/json-rpc-channel'
 
+import { canonicalEn } from '../copy/canonical.js'
 import type { GatewayClient } from '../gatewayClient.js'
 import type { QueueItem } from '../hooks/useQueue.js'
-import { t } from '../i18n/runtime.js'
 import { stageImagePath } from '../lib/imageAttachments.js'
 import { pendingInputOwner, savePendingInput } from '../lib/pendingInputs.js'
 import type { Msg } from '../types.js'
@@ -204,7 +204,7 @@ function settleControlReply(
   item.settle?.(accepted)
 
   if (focused()) {
-    deps.sys(accepted ? t('canonical.submit.correction', control.status) : t('canonical.submit.correctionRejected'))
+    deps.sys(accepted ? canonicalEn.canonical.submit.correction(control.status) : canonicalEn.canonical.submit.correctionRejected)
   }
 
   return true
@@ -237,8 +237,8 @@ function settleAdmissionReply(item: QueueItem, r: PromptSubmitResponse, ctx: Adm
   }
 
   if (!accepted && focused()) {
-    deps.sys(t('canonical.submit.admissionNotConfirmed'))
-    patchUiState({ status: t('canonical.submit.statusAdmissionUnconfirmed') })
+    deps.sys(canonicalEn.canonical.submit.admissionNotConfirmed)
+    patchUiState({ status: canonicalEn.canonical.submit.statusAdmissionUnconfirmed })
   }
 }
 
@@ -280,7 +280,7 @@ function refreshExecutionStatus({ deps, focused, owner, sid }: AdmissionContext)
     })
     .catch((error: Error) => {
       if (focused()) {
-        deps.sys(t('canonical.submit.executionUnconfirmed', error.message))
+        deps.sys(canonicalEn.canonical.submit.executionUnconfirmed(error.message))
       }
     })
 }
@@ -321,8 +321,8 @@ export function submitPrompt(
     opts.queueItem.settle?.(false)
 
     if (focused()) {
-      deps.sys(t('canonical.submit.deliveryNotResent'))
-      patchUiState({ status: t('canonical.submit.statusDeliveryUnconfirmed') })
+      deps.sys(canonicalEn.canonical.submit.deliveryNotResent)
+      patchUiState({ status: canonicalEn.canonical.submit.statusDeliveryUnconfirmed })
     }
 
     return
@@ -360,7 +360,7 @@ export function submitPrompt(
       item.settle?.(false)
 
       if (focused()) {
-        deps.sys(t('canonical.submit.busyTextOnly'))
+        deps.sys(canonicalEn.canonical.submit.busyTextOnly)
       }
 
       return
@@ -428,8 +428,8 @@ export function submitPrompt(
           item.settle?.(false)
 
           if (focused()) {
-            deps.sys(t('canonical.submit.inputRetained', e.message))
-            patchUiState({ status: t('canonical.submit.statusAdmissionUnconfirmed') })
+            deps.sys(canonicalEn.canonical.submit.inputRetained(e.message))
+            patchUiState({ status: canonicalEn.canonical.submit.statusAdmissionUnconfirmed })
           }
 
           return
@@ -490,10 +490,10 @@ export function submitPrompt(
         opts.queueItem?.settle?.(false)
 
         if (focused()) {
-          deps.sys(t('canonical.submit.imageNotSubmitted', error.message))
+          deps.sys(canonicalEn.canonical.submit.imageNotSubmitted(error.message))
 
           if (ownsTurn()) {
-            patchUiState({ busy: false, status: t('canonical.submit.statusImageNotSubmitted') })
+            patchUiState({ busy: false, status: canonicalEn.canonical.submit.statusImageNotSubmitted })
           }
         }
       })

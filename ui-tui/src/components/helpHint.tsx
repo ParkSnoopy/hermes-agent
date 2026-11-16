@@ -1,11 +1,11 @@
 import { Box, Text } from '@hermes/ink'
 
 import { hotkeys } from '../content/hotkeys.js'
-import { useT } from '../i18n/useT.js'
+import { chromeEn } from '../copy/chrome.js'
 import type { Theme } from '../theme.js'
 
 export function HelpHint({ nativeMode = false, t }: { nativeMode?: boolean; t: Theme }) {
-  const T = useT()
+  const T = chromeEn
 
   const commands: [string, string][] = [
     ['/help', T.help.commands.help],

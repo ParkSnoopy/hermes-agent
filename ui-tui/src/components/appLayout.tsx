@@ -16,8 +16,8 @@ import { usePet } from '../app/usePet.js'
 import { $voicePartial } from '../app/voicePartialStore.js'
 import { INLINE_MODE, NATIVE_MODE, SHOW_FPS, TERMUX_TUI_MODE } from '../config/env.js'
 import { placeholder } from '../content/placeholders.js'
+import { chromeEn } from '../copy/chrome.js'
 import { prevRenderedMsg } from '../domain/blockLayout.js'
-import { useT } from '../i18n/useT.js'
 import {
   COMPOSER_PROMPT_GAP_WIDTH,
   composerPromptWidth,
@@ -365,7 +365,7 @@ const ComposerPane = memo(function ComposerPane({
 }) {
   const ui = useStore($uiState)
   const voicePartial = useStore($voicePartial)
-  const T = useT()
+  const T = chromeEn
   const isBlocked = useStore($isBlocked)
   const sh = (composer.inputBuf[0] ?? composer.input).startsWith('!')
 

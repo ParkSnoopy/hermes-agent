@@ -108,8 +108,7 @@ async def test_a_stop_from_either_side_reaches_the_apps_turn_after_the_chat_resu
     before = len(sent)
     await adapter.handle_message(MessageEvent(text='/stop', source=source, message_id='stop'))
     await async_wait_until(lambda: len(sent) > before, what='the /stop reply')
-    from agent.i18n import t
-    assert sent[before:] != [t('gateway.stop.no_active')] and stops
+    assert sent[before:] != ['No active task to stop.'] and stops
     gates['slow app turn'].set()
 
 

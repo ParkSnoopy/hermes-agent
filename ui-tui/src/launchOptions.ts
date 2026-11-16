@@ -1,6 +1,5 @@
-/** The `hermes --tui` launcher's environment as `session.create` options and the launch tool-progress
- *  pin: Ink's launch contract, read here and handed to the shared gateway client. */
-import { t } from './i18n/runtime.js'
+import { canonicalEn } from './copy/canonical.js'
+
 
 export function localCreationOptions(env = process.env): Record<string, unknown> {
   const fields: Record<string, string | undefined> = {
@@ -76,7 +75,7 @@ export function launchToolProgress(env = process.env): string | undefined {
 
   if (!raw) { return undefined }
 
-  if (!TOOL_PROGRESS_MODES.has(raw)) { throw new Error(t('canonical.launch.invalidToolProgress', raw)) }
+  if (!TOOL_PROGRESS_MODES.has(raw)) { throw new Error(canonicalEn.canonical.launch.invalidToolProgress(raw)) }
 
   return raw
 }

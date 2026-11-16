@@ -4,8 +4,8 @@ import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from 'reac
 import spinners, { type BrailleSpinnerName } from 'unicode-animations'
 
 import { THINKING_COT_MAX } from '../config/limits.js'
+import { chatBitsEn } from '../copy/chatBits.js'
 import { sectionMode } from '../domain/details.js'
-import { useT } from '../i18n/useT.js'
 import {
   buildSubagentTree,
   fmtTokens,
@@ -294,7 +294,7 @@ function SubagentAccordion({
   rails?: TreeRails
   t: Theme
 }) {
-  const T = useT().chatBits.thinking
+  const T = chatBitsEn.chatBits.thinking
   const [open, setOpen] = useState(expanded)
   const [deep, setDeep] = useState(expanded)
   const [openThinking, setOpenThinking] = useState(expanded)
@@ -726,7 +726,7 @@ export const ToolTrail = memo(function ToolTrail({
   trail?: string[]
   activity?: ActivityItem[]
 }) {
-  const T = useT().chatBits.thinking
+  const T = chatBitsEn.chatBits.thinking
 
   const visible = useMemo(
     () => ({

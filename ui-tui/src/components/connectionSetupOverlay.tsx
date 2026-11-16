@@ -19,8 +19,7 @@ import {
 } from '../app/connectionOperationStore.js'
 import { useGateway } from '../app/gatewayContext.js'
 import { $uiSessionId } from '../app/uiStore.js'
-import type { Translations } from '../i18n/types.js'
-import { useT } from '../i18n/useT.js'
+import { connectionEn } from '../copy/connection.js'
 import { openExternalUrl } from '../lib/openExternalUrl.js'
 import type { Theme } from '../theme.js'
 
@@ -70,10 +69,10 @@ const RESOLVED_STATES = ['connected', 'skipped', 'not_connected']
 const isUnresolved = (target: ConnectionOperationTarget): boolean =>
   !RESOLVED_STATES.includes(target.state) || (target.state === 'connected' && Boolean(target.discovery_error))
 
-// The card's title verb, resolved from the active catalog at render (never at import).
-const verbOf = (T: Translations, action: ConnectionTargetAction): string => T.connection.verb[action]
+// The card's title verb.
+const verbOf = (T: typeof connectionEn, action: ConnectionTargetAction): string => T.connection.verb[action]
 
-const titleOf = (T: Translations, target: ConnectionOperationTarget): string => {
+const titleOf = (T: typeof connectionEn, target: ConnectionOperationTarget): string => {
   const title = `${verbOf(T, target.action)} ${target.name}`
 
   return target.alias ? T.connection.header.account(title, target.alias) : title
@@ -95,7 +94,7 @@ const phaseOf = (target: ConnectionOperationTarget): Phase => {
   return 'form'
 }
 
-const failureLine = (T: Translations, target: ConnectionOperationTarget): string =>
+const failureLine = (T: typeof connectionEn, target: ConnectionOperationTarget): string =>
   target.state === 'expired' ? T.connection.failure.expired : T.connection.failure.failed
 
 const hasFailed = (target: ConnectionOperationTarget): boolean =>
@@ -113,7 +112,7 @@ interface HeaderProps {
 }
 
 function Header({ more, t, target }: HeaderProps) {
-  const T = useT()
+  const T = connectionEn
 
   return (
     <Box flexDirection="column">
@@ -143,7 +142,7 @@ interface FieldRowProps {
 }
 
 function FieldRow({ cols, draftValue, field, focused, onChange, onSubmit, sending, showSet, t }: FieldRowProps) {
-  const T = useT()
+  const T = connectionEn
 
   return (
     <Box flexDirection="column">
@@ -208,7 +207,7 @@ interface SelectorProps {
 }
 
 function Selector({ action, focused, primary, t }: SelectorProps) {
-  const T = useT()
+  const T = connectionEn
 
   return (
     <Text color={focused ? t.color.accent : t.color.muted}>
@@ -237,7 +236,7 @@ function DetailLine({ t, text }: { t: Theme; text: null | string | undefined }) 
 }
 
 function FinishingPhase({ t }: { t: Theme }) {
-  const T = useT()
+  const T = connectionEn
 
   return (
     <Box flexDirection="column">
@@ -248,7 +247,7 @@ function FinishingPhase({ t }: { t: Theme }) {
 }
 
 function AuthorizedPhase({ t, target }: { t: Theme; target: ConnectionOperationTarget }) {
-  const T = useT()
+  const T = connectionEn
 
   return (
     <Box flexDirection="column">
@@ -264,7 +263,7 @@ function AuthorizedPhase({ t, target }: { t: Theme; target: ConnectionOperationT
 }
 
 function BrowserPhase({ more, notice, t, target }: PhaseProps) {
-  const T = useT()
+  const T = connectionEn
 
   return (
     <Box flexDirection="column">
@@ -278,7 +277,7 @@ function BrowserPhase({ more, notice, t, target }: PhaseProps) {
 }
 
 function WorkingPhase({ more, notice, t, target }: PhaseProps) {
-  const T = useT()
+  const T = connectionEn
 
   return (
     <Box flexDirection="column">
@@ -297,7 +296,7 @@ interface RetryPhaseProps extends PhaseProps {
 }
 
 function RetryPhase({ action, more, notice, sending, t, target }: RetryPhaseProps) {
-  const T = useT()
+  const T = connectionEn
 
   return (
     <Box flexDirection="column">
@@ -327,7 +326,7 @@ interface FormPhaseProps extends PhaseProps {
 }
 
 function FormPhase(p: FormPhaseProps) {
-  const T = useT()
+  const T = connectionEn
   const { t, target } = p
   const reopened = hasFailed(target)
 
@@ -363,7 +362,7 @@ function FormPhase(p: FormPhaseProps) {
 }
 
 export function ConnectionSetupOverlay({ cols, t }: ConnectionSetupOverlayProps) {
-  const T = useT()
+  const T = connectionEn
   const operation = useStore($connectionOperation)
   const sid = useStore($uiSessionId)
   const { gw } = useGateway()

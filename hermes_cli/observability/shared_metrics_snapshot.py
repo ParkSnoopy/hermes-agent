@@ -70,12 +70,6 @@ def _messaging_platform_count() -> int:
     return len(load_gateway_config().get_connected_platforms())
 
 
-def _display_language() -> str:
-    from agent.i18n import get_language
-
-    return get_language()
-
-
 def _safe_count(reader) -> int:
     try:
         return reader()
@@ -123,9 +117,6 @@ def install_age_bucket(home: Path | None = None) -> str:
 def collect_install_snapshot(config: dict[str, Any]) -> dict[str, str]:
     """Bounded snapshot fields for the active profile's ``config``."""
     model = _sub(config, "model")
-    language = "other"
-    with contextlib.suppress(Exception):
-        language = _display_language()
     from .shared_metrics_install import install_v4_snapshot_fields
     from .shared_metrics_prepared_compaction import prepare_ahead_state
 
@@ -140,5 +131,4 @@ def collect_install_snapshot(config: dict[str, Any]) -> dict[str, str]:
         install_age_bucket=install_age_bucket(),
         main_provider=_sub(model, "provider") if isinstance(model, dict) else None,
         terminal_backend=_sub(_sub(config, "terminal"), "backend"),
-        display_language=language,
     ), **install_v4_snapshot_fields(config), "compression_prepare_ahead": prepare_ahead_state(config)}

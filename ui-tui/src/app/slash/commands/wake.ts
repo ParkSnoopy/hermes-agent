@@ -1,7 +1,6 @@
 import type { WakeStartResponse, WakeStatusResponse, WakeStopResponse } from '@hermes/shared/gateway-types'
 
-import { t } from '../../../i18n/runtime.js'
-import type { TranslationKey } from '../../../i18n/types.js'
+import { slashCmdEn } from '../../../copy/slashCmd.js'
 import { setWakeUserDisabled } from '../../wakeState.js'
 import type { SlashCommand, SlashRunCtx } from '../types.js'
 
@@ -11,31 +10,29 @@ type WakeSub = (typeof WAKE_SUBCOMMANDS)[number]
 
 const isWakeSub = (value: string): value is WakeSub => (WAKE_SUBCOMMANDS as readonly string[]).includes(value)
 
-// Friendly text for the gateway's wake.start refusal codes (catalog keys,
-// resolved at reply time so a locale swap is observed). Unknown codes fall
-// through to the raw reason so new server-side codes stay visible.
-const START_REASON_KEY: Record<string, TranslationKey> = {
-  disabled: 'slashCmd.wake.reason.disabled',
-  disabled_for_surface: 'slashCmd.wake.reason.disabledForSurface',
-  not_owner: 'slashCmd.wake.reason.notOwner',
-  owned: 'slashCmd.wake.reason.owned',
-  unavailable: 'slashCmd.wake.reason.unavailable'
+// Keep unknown gateway refusal codes visible.
+const START_REASON_KEY: Record<string, string> = {
+  disabled: slashCmdEn.slashCmd.wake.reason.disabled,
+  disabled_for_surface: slashCmdEn.slashCmd.wake.reason.disabledForSurface,
+  not_owner: slashCmdEn.slashCmd.wake.reason.notOwner,
+  owned: slashCmdEn.slashCmd.wake.reason.owned,
+  unavailable: slashCmdEn.slashCmd.wake.reason.unavailable
 }
 
 const withHint = (text: string, hint: string | undefined): string =>
-  hint?.trim() ? t('slashCmd.wake.withHint', text, hint.trim()) : text
+  hint?.trim() ? slashCmdEn.slashCmd.wake.withHint(text, hint.trim()) : text
 
 const startFailureLine = (r: WakeStartResponse): string => {
   const key = r.reason ? START_REASON_KEY[r.reason] : undefined
-  const base = key ? t(key) : (r.reason ?? t('slashCmd.wake.reason.unknown'))
-  const owner = r.owner_surface ? ` (${t('slashCmd.wake.ownedBy', r.owner_surface)})` : ''
+  const base = key ? key : (r.reason ?? slashCmdEn.slashCmd.wake.reason.unknown)
+  const owner = r.owner_surface ? ` (${slashCmdEn.slashCmd.wake.ownedBy(r.owner_surface)})` : ''
 
-  return withHint(t('slashCmd.wake.notStarted', `${base}${owner}`), r.hint)
+  return withHint(slashCmdEn.slashCmd.wake.notStarted(`${base}${owner}`), r.hint)
 }
 
 /** ` for “phrase” · provider` detail suffix shared by the on/status replies. */
 const detailSuffix = (r: { phrase?: string; provider?: string }): string => {
-  const phrase = r.phrase ? ` ${t('slashCmd.wake.forPhrase', r.phrase)}` : ''
+  const phrase = r.phrase ? ` ${slashCmdEn.slashCmd.wake.forPhrase(r.phrase)}` : ''
   const provider = r.provider ? ` · ${r.provider}` : ''
 
   return `${phrase}${provider}`
@@ -45,24 +42,24 @@ const statusLine = (r: WakeStatusResponse): string => {
   const details = detailSuffix(r)
 
   if (r.listening) {
-    const listening = t('slashCmd.wake.listening', details)
+    const listening = slashCmdEn.slashCmd.wake.listening(details)
 
     if (r.audio_silent) {
-      return withHint(`${listening} · ${t('slashCmd.wake.micSilent')}`, r.hint)
+      return withHint(`${listening} · ${slashCmdEn.slashCmd.wake.micSilent}`, r.hint)
     }
 
     return listening
   }
 
   if (r.owner_surface && !r.owned_by_caller) {
-    return t('slashCmd.wake.offOwnedBy', r.owner_surface, details)
+    return slashCmdEn.slashCmd.wake.offOwnedBy(r.owner_surface, details)
   }
 
   if (r.available === false) {
-    return withHint(t('slashCmd.wake.unavailable'), r.hint)
+    return withHint(slashCmdEn.slashCmd.wake.unavailable, r.hint)
   }
 
-  return t('slashCmd.wake.off', details)
+  return slashCmdEn.slashCmd.wake.off(details)
 }
 
 const runOn = (ctx: SlashRunCtx): void => {
@@ -79,9 +76,9 @@ const runOn = (ctx: SlashRunCtx): void => {
           return ctx.transcript.sys(startFailureLine(r))
         }
 
-        const saved = r.enabled_persisted ? ` · ${t('slashCmd.wake.enabledInConfig')}` : ''
+        const saved = r.enabled_persisted ? ` · ${slashCmdEn.slashCmd.wake.enabledInConfig}` : ''
 
-        ctx.transcript.sys(t('slashCmd.wake.listening', `${detailSuffix(r)}${saved}`))
+        ctx.transcript.sys(slashCmdEn.slashCmd.wake.listening(`${detailSuffix(r)}${saved}`))
       })
     )
     .catch(ctx.guardedErr)
@@ -96,16 +93,16 @@ const runOff = (ctx: SlashRunCtx): void => {
     .rpc<WakeStopResponse>('wake.stop', { persist: true })
     .then(
       ctx.guarded<WakeStopResponse>(r => {
-        const saved = r.disabled_persisted ? ` · ${t('slashCmd.wake.disabledInConfig')}` : ''
+        const saved = r.disabled_persisted ? ` · ${slashCmdEn.slashCmd.wake.disabledInConfig}` : ''
 
         if (r.stopped) {
-          return ctx.transcript.sys(t('slashCmd.wake.listenerOff', saved))
+          return ctx.transcript.sys(slashCmdEn.slashCmd.wake.listenerOff(saved))
         }
 
         const reason =
-          r.reason === 'not_owner' ? t('slashCmd.wake.notOwnerStop') : (r.reason ?? t('slashCmd.wake.notRunning'))
+          r.reason === 'not_owner' ? slashCmdEn.slashCmd.wake.notOwnerStop : (r.reason ?? slashCmdEn.slashCmd.wake.notRunning)
 
-        ctx.transcript.sys(t('slashCmd.wake.nothingToStop', reason, saved))
+        ctx.transcript.sys(slashCmdEn.slashCmd.wake.nothingToStop(reason, saved))
       })
     )
     .catch(ctx.guardedErr)
@@ -133,7 +130,7 @@ export const wakeCommands: SlashCommand[] = [
       const sub = arg.trim().toLowerCase()
 
       if (sub && !isWakeSub(sub)) {
-        return ctx.transcript.sys(t('slashCmd.wake.usage'))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.wake.usage)
       }
 
       WAKE_RUNNERS[sub && isWakeSub(sub) ? sub : 'status'](ctx)

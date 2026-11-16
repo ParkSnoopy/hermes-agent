@@ -622,7 +622,6 @@ this Hermes understands still loads with a warning.
 | `license` | str | SPDX-style license id (e.g. `MIT`). |
 | `homepage` | str | Project URL. |
 | `tags` | list of str | Free-form discovery tags (e.g. `[automation, reporting]`). |
-| `provides_locales` | list | Language pack declaration: ids (`- pl`) or `{id, endonym, rtl}` mappings whose `locales/<id>[.tui\|.desktop].yaml` the loader registers automatically — see [Ship a language pack](#ship-a-language-pack). |
 | `requires_auth` | list of str | Providers whose sign-in the plugin uses through Hermes (today: `openai-codex`). Required by `credentialed_provider_request`; shown at install and in `hermes plugins show`. See [Use the user's Codex sign-in](#use-the-users-codex-sign-in-core-made-requests). |
 | `oauth` | list of mappings | OAuth clients the plugin uses through Hermes: `id`, `authorize_url`, `token_url`, `scopes`, `client_id_env`, optional `client_secret_env`, `hosts`, optional `authorize_params`. Signed in with `hermes auth add <plugin>:<id>`, used through `credentialed_provider_request`. See [Use your own OAuth client](#use-your-own-oauth-client-google-and-other-apis). |
 
@@ -1252,55 +1251,6 @@ def open_skill(name):
 
 Plugin-registered skills (`ctx.register_skill`) are not on disk under these roots; `find_all_skills()`
 returns the on-disk catalog only.
-
-### Ship a language pack
-
-A plugin can add a UI language or override the wording of an existing one for every surface at once —
-Python (`agent.i18n.t()`: approval prompts, gateway replies, tool verbs, tips), the `hermes --tui`
-interface and the Desktop app. Declare `provides_locales` and ship the YAML; **no Python is needed**:
-
-```
-~/.hermes/plugins/hermes-lang-pl/
-├── plugin.yaml
-└── locales/
-    ├── pl.yaml            # core (Python) strings — same key tree as the bundled locales/en.yaml
-    ├── pl.tui.yaml        # optional: TUI strings (keys in locales/_keys.tui.json)
-    └── pl.desktop.yaml    # optional: Desktop strings (keys in locales/_keys.desktop.json)
-```
-
-```yaml
-name: hermes-lang-pl
-version: 1.0.0
-description: Polish language pack
-provides_locales:
-  - id: pl              # lowercase BCP-47-style id: pl, pt-br, zh-hant
-    endonym: Polski     # what language switchers show
-    rtl: false
-```
-
-When `provides_locales` is declared the loader calls `ctx.register_locale_dir(<plugin>/locales)` before
-`register()` (a manifest-only pack with no `__init__.py` loads like a manifest-only Desktop plugin).
-Catalogs are **layered and partial**: pack → user overlay (`<HERMES_HOME>/locales/`) → bundled →
-English → key; a pack only needs the keys it changes, and the last pack loaded wins per key.
-Core values keep English's named `{placeholders}`; TUI/Desktop entries whose English value is a
-function are written as strings with positional `{0}`, `{1}` placeholders.
-
-Plugins with code can register programmatically — the handles are `PluginRegistration`s, so unloading
-the plugin removes the layer, and registration never changes `display.language`:
-
-```python
-def register(ctx):
-    here = Path(__file__).parent
-    ctx.register_locale("pl", here / "locales" / "pl.yaml", endonym="Polski")        # YAML path
-    ctx.register_locale("pl", {"approval": {"denied": "      ✗ Odrzucono"}})          # mapping, nested or flat
-    ctx.register_locale("pl", here / "locales" / "pl.tui.yaml", surface="tui")       # core | tui | desktop
-    ctx.register_locale_dir(here / "locales")                                         # every <lang>[.surface].yaml
-```
-
-`hermes plugins validate` checks each declared id has a parseable, text-only `locales/<id>.yaml`
-(a non-text leaf is an error) and **warns** with the names of keys absent from the English catalog of
-that surface. Renderers fetch the pack layer through the `i18n.languages` / `i18n.catalog` RPCs.
-User-facing guide: [Language Packs](../../user-guide/features/language-packs.md).
 
 ### Gate on environment variables
 

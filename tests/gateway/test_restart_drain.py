@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import gateway.run as gateway_run
-from agent.i18n import t
+
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.restart import (
     DEFAULT_GATEWAY_SIGNAL_INTERRUPT_GRACE_TIMEOUT,
@@ -44,16 +44,9 @@ async def test_restart_command_while_busy_requests_drain_without_interrupt(monke
 
     result = await runner._handle_message(event)
 
-    expected = t("gateway.draining", count=1)
+    expected = (f'⏳ Draining {1} active agent(s) before restart...')
     assert result == expected
-    # Guard against the silent-degradation regression in #22266: if the i18n
-    # catalog cannot be resolved (e.g. workers losing the locales path)
-    # then ``t("gateway.draining", count=1)`` returns the bare key
-    # ``"gateway.draining"`` instead of the formatted English string, and both
-    # sides of the equality above would still match. Assert on the catalog
-    # output explicitly so a broken locale resolution fails loudly here.
-    assert expected != "gateway.draining"
-    assert "Draining" in expected and "1" in expected
+
     running_agent.interrupt.assert_not_called()
     runner.request_restart.assert_called_once_with(detached=True, via_service=False)
 

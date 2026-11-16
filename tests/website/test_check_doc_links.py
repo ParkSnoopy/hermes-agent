@@ -40,7 +40,7 @@ def test_fix_rewrites_route_to_relative_path_keeping_anchor(checker, tmp_path, m
         encoding="utf-8",
     )
     monkeypatch.setattr(checker, "EN_DOCS", docs)
-    monkeypatch.setattr(checker, "ZH_DOCS", tmp_path / "missing")
+
 
     assert checker.main([]) == 1
     assert checker.main(["--fix"]) == 0

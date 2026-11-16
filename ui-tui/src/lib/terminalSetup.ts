@@ -2,7 +2,7 @@ import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 
-import { t } from '../i18n/runtime.js'
+import { libTextEn } from '../copy/libText.js'
 
 export type SupportedTerminal = 'cursor' | 'vscode' | 'windsurf'
 
@@ -345,7 +345,7 @@ export async function configureTerminalKeybindings(
   if (isRemoteShellSession(env)) {
     return {
       success: false,
-      message: t('libText.terminalSetup.mustRunLocally', meta.label)
+      message: libTextEn.libText.terminalSetup.mustRunLocally(meta.label)
     }
   }
 
@@ -354,7 +354,7 @@ export async function configureTerminalKeybindings(
   if (!configDir) {
     return {
       success: false,
-      message: t('libText.terminalSetup.settingsPathUnknown', meta.label)
+      message: libTextEn.libText.terminalSetup.settingsPathUnknown(meta.label)
     }
   }
 
@@ -374,7 +374,7 @@ export async function configureTerminalKeybindings(
       if (!Array.isArray(parsed)) {
         return {
           success: false,
-          message: t('libText.terminalSetup.keybindingsNotArray', meta.label, keybindingsFile)
+          message: libTextEn.libText.terminalSetup.keybindingsNotArray(meta.label, keybindingsFile)
         }
       }
 
@@ -385,7 +385,7 @@ export async function configureTerminalKeybindings(
       if (code !== 'ENOENT') {
         return {
           success: false,
-          message: t('libText.terminalSetup.readFailed', meta.label, String(error))
+          message: libTextEn.libText.terminalSetup.readFailed(meta.label, String(error))
         }
       }
     }
@@ -400,7 +400,7 @@ export async function configureTerminalKeybindings(
     if (conflicts.length) {
       return {
         success: false,
-        message: t('libText.terminalSetup.conflicts', keybindingsFile, conflicts.map(c => c.key).join(', '))
+        message: libTextEn.libText.terminalSetup.conflicts(keybindingsFile, conflicts.map(c => c.key).join(', '))
       }
     }
 
@@ -418,7 +418,7 @@ export async function configureTerminalKeybindings(
     if (!added && !migrated) {
       return {
         success: true,
-        message: t('libText.terminalSetup.alreadyConfigured', meta.label)
+        message: libTextEn.libText.terminalSetup.alreadyConfigured(meta.label)
       }
     }
 
@@ -432,25 +432,25 @@ export async function configureTerminalKeybindings(
 
     if (added) {
       parts.push(
-        t(added === 1 ? 'libText.terminalSetup.addedOne' : 'libText.terminalSetup.addedOther', added, meta.label)
+        (added === 1 ? libTextEn.libText.terminalSetup.addedOne(added, meta.label) : libTextEn.libText.terminalSetup.addedOther(added, meta.label))
       )
     }
 
     if (migrated) {
       parts.push(
-        t(migrated === 1 ? 'libText.terminalSetup.migratedOne' : 'libText.terminalSetup.migratedOther', migrated)
+        (migrated === 1 ? libTextEn.libText.terminalSetup.migratedOne(migrated) : libTextEn.libText.terminalSetup.migratedOther(migrated))
       )
     }
 
     return {
       success: true,
       requiresRestart: true,
-      message: t('libText.terminalSetup.summaryIn', parts.join(', '), keybindingsFile)
+      message: libTextEn.libText.terminalSetup.summaryIn(parts.join(', '), keybindingsFile)
     }
   } catch (error) {
     return {
       success: false,
-      message: t('libText.terminalSetup.configureFailed', meta.label, String(error))
+      message: libTextEn.libText.terminalSetup.configureFailed(meta.label, String(error))
     }
   }
 }
@@ -466,7 +466,7 @@ export async function configureDetectedTerminalKeybindings(options?: {
   if (!detected) {
     return {
       success: false,
-      message: t('libText.terminalSetup.noSupportedIde')
+      message: libTextEn.libText.terminalSetup.noSupportedIde
     }
   }
 

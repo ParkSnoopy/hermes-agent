@@ -57,7 +57,6 @@ async def test_steer_reaches_this_editors_running_turn():
 async def test_a_steer_that_ended_the_voice_chat_is_reported_and_never_resent_as_a_prompt():
     """TUI-26: ``/steer stop`` in a LOCAL voice chat ends the chat on the owner (``voice_stopped``);
     sent on as a prompt it would admit ``stop`` as a turn."""
-    from agent.i18n import t
     calls = []
 
     async def rpc(method, **params):
@@ -71,7 +70,7 @@ async def test_a_steer_that_ended_the_voice_chat_is_reported_and_never_resent_as
     response = await agent.prompt([acp.text_block('/steer stop')], 's')
     assert response.stop_reason == 'end_turn'
     assert calls == ['prompt.receipt', 'session.steer']
-    assert t('cli.voice.stop_phrase_typed') in agent._conn.session_update.await_args.kwargs['update'].content.text
+    assert 'Stop phrase typed — ending voice chat.' in agent._conn.session_update.await_args.kwargs['update'].content.text
 
 
 @pytest.mark.asyncio

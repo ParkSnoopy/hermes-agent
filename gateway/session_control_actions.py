@@ -37,7 +37,6 @@ def _validate(action, args):
 async def _subgoal(connection, ref, params, action, args):
     """A criterion button on the session's goal manager. A goal that is gone or an index that no longer exists is a refusal the card shows; the typed /subgoal command reports the same cases as text."""
     from pathlib import Path
-    from agent.i18n import t
     from gateway.platforms.base import MessageEvent
     from gateway.run import _profile_runtime_scope
     from gateway.session_busy_controls import authorize
@@ -52,20 +51,20 @@ async def _subgoal(connection, ref, params, action, args):
         mgr, _entry = await authority.runner._get_goal_manager_for_event(
             MessageEvent(text='/subgoal', source=live.source))
         if mgr is None:
-            raise RuntimeStoreError('command_unavailable', detail=t('gateway.goal.unavailable'))
+            raise RuntimeStoreError('command_unavailable', detail='Goals unavailable on this session.')
         if not mgr.has_goal():
-            raise RuntimeStoreError('goal_not_active', detail=t('gateway.subgoal.no_goal'))
+            raise RuntimeStoreError('goal_not_active', detail='No active goal. Set one with /goal <text>.')
         try:
             if action == 'subgoal.add':
                 added = mgr.add_subgoal(args['text'].strip())
-                output = t('gateway.subgoal.added', index=len(mgr.state.subgoals), text=added)
+                output = (f'✓ Added subgoal {len(mgr.state.subgoals)}: {added}')
             elif action == 'subgoal.remove':
                 removed = mgr.remove_subgoal(args['index'])
-                output = t('gateway.subgoal.removed', index=args['index'], text=removed)
+                output = ('✓ Removed subgoal {index}: {text}').format(index=args['index'], text=removed)
             else:
                 count = mgr.clear_subgoals()
-                output = (t('gateway.subgoal.cleared_one' if count == 1 else 'gateway.subgoal.cleared_other', count=count)
-                          if count else t('gateway.subgoal.none_to_clear'))
+                output = ((('✓ Cleared {count} subgoal.' if count == 1 else '✓ Cleared {count} subgoals.')).format(count=count)
+                          if count else 'No subgoals to clear.')
         except IndexError as exc:
             raise RuntimeStoreError('invalid_params', field='index', detail=str(exc)) from exc
         except (RuntimeError, ValueError) as exc:

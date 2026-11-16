@@ -1,7 +1,7 @@
 import { Box, Text } from '@hermes/ink'
 import { memo, useState } from 'react'
 
-import { useT } from '../i18n/useT.js'
+import { chatBitsEn } from '../copy/chatBits.js'
 import { countPendingTodos } from '../lib/liveProgress.js'
 import { todoGlyph, todoTone, todoTree } from '../lib/todo.js'
 import type { Theme } from '../theme.js'
@@ -32,7 +32,7 @@ export const TodoPanel = memo(function TodoPanel({
   // external controller. Live TodoPanel passes collapsed+onToggle from the
   // turn store so clicks still work there.
   const [localCollapsed, setLocalCollapsed] = useState(defaultCollapsed)
-  const T = useT().chatBits.todo
+  const T = chatBitsEn.chatBits.todo
   const isControlled = typeof collapsed === 'boolean'
   const effectiveCollapsed = isControlled ? collapsed : localCollapsed
 

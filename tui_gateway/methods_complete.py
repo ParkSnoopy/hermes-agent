@@ -310,10 +310,11 @@ def _model_skew_err(rid) -> dict | None:
     if not skew:
         return None
     boot_rev, disk_rev = skew
-    from agent.i18n import t
-
-    return _err(rid, 5098, t("gateway.model.error_prefix", error=t(
-        "gateway.model.err_skew", boot_rev=boot_rev, disk_rev=disk_rev)))
+    return _err(rid, 5098, (
+        f"Error: This gateway is running code from {boot_rev} but the checkout on disk is now {disk_rev}. "
+        "Switching models would risk a stale-module crash — restart the gateway to load the new code: "
+        "hermes gateway restart"
+    ))
 
 
 @method("model.options")

@@ -19,7 +19,7 @@ from contextlib import suppress
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from agent.i18n import t
+
 from agent.interrupt_compat import _accepts_keyword
 from agent.replay_cleanup import canonicalize_replay_history
 from gateway.config import Platform
@@ -55,7 +55,7 @@ def _renders_exec_approval_buttons(adapter_cls: type) -> bool:
 # Rendered on a native clarify card whose wait ended without a click (mirrors the notice the
 # Slack click handler shows on a dead entry).
 def _clarify_expired_notice() -> str:
-    return t("gateway.clarify.expired")
+    return '⏳ This prompt expired — please send a new request.'
 
 
 # run_conversation result keys the gateway projection carries verbatim so a finite viewer's
@@ -171,8 +171,8 @@ def _resolution_failure_reply(exc: Exception, platform: Platform) -> tuple[str, 
         # with no credential verdict: /login cannot fix it, the gateway log can (#140344).
         # host_error sits on the gateway layer, so clients don't offer "Switch provider"; not retryable,
         # since a deleted bundle or unreadable store fails the same way until the host is fixed.
-        return t("gateway.errors.generic_failed"), "host_error", False
-    return t("gateway.errors.no_credentials"), auth_permanent, False
+        return "⚠️ Something went wrong and I couldn't finish this reply. Use /retry to try again, or /new to start a fresh conversation. Technical details are in the gateway log (`hermes logs`).", "host_error", False
+    return "⚠️ I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.", auth_permanent, False
 
 
 
@@ -603,7 +603,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         # The typed-"skip" hint is for messaging adapters, where a chat reply answers the card. A local
         # viewer (TUI / Desktop / CLI) renders main's modal with its own skip control, unhinted.
         platform = getattr(getattr(self._ctx, "source", None), "platform", None)
-        hint = "" if platform == Platform.LOCAL else f"\n{t('gateway.clarify.skip_hint')}"
+        hint = "" if platform == Platform.LOCAL else ('\n' + format(('Reply "skip" to skip this question.'), ''))
         for index, entry in enumerate(questions):
             question = f"{entry['question']}{hint}"
             raw, answered = self._ask_clarify_question(
@@ -651,7 +651,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         )
         # Unlike approval, clarify passes reopen=True so the continuation re-opens a native stream
         # below the question; if the re-seed fails the consumer degrades to send() automatically.
-        self._close_native_stream_boundary("Clarify", t("gateway.clarify.native_stream_placeholder"), reopen=True)
+        self._close_native_stream_boundary("Clarify", '💬 Waiting for your choice...', reopen=True)
         # Pause typing: a "thinking..." status must not obscure the prompt or block an "Other" reply
         # on platforms that disable input while typing (Slack Assistant).
         with suppress(Exception):
@@ -1417,7 +1417,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
             final_response = _normalize_empty_agent_response(result, final_response or "", history_len=len(agent_history))
             final_response = _sanitize_gateway_final_response(ctx.source.platform, final_response)
             if not final_response:
-                final_response = t("gateway.shared.warn_passthrough", error=result["error"]) if result.get("error") else ""
+                final_response = ('⚠️ {error}').format(error=result["error"]) if result.get("error") else ""
             # NOTE: deliberately omits agent_persisted/response_reused (and last_reasoning outside a local
             # viewer's turn); the caller defaults agent_persisted differently when the key is absent.
             if local_sinks is not None:

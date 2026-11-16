@@ -122,7 +122,7 @@ from gateway.platforms.base import (
     validate_media_delivery_path)
 from gateway.platforms.api_server_run_idempotency import RunIdempotencyStore
 from gateway.platforms.api_server_response_store import ResponseStore
-from agent.i18n import t
+
 from agent.redact import redact_sensitive_text
 from agent.interrupt_compat import request_hard_interrupt
 from gateway.readiness import collect_runtime_readiness
@@ -926,8 +926,7 @@ except Exception:  # pragma: no cover - scanner is optional hardening
 
 
 # English labels stay as constants: ``gateway.run._GATEWAY_AUTH_ERROR_RE`` / ``_GATEWAY_RATE_LIMIT_RE``
-# sniff these words in failure envelopes, so matchers and tests key off them regardless of the
-# display language. ``user_text()`` renders the human-facing line through ``t()``.
+# sniff these words in failure envelopes, so matchers and tests key off them.
 PROVIDER_AUTH_FAILED_LABEL = "Provider authentication failed"
 PROVIDER_RATE_LIMITED_LABEL = "Provider rate-limited"
 
@@ -947,9 +946,8 @@ class _ProviderAuthResolutionError(RuntimeError):
 
     def user_text(self) -> str:
         """Raw-surface failure line shown as the assistant reply in API-backed chat UIs."""
-        label = t("platform.api_server.provider_rate_limited" if self.is_rate_limited()
-                  else "platform.api_server.provider_auth_failed")
-        return t("platform.api_server.provider_error_line", label=label, error=self)
+        label = ('Provider rate-limited' if self.is_rate_limited() else 'Provider authentication failed')
+        return (f'⚠️ {label}: {self}')
 
 
 class _SessionEventQueue:

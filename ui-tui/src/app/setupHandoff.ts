@@ -1,7 +1,7 @@
 import type { RunExternalProcess } from '@hermes/ink'
 import type { SetupStatusResponse } from '@hermes/shared/gateway-types'
 
-import { t } from '../i18n/runtime.js'
+import { sessionEn } from '../copy/session.js'
 import type { LaunchResult } from '../lib/externalCli.js'
 
 import type { SlashHandlerContext } from './interfaces.js'
@@ -18,8 +18,8 @@ export interface RunExternalSetupOptions {
 export async function runExternalSetup({ args, ctx, done, launcher, suspend }: RunExternalSetupOptions) {
   const { gateway, session, transcript } = ctx
 
-  transcript.sys(t('session.handoff.launching', args.join(' ')))
-  patchUiState({ status: t('session.status.setupRunning') })
+  transcript.sys(sessionEn.session.handoff.launching(args.join(' ')))
+  patchUiState({ status: sessionEn.session.status.setupRunning })
 
   let result: LaunchResult = { code: null }
 
@@ -28,15 +28,15 @@ export async function runExternalSetup({ args, ctx, done, launcher, suspend }: R
   })
 
   if (result.error) {
-    transcript.sys(t('session.handoff.launchError', result.error))
-    patchUiState({ status: t('session.status.setupRequired') })
+    transcript.sys(sessionEn.session.handoff.launchError(result.error))
+    patchUiState({ status: sessionEn.session.status.setupRequired })
 
     return
   }
 
   if (result.code !== 0) {
-    transcript.sys(t('session.handoff.exitedWithCode', args[0], result.code))
-    patchUiState({ status: t('session.status.setupRequired') })
+    transcript.sys(sessionEn.session.handoff.exitedWithCode(args[0], result.code))
+    patchUiState({ status: sessionEn.session.status.setupRequired })
 
     return
   }
@@ -44,8 +44,8 @@ export async function runExternalSetup({ args, ctx, done, launcher, suspend }: R
   const setup = await gateway.rpc<SetupStatusResponse>('setup.status', {})
 
   if (setup?.provider_configured === false) {
-    transcript.sys(t('session.handoff.stillNoProvider'))
-    patchUiState({ status: t('session.status.setupRequired') })
+    transcript.sys(sessionEn.session.handoff.stillNoProvider)
+    patchUiState({ status: sessionEn.session.status.setupRequired })
 
     return
   }

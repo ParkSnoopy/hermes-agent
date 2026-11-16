@@ -5,7 +5,7 @@ from contextlib import suppress
 import logging
 import os
 
-from hermes_cli.cli_commands_session_tools import _pr, _t
+from hermes_cli.cli_commands_session_tools import _pr
 from hermes_cli.gateway_client import GatewayClientError
 from hermes_cli.gateway_profile_lifecycle import ack_confirmed, ack_failure
 
@@ -16,10 +16,10 @@ def restore_snapshot_command(cli, parts):
     from hermes_cli.backup import list_quick_snapshots, quick_snapshot_dir, restore_quick_snapshot
     from hermes_cli.gateway_tools_notify import gateway_store
     if len(parts) < 3:
-        print(f"  {_t('snapshot.usage_restore')}")
+        print(f"  {'Usage: /snapshot restore <snapshot-id>'}")
         snaps = list_quick_snapshots(limit=1)
         if snaps:
-            print(f"  {_t('snapshot.most_recent', snapshot_id=snaps[0]['id'])}")
+            print(f"  {('Most recent: {snapshot_id}').format(snapshot_id=snaps[0]['id'])}")
         return
     snap_id = parts[2]
     try:
@@ -29,7 +29,7 @@ def restore_snapshot_command(cli, parts):
     if idx is not None:
         snaps = list_quick_snapshots()
         if not 1 <= idx <= len(snaps):
-            return print(f"  {_t('snapshot.invalid_number', max=len(snaps))}")
+            return print(f"  {(f'Invalid snapshot number. Use 1-{len(snaps)}.')}")
         snap_id = snaps[idx - 1]["id"]
     store = gateway_store(cli)
     chat = store is not None and getattr(cli, "_gateway_session_open", False)
@@ -49,15 +49,15 @@ def restore_snapshot_command(cli, parts):
             restored = restore_quick_snapshot(snap_id)
     except (GatewayClientError, OSError, ValueError) as exc:  # ValueError: a corrupt manifest.json
         logger.warning("Snapshot restore failed: %s", exc, exc_info=True)
-        return _pr(f"  {_t('snapshot.restore_incomplete', snapshot_id=snap_id)}", f"  {exc}")
+        return _pr(f"  {(f'Snapshot {snap_id} was not fully restored; some files were refused (see logs)')}", f"  {exc}")
     if restored:
-        print(f"  {_t('snapshot.restored', snapshot_id=snap_id)}")
+        print(f"  {(f'Restored state from: {snap_id}')}")
         if not gateway:
-            print(f"  {_t('snapshot.restart_recommended')}")
+            print(f"  {'Restart recommended for gateway/dashboard processes to pick up state.db changes.'}")
     elif snap_id in {s.get("id") for s in list_quick_snapshots(limit=10**6)}:
-        print(f"  {_t('snapshot.restore_incomplete', snapshot_id=snap_id)}")
+        print(f"  {(f'Snapshot {snap_id} was not fully restored; some files were refused (see logs)')}")
     else:
-        print(f"  {_t('snapshot.not_found', snapshot_id=snap_id)}")
+        print(f"  {(f'Snapshot not found: {snap_id}')}")
 
 
 def _pause_owner(home, control_home, identity):

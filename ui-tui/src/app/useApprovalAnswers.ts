@@ -2,7 +2,7 @@ import { sharedControlParams } from '@hermes/shared/gateway-canonical'
 import type { SharedControlRespondResponse } from '@hermes/shared/gateway-types'
 import { useMemo } from 'react'
 
-import { t } from '../i18n/runtime.js'
+import { sessionEn } from '../copy/session.js'
 
 import type { ComposerActions, GatewayRpc, OverlayState } from './interfaces.js'
 import { capturePromptResponseGuard, patchOverlayState } from './overlayStore.js'
@@ -43,7 +43,7 @@ export function approvalAnswers({ approval, canonical, enqueue, respondWith, rpc
 
       patchOverlayState({ approval: null })
       patchTurnState({
-        outcome: choice === 'deny' ? t('session.approval.denied') : t('session.approval.approved', choice)
+        outcome: choice === 'deny' ? sessionEn.session.approval.denied : sessionEn.session.approval.approved(choice)
       })
       patchUiState({ status: 'running…' })
     }

@@ -31,12 +31,12 @@ def machine(monkeypatch):
 def test_shape(machine):
     result = machine()
 
-    assert set(result) == {"machine", "machine_kind", "has_nvidia_gpu", "nvidia_platform", "locale", "full_name"}
+    assert set(result) == {"machine", "machine_kind", "has_nvidia_gpu", "nvidia_platform", "full_name"}
     assert result["machine"]["os_family"] == "linux"
     assert result["machine"]["ram_gb"] == 16
     assert "gpu_class" not in result["machine"]  # unmeasured keys are left out, not sent as null
     assert result["full_name"] == "Ada Lovelace"
-    assert result["locale"] is None or isinstance(result["locale"], str)
+
 
 
 def test_n1x_cpu_string_is_an_rtx_spark(machine):

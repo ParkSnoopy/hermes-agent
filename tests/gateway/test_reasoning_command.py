@@ -113,7 +113,6 @@ class TestReasoningCommand:
 
     @pytest.mark.asyncio
     async def test_reasoning_status_scope_follows_this_sessions_override(self, tmp_path, monkeypatch):
-        from agent.i18n import t
 
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
@@ -128,15 +127,15 @@ class TestReasoningCommand:
             return reply
 
         # Reading the scope creates no session row, and another chat's override is not this one's.
-        assert t("gateway.reasoning.scope_global") in await status()
+        assert 'global config' in await status()
         assert runner._peek_session_state(session_key) is None
         await runner._handle_reasoning_command(_make_event("/reasoning high", chat_id="other"))
-        assert t("gateway.reasoning.scope_global") in await status()
+        assert 'global config' in await status()
 
         await runner._handle_reasoning_command(_make_event("/reasoning high"))
-        assert t("gateway.reasoning.scope_session") in await status()
+        assert 'session override' in await status()
         await runner._handle_reasoning_command(_make_event("/reasoning reset"))
-        assert t("gateway.reasoning.scope_global") in await status()
+        assert 'global config' in await status()
 
 
     def test_resolve_session_reasoning_prefers_session_override(self, tmp_path, monkeypatch):

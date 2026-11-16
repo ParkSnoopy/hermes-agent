@@ -460,6 +460,17 @@ describe('syncMcpReload (revision-aware ack)', () => {
 // + apply body is now shared as ``hydrateFullConfig()``, exercised
 // directly from both the initial hydration and the poll-tick body.
 describe('hydrateFullConfig', () => {
+  it('hydrates display preferences without fetching a language pack', async () => {
+    const request = vi.fn(async () => ({ config: { display: { language: 'pl', bell_on_complete: true } } }))
+    const setBell = vi.fn()
+
+    await hydrateFullConfig({ request } as any, setBell)
+
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(request).toHaveBeenCalledWith('config.get', { key: 'full' })
+    expect(setBell).toHaveBeenCalledWith(true)
+  })
+
   it('hydrates the session busy preference instead of profile defaults and preserves it on read failure', async () => {
     patchUiState({ sid: 'owner', busyInputMode: 'queue' })
 

@@ -262,14 +262,13 @@ async def test_stop_during_a_busy_skill_rewrite_drops_it(monkeypatch, caller, ki
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('command,agent,ack', [('/queue C', True, 'gateway.queue.queued'),
-                                               ('/steer C', True, 'gateway.steer.queued_no_agent'),
-                                               ('/steer C', False, 'gateway.steer.queued_starting')])
+@pytest.mark.parametrize('command,agent,ack', [('/queue C', True, 'Queued for the next turn.'),
+                                               ('/steer C', True, 'No active agent — /steer queued for the next turn.'),
+                                               ('/steer C', False, 'Agent still starting — /steer queued for the next turn.')])
 async def test_queued_ack_follows_the_commit(monkeypatch, command, agent, ack):
     """The busy sender may be released before the row commits (#140454 releases it once the input
     waits behind an earlier one of its chat). The "Queued" reply follows the commit, not that
     release: none before it, one once it lands."""
-    from agent.i18n import t
     import gateway.session_ingress as ingress
     from gateway.platforms.event import MessageEvent, MessageType
 
@@ -285,10 +284,10 @@ async def test_queued_ack_follows_the_commit(monkeypatch, command, agent, ack):
     rig = await _start_a(monkeypatch, 'queue', agent=agent)
     await rig.adapter.handle_message(MessageEvent(text=command, message_type=MessageType.COMMAND,
                                                   source=rig.source, message_id='C'))
-    assert t(ack) not in rig.sent and 'C' not in _rows(rig), rig.sent
+    assert ack not in rig.sent and 'C' not in _rows(rig), rig.sent
     held.set()
-    await async_wait_until(lambda: t(ack) in rig.sent, what='the ack after the commit')
-    assert 'C' in _rows(rig) and rig.sent.count(t(ack)) == 1, rig.sent
+    await async_wait_until(lambda: ack in rig.sent, what='the ack after the commit')
+    assert 'C' in _rows(rig) and rig.sent.count(ack) == 1, rig.sent
     rig.finish.set()
 
 

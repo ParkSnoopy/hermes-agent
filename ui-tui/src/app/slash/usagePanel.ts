@@ -1,7 +1,7 @@
 import type { BillingStateResponse } from '@hermes/shared/gateway-types'
 import { formatResetsIn } from '@hermes/shared/plan-usage'
 
-import { t } from '../../i18n/runtime.js'
+import { slashCmdEn } from '../../copy/slashCmd.js'
 import type { PanelSection } from '../../types.js'
 
 /** Main's `/usage` session-totals panel (model, input / output / total tokens, API calls, the
@@ -24,11 +24,11 @@ export function usageTotalsSections(r: UsageTotals): PanelSection[] {
   const f = (v: null | number | undefined) => (v ?? 0).toLocaleString()
 
   const rows: [string, string][] = [
-    [t('slashCmd.session.usage.rowModel'), r.model ?? ''],
-    [t('slashCmd.session.usage.rowInputTokens'), f(r.input)],
-    [t('slashCmd.session.usage.rowOutputTokens'), f(r.output)],
-    [t('slashCmd.session.usage.rowTotalTokens'), f(r.total)],
-    [t('slashCmd.session.usage.rowApiCalls'), f(r.calls)]
+    [slashCmdEn.slashCmd.session.usage.rowModel, r.model ?? ''],
+    [slashCmdEn.slashCmd.session.usage.rowInputTokens, f(r.input)],
+    [slashCmdEn.slashCmd.session.usage.rowOutputTokens, f(r.output)],
+    [slashCmdEn.slashCmd.session.usage.rowTotalTokens, f(r.total)],
+    [slashCmdEn.slashCmd.session.usage.rowApiCalls, f(r.calls)]
   ]
 
   const sections: PanelSection[] = [{ rows }]
@@ -36,17 +36,12 @@ export function usageTotalsSections(r: UsageTotals): PanelSection[] {
   if (r.context_max) {
     const mark = r.context_estimated ? '~' : ''
     sections.push({
-      text: t(
-        'slashCmd.session.usage.context',
-        `${mark}${f(r.context_used)}`,
-        f(r.context_max),
-        `${mark}${r.context_percent}`
-      )
+      text: slashCmdEn.slashCmd.session.usage.context(`${mark}${f(r.context_used)}`, f(r.context_max), `${mark}${r.context_percent}`)
     })
   }
 
   if (r.compressions) {
-    sections.push({ text: t('slashCmd.session.usage.compressions', String(r.compressions)) })
+    sections.push({ text: slashCmdEn.slashCmd.session.usage.compressions(String(r.compressions)) })
   }
 
   return sections

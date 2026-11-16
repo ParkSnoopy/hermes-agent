@@ -183,7 +183,7 @@ _FULL_V4 = {
 
 def test_install_snapshot_accepts_v4_fields_and_rows_counted_before_them():
     legacy = {
-        "cron_job_count_bucket": "0", "display_language": "en", "install_age_bucket": "lt_1h",
+        "cron_job_count_bucket": "0", "install_age_bucket": "lt_1h",
         "main_provider": "openrouter", "mcp_server_count_bucket": "0", "memory_provider": "builtin",
         "messaging_platform_count_bucket": "0", "plugin_count_bucket": "0", "profile_count_bucket": "1",
         "skill_count_bucket": "0", "terminal_backend": "local",
@@ -191,6 +191,8 @@ def test_install_snapshot_accepts_v4_fields_and_rows_counted_before_them():
 
     assert contract.counter_dimensions_are_valid(contract.INSTALL_SNAPSHOT_METRIC, legacy)
     assert contract.counter_dimensions_are_valid(contract.INSTALL_SNAPSHOT_METRIC, {**legacy, **_FULL_V4})
+    assert not contract.counter_dimensions_are_valid(
+        contract.INSTALL_SNAPSHOT_METRIC, {**legacy, "display_language": "en"})
     assert not contract.counter_dimensions_are_valid(
         contract.INSTALL_SNAPSHOT_METRIC, {**legacy, **_FULL_V4, "gpu_class": "rtx-4090"})
     partial = {**legacy, "ram_bucket": "lt_8g"}

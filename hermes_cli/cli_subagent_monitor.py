@@ -9,7 +9,6 @@ import time
 
 from prompt_toolkit.utils import get_cwidth
 
-from agent.i18n import t
 from hermes_cli import cli_process_dock as procs
 from hermes_cli import cli_session_dock as session_rows
 
@@ -159,7 +158,7 @@ class SubagentMonitor:
         target = target or self.selected_id
         if any(r['key'] == target for r in self.processes):
             if action != 'stop':
-                return {'error': t('cli.subagents.cannot_steer_process')}
+                return {'error': 'Background processes cannot be steered; stop them or read the log.'}
             return procs.kill(target)
         return self.subagents().subagent_control(action, target, message)
 
@@ -168,34 +167,32 @@ class SubagentMonitor:
         (``session=True``) adds ``goal active|paused|parked``, the loop badge and ``N queued``."""
         parts = []
         if self.entries:
-            parts.append(t('cli.subagents.count_live', count=len(self.entries)))
+            parts.append(f'{len(self.entries)} live')
         if self.processes:
             running = sum(r['status'] == 'running' for r in self.processes)
             if running:
-                parts.append(t('cli.subagents.count_procs_one' if running == 1 else 'cli.subagents.count_procs_other',
-                               count=running))
+                parts.append((('{count} proc' if running == 1 else '{count} procs')).format(count=running))
             else:
-                parts.append(t('cli.subagents.count_done', count=len(self.processes)))
+                parts.append(f'{len(self.processes)} done')
         if session and self.goal:
-            parts.append(t('cli.subagents.goal_parked' if self.goal.startswith('⏳') else
-                           'cli.subagents.goal_paused' if self.goal.startswith('⏸') else 'cli.subagents.goal_active'))
+            parts.append('goal parked' if self.goal.startswith('⏳') else ('goal paused' if self.goal.startswith('⏸') else 'goal active'))
         if session and self.loop_badge:
             parts.append(self.loop_badge)
         if session and self.queued:
-            parts.append(t('cli.subagents.count_queued', count=len(self.queued)))
+            parts.append(f'{len(self.queued)} queued')
         return ' · '.join(parts)
 
     def _title(self):
         if self.entries and self.processes:
-            return t('cli.subagents.title_live_work')
-        return t('cli.subagents.title_subagents') if self.entries else t('cli.subagents.title_processes')
+            return 'Live work'
+        return 'Subagents' if self.entries else 'Processes'
 
     @staticmethod
     def _agent_activity(row):
         """``last: <tool>`` while a tool runs, else the raw status id, else ``starting``."""
         if row.get('last_tool'):
-            return t('cli.subagents.last_tool', tool=row['last_tool'])
-        return row.get('status') or t('cli.subagents.starting')
+            return ('last: {tool}').format(tool=row['last_tool'])
+        return row.get('status') or 'starting'
 
     def _collapsed_activity(self):
         if self.entries:
@@ -203,7 +200,7 @@ class SubagentMonitor:
         if self.processes:
             return procs.process_activity(self.processes[0])
         # The loop's state is already the heading's badge; its prompt is the activity.
-        return self.goal or self.loop_prompt or t('cli.subagents.next_queued', text=self.queued[0])
+        return self.goal or self.loop_prompt or (f'next: {self.queued[0]}')
 
     def dock_text(self, *, columns, rows):
         if not self.has_rows:
@@ -215,14 +212,14 @@ class SubagentMonitor:
             # collapse/restore shortcut.
             if self.entries or self.processes:
                 headings = (
-                    t('cli.subagents.heading_full', title=self._title(), count=count),
-                    t('cli.subagents.heading_medium', count=count),
-                    t('cli.subagents.heading_compact', count=count),
+                    (f'{self._title()} · {count} · Ctrl+T expand · Ctrl+R restore'),
+                    (f'{count} · Ctrl+T expand · Ctrl+R restore'),
+                    (f'{count} · Ctrl+T · Ctrl+R'),
                     count,
                 )
             else:
-                headings = (t('cli.subagents.heading_session_restore', count=count),
-                            t('cli.subagents.heading_session_compact', count=count), count)
+                headings = ((f'{count} · Ctrl+R restore'),
+                            (f'{count} · Ctrl+R'), count)
             width = max(0, columns - 1)
             heading = next((text for text in headings if get_cwidth(text) <= width), count)
             activity = self._collapsed_activity()
@@ -239,46 +236,46 @@ class SubagentMonitor:
         agent_count = min(len(self.entries), agent_budget)
         if self.entries:
             hidden = len(self.entries) - agent_count
-            lines.append(_clip(' ' + t('cli.subagents.subagents_heading', count=len(self.entries)), columns))
+            lines.append(_clip(' ' + (f'Subagents · {len(self.entries)} live · Ctrl+T expand · Ctrl+R collapse'), columns))
             for row in self.entries[:agent_count]:
                 activity = f"{row['elapsed']}s · " + self._agent_activity(row)
                 # Reserve activity even on narrow terminals; task names use the remainder.
                 goal_width = max(3, columns - get_cwidth(activity) - 5)
                 lines.append(_clip(f" ● {_clip(row.get('goal'), goal_width)} · {activity}", columns))
             if hidden:
-                lines.append(_clip(' ' + t('cli.subagents.more_subagents', count=hidden), columns))
+                lines.append(_clip(' ' + (f'+{hidden} more · Ctrl+T all subagents'), columns))
         if self.processes:
             proc_count = min(len(self.processes), max(1, budget - agent_count))
             running = sum(r['status'] == 'running' for r in self.processes)
             done = len(self.processes) - running
             summary = ' · '.join(p for p in (
-                t('cli.subagents.count_running', count=running) if running else '',
-                t('cli.subagents.count_done', count=done) if done else '') if p)
-            controls = t('cli.subagents.controls_expand_collapse') if not self.entries else ''
-            lines.append(_clip(' ' + t('cli.subagents.processes_heading', summary=summary, controls=controls), columns))
+                (f'{running} running') if running else '',
+                (f'{done} done') if done else '') if p)
+            controls = ' · Ctrl+T expand · Ctrl+R collapse' if not self.entries else ''
+            lines.append(_clip(' ' + (f'Processes · {summary}{controls}'), columns))
             for row in self.processes[:proc_count]:
                 activity = procs.process_activity(row)
                 command_width = max(3, columns - get_cwidth(activity) - 5)
                 lines.append(_clip(f" {procs.process_glyph(row)} {_clip(row['command'], command_width)} · {activity}", columns))
             if len(self.processes) > proc_count:
                 lines.append(_clip(
-                    ' ' + t('cli.subagents.more_processes', count=len(self.processes) - proc_count), columns))
+                    ' ' + (f'+{len(self.processes) - proc_count} more · Ctrl+T all processes'), columns))
         if self.queued:
             # Last, so the next prompt to run sits right above the input it came from.
             shown = min(len(self.queued), session_rows.QUEUE_ROWS if rows >= 24 else 1)
-            controls = '' if self.entries or self.processes else t('cli.subagents.controls_collapse')
+            controls = '' if self.entries or self.processes else ' · Ctrl+R collapse'
             lines.append(_clip(
-                ' ' + t('cli.subagents.queue_heading', count=len(self.queued), controls=controls), columns))
+                ' ' + (f'Queue · {len(self.queued)} queued · /queue list{controls}'), columns))
             for index, text in enumerate(self.queued[:shown], 1):
                 lines.append(_clip(f'  {index}. {text}', columns))
             if len(self.queued) > shown:
-                lines.append(_clip('  ' + t('cli.subagents.more_queued', count=len(self.queued) - shown), columns))
+                lines.append(_clip('  ' + (f'+{len(self.queued) - shown} more'), columns))
         return '\n'.join(' ' + line for line in lines)
 
 
 def read_tail(path):
     if not path:
-        return t('cli.subagents.transcript_unavailable')
+        return 'Live transcript not available yet.'
     try:
         with open(path, 'rb') as stream:
             stream.seek(0, 2)
@@ -286,14 +283,14 @@ def read_tail(path):
             text = stream.read(32768).decode('utf-8', errors='replace')
         return ''.join(c for c in text if c.isprintable() or c in '\n\t')
     except OSError:
-        return t('cli.subagents.transcript_unavailable')
+        return 'Live transcript not available yet.'
 
 
 def subagent_tail(monitor, row):
     """The child's transcript tail from the monitor's backend (the gateway's is fetched and filtered by
     the monitor's tick, never here: the detail view calls this every frame)."""
     text = monitor.subagents().subagent_tail(row['subagent_id'])
-    return t('cli.subagents.transcript_unavailable') if text is None else text
+    return 'Live transcript not available yet.' if text is None else text
 
 
 def modal_prompt_active(cli):
@@ -314,7 +311,7 @@ def build_monitor_application(monitor, **kwargs):
     from prompt_toolkit.widgets import TextArea
 
     state = {'steering': False, 'confirm': False, 'notice': ''}
-    steer = TextArea(height=1, prompt=t('cli.subagents.steer_prompt'), multiline=False)
+    steer = TextArea(height=1, prompt='Steer: ', multiline=False)
     tail = TextArea(read_only=True, scrollbar=True, wrap_lines=True)
 
     def roster_text():
@@ -327,15 +324,15 @@ def build_monitor_application(monitor, **kwargs):
                 activity = ''
                 subject = row['command']
             else:
-                prefix = f"{row['elapsed']}s · {row.get('status') or t('cli.subagents.starting')} · "
-                activity = ' · ' + t('cli.subagents.last_tool', tool=row['last_tool']) if row.get('last_tool') else ''
+                prefix = f"{row['elapsed']}s · {row.get('status') or 'starting'} · "
+                activity = ' · ' + ('last: {tool}').format(tool=row['last_tool']) if row.get('last_tool') else ''
                 subject = row.get('goal') or row['subagent_id']
             goal_width = max(0, size.columns - 2 - get_cwidth(prefix + activity))
             text = f"{'❯' if selected else ' '} " + _clip(prefix + _clip(subject, goal_width) + activity, max(0, size.columns - 2))
             # Pad selection in terminal cells, not codepoints (task names may be wide).
             text += ' ' * max(0, size.columns - get_cwidth(text))
             rows.append(('class:subagent-dock.selected' if selected else '', text + '\n'))
-        return rows or [('', t('cli.subagents.roster_empty'))]
+        return rows or [('', 'No live subagents or background processes. Results arrive in the conversation.')]
 
     def cursor():
         index = next((i for i, row in enumerate(monitor.roster) if monitor._key(row) == monitor.selected_id), 0)
@@ -346,7 +343,7 @@ def build_monitor_application(monitor, **kwargs):
     def update_tail():
         row = monitor.selected
         if row is None:
-            text = t('cli.subagents.entry_gone')
+            text = 'This entry is no longer live.'
         elif row.get('kind') == 'process':
             text = procs.process_tail(row['id'])
         else:
@@ -368,23 +365,23 @@ def build_monitor_application(monitor, **kwargs):
         narrow = app.output.get_size().columns < 60
         process = monitor.selected_process is not None
         if state['confirm']:
-            noun = t('cli.subagents.noun_process' if process else 'cli.subagents.noun_subagent')
-            return (t('cli.subagents.footer_confirm_stop_compact') if narrow
-                    else t('cli.subagents.footer_confirm_stop', noun=noun))
+            noun = ('process' if process else 'subagent')
+            return ('Stop? y yes · Esc cancel' if narrow
+                    else (f'Stop selected {noun}? y confirm · Esc cancel'))
         if state['steering']:
-            return t('cli.subagents.footer_steering_compact' if narrow else 'cli.subagents.footer_steering')
-        steer = '' if process else t('cli.subagents.footer_steer_key')
+            return ('Enter send · Esc cancel' if narrow else 'Enter queues guidance · Esc cancels (does not interrupt)')
+        steer = '' if process else ' s steer'
         if narrow:
-            return (t('cli.subagents.footer_detail_compact', steer=steer) if monitor.detail
-                    else t('cli.subagents.footer_roster_compact'))
-        steer = '' if process else t('cli.subagents.footer_steer_key_long')
-        return t('cli.subagents.footer_detail' if monitor.detail else 'cli.subagents.footer_roster', steer=steer)
+            return ((f'PgUp/Dn ·{steer} x stop · Esc') if monitor.detail
+                    else '↑↓ · Enter tail · Ctrl+T close')
+        steer = '' if process else ' · s steer'
+        return ('Esc roster · PgUp/PgDn tail{steer} · x stop' if monitor.detail else '↑/↓ select · Enter tail{steer} · x stop · q/Ctrl+T close').format(steer=steer)
 
     def run_control(action, message, target):
         """Steer/stop off the UI loop: a stalled gateway call (up to its timeout) must not freeze the
         monitor's repaint, Esc or Ctrl+C. The answer lands in the notice line when it arrives."""
         import asyncio
-        state['notice'] = t('cli.subagents.control_pending')
+        state['notice'] = 'Sending…'
 
         def done(future):
             try:

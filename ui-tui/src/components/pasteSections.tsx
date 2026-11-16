@@ -3,7 +3,8 @@ import { useStore } from '@nanostores/react'
 import { memo, useEffect, useState } from 'react'
 
 import { $pasteSectionsOpen } from '../app/pasteStore.js'
-import { useT } from '../i18n/useT.js'
+import { chatBitsEn } from '../copy/chatBits.js'
+import { chromeEn } from '../copy/chrome.js'
 import type { Theme } from '../theme.js'
 import type { PasteSection } from '../types.js'
 
@@ -25,7 +26,7 @@ export const PasteSections = memo(function PasteSections({
   t: Theme
   width: number
 }) {
-  const T = useT().chatBits.messageLine
+  const T = chatBitsEn.chatBits.messageLine
   const allOpen = useStore($pasteSectionsOpen)
 
   if (!pastes?.length) {
@@ -52,7 +53,7 @@ function PasteSectionRow({
   t: Theme
   title: string
 }) {
-  const T = useT().chatBits.messageLine
+  const T = chatBitsEn.chatBits.messageLine
   const [open, setOpen] = useState(allOpen)
 
   // Ctrl+P re-syncs every section; a click afterwards flips just this one.
@@ -85,7 +86,7 @@ function PasteSectionRow({
 
 /** The composer's Ctrl+P hint: shown while a paste chip is in the draft, or expanded in it. */
 export function PasteHint({ hint, indent, t }: { hint: null | 'collapse' | 'expand'; indent: number; t: Theme }) {
-  const T = useT().composer
+  const T = chromeEn.composer
 
   if (!hint) {
     return null

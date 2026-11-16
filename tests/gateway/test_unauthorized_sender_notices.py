@@ -28,19 +28,15 @@ def transport(monkeypatch):
     return Platform(entry.name)
 
 
-@pytest.mark.parametrize("language,intro", [("en", "Hi!"), ("zh", "你好！")])
-def test_pairing_reply_pins_profile_in_approve_command(monkeypatch, language, intro):
-    monkeypatch.setenv("HERMES_LANGUAGE", language)
+def test_pairing_reply_pins_profile_in_approve_command():
     reply = pairing_code_reply("notice_test", "ZZZZ9999", "-p work ")
-    assert reply.startswith(intro)
+    assert reply.startswith("Hi!")
     assert "`hermes -p work pairing approve notice_test ZZZZ9999`" in reply
     assert "gateway.pairing." not in reply
 
 
-@pytest.mark.parametrize("language,prefix", [("en", "Too many pairing"), ("zh", "当前配对请求过多")])
-def test_pairing_rate_limit_reply_is_translated(monkeypatch, language, prefix):
-    monkeypatch.setenv("HERMES_LANGUAGE", language)
-    assert pairing_rate_limited_reply().startswith(prefix)
+def test_pairing_rate_limit_reply():
+    assert pairing_rate_limited_reply().startswith("Too many pairing")
 
 
 

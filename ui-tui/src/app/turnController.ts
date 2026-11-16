@@ -8,7 +8,8 @@ import {
   STREAM_SCROLL_BATCH_MS,
   STREAM_TYPING_BATCH_MS
 } from '../config/timing.js'
-import { t } from '../i18n/runtime.js'
+import { canonicalEn } from '../copy/canonical.js'
+import { sessionEn } from '../copy/session.js'
 import { appendToolShelfMessage, isToolShelfMessage } from '../lib/liveProgress.js'
 import { hasReasoningTag, splitReasoning } from '../lib/reasoning.js'
 import { rpcErrorMessage } from '../lib/rpc.js'
@@ -399,7 +400,7 @@ class TurnController {
         }
       } catch (error) {
         if (isActiveTurn()) {
-          sys(t('canonical.submit.interruptFailed', rpcErrorMessage(error)))
+          sys(canonicalEn.canonical.submit.interruptFailed(rpcErrorMessage(error)))
         }
 
         return
@@ -443,7 +444,7 @@ class TurnController {
       appendMessage({ role: 'assistant', text, ...(tools.length && { tools }) })
       this.sealedInterrupt = { partial, text }
     } else {
-      sys(t('session.turn.interrupted'))
+      sys(sessionEn.session.turn.interrupted)
       this.sealedInterrupt = { partial: '', text: null }
     }
 
@@ -451,7 +452,7 @@ class TurnController {
 
     if (opts.keepBusy) {
       // `idle()` already cleared busy; re-assert it so the drain waits for settle.
-      patchUiState({ busy: true, status: t('session.status.interrupting') })
+      patchUiState({ busy: true, status: sessionEn.session.status.interrupting })
 
       return
     }

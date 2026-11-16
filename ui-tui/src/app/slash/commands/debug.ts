@@ -3,7 +3,7 @@ import '../../../sdk/apps/index.js'
 
 import { terminalBackgroundHex } from '@hermes/ink'
 
-import { t } from '../../../i18n/runtime.js'
+import { slashCmdEn } from '../../../copy/slashCmd.js'
 import { formatBytes, performHeapDump } from '../../../lib/memory.js'
 import { launchWidget } from '../../../sdk/host.js'
 import { listWidgetApps } from '../../../sdk/registry.js'
@@ -37,12 +37,12 @@ export const debugCommands: SlashCommand[] = [
       void loadUserWidgets().then(({ errors, loaded }) => {
         const parts = [
           loaded.length
-            ? t('slashCmd.debug.widgetsReload.loaded', loaded.join(', '))
-            : t('slashCmd.debug.widgetsReload.none'),
+            ? slashCmdEn.slashCmd.debug.widgetsReload.loaded(loaded.join(', '))
+            : slashCmdEn.slashCmd.debug.widgetsReload.none,
           ...errors.map(e => `${e.file}: ${e.message}`)
         ]
 
-        ctx.transcript.sys(t('slashCmd.debug.widgetsReload.summary', parts.join(' · ')))
+        ctx.transcript.sys(slashCmdEn.slashCmd.debug.widgetsReload.summary(parts.join(' · ')))
       })
     }
   },
@@ -53,7 +53,7 @@ export const debugCommands: SlashCommand[] = [
     run: (_arg, ctx) => {
       const { heapUsed, rss } = process.memoryUsage()
 
-      ctx.transcript.sys(t('slashCmd.debug.heapdump.writing', formatBytes(heapUsed), formatBytes(rss)))
+      ctx.transcript.sys(slashCmdEn.slashCmd.debug.heapdump.writing(formatBytes(heapUsed), formatBytes(rss)))
 
       void performHeapDump('manual').then(r => {
         if (ctx.stale()) {
@@ -62,12 +62,12 @@ export const debugCommands: SlashCommand[] = [
 
         if (!r.success) {
           return ctx.transcript.sys(
-            t('slashCmd.debug.heapdump.failed', r.error ?? t('slashCmd.debug.heapdump.unknownError'))
+            slashCmdEn.slashCmd.debug.heapdump.failed(r.error ?? slashCmdEn.slashCmd.debug.heapdump.unknownError)
           )
         }
 
-        ctx.transcript.sys(t('slashCmd.debug.heapdump.heapPath', r.heapPath))
-        ctx.transcript.sys(t('slashCmd.debug.heapdump.diagPath', r.diagPath))
+        ctx.transcript.sys(slashCmdEn.slashCmd.debug.heapdump.heapPath(r.heapPath))
+        ctx.transcript.sys(slashCmdEn.slashCmd.debug.heapdump.diagPath(r.diagPath))
       })
     }
   },
@@ -78,22 +78,22 @@ export const debugCommands: SlashCommand[] = [
     run: (_arg, ctx) => {
       const { theme } = getUiState()
 
-      const unset = t('slashCmd.debug.themeInfo.unset')
+      const unset = slashCmdEn.slashCmd.debug.themeInfo.unset
 
-      ctx.transcript.panel(t('slashCmd.debug.themeInfo.panelTitle'), [
+      ctx.transcript.panel(slashCmdEn.slashCmd.debug.themeInfo.panelTitle, [
         {
           rows: [
             [
-              t('slashCmd.debug.themeInfo.osc11Background'),
-              terminalBackgroundHex() ?? t('slashCmd.debug.themeInfo.noReply')
+              slashCmdEn.slashCmd.debug.themeInfo.osc11Background,
+              terminalBackgroundHex() ?? slashCmdEn.slashCmd.debug.themeInfo.noReply
             ],
             ['HERMES_TUI_BACKGROUND', process.env.HERMES_TUI_BACKGROUND ?? unset],
             ['HERMES_TUI_THEME', process.env.HERMES_TUI_THEME ?? unset],
             ['COLORFGBG', process.env.COLORFGBG ?? unset],
             ['TERM_PROGRAM', process.env.TERM_PROGRAM ?? unset],
             [
-              t('slashCmd.debug.themeInfo.detectedMode'),
-              detectLightMode() ? t('slashCmd.debug.themeInfo.light') : t('slashCmd.debug.themeInfo.dark')
+              slashCmdEn.slashCmd.debug.themeInfo.detectedMode,
+              detectLightMode() ? slashCmdEn.slashCmd.debug.themeInfo.light : slashCmdEn.slashCmd.debug.themeInfo.dark
             ],
             ['text', theme.color.text],
             ['completionBg', theme.color.completionBg],
@@ -111,15 +111,15 @@ export const debugCommands: SlashCommand[] = [
     run: (_arg, ctx) => {
       const { arrayBuffers, external, heapTotal, heapUsed, rss } = process.memoryUsage()
 
-      ctx.transcript.panel(t('slashCmd.debug.mem.panelTitle'), [
+      ctx.transcript.panel(slashCmdEn.slashCmd.debug.mem.panelTitle, [
         {
           rows: [
-            [t('slashCmd.debug.mem.heapUsed'), formatBytes(heapUsed)],
-            [t('slashCmd.debug.mem.heapTotal'), formatBytes(heapTotal)],
-            [t('slashCmd.debug.mem.external'), formatBytes(external)],
-            [t('slashCmd.debug.mem.arrayBuffers'), formatBytes(arrayBuffers)],
-            [t('slashCmd.debug.mem.rss'), formatBytes(rss)],
-            [t('slashCmd.debug.mem.uptime'), t('slashCmd.debug.mem.seconds', process.uptime().toFixed(0))]
+            [slashCmdEn.slashCmd.debug.mem.heapUsed, formatBytes(heapUsed)],
+            [slashCmdEn.slashCmd.debug.mem.heapTotal, formatBytes(heapTotal)],
+            [slashCmdEn.slashCmd.debug.mem.external, formatBytes(external)],
+            [slashCmdEn.slashCmd.debug.mem.arrayBuffers, formatBytes(arrayBuffers)],
+            [slashCmdEn.slashCmd.debug.mem.rss, formatBytes(rss)],
+            [slashCmdEn.slashCmd.debug.mem.uptime, slashCmdEn.slashCmd.debug.mem.seconds(process.uptime().toFixed(0))]
           ]
         }
       ])

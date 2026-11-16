@@ -12,9 +12,10 @@ import { useTurnSelector } from '../app/turnStore.js'
 import { DEV_CREDITS_MODE } from '../config/env.js'
 import { faces } from '../content/faces.js'
 import { VERBS } from '../content/verbs.js'
+import { chromeEn } from '../copy/chrome.js'
+import { contentEn } from '../copy/content.js'
 import { fmtDuration } from '../domain/messages.js'
 import { stickyPromptFromViewport } from '../domain/viewport.js'
-import { messages, t as tr } from '../i18n/runtime.js'
 import { buildSubagentTree, treeTotals, widthByDepth } from '../lib/subagentTree.js'
 import { useScrollbarSnapshot, useViewportSnapshot } from '../lib/viewportStore.js'
 import type { Theme } from '../theme.js'
@@ -90,7 +91,7 @@ const EMOJI_FRAME_WIDTH = EMOJI_FRAMES.reduce((max, f) => Math.max(max, stringWi
 let kaomojiWidthCache: { table: unknown; width: number } | null = null
 
 const kaomojiFrameWidth = (): number => {
-  const table = messages().content.faces
+  const table = contentEn.content.faces
 
   if (kaomojiWidthCache?.table !== table) {
     kaomojiWidthCache = { table, width: Object.values(table).reduce((max, f) => Math.max(max, stringWidth(f)), 1) }
@@ -230,13 +231,13 @@ function ctxBarColor(pct: number | undefined, t: Theme) {
 }
 
 function statusSessionCountLabel(count: number) {
-  return tr('status.sessionCount', count)
+  return chromeEn.status.sessionCount(count)
 }
 
 // State values the app layer compares against ('ready', 'running…') are shown
 // through the catalog; anything else (a live verb, a slash reply) passes through.
 export function displayStatus(status: string): string {
-  const s = messages().status
+  const s = chromeEn.status
 
   if (status === 'ready') {
     return s.ready
@@ -401,7 +402,7 @@ function SpawnHud({ t }: { t: Theme }) {
   const pieces: string[] = []
 
   if (delegation.paused) {
-    pieces.push(tr('status.paused'))
+    pieces.push(chromeEn.status.paused)
   }
 
   if (totals.descendantCount > 0) {
@@ -503,7 +504,7 @@ const shortModelLabel = (model: string) =>
     .trim()
 
 const modelLabel = (model: string, effort?: string, fast?: boolean, effortWire?: string) =>
-  [shortModelLabel(model), effortLabel(effort, effortWire), fast ? tr('status.fast') : ''].filter(Boolean).join(' ')
+  [shortModelLabel(model), effortLabel(effort, effortWire), fast ? chromeEn.status.fast : ''].filter(Boolean).join(' ')
 
 export function GoodVibesHeart({ tick, t }: { tick: number; t: Theme }) {
   const [active, setActive] = useState(false)
@@ -558,7 +559,7 @@ export function StatusRule({
   t
 }: StatusRuleProps) {
   // Not a hook: tests call StatusRule as a plain function, and the rule re-renders on every tick anyway.
-  const T = messages()
+  const T = chromeEn
   const pct = usage.context_percent ?? undefined
   const contextMark = usage.context_estimated ? '~' : ''
   const barColor = ctxBarColor(pct, t)

@@ -3,7 +3,7 @@ import { useStore } from '@nanostores/react'
 import { atom } from 'nanostores'
 import { useEffect } from 'react'
 
-import { t } from '../i18n/runtime.js'
+import { gatewayMsgEn } from '../copy/gatewayMsg.js'
 import { rpcErrorMessage } from '../lib/rpc.js'
 import type { SlashCatalog } from '../types.js'
 
@@ -33,7 +33,7 @@ export const loadSlashCatalog = (rpc: GatewayRpc, sid: null | string, setCatalog
         turnController.pushActivity(r.warning, 'warn')
       }
     })
-    .catch(e => turnController.pushActivity(t('gatewayMsg.startup.commandCatalogUnavailable', rpcErrorMessage(e)), 'info'))
+    .catch(e => turnController.pushActivity(gatewayMsgEn.gatewayMsg.startup.commandCatalogUnavailable(rpcErrorMessage(e)), 'info'))
 
 /** `skills.changed`: a skill was installed or removed from another terminal. Refetch the palette
  *  from the gateway, which rescans; this client never reads the skills dir itself. True when handled. */

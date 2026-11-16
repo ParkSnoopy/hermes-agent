@@ -15,7 +15,6 @@ import contextvars
 import functools
 import os
 import time
-from agent.i18n import DEFAULT_LANGUAGE, t
 from agent.session_activity import format_iteration_progress
 from gateway.platforms.base import EphemeralReply
 from gateway.platforms.event import MessageEvent, MessageType
@@ -29,19 +28,9 @@ if TYPE_CHECKING:  # string annotations only; never imported at runtime (cycle)
 
 
 def approval_input_words(input_key: str) -> tuple[str, ...]:
-    """Typed-reply synonyms for ``approval.inputs.<input_key>`` (comma-lists): the English words
-    ALWAYS match, plus the active language's list, so a Polish pack can add "tak" without losing
-    "yes". Lower-cased, de-duplicated, order preserved (English first)."""
-    seen: dict[str, None] = {}
-    key = f"approval.inputs.{input_key}"
-    for raw in (t(key, lang=DEFAULT_LANGUAGE), t(key)):
-        if raw == key:  # catalog miss: t() echoes the key
-            continue
-        for word in raw.split(","):
-            word = word.strip().lower()
-            if word:
-                seen.setdefault(word, None)
-    return tuple(seen)
+    """English typed-reply synonyms for approval actions."""
+    words = {'approve': 'approve,yes,ok,okay,confirm,y', 'deny': 'deny,no,reject,cancel,n', 'always': 'always,approve always,always approve', 'session': 'session,approve session,session approve', 'confirm_once': 'approve,approve once,once,yes,ok,confirm', 'confirm_always': 'always,always approve,remember', 'confirm_cancel': 'cancel,nevermind,no,deny'}
+    return tuple(word.strip().lower() for word in words.get(input_key, "").split(",") if word.strip())
 
 
 # Log-record parity with the origin module.
@@ -633,20 +622,19 @@ class GatewayBusySessionMixin:
             return
         if self._queue_during_drain_enabled(effective_mode):
             self._queue_or_replace_pending_event(session_key, event)
-            message = t("gateway.busy.drain_queued", action=self._status_action_gerund())
+            message = (f'⏳ Gateway {self._status_action_gerund()} — queued for the next turn after it comes back.')
         else:
-            message = t("gateway.busy.drain_rejected", action=self._status_action_gerund())
+            message = (f'⏳ Gateway is {self._status_action_gerund()} and is not accepting another turn right now.')
         await self._send_busy_reply(event, adapter, message)
 
-    # Bare-word approval replies → (verb, args) for the synthesized slash command. English words
-    # (and the thumbs) always match; ``approval.inputs.*`` adds the active language's synonyms.
+    # Bare-word approval replies → (verb, args) for the synthesized slash command.
     _PLAINTEXT_APPROVAL_EXTRA_WORDS: dict[str, tuple] = {"👍": ("approve", ""), "👎": ("deny", "")}
     _PLAINTEXT_APPROVAL_INPUT_KEYS: tuple[tuple[str, tuple], ...] = (
         ("approve", ("approve", "")), ("deny", ("deny", "")),
         ("always", ("approve", "always")), ("session", ("approve", "session")))
 
     def _plaintext_approval_words(self) -> dict[str, tuple]:
-        """Word → (verb, args) for the active language: the English list ∪ ``t("approval.inputs.<k>")``."""
+        """Map English approval words and thumbs to their commands."""
         words: dict[str, tuple] = dict(self._PLAINTEXT_APPROVAL_EXTRA_WORDS)
         for input_key, verb_args in self._PLAINTEXT_APPROVAL_INPUT_KEYS:
             for word in approval_input_words(input_key):
@@ -671,8 +659,8 @@ class GatewayBusySessionMixin:
             # has_blocking_approval(session_key) is the disambiguator that keeps a conversational "yes" from
             # triggering a dangerous command when no approval is actually pending (design intent — see
             # run.py "Pending exec approvals are handled by /approve and /deny" note). We reuse the
-            # canonical /approve and /deny handlers rather than re-deriving the resolution + i18n messaging:
-            # they resolve the waiting thread, resume typing, AND return a localized confirmation string.
+            # canonical /approve and /deny handlers rather than re-deriving resolution and messaging:
+            # they resolve the waiting thread, resume typing, AND return a confirmation string.
             # The busy-handler path does not auto-send that return, so we deliver it ourselves (mirroring
             # the draining-case send above).
             if event.allow_gateway_control and has_blocking_approval(session_key):
@@ -853,7 +841,7 @@ class GatewayBusySessionMixin:
 
     @property
     def _BUSY_DEMOTED_TAIL(self) -> str:
-        return t("gateway.busy.demoted_tail")
+        return ' — your message is queued for when it finishes (use /stop to cancel everything).'
 
     def _compose_busy_ack_message(
         self, event: MessageEvent, now: float, _busy_state, running_agent: Any, *,
@@ -880,7 +868,7 @@ class GatewayBusySessionMixin:
                 if _busy_state and _busy_state.turn.started_ts:
                     elapsed_min = int((now - _busy_state.turn.started_ts) / 60)
                 if elapsed_min > 0:
-                    status_parts.append(t("gateway.busy.elapsed_min", minutes=elapsed_min))
+                    status_parts.append(f'{elapsed_min} min elapsed')
                 if summary.get("max_iterations", 0):
                     status_parts.append(
                         format_iteration_progress(
@@ -888,28 +876,28 @@ class GatewayBusySessionMixin:
                         )
                     )
                 if summary.get("current_tool"):
-                    status_parts.append(t("gateway.busy.running_tool", tool=summary.get("current_tool")))
+                    status_parts.append(('running: {tool}').format(tool=summary.get("current_tool")))
             except Exception:
                 pass
-        status_detail = (t("gateway.busy.ack_detail_wrap", detail=t("gateway.busy.ack_detail_joiner").join(status_parts))
+        status_detail = ((' ({detail})').format(detail=', '.join(status_parts))
                          if status_parts else "")
         if is_steer_mode and self._agent_has_active_subagents(running_agent):
-            head = t("gateway.busy.steered_subagents_head")
-            tail = t("gateway.busy.steered_subagents_tail")
+            head = '⏩ Steered into current run and its active subagent(s)'
+            tail = '. Your message arrives after their next tool call.'
         elif is_steer_mode:
-            head, tail = t("gateway.busy.steered_head"), t("gateway.busy.steered_tail")
+            head, tail = '⏩ Steered into current run', '. Your message arrives after the next tool call.'
         elif is_redirect_mode:
-            head, tail = t("gateway.busy.redirected_head"), t("gateway.busy.redirected_tail")
+            head, tail = '↪ Redirected current run', ". I'll adjust using your correction."
         elif is_queue_mode and demoted_for_subagents:
             # Explain the demotion: the follow-up didn't kill the subagent; /stop is the escape hatch.
-            head, tail = t("gateway.busy.subagent_working_head"), self._BUSY_DEMOTED_TAIL
+            head, tail = '⏳ Subagent working', self._BUSY_DEMOTED_TAIL
         elif is_queue_mode and demoted_for_compression:
-            head, tail = t("gateway.busy.compressing_head"), self._BUSY_DEMOTED_TAIL
+            head, tail = '⏳ Compressing context', self._BUSY_DEMOTED_TAIL
         elif is_queue_mode:
-            head, tail = t("gateway.busy.queued_head"), t("gateway.busy.queued_tail")
+            head, tail = '⏳ Queued for the next turn', ". I'll respond once the current task finishes."
         else:
-            head, tail = t("gateway.busy.interrupting_head"), t("gateway.busy.interrupting_tail")
-        message = t("gateway.busy.ack", head=head, detail=status_detail, tail=tail)
+            head, tail = '⚡ Interrupting current task', ". I'll respond to your message shortly."
+        message = (f'{head}{status_detail}{tail}')
 
         # One-time onboarding hint about the queue/interrupt knob (flag persisted to config.yaml).
         try:
@@ -1119,7 +1107,7 @@ class GatewayBusySessionMixin:
             await _busy_accepted()
             async with self._async_profile_scope_for_source(source):
                 return await target(event)
-        return t(target) if target else t("gateway.busy.slash_rejected", command=cmd_def.name)
+        return target if target else (f"⏳ Agent is running — `/{cmd_def.name}` can't run mid-turn. Wait for the current response or `/stop` first.")
 
     def _busy_slash_route(self, cmd_def):
         """``(kind, target)`` :meth:`_dispatch_busy_slash_command` takes mid-run: ``special`` (the
@@ -1152,15 +1140,15 @@ class GatewayBusySessionMixin:
         args = (event.get_command_args() or "").strip()
         if args.lower() in {"off", "resume", "stop", "disengage"}:
             if estop.disengage():
-                return t("gateway.pause.resumed")
-            return t("gateway.pause.not_paused")
+                return '▶️ Resumed — new work is accepted again.'
+            return "Hermes wasn't paused."
         state = estop.get_state()
         if state is not None and not args:
-            suffix = t("gateway.pause.reason_suffix", reason=state.get("reason")) if state.get("reason") else ""
-            return t("gateway.pause.already_paused", suffix=suffix)
+            suffix = (' (reason: {reason})').format(reason=state.get("reason")) if state.get("reason") else ""
+            return (f'⏸️ Hermes is already paused{suffix}. Use `/pause off` to resume.')
         estop.engage(reason=args or None)
-        suffix = t("gateway.pause.reason_suffix", reason=args) if args else ""
-        return t("gateway.pause.paused", suffix=suffix)
+        suffix = (f' (reason: {args})') if args else ""
+        return (f'⏸️ Paused{suffix}. New cron/kanban/gateway work is on hold; in-flight work finishes normally. Use `/pause off` to resume.')
 
 
     async def _busy_egress_command(self, event: MessageEvent, quick_key: str, source):
@@ -1176,7 +1164,7 @@ class GatewayBusySessionMixin:
             quick_key, source, interrupt_reason=_INTERRUPT_REASON_STOP, invalidation_reason="stop_command",
         )
         logger.info("STOP for session %s — agent interrupted, session lock released", quick_key)
-        return EphemeralReply(t("gateway.stop.stopped"))
+        return EphemeralReply('⚡ Stopped. You can continue this session.')
 
     async def _busy_new_command(self, event: MessageEvent, quick_key: str, source):
         # /reset and /new bypass the running-agent guard (else they'd queue as user text and replay
@@ -1196,7 +1184,7 @@ class GatewayBusySessionMixin:
         # A /queue carrying media or reply context is valid with no prompt text (image caption).
         has_media = bool(getattr(event, "media_urls", None))
         if not queued_text and not has_media:
-            return t("gateway.queue.usage")
+            return 'Usage: /queue <prompt>'
         await _busy_accepted()
         adapter = self._delivery_adapter_for(source)
         if adapter:
@@ -1215,10 +1203,10 @@ class GatewayBusySessionMixin:
                 internal=event.internal, timestamp=event.timestamp,
                 edit_revision=event.edit_revision,  # an edited /queue is its own input (admission id)
             )
-            if await self._queue_command_turn(quick_key, event, queued, adapter, t("gateway.queue.queued")):
+            if await self._queue_command_turn(quick_key, event, queued, adapter, 'Queued for the next turn.'):
                 return None  # its commit sends the ack
         depth = self._queue_depth(quick_key, adapter=adapter)
-        return t("gateway.queue.queued") + (t("gateway.queue.queued_depth", depth=depth) if depth > 1 else "")
+        return 'Queued for the next turn.' + ((f' ({depth} queued)') if depth > 1 else "")
 
     async def _busy_steer_command(self, event: MessageEvent, quick_key: str, source):
         # /steer lands BETWEEN tool-call iterations of the same run (appended to the last tool
@@ -1226,7 +1214,7 @@ class GatewayBusySessionMixin:
         from gateway.run import _AGENT_PENDING_SENTINEL
         steer_text = event.get_command_args().strip()
         if not steer_text:
-            return t("gateway.steer.usage")
+            return 'Usage: /steer <prompt>'
         await _busy_accepted()
         _steer_state = self._peek_session_state(quick_key)
         running_agent = _steer_state.turn.agent if _steer_state else None
@@ -1243,25 +1231,25 @@ class GatewayBusySessionMixin:
             return reply
 
         if running_agent is _AGENT_PENDING_SENTINEL:
-            return await _queue_fallback(t("gateway.steer.queued_starting"))
+            return await _queue_fallback('Agent still starting — /steer queued for the next turn.')
         if not running_agent or not hasattr(running_agent, "steer"):
-            return await _queue_fallback(t("gateway.steer.queued_no_agent"))
+            return await _queue_fallback('No active agent — /steer queued for the next turn.')
         try:
             accepted = self._steer_running_agent(running_agent, self._steer_text_with_origin(steer_text, event))
         except Exception as exc:
             logger.warning("Steer failed for session %s: %s", quick_key, exc)
-            return t("gateway.steer.failed", error=exc)
+            return (f'⚠️ Steer failed: {exc}')
         if not accepted:
-            return t("gateway.steer.rejected_empty")
+            return 'Steer rejected (empty payload).'
         self._fold_into_running_turn(running_agent, quick_key, event)
         # A pending clarify owns the turn: the agent is parked inside that tool, so no iteration
         # prep runs and the accepted steer cannot arrive until the prompt times out (#145161).
         # Released only once the steer is queued: the woken agent must find it at its next prep.
         await self._release_clarify_owning_turn(quick_key, source)
         preview = steer_text[:60] + ("..." if len(steer_text) > 60 else "")
-        target = (t("gateway.steer.target_subagents") if self._agent_has_active_subagents(running_agent)
-                  else t("gateway.steer.target_run"))
-        return t("gateway.steer.queued", target=target, preview=preview)
+        target = ('run and its active subagent(s)' if self._agent_has_active_subagents(running_agent)
+                  else 'run')
+        return (f"⏩ Steer queued into current {target} — arrives after the next tool call: '{preview}'")
 
     # A slash command that becomes a turn (``/queue``, the ``/steer`` fallback, ``/plan``, ``/learn``,
     # a skill or bundle) joins the routed session authority's durable FIFO exactly like text, so it
@@ -1373,7 +1361,7 @@ class GatewayBusySessionMixin:
         if is_goal_control(event.get_command_args() or ""):
             await _busy_accepted()
             return await self._handle_goal_command(event)
-        return t("gateway.busy.reject_goal")
+        return 'Agent is running — use /goal status / pause / clear / wait mid-run, or /stop before setting a new goal.'
 
     async def _busy_loop_command(self, event: MessageEvent, quick_key: str, source):
         # Mirrors /goal: control verbs are safe mid-run; a new loop is rejected.
@@ -1381,7 +1369,7 @@ class GatewayBusySessionMixin:
         if not _loop_arg or _loop_arg in {"status", "pause", "resume", "stop", "clear", "cancel", "help", "--help", "-h"}:
             await _busy_accepted()
             return await self._handle_loop_command(event)
-        return t("gateway.busy.reject_loop")
+        return 'Agent is running — use /loop status / pause / stop mid-run, or /stop before setting a new loop.'
 
     def _check_slash_access(self, source: SessionSource, canonical_cmd: str) -> Optional[str]:
         """Denial message if ``source`` cannot run ``canonical_cmd``, else None (both dispatch paths
@@ -1399,12 +1387,12 @@ class GatewayBusySessionMixin:
         allowed_preview = sorted(policy.user_allowed_commands)
         if allowed_preview:
             suffix = (
-                t("gateway.unauthorized.admin_only_can_run") + ", ".join(f"/{c}" for c in allowed_preview[:12])
-                + ("…" if len(allowed_preview) > 12 else "") + t("gateway.unauthorized.admin_only_whoami_hint")
+                'You can run: ' + ", ".join(f"/{c}" for c in allowed_preview[:12])
+                + ("…" if len(allowed_preview) > 12 else "") + '. Use /whoami for the full list.'
             )
         else:
-            suffix = t("gateway.unauthorized.admin_only_none")
-        return t("gateway.unauthorized.admin_only", command=canonical_cmd, suffix=suffix)
+            suffix = 'No slash commands are enabled for non-admins on this platform. Ask an admin to add you to allow_admin_from or to set user_allowed_commands.'
+        return (f'⛔ /{canonical_cmd} is admin-only here. {suffix}')
 
     def _same_chat_runs(self, source: SessionSource, own_key: str) -> list[tuple[str, str, str]]:
         """``(key, chat_type, tail)`` for every OTHER running turn in the caller's chat (``tail`` is
@@ -1479,7 +1467,7 @@ class GatewayBusySessionMixin:
             )
         except Exception as e:
             logger.debug("suggestions command failed: %s", e)
-            return t("gateway.suggestions.failed", error=e)
+            return (f'Suggestions command failed: {e}')
 
     async def _handle_blueprint_command(self, event: MessageEvent):
         """/blueprint via the shared handler (origin = event source so jobs deliver back here)."""
@@ -1493,7 +1481,7 @@ class GatewayBusySessionMixin:
         except Exception as e:
             logger.debug("blueprint command failed: %s", e)
             from hermes_cli.blueprint_cmd import BlueprintCommandResult
-            return BlueprintCommandResult(t("gateway.blueprint.failed", error=e))
+            return BlueprintCommandResult(f'Cron blueprint command failed: {e}')
 
     async def _maybe_confirm_destructive_slash(
         self, *, event: MessageEvent, command: str, title: str, detail: str, execute
@@ -1523,7 +1511,7 @@ class GatewayBusySessionMixin:
             )
 
         _p = self._typed_command_prefix_for(event.source.platform)
-        prompt_message = t("gateway.confirm.destructive_prompt", command=command, detail=detail, prefix=_p)
+        prompt_message = (f'⚠️ **Confirm /{command}**\n\n{detail}\n\nChoose:\n• **Approve Once** — proceed this time only\n• **Always Approve** — proceed and silence this prompt permanently\n• **Cancel** — keep current conversation\n\n_Text fallback: reply `{_p}approve`, `{_p}always`, or `{_p}cancel`._')
         return await self._request_slash_confirm(
             event=event, command=command, title=title, message=prompt_message, handler=_on_confirm
         )
@@ -1533,13 +1521,13 @@ class GatewayBusySessionMixin:
         """Note appended after an "always" confirm. ``persisted=False``: the user did approve this
         run, so the action still goes ahead, but the preference did not stick and the prompt will be
         back next time — say so rather than promising an opt-out that was never written."""
-        return t("gateway.confirm.destructive_optout" if persisted else "gateway.confirm.destructive_optout_save_failed")
+        return ('\n\nℹ️ Future /clear, /new, /reset, and /undo will run without confirmation. Re-enable via `approvals.destructive_slash_confirm: true` in config.yaml.' if persisted else '\n\n⚠️ Could not save that preference (config.yaml is not writable), so /clear, /new, /reset, and /undo will ask again next time. To silence it permanently, set `approvals.destructive_slash_confirm: false` in config.yaml.')
 
     @staticmethod
     async def _run_confirmed_destructive_slash(choice: str, command: str, execute, session_key: str):
         """Confirm-callback body: ``cancel`` → message; ``always`` persists the opt-out, then runs."""
         if choice == "cancel":
-            return t("gateway.confirm.cancelled", command=command)
+            return (f'🟡 /{command} cancelled. Conversation unchanged.')
         persisted = False
         if choice == "always":
             try:

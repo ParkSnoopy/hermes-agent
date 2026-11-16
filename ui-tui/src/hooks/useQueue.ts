@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isServerQueued } from '../app/pendingBubbles.js'
 import { captureDestination, type SubmissionDestination } from '../app/submissionDestination.js'
 import { $uiState, getUiState, patchUiState } from '../app/uiStore.js'
-import { t } from '../i18n/runtime.js'
+import { canonicalEn } from '../copy/canonical.js'
 import {
   loadPendingInputs,
   pendingDestinationKey,
@@ -213,14 +213,14 @@ export function useQueue(gw?: { request: (method: string, params: Record<string,
   const serverRows = (ui.info?.pending_submissions ?? []).filter(isServerQueued)
 
   const queuedDisplay = [
-    ...queueRef.current.map(item => `${item.failed ? t('canonical.queue.unconfirmedPrefix') : ''}${item.display}`),
+    ...queueRef.current.map(item => `${item.failed ? canonicalEn.canonical.queue.unconfirmedPrefix : ''}${item.display}`),
     // A queued row reads as main's plain queue line; only an unknown execution keeps its status tag.
     ...serverRows.map(row =>
       row.status === 'queued'
         ? String(row.user)
         : row.status === 'unknown'
-          ? t('canonical.queue.lostRow', String(row.user))
-          : t('canonical.queue.serverRow', String(row.status), String(row.user))
+          ? canonicalEn.canonical.queue.lostRow(String(row.user))
+          : canonicalEn.canonical.queue.serverRow(String(row.status), String(row.user))
     )
   ]
 
@@ -252,7 +252,7 @@ export function useQueue(gw?: { request: (method: string, params: Record<string,
         session_id, admission_id: row.admission_id,
         ...(unknown ? { execution_generation: row.execution_generation } : {})
       }) ?? Promise.resolve()).catch((error: Error) => {
-        if (getUiState().sid === session_id) { patchUiState({ status: t('canonical.queue.discardFailed', error.message) }) }
+        if (getUiState().sid === session_id) { patchUiState({ status: canonicalEn.canonical.queue.discardFailed(error.message) }) }
 
         throw error
       })
@@ -342,7 +342,7 @@ export function useQueue(gw?: { request: (method: string, params: Record<string,
 
         if (accepted) {
           try { removePendingInput(item) } catch (error) {
-            patchUiState({ status: t('canonical.queue.journalCleanupFailed', (error as Error).message) })
+            patchUiState({ status: canonicalEn.canonical.queue.journalCleanupFailed((error as Error).message) })
           }
 
           for (const pending of queues.current.values()) {
@@ -418,7 +418,7 @@ export function useQueue(gw?: { request: (method: string, params: Record<string,
       try {
         return claim(queue, item)
       } catch (error) {
-        patchUiState({ status: t('canonical.queue.notSavedQueueKept', (error as Error).message) })
+        patchUiState({ status: canonicalEn.canonical.queue.notSavedQueueKept((error as Error).message) })
 
         return undefined
       }
@@ -437,7 +437,7 @@ export function useQueue(gw?: { request: (method: string, params: Record<string,
       // draft (Alt+K) instead of admitting a second copy behind the original.
       if (server) {
         if (server.status === 'unknown') {
-          patchUiState({ status: t('canonical.queue.unknownExecution') })
+          patchUiState({ status: canonicalEn.canonical.queue.unknownExecution })
 
           return undefined
         }

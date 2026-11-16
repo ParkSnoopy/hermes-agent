@@ -141,13 +141,8 @@ let
     filter = path: _type: !(lib.hasInfix "/__pycache__/" path);
   };
 
-  # i18n locale catalogs (locales/*.yaml). Shipped into the store and pointed
-  # at by HERMES_BUNDLED_LOCALES so the wrapped binary always resolves human
-  # strings instead of raw i18n keys (#23943 / #27632 / #35374).
-  bundledLocales = lib.cleanSource ../locales;
-
   # Shipped MCP catalog (optional-mcps/<name>/manifest.yaml). Same bare-data-dir
-  # case as locales: not a Python package, so it's symlinked into the store and
+  # directory is not a Python package, so it's symlinked into the store and
   # exposed via HERMES_OPTIONAL_MCPS.
   bundledOptionalMcps = lib.cleanSourceWith {
     src = ../optional-mcps;
@@ -211,7 +206,6 @@ let
         skills = toString bundledSkills;
         optional-skills = toString bundledOptionalSkills;
         plugins = toString bundledPlugins;
-        locales = toString bundledLocales;
         optional-mcps = toString bundledOptionalMcps;
       };
       frontends = {

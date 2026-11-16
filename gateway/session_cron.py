@@ -148,8 +148,7 @@ def _create(authority, actor, params):
             'session_id': sid, 'route': route, 'entry': entry.to_dict(), 'policy': asdict(policy)}, request_id
 
 
-# What a message typed into a scheduled job's session settles with (see ``execute``); its text is
-# ``gateway.errors.cron_session_read_only``, rendered in the owning profile's language.
+# What a message typed into a scheduled job's session settles with (see ``execute``).
 CRON_SESSION_READ_ONLY_SURFACE = {'layer': 'gateway', 'code': 'cron_session_read_only', 'retryable': False}
 
 # Run-side verdicts run_job stamps on the job dict for the firing scheduler's bookkeeping tail
@@ -282,8 +281,7 @@ async def execute(authority, ref, row, policy):
             or row['principal_id'] != authority.sessions[ref.session_id].source.user_id):
         # A cron session only runs its own frozen fire; anything else typed into it fails with a
         # descriptor the viewer can render (and offer a new chat for), never a generic failure.
-        from agent.i18n import t
-        text = t('gateway.errors.cron_session_read_only')
+        text = '⚠️ This chat belongs to a scheduled job and only runs that job, so your message was not run. Start a new chat to send it.'
         authority.pending_results[row['admission_id']] = {'result': {
             'final_response': '', 'messages': [], 'failed': True, 'completed': False,
             'error': text, 'error_surface': dict(CRON_SESSION_READ_ONLY_SURFACE)},

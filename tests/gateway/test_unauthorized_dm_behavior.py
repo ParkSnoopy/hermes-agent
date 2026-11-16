@@ -60,9 +60,7 @@ def test_allowlist_matches_stable_id_not_display_name(monkeypatch, transport, al
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("language", ["en", "zh"])
-async def test_unauthorized_dm_pairs_by_default(monkeypatch, transport, language):
-    monkeypatch.setenv("HERMES_LANGUAGE", language)
+async def test_unauthorized_dm_pairs_by_default(transport):
     runner, adapter = _make_runner(transport)
     runner.pairing_store.generate_code.return_value = "ABC12DEF"
     assert not runner._is_user_authorized(_make_event(transport).source)

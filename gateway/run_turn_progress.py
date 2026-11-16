@@ -12,7 +12,6 @@ from contextlib import suppress
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from agent.i18n import t
 from agent.interrupt_compat import _accepts_keyword
 from agent.replay_cleanup import strip_stale_dangerous_confirmations
 from gateway.config import Platform
@@ -210,7 +209,7 @@ class GatewayTurnProgressMixin:
         if event_type == "_thinking" or tool_name == "_thinking":
             thinking_text = (preview if tool_name == "_thinking" else tool_name) if ctx._thinking_enabled else None
             if thinking_text:
-                ctx.progress_queue.put(t("gateway.progress.thinking_prefix", text=thinking_text))
+                ctx.progress_queue.put(f'💬 {thinking_text}')
             return
 
         # tool_progress off → only _thinking passes (above). Only tool.started renders. clarify:
@@ -309,7 +308,7 @@ class GatewayTurnProgressMixin:
         ):
             return None, None
         cmd_full = args["command"].rstrip()
-        header = "" if self._ctx.last_was_terminal_block[0] else t("gateway.progress.tool_head", emoji=emoji, tool=tool_name) + "\n"
+        header = "" if self._ctx.last_was_terminal_block[0] else (f'{emoji} {tool_name}') + "\n"
         cap = self._preview_cap()
         lines = cmd_full.splitlines()
         cmd_short = lines[0] if lines else cmd_full
@@ -339,16 +338,16 @@ class GatewayTurnProgressMixin:
                 # for full detail and platform message-length limits handle the rest.
                 args_str = verbose_tool_args_text(args, get_tool_preview_max_len(),
                                                   getattr(adapter, "supports_code_blocks", False))
-                code = t("gateway.progress.tool_verbose", emoji=emoji, tool=tool_name, keys=list(args.keys()), args=args_str)
+                code = (f'{emoji} {tool_name}({list(args.keys())})\n{args_str}')
             elif code is None:
-                code = (t("gateway.progress.tool_preview", emoji=emoji, tool=tool_name, preview=preview) if preview
-                        else t("gateway.progress.tool_pending", emoji=emoji, tool=tool_name))
+                code = ((f'{emoji} {tool_name}: "{preview}"') if preview
+                        else (f'{emoji} {tool_name}...'))
             ctx.progress_queue.put(code)
             return None
         if code is not None:
             return code
         if not preview:
-            return t("gateway.progress.tool_pending", emoji=emoji, tool=tool_name)
+            return (f'{emoji} {tool_name}...')
         from agent.display import get_tool_verb, prepare_tool_preview, tool_verb_connector, verb_drops_preview
         prepared = prepare_tool_preview(tool_name, args, fallback=preview, max_len=self._preview_cap())
         preview = adapter.format_tool_preview(prepared) if adapter is not None else prepared.text
@@ -356,7 +355,7 @@ class GatewayTurnProgressMixin:
         # by prefixing the verb onto the computed preview, so the command/url/query is kept.
         verb = get_tool_verb(tool_name)
         if not verb:
-            return t("gateway.progress.tool_preview", emoji=emoji, tool=tool_name, preview=preview)
+            return (f'{emoji} {tool_name}: "{preview}"')
         return f"{emoji} {verb}" if verb_drops_preview(tool_name) else f"{emoji} {verb}{tool_verb_connector(tool_name)}{preview}"
 
     def _progress_emit(self, msg: str) -> None:

@@ -265,7 +265,6 @@ SKILL_NAMES = _CatalogValues("bundled_skill_names", extra=frozenset({"custom"}))
 EXTENSION_NAMES = _CatalogValues(
     "bundled_skill_names", "mcp_catalog_names", "plugin_catalog_names", extra=frozenset({"custom"})
 )
-DISPLAY_LANGUAGES = _CatalogValues("display_languages", extra=frozenset({"other"}))
 # ---- v4 model ----
 TOOL_CALL_ISSUES = frozenset({
     "empty_arguments", "invalid_json", "none", "repaired", "schema_mismatch", "unknown_tool",
@@ -908,7 +907,7 @@ _COUNTER_DIMENSION_VALUES: dict[str, dict[str, frozenset[str]]] = {
         "reuse_state": SKILL_REUSE_STATES, "skill_name": SKILL_NAMES, "use_count_bucket": COUNT_BUCKETS,
     },
     INSTALL_SNAPSHOT_METRIC: {
-        "cron_job_count_bucket": SIZE_BUCKETS, "display_language": DISPLAY_LANGUAGES,
+        "cron_job_count_bucket": SIZE_BUCKETS,
         "install_age_bucket": INSTALL_AGE_BUCKETS, "mcp_server_count_bucket": SIZE_BUCKETS,
         "memory_provider": MEMORY_PROVIDERS, "messaging_platform_count_bucket": SIZE_BUCKETS,
         "plugin_count_bucket": SIZE_BUCKETS, "profile_count_bucket": SIZE_BUCKETS,
@@ -1148,7 +1147,7 @@ _LEGACY_METRIC_FIELDS: dict[str, tuple[frozenset[str], ...]] = {
     MEMORY_OP_METRIC: (_METRIC_FIELDS[MEMORY_OP_METRIC] - {"failure_class"},),
     SKILL_LOAD_METRIC: (_METRIC_FIELDS[SKILL_LOAD_METRIC] - {"skill_name"},),
     INSTALL_SNAPSHOT_METRIC: (_METRIC_FIELDS[INSTALL_SNAPSHOT_METRIC] - {
-        "display_language", "install_age_bucket", "main_provider", "messaging_platform_count_bucket",
+        "install_age_bucket", "main_provider", "messaging_platform_count_bucket",
         "terminal_backend", *_INSTALL_V4_SNAPSHOT_DIMENSIONS, *PREPARED_COMPACTION_SNAPSHOT_DIMENSIONS,
     },
         # ---- v4 install ----
@@ -1961,16 +1960,15 @@ def size_bucket(count: int) -> str:
 def install_snapshot_fields(
     *, memory_provider: Any, mcp_servers: int, plugins: int, skills: int, cron_jobs: int,
     profiles: int, messaging_platforms: int, install_age_bucket: str, main_provider: Any,
-    terminal_backend: Any, display_language: Any,
+    terminal_backend: Any,
 ) -> dict[str, str]:
     """Bounded daily configuration snapshot: counts, closed enums and public names only."""
-    from .shared_metrics_catalog import display_language_metric_name, provider_metric_name
+    from .shared_metrics_catalog import provider_metric_name
 
     provider = _norm(memory_provider)
     backend = _norm(terminal_backend) or "local"
     return {
         "cron_job_count_bucket": size_bucket(cron_jobs),
-        "display_language": display_language_metric_name(display_language),
         "install_age_bucket": install_age_bucket if install_age_bucket in INSTALL_AGE_BUCKETS else "unknown",
         "main_provider": provider_metric_name(main_provider) if main_provider else "none",
         "mcp_server_count_bucket": size_bucket(mcp_servers),

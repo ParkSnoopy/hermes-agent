@@ -11,7 +11,7 @@ import os
 import queue
 import threading
 import time
-from agent.i18n import t
+
 from agent.session_activity import format_iteration_progress
 from contextlib import nullcontext, suppress
 from contextvars import copy_context
@@ -489,7 +489,7 @@ class GatewayTurnPrepareMixin:
             should_notify = reset_reason == "suspended" and automatic_notices_allowed(source)
             adapter = self._delivery_adapter_for(source) if should_notify else None
             if adapter:
-                notice = t("gateway.session.auto_reset_notice")
+                notice = '◐ Session reset after being stopped. Conversation history cleared.\nUse /resume to browse and restore a previous session.\n'
                 with suppress(Exception):
                     session_info = await asyncio.to_thread(self._reset_notice_session_info, source)
                     if session_info:
@@ -683,7 +683,7 @@ class GatewayTurnPrepareMixin:
         except TranscriptReadError:
             self._clear_session_env(_session_env_tokens)
             from gateway.session_results import record_unexecuted_failure
-            return record_unexecuted_failure(t("gateway.errors.history_unavailable")), _session_env_tokens
+            return record_unexecuted_failure("⚠️ This session's history is temporarily unavailable, so this message was not processed. Ask the operator to inspect state.db, then resend after it is healthy. Use /reset only if you intentionally want to start a new conversation."), _session_env_tokens
 
         await self._hmwa_first_contact_notes(source, history, turn_sidecar_notes, internal=event.internal)
 

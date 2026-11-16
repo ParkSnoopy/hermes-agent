@@ -19,14 +19,14 @@ MINIMAX_OAUTH = "minimax-oauth"
 # Attribute read with getattr only: reading it never invokes the callable.
 SOURCE_ATTR = "hermes_credential_source"
 
-# Credential source -> i18n key. Both display surfaces resolve labels here.
-SOURCE_LABEL_KEYS = {
-    ENTRA_ID: "cli.config.microsoft_entra_id",
-    VERTEX_OAUTH: "cli.config.google_vertex_oauth",
-    KEY_CMD: "cli.config.key_cmd_token",
-    MINIMAX_OAUTH: "cli.config.minimax_oauth",
+# Both display surfaces resolve credential labels here.
+SOURCE_LABELS = {
+    ENTRA_ID: "Microsoft Entra ID",
+    VERTEX_OAUTH: "Google OAuth (Vertex AI)",
+    KEY_CMD: "key_cmd token (command)",
+    MINIMAX_OAUTH: "MiniMax OAuth",
 }
-UNKNOWN_LABEL_KEY = "cli.config.token_provider"
+UNKNOWN_LABEL = "Token provider"
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -49,9 +49,7 @@ def credential_source(key: Any) -> Optional[str]:
 
 
 def credential_label(key: Any) -> Optional[str]:
-    """Translated label for a callable key's source (neutral when untagged); None for a non-callable."""
+    """Label for a callable key's source (neutral when untagged); None for a non-callable."""
     if isinstance(key, str) or not callable(key):
         return None
-    from agent.i18n import t
-
-    return t(SOURCE_LABEL_KEYS.get(credential_source(key) or "", UNKNOWN_LABEL_KEY))
+    return SOURCE_LABELS.get(credential_source(key) or "", UNKNOWN_LABEL)

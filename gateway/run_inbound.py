@@ -19,7 +19,6 @@ import time
 from contextlib import suppress
 from pathlib import Path
 
-from agent.i18n import t
 from gateway.platforms.base import EphemeralReply
 from gateway.platforms.event import MessageEvent, MessageType, clean_attachment_filename
 from gateway.run_busy import approval_input_words
@@ -298,10 +297,10 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             err = self._hm_write_update_response(response_text)
             if err is not None:
                 logger.warning("Failed to write update response: %s", err)
-                return t("gateway.update.reply_failed", error=err)
+                return (f'✗ Failed to send response to update process: {err}')
             _up_state.persistent.update_prompt_pending = False
             label = response_text if len(response_text) <= 20 else response_text[:20] + "…"
-            return t("gateway.update.reply_sent", label=label)
+            return (f'✓ Sent `{label}` to the update process.')
         # Recognized slash command during a pending update prompt: write a blank response so the
         # detached update's ``_gateway_prompt`` returns the prompt's default (typically a safe
         # "n" / skip) and exits instead of blocking on stdin until the watcher timeout.
@@ -367,8 +366,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
                     try:
                         await _clarify_adapter.retire_clarify_card(
                             _pending_clarify.clarify_id,
-                            t("gateway.clarify.answered",
-                              response=_raw_clarify_reply if _pending_clarify.response == _clarify_mod.SKIPPED
+                            ('✅ answered: {response}').format(response=_raw_clarify_reply if _pending_clarify.response == _clarify_mod.SKIPPED
                               else _pending_clarify.response or _raw_clarify_reply))
                     except Exception:
                         logger.debug("Failed to retire clarify card after typed answer", exc_info=True)
@@ -406,7 +404,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         if callable(getattr(type(_clarify_adapter), "retire_clarify_card", None)):
             try:
                 await _clarify_adapter.retire_clarify_card(
-                    pending.clarify_id, t("gateway.clarify.cancelled"))
+                    pending.clarify_id, '↩️ Clarification cancelled — your message will be handled as a follow-up.')
             except Exception:
                 logger.debug("Failed to retire clarify card after cancellation", exc_info=True)
         return True
@@ -437,7 +435,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         "always": "always", "remember": "always",
         "cancel": "cancel", "no": "cancel", "deny": "cancel", "nevermind": "cancel",
     }
-    # Free-text spellings: ``approval.inputs.confirm_*`` comma-lists (English ∪ active language).
+    # Free-text spellings for destructive-command confirmations.
     _SLASH_CONFIRM_TEXT_INPUT_KEYS = (("confirm_once", "once"), ("confirm_always", "always"), ("confirm_cancel", "cancel"))
 
     def _slash_confirm_text_choices(self) -> dict[str, str]:
@@ -750,7 +748,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             if event.get_command() == "stop":  # force-clean the sentinel so the session is unlocked
                 self._release_running_agent_state(_quick_key)
                 logger.info("HARD STOP (pending) for session %s — sentinel cleared", _quick_key)
-                return EphemeralReply(t("gateway.stop.force_stopped_pending"))
+                return EphemeralReply('⚡ Force-stopped. The agent was still starting — session unlocked.')
             self._hm_merge_pending_for_source(source, _quick_key, event, merge_text=True)  # picked up after start
             return None
         if self._draining:
@@ -758,9 +756,9 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             if queue_during_drain:
                 self._queue_or_replace_pending_event(_quick_key, event)
             return (
-                t("gateway.busy.drain_queued", action=self._status_action_gerund())
+                (f'⏳ Gateway {self._status_action_gerund()} — queued for the next turn after it comes back.')
                 if queue_during_drain
-                else t("gateway.busy.drain_rejected", action=self._status_action_gerund())
+                else (f'⏳ Gateway is {self._status_action_gerund()} and is not accepting another turn right now.')
             )
         if effective_busy_input_mode == "queue":
             logger.debug("PRIORITY queue follow-up for session %s", _quick_key)
@@ -843,7 +841,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
     async def _hm_cmd_new(self, event, source, _quick_key):
 
         return await self._hm_confirm_destructive(
-            event, "new", t("gateway.confirm.detail_new"),
+            event, "new", 'This starts a fresh session and discards the current conversation history.',
             self._handle_reset_command,
         )
 
@@ -859,7 +857,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         try:
             event.text = await asyncio.to_thread(build)
         except Exception:
-            return True, t("gateway.prompt_command.start_failed", command=name)
+            return True, (f'Could not start /{name} — please try again.')
         return False, None
 
     # /learn and /plan: ack, rewrite the turn to a builder prompt, fall through to the agent.
@@ -867,15 +865,15 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         from agent.learn_prompt import build_learn_prompt
 
         req = event.get_command_args().strip()
-        _ack = t("gateway.learn.ack_described") if req else t("gateway.learn.ack_conversation")
+        _ack = 'Learning a skill from what you described…' if req else 'Learning a skill from this conversation…'
         return await self._hm_rewrite_turn_to_prompt(event, source, "learn", _ack, lambda: build_learn_prompt(req))
 
     async def _hm_cmd_plan(self, event, source, _quick_key):
         from agent.plan_prompt import build_plan_prompt
 
         task = event.get_command_args().strip()
-        _ack = (t("gateway.plan.ack_task", task=task[:80] + ("…" if len(task) > 80 else ""))
-                if task else t("gateway.plan.ack_conversation"))
+        _ack = (('Planning: {task}').format(task=task[:80] + ("…" if len(task) > 80 else ""))
+                if task else "Planning from this conversation's context…")
         return await self._hm_rewrite_turn_to_prompt(event, source, "plan", _ack, lambda: build_plan_prompt(task))
 
     async def _hm_cmd_init(self, event, source, _quick_key):
@@ -891,11 +889,11 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
                 session_key=_quick_key or self._session_key_for_source(source),
             )
         except Exception:
-            return True, t("gateway.init.start_failed")
+            return True, 'Could not start /init — please try again.'
         _ack = (
-            t("gateway.init.ack_update")
+            'Updating AGENTS.md from a project scan…'
             if "UPDATE the existing AGENTS.md" in _init_prompt
-            else t("gateway.init.ack_generate")
+            else 'Generating AGENTS.md from a project scan…'
         )
         await self._send_command_ack(source, _ack, "init")
         event.text = _init_prompt
@@ -924,19 +922,19 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             with suppress(ValueError, IndexError):
                 _undo_n = max(1, int(_undo_raw.split()[0]))
         _undo_detail = (
-            t("gateway.confirm.detail_undo_one")
+            'This removes the last user/assistant exchange from history.'
             if _undo_n == 1
-            else t("gateway.confirm.detail_undo_many", count=_undo_n)
+            else (f'This removes the last {_undo_n} user turns from history.')
         )
         return await self._hm_confirm_destructive(event, "undo", _undo_detail, self._handle_undo_command)
 
     # /queue and /steer on the idle path: no agent is running, so strip the prefix and send the
     # payload as a regular user turn; an empty payload surfaces the usage hint.
     async def _hm_cmd_queue(self, event, source, _quick_key):
-        return self._hm_send_payload_as_turn(event, t("gateway.queue.usage"))
+        return self._hm_send_payload_as_turn(event, 'Usage: /queue <prompt>')
 
     async def _hm_cmd_steer(self, event, source, _quick_key):
-        return self._hm_send_payload_as_turn(event, t("gateway.steer.usage_idle"))
+        return self._hm_send_payload_as_turn(event, 'Usage: /steer <prompt>  (no agent is running; sending as a normal message)')
 
     @staticmethod
     def _hm_send_payload_as_turn(event, usage: str) -> tuple[bool, Optional[str]]:
@@ -973,7 +971,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             }
             self._evict_cached_agent(_quick_key)
         except Exception:
-            return True, t("gateway.moa.prepare_failed")
+            return True, 'Failed to prepare MoA turn.'
         return False, None
 
     # Idle-path built-ins with bespoke flow (confirmations, prompt rewrites, one-shot MoA), each
@@ -1048,7 +1046,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             "Unrecognized slash command /%s from %s — replying with unknown-command notice",
             command, source.platform.value if source.platform else "?",
         )
-        return t("gateway.unknown_command", command=command)
+        return (f"Unknown command `/{command}`. Type /commands to see what's available, or resend without the leading slash to send as a regular message.")
 
     def _hm_skill_slash_rewrite(
         self, event: MessageEvent, source: SessionSource, _quick_key: str, command: Optional[str]
@@ -1087,20 +1085,20 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
                 from agent.skill_utils import get_disabled_skill_names as _get_plat_disabled
                 _plat_disabled = _get_plat_disabled(platform=_plat)
                 if _skill_name and _skill_name in _plat_disabled:
-                    return t("gateway.skills.disabled_for_platform", name=_skill_name, platform=_plat)
+                    return (f'The **{_skill_name}** skill is disabled for {_plat}.\nEnable it with: `hermes skills config`')
                 _disabled_extra = [
                     skill_cmds.get(k, {}).get("name", "")
                     for k in extra_keys
                     if skill_cmds.get(k, {}).get("name", "") in _plat_disabled
                 ]
                 if _disabled_extra:
-                    return t("gateway.skills.stacked_disabled", names=", ".join(_disabled_extra), platform=_plat)
+                    return ('The **{names}** skill(s) in this stacked invocation are disabled for {platform}.\nEnable them with: `hermes skills config`').format(names=", ".join(_disabled_extra), platform=_plat)
             if extra_keys and _build_stacked is not None:
                 stacked_result = _build_stacked(
                     [cmd_key, *extra_keys], stacked_instruction, task_id=_quick_key,
                 )
                 if not stacked_result:
-                    return t("gateway.skills.stacked_load_failed", command=command)
+                    return (f'Failed to load stacked skills for /{command}.')
                 event.text, _loaded, _missing = stacked_result
             else:
                 msg = build_skill_invocation_message(cmd_key, user_instruction, task_id=_quick_key)
@@ -1291,7 +1289,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             # only fall to zero. Reversible.
             if self._external_drain_active:
                 logger.info("Refusing new turn for session %s — external drain active.", _quick_key)
-                return t("gateway.busy.draining_maintenance")
+                return "⏳ This agent is draining for a maintenance action and isn't accepting new turns right now. It'll be back in a moment — please resend shortly."
 
         # Claim this session before any await: many awaits sit between here and _run_agent
         # registering the real AIAgent; without this sentinel a second message during any of them
@@ -1331,7 +1329,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
                     "the user must resend",
                     _quick_key, exc.session_id,
                 )
-                return t("gateway.busy.another_turn_running")
+                return '⏳ Another turn is still running on this session. To protect the transcript, this message was not processed. Wait for the active turn to finish, then resend it.'
             try:
                 await self._run_post_turn_hooks(
                     agent_result=_agent_result, source=source, is_internal=is_internal, event=event,
@@ -1460,7 +1458,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         from gateway.bot_peer_notices import automatic_notices_allowed
         for tx in transcripts if automatic_notices_allowed(source) else ():
             try:
-                await adapter.send(source.chat_id, t("gateway.voice.transcript_echo_short", text=tx), metadata=metadata)
+                await adapter.send(source.chat_id, (f'🎙️ "{tx}"'), metadata=metadata)
             except Exception as echo_exc:
                 logger.debug("%s echo failed (non-fatal): %s", log_context, echo_exc)
 

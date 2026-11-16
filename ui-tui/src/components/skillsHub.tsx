@@ -2,8 +2,8 @@ import { Box, Text, useInput, useStdout } from '@hermes/ink'
 import { useEffect, useState } from 'react'
 
 import { noSkillsInstalled } from '../app/userMessages.js'
+import { hubsEn } from '../copy/hubs.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { useT } from '../i18n/useT.js'
 import { rpcErrorMessage } from '../lib/rpc.js'
 import type { Theme } from '../theme.js'
 
@@ -16,7 +16,7 @@ const MIN_WIDTH = 40
 const MAX_WIDTH = 90
 
 export function SkillsHub({ gw, maxWidth, onClose, t }: SkillsHubProps) {
-  const { list: L, skills: T } = useT().hubs
+  const { list: L, skills: T } = hubsEn.hubs
   const [skillsByCat, setSkillsByCat] = useState<Record<string, string[]>>({})
   const [selectedCat, setSelectedCat] = useState('')
   const [catIdx, setCatIdx] = useState(0)

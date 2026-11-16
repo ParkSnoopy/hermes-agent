@@ -1,10 +1,10 @@
-import { messages } from '../i18n/runtime.js'
+import { contentEn } from '../copy/content.js'
 import type { PanelSection } from '../types.js'
 
-export const setupRequiredTitle = (): string => messages().content.setup.title
+export const setupRequiredTitle = (): string => contentEn.content.setup.title
 
 export const buildSetupRequiredSections = (): PanelSection[] => {
-  const s = messages().content.setup
+  const s = contentEn.content.setup
 
   return [
     {

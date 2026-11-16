@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from agent.i18n import t
+
 
 
 
@@ -188,7 +188,11 @@ class TestBusyInputMode:
             cli.process_command("/queue first prompt")
             cli.process_command(command)
         assert cli._pending_input_items() == ["first prompt"]
-        assert printed[-1].strip() == t(usage_key)
+        assert printed[-1].strip() == {
+            "cli.queue.usage_remove": "Usage: /queue rm <number>",
+            "cli.queue.usage_edit": "Usage: /queue edit <number> <new prompt>",
+            "cli.queue.usage_move": "Usage: /queue move <from> <to>",
+        }[usage_key]
 
     def test_queue_edit_accepts_tab_after_index(self):
         cli = _make_cli()
@@ -385,7 +389,7 @@ class TestHistoryDisplay:
         cli._handle_resume_command("/resume")
         output = capsys.readouterr().out
 
-        assert t("cli.session.recent_header") in output
+        assert 'Recent sessions:' in output
         assert "Checking Running Hermes Agent" in output
 
 
@@ -416,7 +420,7 @@ class TestHistoryDisplay:
         output = capsys.readouterr().out
 
         assert "Unknown command" not in output
-        assert t("cli.session.recent_header") in output
+        assert 'Recent sessions:' in output
         assert "Checking Running Hermes Agent" in output
         assert "20260401_201329_d85961" in output
 

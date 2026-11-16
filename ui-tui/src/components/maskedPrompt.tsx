@@ -1,7 +1,7 @@
 import { Box, Text } from '@hermes/ink'
 import { useState } from 'react'
 
-import { useT } from '../i18n/useT.js'
+import { secureEn } from '../copy/secure.js'
 import type { Theme } from '../theme.js'
 
 import { TextInput } from './textInput.js'
@@ -51,7 +51,7 @@ interface SecurePromptProps {
 
 /** Masked prompt for the `sudo` password the backend asked for. */
 export function SudoPrompt({ cols, onSubmit, t }: SecurePromptProps) {
-  const T = useT()
+  const T = secureEn
 
   return <MaskedPrompt cols={cols} icon="🔐" label={T.secure.sudo.title} onSubmit={onSubmit} t={t} />
 }
@@ -64,7 +64,7 @@ export function SecretPrompt({
   prompt,
   t
 }: SecurePromptProps & { envVar: string; prompt: string }) {
-  const T = useT()
+  const T = secureEn
 
   return (
     <MaskedPrompt
@@ -80,7 +80,7 @@ export function SecretPrompt({
 
 /** Masked prompt for a password manager's master password; the value goes to the manager CLI only. */
 export function VaultUnlockPrompt({ cols, displayName, onSubmit, t }: SecurePromptProps & { displayName: string }) {
-  const T = useT()
+  const T = secureEn
 
   return (
     <MaskedPrompt
@@ -104,7 +104,7 @@ export function VaultSaveLoginPrompt({
   site,
   t
 }: Omit<SecurePromptProps, 'onSubmit'> & { onReady: (identifier: string, password: string) => void; site: string }) {
-  const T = useT()
+  const T = secureEn
   const [identifier, setIdentifier] = useState('')
 
   if (identifier) {
@@ -137,7 +137,7 @@ export function VaultSaveLoginPrompt({
 
 /** `vault.code`: a one-time sign-in code; it is typed into the page, never shown to the model. */
 export function VaultCodePrompt({ cols, hint, onSubmit, site, t }: SecurePromptProps & { hint: string; site: string }) {
-  const T = useT()
+  const T = secureEn
 
   return (
     <MaskedPrompt

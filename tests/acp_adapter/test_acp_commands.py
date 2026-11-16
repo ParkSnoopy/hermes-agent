@@ -118,6 +118,26 @@ def test_acp_real_agent_gets_session_db_for_recall(monkeypatch):
     assert captured["session_id"] == "acp-session"
 
 
+@pytest.mark.parametrize("large", [False, True])
+def test_acp_model_switch_renders_usage_notice(monkeypatch, large):
+    from hermes_cli import model_picker_usage
+
+    acp_agent, state, fake, _conn = make_agent_and_state()
+    fake.provider = "nous"
+    monkeypatch.setattr(acp_agent, "_switch_model", lambda state, args: ("nous", "nous", args))
+    monkeypatch.setattr(model_picker_usage, "nous_picker_usage", lambda **kwargs: None)
+    rows = {"selected-model": {"usage_level": "top_tier"}} if large else {}
+    monkeypatch.setattr(model_picker_usage, "_nous_catalog", lambda **kwargs: rows)
+
+    result = acp_agent._handle_slash_command("/model selected-model", state)
+
+    expected = "Model switched to: selected-model\nProvider: nous"
+    if large:
+        expected += "\n⚠ Large model: uses more of your plan's usage per message."
+    assert result == expected
+    assert state.command_op is False
+
+
 @pytest.mark.asyncio
 async def test_acp_steer_slash_command_injects_into_running_agent():
     acp_agent, state, fake, _conn = make_agent_and_state()

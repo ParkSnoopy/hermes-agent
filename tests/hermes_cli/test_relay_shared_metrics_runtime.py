@@ -2859,7 +2859,7 @@ def test_install_snapshot_is_daily_and_carries_only_bucketed_counts(
 
     [snapshot] = _stored_counters(tmp_path)["hermes.install.snapshot"]
     assert snapshot == {
-        "cron_job_count_bucket": "0", "display_language": "en", "install_age_bucket": snapshot["install_age_bucket"],
+        "cron_job_count_bucket": "0", "install_age_bucket": snapshot["install_age_bucket"],
         "main_provider": "none", "mcp_server_count_bucket": "1", "memory_provider": "plugin",
         "messaging_platform_count_bucket": "0", "plugin_count_bucket": "3_to_5",
         "profile_count_bucket": snapshot["profile_count_bucket"], "skill_count_bucket": "0",

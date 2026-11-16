@@ -114,15 +114,14 @@ def undo_changed_files(mgr, cwd: str, since, *, task_id: Optional[str] = "defaul
 
 
 def format_undo_rollback_hint(files: list[str]) -> str:
-    """The one localized line every surface prints after its own ``/undo`` output; ``""`` for no files."""
+    """The line every surface prints after its own ``/undo`` output; ``""`` for no files."""
     if not files:
         return ""
-    from agent.i18n import t
 
     named = ", ".join(files[:_MAX_NAMED_FILES])
     if len(files) > _MAX_NAMED_FILES:
-        named += " " + t("shared.undo_rollback.more", count=len(files) - _MAX_NAMED_FILES)
-    return t("shared.undo_rollback.list", files=named)
+        named += " " + (f'+{len(files) - _MAX_NAMED_FILES} more')
+    return (f'↶ Files changed in the undone turns: {named}. Run /rollback to see checkpoints and restore them.')
 
 
 def undo_hint_payload(mgr, cwd: str, since, *, task_id: Optional[str] = "default") -> Optional[dict]:

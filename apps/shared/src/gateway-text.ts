@@ -1,7 +1,4 @@
-/** User-facing text of the shared gateway client, in the Ink TUI catalog's shape: Ink's English catalog
- *  spreads these leaves in (`i18n/en/libText.ts`, `i18n/en/canonical.ts`) and passes its own `t`, so
- *  its locale packs translate them; any other client gets this English. Function leaves take
- *  positional args (`{0}` in a pack). */
+/** User-facing text shared by gateway clients. */
 export const gatewayTextEn = {
   canonical: {
     launch: {
@@ -33,16 +30,4 @@ export const gatewayTextEn = {
       closed: 'gateway closed'
     }
   }
-}
-
-export type GatewayTextKey =
-  | `canonical.launch.${keyof typeof gatewayTextEn.canonical.launch}`
-  | `libText.gateway.${keyof typeof gatewayTextEn.libText.gateway}`
-
-export type GatewayText = (key: GatewayTextKey, ...args: unknown[]) => string
-
-export const gatewayText: GatewayText = (key, ...args) => {
-  const leaf = key.split('.').reduce<unknown>((node, part) => (node as Record<string, unknown>)[part], gatewayTextEn)
-
-  return typeof leaf === 'function' ? (leaf as (...values: unknown[]) => string)(...args) : String(leaf)
 }

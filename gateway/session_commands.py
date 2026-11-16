@@ -179,11 +179,10 @@ async def _run_runner_command(runner, live, name, arg, kind, shell):
     """The messaging gateway's own quick-command / plugin-command dispatch for this session
     (``run_inbound_hooks``): the operator's slash access policy, the 30 s sanitized-env exec with
     redacted output, the plugin handler under this session's env scope."""
-    from agent.i18n import t
     from gateway.platforms.base import MessageEvent
     if kind == 'exec':
         if not shell:
-            return t('gateway.quick_command.no_command', command=name)
+            return (f"Quick command '/{name}' has no command defined.")
         refused = runner._check_slash_access(live.source, name)
         if refused:
             return refused
@@ -210,13 +209,12 @@ async def _run_runner_command(runner, live, name, arg, kind, shell):
         return await runner._hm_run_plugin_handler(handler, event, live.source, entry, args=arg)
     except Exception as e:  # main's CLI printed it; messaging (run_inbound_hooks) still only logs it
         logger.warning("Plugin command dispatch failed: %s", e, exc_info=True)
-        return t('cli.plugin.command_error', error=str(e) or type(e).__name__)
+        return (f'Plugin command error: {str(e) or type(e).__name__}')
 
 
 def _skill_directive(name, arg, route):
     """A local session's ``/skill`` (its plugin skills included, as on main's interactive surfaces),
     stacked ``/skill-a /skill-b do X`` too: built here, so no client loads plugins to resolve one."""
-    from agent.i18n import t
     from agent.skill_commands import (
         build_skill_invocation_message, build_stacked_skill_invocation_message, describe_skill_invocation,
         get_interactive_skill_commands, resolve_slash_key, split_stacked_skill_commands,
@@ -233,7 +231,7 @@ def _skill_directive(name, arg, route):
     missing = stacked[2] if stacked else []
     return {'type': 'skill', 'name': ', '.join(stacked[1]) if stacked else skills[key]['name'], 'message': message,
             'display': describe_skill_invocation(message, separator=' '),
-            **({'notice': t('cli.skills.skipped_missing', names=', '.join(missing))} if missing else {})}
+            **({'notice': ('Skipped missing skills: {names}').format(names=', '.join(missing))} if missing else {})}
 
 
 async def _tui_read(authority, actor, ref, name, arg, before):

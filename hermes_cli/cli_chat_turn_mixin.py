@@ -18,7 +18,7 @@ from rich import box as rich_box
 from rich.panel import Panel
 from typing import Optional
 
-from agent.i18n import t
+
 
 from hermes_cli.cli_agent_setup_mixin import _retire_agent
 
@@ -74,7 +74,7 @@ class CLIChatTurnMixin:
             _retire_agent(self)
         # A first-turn agent build shows in the live spinner (the spinner thread repaints it), never
         # as a scrollback line.
-        initializing = t("cli.chat.initializing_agent") if self.agent is None else ""
+        initializing = 'Initializing agent...' if self.agent is None else ""
         if initializing:
             self._spinner_text = initializing
         try:
@@ -127,7 +127,7 @@ class CLIChatTurnMixin:
                 self._chat_settle_turn(turn)
                 return self._chat_render_turn(turn, agent_thread, interrupt_msg)
             except Exception as e:
-                _cprint(t("gateway.model.error_prefix", error=e))
+                _cprint(f'Error: {e}')
                 return None
             finally:
                 self._chat_release_turn_audio(turn)
@@ -187,10 +187,10 @@ class CLIChatTurnMixin:
                 _img_str_paths = [str(p) for p in images]
                 _parts, _skipped = build_native_content_parts(text, _img_str_paths)
                 if _skipped:
-                    _cprint(f"  {_DIM}{t('cli.chat.skipped_unreadable_images', count=len(_skipped))}{_RST}")
+                    _cprint(f"  {_DIM}{(f'⚠ skipped {len(_skipped)} unreadable image path(s)')}{_RST}")
                 if any(p.get("type") == "image_url" for p in _parts):
                     _img_names = ", ".join(Path(p).name for p in _img_str_paths)
-                    _cprint(f"  {_DIM}{t('cli.chat.attaching_images_natively', count=len(images), names=_img_names)}{_RST}")
+                    _cprint(f"  {_DIM}{(f'📎 attaching {len(images)} image(s) natively (model supports vision): {_img_names}')}{_RST}")
                     return _parts
                 # All images unreadable — fall back to text enrichment.
             except Exception as _img_exc:
@@ -445,7 +445,7 @@ class CLIChatTurnMixin:
                     pass
                 interrupt_msg = None
                 continue
-            _cprint(f"\n{t('cli.chat.new_message_interrupting')}")
+            _cprint(f"\n{'⚡ New message detected, interrupting...'}")
             if turn.stop_event is not None:
                 turn.stop_event.set()
             self.agent.interrupt(interrupt_msg)
@@ -566,14 +566,14 @@ class CLIChatTurnMixin:
         if turn.result and (turn.result.get("failed") or turn.result.get("partial")) and not response:
             from hermes_cli.cli_chat_error_copy import chat_error_response
             response = chat_error_response(
-                str(turn.result.get("error") or t("cli.chat.unknown_error")),
+                str(turn.result.get("error") or 'Unknown error'),
                 provider=str(getattr(self.agent, "provider", "") or self.provider or ""),
                 model=str(getattr(self.agent, "model", "") or self.model or ""),
                 failure_reason=turn.result.get("failure_reason"))
             # Stop continuous voice on persistent errors (e.g. 429) — else error→record→error loops.
             if self._voice_continuous:
                 self._voice_continuous = False
-                _cprint(f"\n{_DIM}{t('cli.chat.continuous_voice_stopped')}{_RST}")
+                _cprint(f"\n{_DIM}{'Continuous voice mode stopped due to error.'}{_RST}")
 
         pending_message, _show_interrupt_marker = self._chat_resolve_interrupt(
             turn, agent_thread, interrupt_msg, response)
@@ -585,14 +585,14 @@ class CLIChatTurnMixin:
         # (appending it to `response` duplicated it on redraw).
         if _show_interrupt_marker:
             with _suspend_output_history():
-                _cprint(f"\n{_DIM}{t('cli.chat.interrupted_marker')}{_RST}")
+                _cprint(f"\n{_DIM}{'── [Interrupted — processing new message] ──'}{_RST}")
         # Focus view: "⋯ N tool lines hidden" after the answer; resets the counter.
         try:
             self._emit_focus_recovery_line()
         except Exception:
             pass
 
-        self._ring_bell(context=t("cli.modal.bell_turn_complete"))  # propagates over SSH
+        self._ring_bell(context='turn complete')  # propagates over SSH
         if turn.result and not turn.result.get("completed") and not turn.result.get("interrupted"):
             _api_calls = turn.result.get("api_calls", 0)
             _max_iter = getattr(self.agent, "max_iterations", 500)
@@ -600,7 +600,7 @@ class CLIChatTurnMixin:
                 from gateway.warning_notifications import render_notification
                 render_notification(
                     lambda: _cprint(
-                        f"\n{_DIM}{t('cli.chat.iteration_budget_reached', used=_api_calls, max=_max_iter)}{_RST}"
+                        f"\n{_DIM}{(f'⚠ Iteration budget reached ({_api_calls}/{_max_iter}) — response may be incomplete')}{_RST}"
                     ),
                     platform="cli", user_config=getattr(self.agent, "_notification_config", None))
 
@@ -637,16 +637,16 @@ class CLIChatTurnMixin:
             payload = (combined, image_parts) if image_parts else combined
             preview = combined[:50] + ("..." if len(combined) > 50 else "")
             if len(all_parts) > 1:
-                _cprint(f"\n{t('cli.chat.sending_after_interrupt_multi', count=len(all_parts), preview=preview)}")
+                _cprint('\n' + format(((f"⚡ Sending {len(all_parts)} messages after interrupt: '{preview}'")), ''))
             else:
-                _cprint(f"\n{t('cli.chat.sending_after_interrupt', preview=preview)}")
+                _cprint('\n' + format(((f"⚡ Sending after interrupt: '{preview}'")), ''))
             self._pending_input.put(payload)
 
         # A /steer the agent finished before absorbing becomes the next user turn.
         _leftover_steer = turn.result.get("pending_steer") if turn.result else None
         if _leftover_steer:
             preview = _leftover_steer[:60] + ("..." if len(_leftover_steer) > 60 else "")
-            _cprint(f"\n{t('cli.chat.delivering_leftover_steer', preview=preview)}")
+            _cprint('\n' + format(((f"⏩ Delivering leftover /steer as next turn: '{preview}'")), ''))
             self._pending_input.put(_leftover_steer)
 
         return response
@@ -698,14 +698,14 @@ class CLIChatTurnMixin:
                     _cprint(line)
             elif reasoning:
                 w = self._scrollback_box_width()
-                r_label = f" {t('cli.chat.reasoning_label')} "
+                r_label = f" {'Reasoning'} "
                 r_top = f"{_DIM}┌─{r_label}{'─' * max(w - 3 - len(r_label), 0)}┐{_RST}"
                 r_bot = f"{_DIM}└{'─' * (w - 2)}┘{_RST}"
                 # First 10 lines unless the user opted into /reasoning full.
                 lines = reasoning.strip().splitlines()
                 if len(lines) > 10 and not self.reasoning_full:
                     display_reasoning = "\n".join(lines[:10])
-                    display_reasoning += f"\n{_DIM}  {t('cli.chat.reasoning_more_lines', count=len(lines) - 10)}{_RST}"
+                    display_reasoning += f"\n{_DIM}  {(f'... ({len(lines) - 10} more lines — /reasoning full to show)')}{_RST}"
                 else:
                     display_reasoning = reasoning.strip()
                 _cprint(f"\n{r_top}\n{_DIM}{display_reasoning}{_RST}\n{r_bot}")
@@ -792,16 +792,15 @@ class CLIChatTurnMixin:
                 # "Out of credits" box under it would contradict it.)
                 _bb = turn.result.get("billing_block") or {}
                 if _bb.get("is_nous"):
-                    _cta_lines = [t("cli.chat.billing_cta_nous")]
+                    _cta_lines = ['Run [bold]/topup[/] to add credits, or [bold]/subscription[/] to change plan.']
                 else:
                     _url = _bb.get("billing_url")
-                    _cta_lines = [t("cli.chat.billing_cta_provider",
-                                    provider=_bb.get("provider_label") or t("cli.chat.your_provider"))
+                    _cta_lines = [('Add credits with {provider}').format(provider=_bb.get("provider_label") or 'your provider')
                                   + (f": [bold]{_url}[/]" if _url else ".")]
-                _cta_lines.append(t("cli.chat.billing_cta_switch"))
+                _cta_lines.append('Or switch providers with [bold]/model <model> --provider <provider>[/].')
                 try:
                     ChatConsole().print(Panel(
-                        "\n".join(_cta_lines), title=f"[#CD7F32 bold]{t('cli.chat.out_of_credits_title')}[/]",
+                        "\n".join(_cta_lines), title=f"[#CD7F32 bold]{'⚡ Out of credits'}[/]",
                         title_align="left", border_style="#CD7F32", box=rich_box.HORIZONTALS,
                         padding=(1, 4), width=self._scrollback_box_width(),
                     ))

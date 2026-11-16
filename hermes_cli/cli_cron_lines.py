@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import shlex
 
-from hermes_cli.cli_commands_session_tools import _lines, _t
+from hermes_cli.cli_commands_session_tools import _lines
 
 
 def _cron(**kwargs) -> dict:
@@ -20,24 +20,24 @@ def _cron(**kwargs) -> dict:
 def cron_overview_lines() -> list[str]:
     """Bare ``/cron``: the command card, then the current jobs. Plain text (the shared gateway serves
     the same lines to every local session, gateway/session_cron_commands.py)."""
-    out = ["", "+" + "-" * 68 + "+", "|" + _t("cron.overview_title").center(68) + "|",
-           "+" + "-" * 68 + "+", "", f"  {_t('cron.overview_commands')}",
-           *_lines(_t("cron.overview_usage"), pad="    "), ""]
+    out = ["", "+" + "-" * 68 + "+", "|" + '(^_^) Scheduled Tasks'.center(68) + "|",
+           "+" + "-" * 68 + "+", "", f"  {'Commands:'}",
+           *_lines('/cron list\n/cron add "every 2h" "Check server status" [--skill blogwatcher]\n/cron edit <job_id> --schedule "every 4h" --prompt "New task"\n/cron edit <job_id> --skill blogwatcher --skill maps\n/cron edit <job_id> --remove-skill blogwatcher\n/cron edit <job_id> --clear-skills\n/cron pause <job_id>\n/cron resume <job_id>\n/cron run <job_id>\n/cron remove <job_id>', pad="    "), ""]
     result = _cron(action="list")
     jobs = result.get("jobs", []) if result.get("success") else []
     if not jobs:
-        return [*out, f"  {_t('cron.no_jobs_hint')}", ""]
+        return [*out, ('  ' + format(("No scheduled jobs. Use '/cron add' to create one."), '')), ""]
     from hermes_cli.cron import _next_run_row
-    out += [f"  {_t('cron.current_jobs')}", "  " + "-" * 63]
+    out += [f"  {'Current Jobs:'}", "  " + "-" * 63]
     for job in jobs:
         out.append(f"    {job['job_id'][:12]:<12} | {job['schedule']:<15} | {job.get('repeat', '?'):<8}")
         if job.get("skills"):
-            out.append(f"      {_t('cron.skills', skills=', '.join(job['skills']))}")
+            out.append(f"      {('Skills: {skills}').format(skills=', '.join(job['skills']))}")
         out.append(f"      {job.get('prompt_preview', '')}")
         if job.get("next_run_at"):
             # A stamp parked past the scheduler grace must not read as upcoming (#114309).
             label, value = _next_run_row(job)
-            out.append(f"      {_t('cron.next_short') if label == 'Next run' else label}: {value}")
+            out.append(f"      {'Next' if label == 'Next run' else label}: {value}")
         out.append("")
     return [*out, ""]
 
@@ -47,26 +47,26 @@ def cron_list_lines(*, include_disabled: bool = False) -> list[str]:
     result = _cron(action="list", include_disabled=include_disabled)
     jobs = result.get("jobs", []) if result.get("success") else []
     if not jobs:
-        return [_t("cron.no_jobs")]
+        return ['(._.) No scheduled jobs.']
     from hermes_cli.cron import _next_run_row
-    out = ["", _t("cron.list_header"), "-" * 80]
+    out = ["", 'Scheduled Jobs:', "-" * 80]
     for job in jobs:
-        out += [f"  {_t('cron.id', job_id=job['job_id'])}", f"  {_t('cron.name', name=job['name'])}",
-                f"  {_t('cron.state', state=job.get('state', '?'))}",
-                f"  {_t('cron.schedule_repeat', schedule=job['schedule'], repeat=job.get('repeat', '?'))}",
-                "  {}: {}".format(*_next_run_row(job)) if job.get("next_run_at") else f"  {_t('cron.next_run_na')}"]
+        out += [f"  {('ID: {job_id}').format(job_id=job['job_id'])}", f"  {('Name: {name}').format(name=job['name'])}",
+                f"  {('State: {state}').format(state=job.get('state', '?'))}",
+                f"  {('Schedule: {schedule} ({repeat})').format(schedule=job['schedule'], repeat=job.get('repeat', '?'))}",
+                "  {}: {}".format(*_next_run_row(job)) if job.get("next_run_at") else f"  {'Next run: N/A'}"]
         if job.get("skills"):
-            out.append(f"  {_t('cron.skills', skills=', '.join(job['skills']))}")
-        out.append(f"  {_t('cron.prompt', prompt=job.get('prompt_preview', ''))}")
+            out.append(f"  {('Skills: {skills}').format(skills=', '.join(job['skills']))}")
+        out.append(f"  {('Prompt: {prompt}').format(prompt=job.get('prompt_preview', ''))}")
         if job.get("last_run_at"):
             status = job.get("last_status") or "?"
             # delivery_failed: the run succeeded but delivery didn't — the reason lives
             # in last_delivery_error (last_error is None).
             if status == "delivery_failed" and job.get("last_delivery_error"):
-                status = _t("cron.status_delivery_failed", error=job["last_delivery_error"])
+                status = ('delivery_failed: {error}').format(error=job["last_delivery_error"])
             elif status == "error" and job.get("last_error"):
-                status = _t("cron.status_error", error=job["last_error"])
-            out.append(f"  {_t('cron.last_run', when=job['last_run_at'], status=status)}")
+                status = ('error: {error}').format(error=job["last_error"])
+            out.append(f"  {('Last run: {when} ({status})').format(when=job['last_run_at'], status=status)}")
         out.append("")
     return out
 
@@ -122,32 +122,32 @@ def _parse_cron_flags(tokens):
 def _add_lines(subcommand: str, opts: dict) -> list[str]:
     positionals = opts["positionals"]
     if not positionals:
-        return [_t("cron.usage_add")]
+        return ['(._.) Usage: /cron add <schedule> <prompt>']
     schedule = opts["schedule"] or positionals[0]
     prompt = opts["prompt"] or " ".join(positionals[1:])
     skills = _normalize_skills(opts["skills"])
     if not prompt and not skills:
-        return [_t("cron.need_prompt_or_skill")]
+        return ['(._.) Please provide a prompt or at least one skill']
     result = _cron(
         action="create", schedule=schedule, prompt=prompt or None, name=opts["name"],
         deliver=opts["deliver"], repeat=opts["repeat"], skills=skills or None)
     if not result.get("success"):
-        return [_t("cron.create_failed", error=result.get("error"))]
-    out = [_t("cron.created", job_id=result["job_id"]), f"  {_t('cron.schedule', schedule=result['schedule'])}"]
+        return [('(x_x) Failed to create job: {error}').format(error=result.get("error"))]
+    out = [('(^_^)b Created job: {job_id}').format(job_id=result["job_id"]), f"  {('Schedule: {schedule}').format(schedule=result['schedule'])}"]
     if result.get("skills"):
-        out.append(f"  {_t('cron.skills', skills=', '.join(result['skills']))}")
-    return [*out, f"  {_t('cron.next_run', value=result['next_run_at'])}"]
+        out.append(f"  {('Skills: {skills}').format(skills=', '.join(result['skills']))}")
+    return [*out, f"  {('Next run: {value}').format(value=result['next_run_at'])}"]
 
 
 def _edit_lines(subcommand: str, opts: dict) -> list[str]:
     from cron import get_job
     positionals = opts["positionals"]
     if not positionals:
-        return [_t("cron.usage_edit")]
+        return ['(._.) Usage: /cron edit <job_id> [--schedule ...] [--prompt ...] [--skill ...]']
     job_id = positionals[0]
     existing = get_job(job_id)
     if not existing:
-        return [_t("cron.job_not_found", job_id=job_id)]
+        return [(f'(._.) Job not found: {job_id}')]
     # Skill edit precedence: --clear-skills > --skill (replace) > --add/--remove (merge) > untouched.
     final_skills = None
     replacement_skills = _normalize_skills(opts["skills"])
@@ -165,35 +165,35 @@ def _edit_lines(subcommand: str, opts: dict) -> list[str]:
         action="update", job_id=job_id, schedule=opts["schedule"], prompt=opts["prompt"],
         name=opts["name"], deliver=opts["deliver"], repeat=opts["repeat"], skills=final_skills)
     if not result.get("success"):
-        return [_t("cron.update_failed", error=result.get("error"))]
+        return [('(x_x) Failed to update job: {error}').format(error=result.get("error"))]
     job = result["job"]
-    return [_t("cron.updated", job_id=job["job_id"]), f"  {_t('cron.schedule', schedule=job['schedule'])}",
-            f"  {_t('cron.skills', skills=', '.join(job['skills']))}" if job.get("skills")
-            else f"  {_t('cron.skills_none')}"]
+    return [('(^_^)b Updated job: {job_id}').format(job_id=job["job_id"]), f"  {('Schedule: {schedule}').format(schedule=job['schedule'])}",
+            f"  {('Skills: {skills}').format(skills=', '.join(job['skills']))}" if job.get("skills")
+            else f"  {'Skills: none'}"]
 
 
 def _job_action_lines(subcommand: str, opts: dict) -> list[str]:
     """pause / resume / run / remove (aliases rm, delete) on one job id."""
     positionals = opts["positionals"]
     if not positionals:
-        return [_t("cron.usage_action", subcommand=subcommand)]
+        return [(f'(._.) Usage: /cron {subcommand} <job_id>')]
     job_id = positionals[0]
     action = "remove" if subcommand in {"remove", "rm", "delete"} else subcommand
     result = _cron(action=action, job_id=job_id, reason="paused from /cron" if action == "pause" else None)
     if not result.get("success"):
-        return [_t(f"cron.{action}_failed", error=result.get("error"))]
+        return [f"(x_x) Failed to {action} job: {result.get('error')}"]
     if action == "remove":
         removed = result.get("removed_job", {})
-        return [_t("cron.removed", name=removed.get("name", job_id), job_id=job_id)]
+        return [('(^_^)b Removed job: {name} ({job_id})').format(name=removed.get("name", job_id), job_id=job_id)]
     job = result["job"]
     if action == "run" and job.get("execution_skipped"):
         # A refused run-now (claim lost, paused, gone) must not read as accepted.
-        return [_t("cron.did_not_run", name=job["name"], job_id=job_id, reason=job["execution_skipped"])]
+        return [('(x_x) Did not run job: {name} ({job_id})\n  {reason}').format(name=job["name"], job_id=job_id, reason=job["execution_skipped"])]
     # One full template per action verb (cron.paused / cron.resumed / cron.triggered).
-    out = [_t({"pause": "cron.paused", "resume": "cron.resumed", "run": "cron.triggered"}[action],
-              name=job["name"], job_id=job_id)]
+    verb = {"pause": "Paused", "resume": "Resumed", "run": "Triggered"}[action]
+    out = [f"(^_^)b {verb} job: {job['name']} ({job_id})"]
     if action == "resume":
-        out.append(f"  {_t('cron.next_run', value=job.get('next_run_at'))}")
+        out.append(f"  {('Next run: {value}').format(value=job.get('next_run_at'))}")
     elif action == "run":
         from hermes_cli.cron import _run_outcome
         out.append(f"  {_run_outcome(job)}")
@@ -215,8 +215,8 @@ def cron_command_lines(arg: str) -> list[str]:
         return cron_overview_lines()
     subcommand, opts = tokens[0].lower(), _parse_cron_flags(tokens[1:])
     if opts is None:
-        return [_t("cron.repeat_must_be_integer")]
+        return ['(._.) --repeat must be an integer']
     handler = _CRON_SUBCOMMANDS.get(subcommand)
     if handler is None:
-        return [_t("cron.unknown_command", subcommand=subcommand), f"  {_t('cron.available')}"]
+        return [(f'(._.) Unknown cron command: {subcommand}'), f"  {'Available: list, add, edit, pause, resume, run, remove'}"]
     return handler(subcommand, opts)

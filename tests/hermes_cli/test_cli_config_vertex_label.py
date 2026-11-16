@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from agent.i18n import t
+
 from cli import HermesCLI
 
 
@@ -33,9 +33,9 @@ def test_config_labels_vertex_callable_as_google_oauth_without_minting(capsys, m
     monkeypatch.setattr(va, "get_vertex_credentials", lambda *_a, **_k: mints.append(1) or ("ya29.x", "p"))
     out = _config_text(capsys, va.vertex_access_token)
 
-    api_line = next(line for line in out.splitlines() if t("cli.config.label_api_key") in line)
-    assert t("cli.config.google_vertex_oauth") in api_line, out
-    assert t("cli.config.microsoft_entra_id") not in out, out
+    api_line = next(line for line in out.splitlines() if 'API Key:' in line)
+    assert 'Google OAuth (Vertex AI)' in api_line, out
+    assert 'Microsoft Entra ID' not in out, out
     assert mints == [], "/config minted a Vertex token just to display it"
 
 
@@ -48,4 +48,4 @@ def test_config_keeps_entra_label_for_entra_token_providers(capsys):
     # Only a provider tagged as Entra gets the Entra label; an untagged callable gets the neutral
     # label (tests/agent/test_credential_source_labels.py).
     out = _config_text(capsys, tag_credential_source(entra_bearer_provider, ENTRA_ID))
-    assert t("cli.config.microsoft_entra_id") in out, out
+    assert 'Microsoft Entra ID' in out, out

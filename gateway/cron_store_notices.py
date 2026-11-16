@@ -13,7 +13,6 @@ import contextlib
 import logging
 from pathlib import Path
 
-from agent.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +94,7 @@ async def send_cron_store_notice(runner, event: str, record) -> None:
     from hermes_constants import get_routing_process_hermes_home
 
     fields = record.notice_fields()
-    key = "gateway.cron_store.unwritable" if event == "unwritable" else "gateway.cron_store.recovered"
+    key = '⚠️ Cron store {store} is not writable ({error}) since {since}. Scheduled jobs are being skipped until it accepts writes again. Fix: {fix}.' if event == "unwritable" else '✅ Cron store {store} is writable again; {skipped} skipped run(s), catching up once per job.'
     served_homes = runner._served_profile_homes or {}
     logger.info("Broadcasting cron store %s notice for %s", event, record.store)
     for profile, platform, _cfg, home, transport in list(runner._served_home_channel_transports()):
@@ -106,7 +105,7 @@ async def send_cron_store_notice(runner, event: str, record) -> None:
         # The opt-out is the owning profile's; the launch profile needs no extra scope.
         scope = _async_profile_runtime_scope(Path(served_home)) if served_home else contextlib.nullcontext()
         async with scope:
-            message = t(key, **fields)  # inside the owning profile's scope: its display.language
+            message = key.format(**fields)
             await present_notification(
                 lambda: runner._send_home_channel_message(
                     platform, home, transport, message, "Cron store notice failed for %s:%s: %s"),

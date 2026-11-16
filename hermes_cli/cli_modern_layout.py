@@ -14,7 +14,6 @@ import re
 import time
 from datetime import datetime
 
-from agent.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +113,7 @@ def answer_label(timestamp: str = "") -> str:
 def thought_line(seconds: float | None) -> str:
     """``∴ Thought for 3s`` (dim italic), closing a reasoning block. No title: the reasoning is
     printed right above, so any excerpt of it would repeat what the user just read."""
-    took = t("cli.modern.thought_for", seconds=f"{max(seconds or 0.0, 0.0):.0f}") if seconds else t("cli.modern.thought")
+    took = ('Thought for {seconds}s').format(seconds=f"{max(seconds or 0.0, 0.0):.0f}") if seconds else 'Thought'
     return f"\x1b[2;3m∴ {took}{_RST}"
 
 
@@ -133,7 +132,7 @@ def thought_rows(seconds: float | None, text: str, full: bool) -> list[str]:
     shown = lines if full or len(lines) <= _REASONING_PREVIEW_LINES else lines[:_REASONING_PREVIEW_LINES]
     rows = ["", separator(False), *(reasoning_text_line(line) for line in shown)]
     if len(shown) < len(lines):
-        rows.append(f"{_DIM}  {t('cli.chat.reasoning_more_lines', count=len(lines) - len(shown))}{_RST}")
+        rows.append(f"{_DIM}  {(f'... ({len(lines) - len(shown)} more lines — /reasoning full to show)')}{_RST}")
     return [*rows, thought_line(seconds), closing_separator(False)]
 
 
@@ -191,7 +190,7 @@ def _display_path(path: str) -> str:
 def gutter_print(print_fn):
     """Wrap a line printer so a diff hangs under its tool row behind a dim ``│``: the ``review
     diff`` header is dropped and ``a/<abs> → b/<abs>`` collapses to one cwd-relative path."""
-    header = _ANSI_RE.sub("", t("display.diff.review_header")).strip()
+    header = _ANSI_RE.sub("", '  ┊ review diff').strip()
 
     def _print(text):
         for line in str(text).split("\n"):
@@ -234,7 +233,7 @@ def activity_text(cli) -> str:
     if getattr(cli, "_command_running", False):
         return str(getattr(cli, "_command_status", "") or "")
     text = str(getattr(cli, "_spinner_text", "") or "").strip()
-    return text or (t("cli.modern.working") if getattr(cli, "_agent_running", False) else "")
+    return text or ('Working…' if getattr(cli, "_agent_running", False) else "")
 
 
 def _turn_elapsed(cli) -> str:
@@ -293,11 +292,11 @@ def hint_pairs(cli) -> list[tuple[str, str]]:
         return []
     if getattr(cli, "_agent_running", False):
         enter = {"steer": "steer", "queue": "queue"}.get(getattr(cli, "busy_input_mode", ""), "interrupt")
-        pairs = [("enter", t(f"cli.modern.hint_{enter}"))]
+        pairs = [("enter", enter)]
         if enter != "queue":
-            pairs.append(("tab", t("cli.modern.hint_queue")))
-        return pairs + [("ctrl+c", t("cli.modern.hint_stop"))]
-    return [("/", t("cli.modern.hint_commands")), ("@", t("cli.modern.hint_files")), ("!", t("cli.modern.hint_shell"))]
+            pairs.append(("tab", 'queue'))
+        return pairs + [("ctrl+c", 'stop')]
+    return [("/", 'commands'), ("@", 'files'), ("!", 'shell')]
 
 
 def status_line_fragments(cli) -> list:

@@ -9,7 +9,7 @@ import {
   canonicalEvent, canonicalRequest, canonicalResult, type ClientIdentity, type CreationContract, type LaunchSource
 } from '../gateway-canonical.js'
 import type { GatewayEvent } from '../gateway-events.js'
-import { type GatewayText, gatewayText } from '../gateway-text.js'
+import { gatewayTextEn } from '../gateway-text.js'
 import type { AnyGatewayEvent } from '../gateway-types.js'
 import {
   DEFAULT_HEARTBEAT_DEADLINE_MS,
@@ -63,8 +63,6 @@ export interface GatewayClientOptions {
   toolProgress?: () => string | undefined
   /** Lifecycle breadcrumbs worth persisting (they also land in the `/logs` tail). */
   onLifecycle?: (line: string) => void
-  /** User-facing text by Ink catalog key (default: `gatewayText`, English). */
-  text?: GatewayText
   /** The WebSocket implementation when the runtime has no global `WebSocket` (Node < 22). */
   fallbackWebSocket?: typeof WebSocket
   /** The `session.create` policy label (default `'tui'`, the terminal-client policy). The gateway must
@@ -162,12 +160,10 @@ export class GatewayClient extends EventEmitter {
   private unsettledCreate?: { key: string; requestId: unknown }
 
   private readonly options: GatewayClientOptions
-  private readonly text: GatewayText
 
   constructor(options: GatewayClientOptions) {
     super()
     this.options = options
-    this.text = options.text ?? gatewayText
     this.channel = new JsonRpcRequestChannel({
       // A mid-turn socket streams deltas every second; killing the only
       // transport that carried live traffic split sessions that completed
@@ -367,7 +363,7 @@ export class GatewayClient extends EventEmitter {
     this.creationContract = undefined
     this.describedSkin = undefined
     this.runtimeCapabilities = []
-    this.channel.detach(new Error(this.text('libText.gateway.restarting')))
+    this.channel.detach(new Error(gatewayTextEn.libText.gateway.restarting))
     this.ready = false
     // `subscribed` is NOT reset here: the renderer drain()s once on mount, so a
     // reset would strand every post-reconnect event (gateway.ready included) in
@@ -407,7 +403,7 @@ export class GatewayClient extends EventEmitter {
     this.ready = false
     this.lifecycle(`[lifecycle] transport exit code=${code ?? 'null'} reason=${reason ?? 'none'}`)
     this.channel.detach(
-      new Error(reason || (code === null ? this.text('libText.gateway.exited') : this.text('libText.gateway.exitedWithCode', code)))
+      new Error(reason || (code === null ? gatewayTextEn.libText.gateway.exited : gatewayTextEn.libText.gateway.exitedWithCode(String(code))))
     )
 
     // Self-heal: a dropped transport (real close OR silent drop caught by the
@@ -559,7 +555,7 @@ export class GatewayClient extends EventEmitter {
 
       this.pushLog(line)
       this.publish({ type: 'gateway.stderr', payload: { line } })
-      this.handleTransportExit(1, this.text('libText.gateway.websocketUnavailable'))
+      this.handleTransportExit(1, gatewayTextEn.libText.gateway.websocketUnavailable)
 
       return
     }
@@ -602,7 +598,7 @@ export class GatewayClient extends EventEmitter {
             if (!settled) {
               this.pushLog('[startup] gateway websocket connect error')
               settled = true
-              reject(new Error(this.text('libText.gateway.websocketConnectionFailed')))
+              reject(new Error(gatewayTextEn.libText.gateway.websocketConnectionFailed))
             }
           },
           { once: true }
@@ -612,7 +608,7 @@ export class GatewayClient extends EventEmitter {
           ev => {
             if (!settled) {
               settled = true
-              reject(new Error(this.text('libText.gateway.websocketClosedDuringConnect', ev.code)))
+              reject(new Error(gatewayTextEn.libText.gateway.websocketClosedDuringConnect(String(ev.code))))
             }
           },
           { once: true }
@@ -650,7 +646,7 @@ export class GatewayClient extends EventEmitter {
         this.wsConnectPromise = null
         this.handleTransportExit(
           ev.code,
-          ev.code ? this.text('libText.gateway.websocketClosedWithCode', ev.code) : this.text('libText.gateway.websocketClosed')
+          ev.code ? gatewayTextEn.libText.gateway.websocketClosedWithCode(String(ev.code)) : gatewayTextEn.libText.gateway.websocketClosed
         )
       })
       ws.addEventListener('error', () => {
@@ -661,7 +657,7 @@ export class GatewayClient extends EventEmitter {
       })
     } catch (err) {
       this.pushLog(`[startup] failed to connect websocket gateway ${safeAttachUrl} (constructor error)`)
-      this.handleTransportExit(1, this.text('libText.gateway.websocketStartupFailed'))
+      this.handleTransportExit(1, gatewayTextEn.libText.gateway.websocketStartupFailed)
     }
   }
 
@@ -842,7 +838,7 @@ export class GatewayClient extends EventEmitter {
     return (async () => {
       if (method === 'session.create' && !this.creationContract) { await this.describeRuntime() }
 
-      const request = canonicalRequest(method, params, this.creationContract, this.text,
+      const request = canonicalRequest(method, params, this.creationContract,
         { client: this.options.client, source: this.options.source })
 
       if (request.method === 'session.create') { return this.createCanonical<T>(request.params, timeoutMs) }
@@ -906,6 +902,6 @@ export class GatewayClient extends EventEmitter {
     // and we just nulled `this.ws`, so it will short-circuit and
     // skip handleTransportExit. Reject pending RPCs explicitly so
     // attach-mode promises do not hang after an intentional kill.
-    this.channel.detach(new Error(this.text('libText.gateway.closed')))
+    this.channel.detach(new Error(gatewayTextEn.libText.gateway.closed))
   }
 }

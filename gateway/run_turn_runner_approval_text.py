@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent.i18n import t
+
 
 
 def approval_text_prompt(adapter: Any, chat_id: str, session_key: str, request_id: str | None, command: str,
@@ -44,29 +44,29 @@ def _cutting_text_prompt(adapter: Any, chat_id: str, command: str, description: 
         approval_timeout_seconds, code_fence, ea_header_text, fit_fenced, ea_reason_label_text, format_approval_deadline_line)
     limit = adapter.max_message_length_for_chat(chat_id)
     measure = adapter.message_len_fn_for_chat(chat_id)
-    heading = t("gateway.exec_approval.smart_deny_heading") if smart_denied else f"⚠️ **{ea_header_text()}**"
+    heading = '⚠️ **Smart DENY — owner override for one operation:**' if smart_denied else f"⚠️ **{ea_header_text()}**"
 
     def prompt(choices: list[str], notice: str, shown: str, fence: str) -> str:
-        instructions = (t("gateway.exec_approval.text_choice_joiner").join(choices[:-1])
-                        + t("gateway.exec_approval.text_choice_last", choice=choices[-1])) if choices[1:] else f"{choices[0]}.\n"
+        instructions = (', '.join(choices[:-1])
+                        + (f', or {choices[-1]}.\n')) if choices[1:] else f"{choices[0]}.\n"
         return (f"{heading}\n\n{instructions}{notice}{format_approval_deadline_line(approval_timeout_seconds())}"
                 f"\n\n{ea_reason_label_text()}: {description}\n{fence}\n{shown}\n{fence}")
 
-    choices = [t("gateway.exec_approval.text_choice_once", prefix=prefix)]
+    choices = [(f'Reply `{prefix}approve` to run it once')]
     if not smart_denied and allow_session:
-        choices.append(t("gateway.exec_approval.text_choice_session", prefix=prefix))
+        choices.append(f'`{prefix}approve session` to allow this pattern for the rest of this session')
         if allow_permanent:
-            choices.append(t("gateway.exec_approval.text_choice_always", prefix=prefix))
-    choices.append(t("gateway.exec_approval.text_choice_deny", prefix=prefix))
+            choices.append(f'`{prefix}approve always` to allow it permanently')
+    choices.append(f'`{prefix}deny` to cancel')
     full = prompt(choices, "", command, code_fence(command))
     if measure(full) <= limit:
         return full, False
-    deny = [t("gateway.exec_approval.text_choice_deny", prefix=prefix)]
+    deny = [(f'`{prefix}deny` to cancel')]
     # The whole command fits beside Deny alone but not beside every choice: say so, not "shortened".
-    whole = prompt(deny, t("gateway.exec_approval.text_prompt_deny_only") + "\n", command, code_fence(command))
+    whole = prompt(deny, 'The full approval prompt is too long for this platform, so only Deny is offered. Review it in the CLI or Desktop app.' + "\n", command, code_fence(command))
     if measure(whole) <= limit:
         return whole, True
-    notice = t("gateway.exec_approval.truncated_deny_only", total=len(command)) + "\n"
+    notice = (f'Preview shortened ({len(command)} characters) and the full command could not be shown here, so only Deny is offered. Review it in the CLI or Desktop app.') + "\n"
     # The fence is sized from the shortened command, so it always closes within the cut; the budget stays
     # under the whole command so the "shortened" notice is never shown beside the full text.
     shown, fence = fit_fenced(command, lambda fence: fit_prefix(command, max(0, min(

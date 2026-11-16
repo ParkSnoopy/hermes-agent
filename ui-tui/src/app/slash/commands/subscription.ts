@@ -6,7 +6,7 @@ import type {
   SubscriptionUpgradeResponse
 } from '@hermes/shared/gateway-types'
 
-import { t } from '../../../i18n/runtime.js'
+import { slashCmdEn } from '../../../copy/slashCmd.js'
 import { openExternalUrl } from '../../../lib/openExternalUrl.js'
 import type { SubscriptionOverlayCtx } from '../../interfaces.js'
 import { patchOverlayState } from '../../overlayStore.js'
@@ -74,7 +74,7 @@ const buildSubscriptionCtx = (
     const url = buildManageUrl(initialState, tierId)
 
     if (!url) {
-      sys(t('slashCmd.subscription.manageUrlFailed'))
+      sys(slashCmdEn.slashCmd.subscription.manageUrlFailed)
 
       return Promise.resolve(false)
     }
@@ -82,18 +82,18 @@ const buildSubscriptionCtx = (
     const opened = openExternalUrl(url)
 
     if (opened) {
-      sys(t('slashCmd.subscription.openingManage'))
+      sys(slashCmdEn.slashCmd.subscription.openingManage)
     } else {
-      sys(t('slashCmd.subscription.openBrowserFailedManage', url))
+      sys(slashCmdEn.slashCmd.subscription.openBrowserFailedManage(url))
     }
 
     return Promise.resolve(opened)
   },
   openPortal: (url: string) => {
     if (openExternalUrl(url)) {
-      sys(t('slashCmd.subscription.openingPortal'))
+      sys(slashCmdEn.slashCmd.subscription.openingPortal)
     } else {
-      sys(t('slashCmd.subscription.openBrowserFailedPortal', url))
+      sys(slashCmdEn.slashCmd.subscription.openBrowserFailedPortal(url))
     }
   },
   preview: tierId =>
@@ -114,7 +114,7 @@ const buildSubscriptionCtx = (
       .then(r => ({ error: r?.error, granted: !!(r && r.ok && r.granted), message: r?.message }))
       .catch(() => ({
         granted: false,
-        message: t('slashCmd.subscription.billingUnreachable')
+        message: slashCmdEn.slashCmd.subscription.billingUnreachable
       })),
   resume: () =>
     ctx.gateway
@@ -158,7 +158,7 @@ export const subscriptionCommands: SlashCommand[] = [
         .then(
           ctx.guarded<SubscriptionStateResponse>(s => {
             if (!s.logged_in) {
-              sys(t('slashCmd.subscription.notLoggedIn'))
+              sys(slashCmdEn.slashCmd.subscription.notLoggedIn)
 
               return
             }

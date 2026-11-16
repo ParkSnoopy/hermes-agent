@@ -1,7 +1,7 @@
 """Cold gateway config load imports only the platform adapters the profile configures.
 
 ``platform_registry.plugin_entries()`` materializes every deferred bundled adapter (discord,
-telegram, google_chat SDKs, telegram's i18n catalog: ~0.5 s per cold start). The gateway config /
+telegram, google_chat SDKs: ~0.5 s per cold start). The gateway config /
 env passes must resolve only platforms with activation evidence (config block, env or .env under
 the platform prefix / manifest ``requires_env``, credential pool), and a configured platform —
 env-only included — must still be enabled.

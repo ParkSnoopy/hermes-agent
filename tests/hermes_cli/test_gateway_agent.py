@@ -1005,7 +1005,6 @@ def test_a_voice_stopped_reply_returns_without_waiting_for_a_turn():
     """TUI-26: the owner answers a typed stop phrase in a LOCAL voice chat (turned on by another
     viewer) with ``{voice_stopped: true}`` and admits nothing, so no ``message.complete`` will ever
     come: the classic CLI returns at once with the stop notice instead of pumping forever."""
-    from agent.i18n import t
 
     class Client(FakeClient):
         async def rpc(self, method, *, _timeout=None, **params):
@@ -1032,7 +1031,7 @@ def test_a_voice_stopped_reply_returns_without_waiting_for_a_turn():
         assert result["voice_stopped"] is True and not result["failed"] and result["final_response"] == ""
         assert result["messages"] == [{"role": "user", "content": "hi"}], "nothing was admitted"
         assert "prompt.receipt" not in [m for m, _ in client.calls]
-        assert any(t("cli.voice.stop_phrase_typed") in line for line in printed), printed
+        assert any('Stop phrase typed — ending voice chat.' in line for line in printed), printed
     finally:
         conn.close()
 

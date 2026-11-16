@@ -8,9 +8,8 @@ import { REASONING_EFFORTS } from '@hermes/shared/reasoning-effort'
 import { TUI_SESSION_MODEL_FLAG } from '@hermes/shared/slash-input'
 import { useEffect, useMemo, useState } from 'react'
 
+import { pickersEn } from '../copy/pickers.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { messages } from '../i18n/runtime.js'
-import { useT } from '../i18n/useT.js'
 import { asRpcResult, rpcErrorMessage } from '../lib/rpc.js'
 import type { Theme } from '../theme.js'
 
@@ -27,10 +26,9 @@ type ProviderRow = { name: string; provider: ModelOptionProvider }
 
 /** Rows of the effort step (step 3/3): the shared ladder, the off state, then
  *  "keep current" (empty value = no `--reasoning` flag on the emitted command).
- *  Resolved at call time so the two labelled rows follow the active language;
- *  the ladder levels are the literal `--reasoning` values and stay as-is. */
+ *  The ladder levels are the literal `--reasoning` values and stay as-is. */
 export function reasoningPickerRows(): ReadonlyArray<{ label: string; value: string }> {
-  const r = messages().pickers.model.reasoning
+  const r = pickersEn.pickers.model.reasoning
 
   return [
     ...REASONING_EFFORTS.map(level => ({ label: level, value: level })),
@@ -80,7 +78,7 @@ function planListLayout(
   models: readonly string[],
   filtering: boolean,
   width: number,
-  M: ReturnType<typeof useT>['pickers']['model']
+  M: typeof pickersEn.pickers.model
 ) {
   const sectioned = !filtering && sectionAt(provider, models, 0) !== null
   const levelled = models.some(m => usageLevel(provider, m))
@@ -122,7 +120,7 @@ export function ModelPicker({
   const [keyError, setKeyError] = useState('')
   // Type-to-filter query, scoped per stage (cleared on stage change).
   const [filter, setFilter] = useState('')
-  const T = useT()
+  const T = pickersEn
   const M = T.pickers.model
   const C = T.pickers.common
   const reasoningRows = reasoningPickerRows()
@@ -155,7 +153,7 @@ export function ModelPicker({
         const r = asRpcResult<ModelOptionsResult>(raw)
 
         if (!r) {
-          setErr(messages().pickers.common.invalidResponse('model.options'))
+          setErr(pickersEn.pickers.common.invalidResponse('model.options'))
           setLoading(false)
 
           return

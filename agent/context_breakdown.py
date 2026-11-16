@@ -11,7 +11,23 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from agent.i18n import t
+
+_CATEGORY_LABELS = {
+    'system_prompt': 'System prompt',
+    'tool_definitions': 'Tool definitions',
+    'rules': 'Rules',
+    'skills': 'Skills',
+    'mcp': 'MCP',
+    'subagent_definitions': 'Subagent definitions',
+    'memory': 'Memory',
+    'conversation': 'Conversation',
+}
+
+_SOURCE_LABELS = {
+    'local_estimate': 'local estimate',
+    'provider_usage': 'provider usage',
+    'provider_usage_plus_estimate': 'provider usage + estimated new messages',
+}
 
 _SKILLS_BLOCK_RE = re.compile(r"<available_skills>.*?</available_skills>", re.DOTALL)
 _SUBAGENT_TOOL_NAMES = frozenset({"delegate_task"})
@@ -33,8 +49,7 @@ _SUBAGENT_TOOL_NAMES = frozenset({"delegate_task"})
 # zero in practice, so adding them would buy nothing.
 _ALWAYS_REPORTED = frozenset({"conversation"})
 
-# id -> (dashboard color, /context glyph); declaration order is display order. The label is
-# ``gateway.context.category.<id>`` resolved when the payload is built (never at import).
+# id -> (dashboard color, /context glyph); declaration order is display order.
 _CATEGORIES = {
     "system_prompt": ("var(--context-usage-system)", "■"),
     "tool_definitions": ("var(--context-usage-tools)", "▣"),
@@ -48,7 +63,7 @@ _CATEGORIES = {
 
 
 def _category_label(category_id: str) -> str:
-    return t(f"gateway.context.category.{category_id}")
+    return _CATEGORY_LABELS[category_id]
 _FREE_GLYPH = "·"
 _CONTEXT_SOURCES = frozenset({"local_estimate", "provider_usage", "provider_usage_plus_estimate"})
 _GRID_COLUMNS = 20
@@ -286,25 +301,22 @@ def render_context_category_lines(payload: dict[str, Any]) -> list[str]:
     estimated_total = int(payload.get("estimated_total") or 0)
     denom = context_max or estimated_total
 
-    lines = [t("gateway.context.category_header")]
+    lines = ['Estimated usage by category']
     if not categories:
-        return [*lines, t("gateway.context.no_data_yet")]
-    free_label = t("gateway.context.free_space")
+        return [*lines, '  (no data yet — send a message first)']
+    free_label = 'Free space'
     width = max(len(free_label), *(len(str(cat.get("label") or "")) for cat in categories))
     for cat in categories:
         tokens, label = int(cat.get("tokens") or 0), str(cat.get("label") or cat.get("id") or "")
-        lines.append(t("gateway.context.category_row", glyph=_glyph(cat), label=f"{label:<{width}}",
-                       tokens=f"{tokens:>9,}", pct=f"{tokens / denom * 100 if denom else 0.0:>5.1f}"))
+        lines.append(('{glyph} {label} ~{tokens} tokens ~{pct}%').format(glyph=_glyph(cat), label=f"{label:<{width}}", tokens=f"{tokens:>9,}", pct=f"{tokens / denom * 100 if denom else 0.0:>5.1f}"))
     if context_max > 0:
         free = max(0, context_max - estimated_total)
-        lines.append(t("gateway.context.category_row", glyph=_FREE_GLYPH, label=f"{free_label:<{width}}",
-                       tokens=f"{free:>9,}", pct=f"{free / context_max * 100:>5.1f}"))
+        lines.append(('{glyph} {label} ~{tokens} tokens ~{pct}%').format(glyph=_FREE_GLYPH, label=f"{free_label:<{width}}", tokens=f"{free:>9,}", pct=f"{free / context_max * 100:>5.1f}"))
     return lines
 
 
 def _toolset_row(group: dict[str, Any]) -> str:
-    return t("gateway.context.toolset_row", toolset=f"{group['toolset']:<24}", count=f"{group['tool_count']:>3}",
-             tokens=f"{group['schema_tokens']:>8,}")
+    return ('  {toolset} {count} tools ~{tokens} tokens').format(toolset=f"{group['toolset']:<24}", count=f"{group['tool_count']:>3}", tokens=f"{group['schema_tokens']:>8,}")
 
 
 def _skill_row(entry: dict[str, Any]) -> str:
@@ -312,8 +324,8 @@ def _skill_row(entry: dict[str, Any]) -> str:
     if len(name) > 28:
         name = name[:27] + "…"
     md = entry.get("skill_md_tokens")
-    md_str = f"~{md:>8,}" if md is not None else f"{t('gateway.context.not_available'):>8}"
-    return t("gateway.context.skill_row", name=f"{name:<28}", index_tokens=f"{entry['index_tokens']:>6,}", md_tokens=md_str)
+    md_str = f"~{md:>8,}" if md is not None else f"{'n/a':>8}"
+    return ('  {name} index ~{index_tokens}  SKILL.md {md_tokens} tokens').format(name=f"{name:<28}", index_tokens=f"{entry['index_tokens']:>6,}", md_tokens=md_str)
 
 
 def _table(lines: list[str], title: str, rows: list[dict[str, Any]], fmt) -> None:
@@ -325,14 +337,14 @@ def _table(lines: list[str], title: str, rows: list[dict[str, Any]], fmt) -> Non
     lines.append(title)
     lines.extend(fmt(row) for row in rows[:_DETAILS_TABLE_LIMIT])
     if len(rows) > _DETAILS_TABLE_LIMIT:
-        lines.append(t("gateway.context.and_more", count=len(rows) - _DETAILS_TABLE_LIMIT))
+        lines.append(f'  … and {len(rows) - _DETAILS_TABLE_LIMIT} more')
 
 
 def render_context_details_lines(details: dict[str, Any]) -> list[str]:
     """Render the expanded ``/context all`` per-skill / per-toolset tables."""
     lines: list[str] = []
-    _table(lines, t("gateway.context.toolsets_title"), details.get("toolsets") or [], _toolset_row)
-    _table(lines, t("gateway.context.skills_title"), details.get("skills") or [], _skill_row)
+    _table(lines, 'Toolsets by schema cost (largest first)', details.get("toolsets") or [], _toolset_row)
+    _table(lines, 'Skills by cost (index = always-on; SKILL.md = cost when loaded)', details.get("skills") or [], _skill_row)
     return lines
 
 
@@ -351,14 +363,14 @@ def render_context_breakdown_lines(
     if context_max > 0:
         used, pct = int(payload.get("context_used") or 0), int(payload.get("context_percent") or 0)
         mark = "~" if payload.get("context_estimated") else ""
-        lines.extend(["", t("gateway.context.window_line", mark=mark, used=f"{used:,}", max=f"{context_max:,}", pct=pct)])
+        lines.extend(["", ('Context window: {mark}{used} / {max} tokens ({mark}{pct}%)').format(mark=mark, used=f"{used:,}", max=f"{context_max:,}", pct=pct)])
         source = payload.get("context_source")
         if source:
-            source_label = t(f"gateway.context.source.{source}") if source in _CONTEXT_SOURCES else source
-            lines.append(t("gateway.context.source_line", source=source_label))
+            source_label = _SOURCE_LABELS[source] if source in _CONTEXT_SOURCES else source
+            lines.append(f'Source: {source_label}; category counts are local estimates.')
 
     if details is None:
-        lines.extend(["", t("gateway.context.hint_all")])
+        lines.extend(["", 'Use /context all for per-skill and per-toolset costs.'])
     elif detail_lines := render_context_details_lines(details):
         lines.extend(["", *detail_lines])
     return lines

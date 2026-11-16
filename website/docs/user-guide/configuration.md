@@ -2376,7 +2376,6 @@ display:
   file_mutation_verifier: true    # Append an advisory footer when write_file/patch calls failed this turn
   credits_notices: true   # Nous credits status-bar notices (usage bands, grant-spent, depleted). false = silence them; /usage still works
   cli_rebuild_scrollback_on_redraw: false  # Classic CLI: also wipe terminal scrollback (CSI 3J) on /redraw / Ctrl+L / width-change resize recovery. Enable when a terminal/tmux stack stamps stale prompt chrome into scrollback on maximize/restore.
-  language: en            # UI language for static messages (approval prompts, some gateway replies). en | zh | zh-hant | ja | de | es | fr | tr | uk | af | ko | it | ga | pt | ru | hu
 ```
 
 ### Per-turn summary and spinner token flow
@@ -2441,21 +2440,6 @@ Example footer when writes are blocked:
 ```
 
 If writes to Hermes state (cron jobs, skills, scripts under `~/.hermes/`) are failing, check whether `HERMES_WRITE_SAFE_ROOT` is set in your environment. For cron changes, use the `cronjob_manage` tool or `hermes cron edit` instead of patching `jobs.json` directly.
-
-### UI language for static messages
-
-The `display.language` setting translates a small set of static user-facing messages — the CLI approval prompt, a handful of gateway slash-command replies (e.g. restart-drain notices, "approval expired", "goal cleared"). It does **not** translate agent responses, log lines, tool output, error tracebacks, or slash-command descriptions — those stay in English. If you want the agent itself to reply in another language, just tell it in your prompt or system message.
-
-Bundled values: `en` (default), `zh` (Simplified Chinese), `zh-hant` (Traditional Chinese), `ja` (Japanese), `de` (German), `es` (Spanish), `fr` (French), `tr` (Turkish), `uk` (Ukrainian), `af` (Afrikaans), `ko` (Korean), `it` (Italian), `ga` (Irish), `pt` (Portuguese), `ru` (Russian), `hu` (Hungarian), `ar` (Arabic).
-
-The list is **pluggable**: a [language pack](features/language-packs.md) plugin (`provides_locales`) or a partial `<HERMES_HOME>/locales/<lang>.yaml` overlay adds a language or overrides wording, and `hermes config set display.language <id>` accepts any id a bundled catalog, your overlay, or an installed pack provides. Unknown ids are refused with the list of available languages; at runtime an unresolvable value falls back to English.
-
-You can also set this per-session with the `HERMES_LANGUAGE` env var, which overrides the config value.
-
-```yaml
-display:
-  language: zh   # CLI approval prompts appear in Chinese
-```
 
 | Mode | What you see |
 |------|-------------|

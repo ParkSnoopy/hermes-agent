@@ -1,12 +1,12 @@
-import { messages } from '../i18n/runtime.js'
+import { chromeEn } from '../copy/chrome.js'
 import { isMac, isRemoteShell } from '../lib/platform.js'
 
 const action = isMac ? 'Cmd' : 'Ctrl'
 const paste = isMac ? 'Cmd' : 'Alt'
 
-/** Hotkey table `[chord, description]`, resolved against the active language at call time. */
+/** Hotkey table `[chord, description]`. */
 export function hotkeys(): [string, string][] {
-  const h = messages().hints
+  const h = chromeEn.hints
 
   const copyHotkeys: [string, string][] = isMac
     ? [

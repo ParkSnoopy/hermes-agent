@@ -7,7 +7,7 @@ id, home path, title, model route, created / last-activity stamps, lifetime toke
 flag. Each used to derive them independently (three ``getattr(agent, "model")`` fallback
 chains, three ``updated_at`` candidate scans, three timestamp formats to keep aligned).
 They now all call :func:`build_status_fields`; a surface only adds its own header, labels
-(the gateway translates through ``t("gateway.status.*")``) and surface-specific extras.
+and surface-specific extras.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ UNKNOWN_PROVIDER = "unknown"
 # Newest-first: a row carries at most one of these, depending on which writer last touched it.
 _LAST_ACTIVITY_FIELDS = ("updated_at", "last_updated_at", "last_activity_at")
 
-# English labels shared by the CLI and TUI renderers (the gateway has its own i18n catalog).
+# English labels shared by the CLI and TUI renderers.
 STATUS_LABELS = {
     "session_id": "Session ID",
     "path": "Path",

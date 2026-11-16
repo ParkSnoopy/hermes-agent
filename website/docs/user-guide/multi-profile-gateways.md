@@ -637,8 +637,8 @@ key, xAI video, and every memory-provider identity (`MEM0_USER_ID`,
 endpoints travel with their keys — `OPENAI_BASE_URL`, `XAI_BASE_URL`,
 `NOUS_INFERENCE_BASE_URL`, `GATEWAY_PROXY_URL`, Firecrawl / Browserbase /
 RetainDB / Supermemory / Honcho / Hindsight URLs — so a profile's key is never
-sent to another profile's proxy or self-hosted server. `WEIXIN_HOME_CHANNEL`,
-`HERMES_LANGUAGE` and `display.language`, and `hooks.outbound[].secret_env` are
+sent to another profile's proxy or self-hosted server. `WEIXIN_HOME_CHANNEL`
+and `hooks.outbound[].secret_env` are
 likewise per profile, and end-of-session memory extraction for an evicted
 secondary session runs under that profile's scope.
 
@@ -690,7 +690,7 @@ profile and never shares with the default or any sibling:
 | Routed-profile detection in an embedding host that mirrors the served profile into the live `HERMES_HOME` env var for legacy readers (Hermes WebUI) | The launch home the host pinned with `hermes_constants.pin_process_hermes_home()`; MCP connection keys, the launch-env strip for a served profile's children, the bridged allow-all seed and the `terminal.*` env-bridge guard all compare against it | Without a pin the live env var is the launch home, exactly as before — a host that never mutates `HERMES_HOME` needs nothing |
 | The launch (default) profile's own credentials in a `hermes serve` / dashboard process that also serves another profile | Its `.env` + secret sources over the process env **frozen the moment the first other profile is served**; not re-read afterwards | A credential rotated only in the process env (`systemctl set-environment`, a refreshed `op run` wrapper that did not re-exec) is not picked up until the process restarts — put rotating keys in `.env` or a secret source, or restart after rotating |
 | Cron `.env` tuning (`HERMES_CRON_TIMEOUT`, `HERMES_MODEL` fallback, `HERMES_CRON_MAX_PARALLEL`, prefill file), worker / Bot Chat child env | The profile's own `.env`; children never inherit the default profile's `.env` settings or bridged `TERMINAL_*` policy | Cron defaults / model refusal, exactly as a standalone `hermes -p <name> gateway run` |
-| Kanban workers and notifications for a profile's tasks | The assignee's `.env` + `config.yaml` (toolset pin, terminal backend, media policy, display language) | — |
+| Kanban workers and notifications for a profile's tasks | The assignee's `.env` + `config.yaml` (toolset pin, terminal backend, media policy) | — |
 | `/loop` ticks, `background_process_notifications` gate, `notice_delivery`, background-process checkpoint recovery | The owning profile's `state.db` / `config.yaml` / `processes.json` | — |
 
 What is **shared** by design: the process, its PID/lock and `gateway_state.json`

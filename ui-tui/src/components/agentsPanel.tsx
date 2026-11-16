@@ -6,8 +6,7 @@ import { useEffect, useState } from 'react'
 import { $agentDockCollapsed, useAgentRoster } from '../app/agentRoster.js'
 import { type ProcessRow, useProcessRows } from '../app/processRoster.js'
 import { $uiState } from '../app/uiStore.js'
-import { messages } from '../i18n/runtime.js'
-import { useT } from '../i18n/useT.js'
+import { hubsEn } from '../copy/hubs.js'
 import { type AgentRows, buildAgentRows, dockRowLimit } from '../lib/agentRows.js'
 import { processGlyph } from '../lib/processGlyph.js'
 import { statusGlyph } from '../lib/subagentGlyph.js'
@@ -55,7 +54,7 @@ export const splitDockBudget = (
 
 export const processSummary = (block: ProcessBlock): string => {
   const done = block.total - block.running
-  const T = messages().hubs.agentsPanel
+  const T = hubsEn.hubs.agentsPanel
 
   return [block.running ? T.running(block.running) : '', done ? T.done(done) : ''].filter(Boolean).join(' · ')
 }
@@ -85,7 +84,7 @@ export function AgentsPanelView({
   running,
   t
 }: AgentRows & { collapsed?: boolean; cols: number; processes?: ProcessBlock; t: Theme }) {
-  const T = useT().hubs.agentsPanel
+  const T = hubsEn.hubs.agentsPanel
 
   if (!running && !processes.total) {
     return null

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.i18n import t
+
 from gateway.config import GatewayConfig, Platform
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.run import GatewayRunner
@@ -165,7 +165,7 @@ async def test_a_turn_committed_after_the_read_refuses_the_retry_unchanged(serve
 
     reply = await _retry(runner, root, source)
 
-    assert reply == t('gateway.retry.failed_unchanged')
+    assert reply == 'Retry failed; transcript was not changed.'
     assert _contents(runner, sid) == ['retry me', 'old answer', 'newer ask']
     assert _queued_texts(authority, sid) == []
 

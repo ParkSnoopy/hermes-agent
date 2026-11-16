@@ -16,7 +16,6 @@ import os
 import queue
 import threading
 import time
-from agent.i18n import t
 from agent.session_activity import format_iteration_progress
 from agent.turn_failure_copy import FAILED_TURN_DISPLAY_KIND, FAILED_TURN_NOTICE, PARTIAL_FAILED_TURN_NOTICE
 from contextlib import nullcontext, suppress
@@ -89,7 +88,7 @@ _CONTEXT_OVERFLOW_ERROR_PHRASES = (
 
 def _unexpected_silence_reply() -> str:
     """Reply when the model returned only a silence marker for a message that needed an answer."""
-    return t("gateway.errors.unexpected_silence")
+    return '⚠️ The model returned only a silence marker for a message that needed a reply. Try again or rephrase.'
 
 
 def is_context_overflow_failure_result(agent_result: dict, history_len: int) -> bool:
@@ -416,9 +415,9 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             else f"{context_length // 1_000}K" if context_length >= 1_000 else str(context_length)
         )
         lines = [
-            t("gateway.session.info_model", model=resolved.model),
-            t("gateway.session.info_provider", provider=resolved.provider or "openrouter"),
-            t("gateway.session.info_context", tokens=ctx_display, source=ctx_source),
+            (f'◆ Model: `{resolved.model}`'),
+            ('◆ Provider: {provider}').format(provider=resolved.provider or "openrouter"),
+            (f'◆ Context: {ctx_display} tokens ({ctx_source})'),
         ]
         if (resolved.provider or "") == "moa":
             # The preset name hides who pays: the aggregator runs every tool-loop step (#112359).
@@ -426,10 +425,10 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             from hermes_cli.moa_config import normalize_moa_config
             agg = normalize_moa_config(load_config().get("moa"))["presets"].get(resolved.model, {}).get("aggregator") or {}
             if agg:
-                lines.append(t("gateway.session.info_acting_model", provider=agg.get("provider"), model=agg.get("model")))
+                lines.append(('◆ Acting model (billed for the run): {provider}:{model}').format(provider=agg.get("provider"), model=agg.get("model")))
         base_url = resolved.base_url
         if base_url and base_url_hostname(base_url) in ("localhost", "127.0.0.1", "0.0.0.0"):
-            lines.append(t("gateway.session.info_endpoint", url=base_url))
+            lines.append(f'◆ Endpoint: {base_url}')
         return "\n".join(lines)
 
     def _resolve_enabled_toolsets_for_source(
@@ -523,21 +522,20 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                 from tools.mcp_tool import _mcp_tool_server_names
                 with _lock:
                     new_tools = [n for n in new_tools if _mcp_tool_server_names.get(n) in connected_servers]
-            # (label, i18n key, names); i18n lines list reconnected first, the injected note added first.
+            # (label, display template, names); the display lists reconnected first, the injected note added first.
             changes = (
-                ("Reconnected", "gateway.reload_mcp.reconnected", connected_servers & old_servers),
-                ("Added", "gateway.reload_mcp.added", connected_servers - old_servers),
-                ("Removed", "gateway.reload_mcp.removed", old_servers - connected_servers),
+                ("Reconnected", '♻️ Reconnected: {names}', connected_servers & old_servers),
+                ("Added", '➕ Added: {names}', connected_servers - old_servers),
+                ("Removed", '➖ Removed: {names}', old_servers - connected_servers),
             )
-            lines = [t("gateway.reload_mcp.header")] + [
-                t(key, names=", ".join(sorted(names))) for _label, key, names in changes if names
+            lines = ['🔄 **MCP Servers Reloaded**\n'] + [
+                key.format(names=", ".join(sorted(names))) for _label, key, names in changes if names
             ]
             from tools.mcp_tool_discovery import mcp_servers_not_connected
             failed = await self._run_in_executor_with_context(mcp_servers_not_connected)
-            lines.append(t("gateway.reload_mcp.none_connected") if not connected_servers else t(
-                "gateway.reload_mcp.tools_available", tools=len(new_tools), servers=len(connected_servers)))
+            lines.append('No MCP servers connected.' if not connected_servers else (f'\n🔧 {len(new_tools)} tool(s) available from {len(connected_servers)} server(s)'))
             if failed:  # a configured server that did not connect is named, never passed over as success
-                lines.append(t("gateway.reload_mcp.failed", error=f"did not connect: {', '.join(failed)}"))
+                lines.append(('❌ MCP reload failed: {error}').format(error=f"did not connect: {', '.join(failed)}"))
 
             self._mcp_reload_refresh_cached_agents(multiplex, event.source.profile)
 
@@ -560,7 +558,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
 
         except Exception as e:
             logger.warning("MCP reload failed: %s", e)
-            return t("gateway.reload_mcp.failed", error=e)
+            return (f'❌ MCP reload failed: {e}')
 
     def _get_proxy_url(self) -> Optional[str]:
         """Proxy URL if proxy mode is configured (GATEWAY_PROXY_URL env wins over ``gateway.proxy_url``).
@@ -660,11 +658,11 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         try:
             from aiohttp import ClientSession as _AioClientSession, ClientTimeout
         except ImportError:
-            return self._proxy_error_result(t("gateway.proxy.requires_aiohttp", hint=install_hint("messaging")))
+            return self._proxy_error_result(('⚠️ Proxy mode requires aiohttp. Run: {hint}').format(hint=install_hint("messaging")))
 
         proxy_url = self._get_proxy_url()
         if not proxy_url:
-            return self._proxy_error_result(t("gateway.proxy.url_missing"))
+            return self._proxy_error_result('⚠️ Proxy URL not configured (GATEWAY_PROXY_URL or gateway.proxy_url)')
 
         # The proxy key is a per-profile credential read through the installed secret scope:
         # ``_run_agent`` binds the source profile's scope (or the launch profile's once the process
@@ -752,7 +750,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                     if resp.status != 200:
                         error_text = await resp.text()
                         logger.warning("Proxy error (%d) from %s: %s", resp.status, safe_proxy_url_for_log(proxy_url), error_text[:500])
-                        return self._proxy_error_result(t("gateway.proxy.http_error", status=resp.status, error=error_text[:300]))
+                        return self._proxy_error_result(f'⚠️ Proxy error ({resp.status}): {error_text[:300]}')
 
                     buffer = ""
                     async for chunk in resp.content.iter_any():
@@ -782,13 +780,13 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                             "(%d chars received)", safe_proxy_url_for_log(proxy_url), len(full_response),
                         )
                         if not full_response:
-                            return self._proxy_error_result(t("gateway.proxy.closed_early"))
+                            return self._proxy_error_result('⚠️ Proxy connection closed before the response completed')
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error("Proxy connection error to %s: %s", safe_proxy_url_for_log(proxy_url), describe_proxy_error(e, proxy_url) or e)
             if not full_response:
-                return self._proxy_error_result(t("gateway.proxy.connection_error", error=describe_proxy_error(e, proxy_url) or e))
+                return self._proxy_error_result(f'⚠️ Proxy connection error: {describe_proxy_error(e, proxy_url) or e}')
             # Partial response — return what we got
         finally:
             if _stream_consumer:
@@ -807,7 +805,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             safe_proxy_url_for_log(proxy_url), (session_id or "")[:20], _elapsed, len(full_response),
         )
         return {
-            "final_response": full_response or t("gateway.proxy.no_response"),
+            "final_response": full_response or '(No response from remote agent)',
             "messages": [
                 {"role": "user", "content": message},
                 {"role": "assistant", "content": full_response},
@@ -885,9 +883,9 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                 )
             except Exception as _phrase_err:
                 logger.debug("generic status phrase selection failed: %s", _phrase_err)
-                return (t("gateway.progress.status_fallback_long")
+                return ('still on it'
                         if kind in {"heartbeat", "waiting", "long_running", "status"}
-                        else t("gateway.progress.status_fallback_short"))
+                        else 'one sec')
 
         # Webhooks can't edit messages; a bot peer gets the final reply only (#137027): no progress lanes.
         is_webhook, bot_peer = source.platform == Platform.WEBHOOK, not automatic_notices_allowed(source)
@@ -1281,10 +1279,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             return
         try:
             await _warn_adapter.emit_warning(
-                source.chat_id, t(
-                    "gateway.progress.stuck_warning",
-                    minutes=int(worker.agent_warning // 60) or 1,
-                    remaining=int((worker.agent_timeout - worker.agent_warning) // 60) or 1),
+                source.chat_id, (f"⚠️ I seem to be stuck (no activity for {int(worker.agent_warning // 60) or 1} min). If nothing happens in the next {int((worker.agent_timeout - worker.agent_warning) // 60) or 1} min I'll give up on this task. You can keep waiting, send /stop to cancel it, or /new to start a fresh conversation."),
                 metadata=_interim_metadata(_status_thread_metadata), logical_platform=source.platform,
             )
         except Exception as _warn_err:
@@ -1314,16 +1309,12 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             request_hard_interrupt(_timed_out_agent, _INTERRUPT_REASON_TIMEOUT, tool_reason=_INTERRUPT_TOOL_REASON_TIMEOUT)
         _timeout_mins = int(worker.agent_timeout // 60) or 1
         _iter_progress = format_iteration_progress(_iter_n, _iter_max)
-        _diag_lines = [t("gateway.progress.timeout_header", minutes=_timeout_mins)]
+        _diag_lines = [(f'⏱️ Agent inactive for {_timeout_mins} min — no tool calls or API responses.')]
         if _cur_tool:
-            _diag_lines.append(t(
-                "gateway.progress.timeout_stuck_tool",
-                tool=_cur_tool, seconds=f"{_secs_ago:.0f}", progress=_iter_progress))
+            _diag_lines.append(('The agent appears stuck on tool `{tool}` ({seconds}s since last activity, {progress}).').format(tool=_cur_tool, seconds=f"{_secs_ago:.0f}", progress=_iter_progress))
         else:
-            _diag_lines.append(t(
-                "gateway.progress.timeout_last_activity",
-                activity=_last_desc, seconds=f"{_secs_ago:.0f}", progress=_iter_progress))
-        _diag_lines.append(t("gateway.progress.timeout_hint"))
+            _diag_lines.append(('Last activity: {activity} ({seconds}s ago, {progress}). The agent may have been waiting on an API response.').format(activity=_last_desc, seconds=f"{_secs_ago:.0f}", progress=_iter_progress))
+        _diag_lines.append('To increase the limit, set agent.gateway_timeout in config.yaml (value in seconds, 0 = no limit) and restart the gateway.\nTry again, or use /reset to start fresh.')
         return record_terminal_failure({
             "final_response": "\n".join(_diag_lines),
             "messages": result_holder[0].get("messages", []) if result_holder[0] else [],
@@ -1972,7 +1963,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             _heartbeat_text = (
                 disp._generic_status_phrase("status")
                 if _long_running_mode == "generic"
-                else t("gateway.progress.working_heartbeat", minutes=_elapsed_mins, detail=_status_detail)
+                else (f'⏳ Working — {_elapsed_mins} min{_status_detail}')
             )
             try:
                 _notify_res = None

@@ -94,12 +94,16 @@ def test_catalog_covers_the_whole_wire():
     registry.assert_complete(server._methods, emitted_event_names(), sent_server_requests())
 
 
-def test_retired_messaging_handoffs_are_absent():
+def test_retired_methods_are_absent():
     from tui_gateway import server
     from tui_gateway.contracts import registry
 
-    retired = {"handoff.request", "handoff.state", "handoff.fail"}
+    retired = {"handoff.request", "handoff.state", "handoff.fail", "i18n.catalog", "i18n.languages"}
     assert retired.isdisjoint(server._methods)
     assert retired.isdisjoint(registry.METHODS)
+    assert retired.isdisjoint(registry.CANONICAL_METHODS)
+    for method in retired:
+        reply = server.handle_request({"jsonrpc": "2.0", "id": "retired", "method": method, "params": {}})
+        assert reply["error"]["code"] == -32601, reply
     assert "message.react" in registry.METHODS
     assert "message.reaction" in registry.EVENTS

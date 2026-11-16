@@ -1,5 +1,5 @@
 import type { ComposerToken } from '../app/interfaces.js'
-import { t } from '../i18n/runtime.js'
+import { libTextEn } from '../copy/libText.js'
 import type { ImageAttachment } from '../lib/imageAttachments.js'
 import { PASTE_SNIPPET_RE } from '../protocol/paste.js'
 
@@ -15,7 +15,7 @@ import { PASTE_SNIPPET_RE } from '../protocol/paste.js'
  *   - Position in the text is meaningful: the model sees the payload where the
  *     token sat, not stapled to the front of the turn.
  */
-export const imageToken = (index: number) => t('libText.attachments.imageToken', index)
+export const imageToken = (index: number) => libTextEn.libText.attachments.imageToken(index)
 
 export const imageAttachments = (value: string, tokens: ComposerToken[]): ImageAttachment[] =>
   tokens.flatMap(token => token.kind === 'image' && token.mime && value.includes(token.label)

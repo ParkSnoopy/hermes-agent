@@ -14,7 +14,6 @@ import threading
 import time as _time
 import webbrowser
 
-from agent.i18n import t
 from hermes_cli.callbacks import prompt_for_secret
 from typing import Optional
 
@@ -29,15 +28,15 @@ _CONFIRM_ALIASES = {
 # Approval result -> catalog key of the outcome label shown in the persisted prompt summary.
 # Resolved at call time (``_approval_outcome_label``) so the active language applies.
 _APPROVAL_OUTCOME_KEYS = {
-    "once": "cli.approval.outcome_once",
-    "session": "cli.approval.outcome_session",
-    "always": "cli.approval.outcome_always",
-    "deny": "cli.approval.outcome_deny"}
+    "once": 'allowed once',
+    "session": 'allowed for session',
+    "always": 'added to allowlist',
+    "deny": 'denied'}
 
 
 def _approval_outcome_label(result) -> str:
     key = _APPROVAL_OUTCOME_KEYS.get(result)
-    return t(key) if key else str(result)
+    return key if key else str(result)
 
 
 def _approval_gate_on(key: str) -> bool:
@@ -67,21 +66,21 @@ def _gated_confirm(self, command, key, *, title, detail, choices, unchanged, alw
         return "once"
     raw = self._prompt_text_input_modal(title=title, detail=detail, choices=choices)
     if raw is None:
-        print(t("cli.modal.cancelled_no_input", command=command))
+        print(f'🟡 /{command} cancelled (no input).')
         return None
     choice = self._normalize_slash_confirm_choice(raw, choices)
     if choice is None:
-        print(t("cli.modal.unrecognized_choice", raw=raw, command=command))
+        print(f"🟡 Unrecognized choice '{raw}'. /{command} cancelled.")
         return None
     if choice == "cancel":
-        print(t("cli.modal.cancelled", command=command, unchanged=unchanged))
+        print(f'🟡 /{command} cancelled. {unchanged}')
         return None
     if choice == "always":
         if save_config_value(f"approvals.{key}", False):
             print(always_msg)
-            print(t("cli.modal.re_enable_hint", setting=key))
+            print(f'   Re-enable via `approvals.{key}: true` in config.yaml.')
         else:
-            print(persist_failed_msg or t("cli.modal.persist_opt_out_failed", once_verb=once_verb or ""))
+            print(persist_failed_msg or ("⚠️  Couldn't persist opt-out — {once_verb} once.").format(once_verb=once_verb or ""))
     return choice
 
 
@@ -96,19 +95,19 @@ class CLIModalMixin:
         from cli import _DIM, _RST, _cprint
         app = getattr(self, "_app", None)
         if not app:
-            _cprint(f"{_DIM}{t('cli.editor.only_interactive')}{_RST}")
+            _cprint(f"{_DIM}{'External editor is only available inside the interactive CLI.'}{_RST}")
             return False
         if self._command_running:
-            _cprint(f"{_DIM}{t('cli.editor.wait_for_command')}{_RST}")
+            _cprint(f"{_DIM}{'Wait for the current command to finish before opening the editor.'}{_RST}")
             return False
         if (self._sudo_state or self._secret_state or self._approval_state
                 or getattr(self, "_slash_confirm_state", None) or self._clarify_state
                 or self._connection_state):
-            _cprint(f"{_DIM}{t('cli.editor.finish_active_prompt')}{_RST}")
+            _cprint(f"{_DIM}{'Finish the active prompt before opening the editor.'}{_RST}")
             return False
         target_buffer = buffer or getattr(app, "current_buffer", None)
         if target_buffer is None:
-            _cprint(f"{_DIM}{t('cli.editor.no_input_buffer')}{_RST}")
+            _cprint(f"{_DIM}{'No active input buffer is available for the external editor.'}{_RST}")
             return False
         try:
             # Inline pastes so the editor sees real content; set the skip flag unconditionally so
@@ -123,7 +122,7 @@ class CLIModalMixin:
                 task.add_done_callback(lambda _t, b=target_buffer: self._submit_editor_buffer(b))
             return True
         except Exception as exc:
-            _cprint(f"{_DIM}{t('cli.editor.open_failed', error=exc)}{_RST}")
+            _cprint(f"{_DIM}{(f'Failed to open external editor: {exc}')}{_RST}")
             return False
 
     def _submit_editor_buffer(self, buffer) -> None:
@@ -151,7 +150,7 @@ class CLIModalMixin:
                 _done()
                 return
         except Exception as exc:
-            _cprint(f"  {_DIM}{t('cli.editor.shell_command_failed', error=exc)}{_RST}")
+            _cprint(f"  {_DIM}{(f'Shell command failed: {exc}')}{_RST}")
             _done()
             return
 
@@ -162,7 +161,7 @@ class CLIModalMixin:
                     if app is not None and app.is_running:
                         app.exit()
             except Exception as exc:
-                _cprint(f"  {_DIM}{t('cli.editor.command_failed', error=exc)}{_RST}")
+                _cprint(f"  {_DIM}{(f'Command failed: {exc}')}{_RST}")
             finally:
                 _done()
             return
@@ -175,7 +174,7 @@ class CLIModalMixin:
             else:
                 self._pending_input.put(text)
             preview = text[:80] + ("..." if len(text) > 80 else "")
-            _cprint(f"  {t('cli.editor.queued_next_turn', preview=preview)}")
+            _cprint(f"  {(f'Queued for the next turn: {preview}')}")
         else:
             self._pending_input.put(text)
         _done()
@@ -316,7 +315,7 @@ class CLIModalMixin:
         if not choices:
             return None
         if not getattr(self, "_app", None):
-            return self._prompt_text_input(t("cli.modal.choice_prompt"))
+            return self._prompt_text_input('Choice [1/2/3]: ')
 
         try:
             app_loop = self._app.loop
@@ -331,7 +330,7 @@ class CLIModalMixin:
             if sys.platform == "win32" and not in_main_thread:
                 self._invalidate()
                 return None
-            return self._prompt_text_input(t("cli.modal.choice_prompt"))
+            return self._prompt_text_input('Choice [1/2/3]: ')
 
         if not in_main_thread and app_loop is None:
             return _stdin_fallback()
@@ -424,7 +423,7 @@ class CLIModalMixin:
                     entries.append((cmd, category, desc))
         try:
             for cmd, info in sorted(_session_skill_commands(self).items()):
-                entries.append((cmd, t("cli.palette.category_skill"), info.get("description", "")))
+                entries.append((cmd, 'Skill', info.get("description", "")))
         except Exception:
             pass
         return entries
@@ -544,15 +543,15 @@ class CLIModalMixin:
             return "once"
         return _gated_confirm(
             self, command, "destructive_slash_confirm",
-            title=t("cli.modal.destructive_title", command=command),
+            title=(f'⚠️  /{command} — destroys conversation state'),
             detail=detail,
             choices=[
-                ("once", t("cli.modal.approve_once"), t("cli.modal.approve_once_detail")),
-                ("always", t("cli.modal.always_approve"), t("cli.modal.always_approve_detail")),
-                ("cancel", t("cli.modal.cancel"), t("cli.modal.cancel_detail"))],
-            unchanged=t("cli.modal.conversation_unchanged"),
-            always_msg=t("cli.modal.destructive_always_msg"),
-            persist_failed_msg=t("cli.modal.persist_failed_proceeding"))
+                ("once", 'Approve Once', 'proceed this time only'),
+                ("always", 'Always Approve', 'proceed and silence this prompt permanently'),
+                ("cancel", 'Cancel', 'keep current conversation')],
+            unchanged='Conversation unchanged.',
+            always_msg='🔒 Future /clear, /new, /reset, and /undo will run without confirmation.',
+            persist_failed_msg="⚠️  Couldn't persist opt-out — proceeding once.")
 
     def _ring_bell(self, prompt: bool = False, context: str = "", detail: str = "") -> None:
         """Terminal bell (\\a) gated by ``display.bell_on_prompt`` (``prompt=True``, blocking modals)
@@ -563,7 +562,7 @@ class CLIModalMixin:
             return
         from hermes_cli.cli_terminal_mixin import _run_on_app_loop, _write_terminal_sequence
         from hermes_cli.terminal_notify import notification_sequence, write_tty
-        body = context or (t("cli.modal.bell_input_needed") if prompt else t("cli.modal.bell_turn_complete"))
+        body = context or ('input needed' if prompt else 'turn complete')
         try:
             seq = "\a" + notification_sequence(
                 body, prompt=prompt, session_id=getattr(self, "session_id", "") or "", detail=detail)
@@ -709,7 +708,7 @@ class CLIModalMixin:
         self._connection_show_target(payload, index)
         state = self._connection_state
         if state is not None and state["phase"] != "waiting":
-            self._ring_bell(prompt=True, context=t("cli.connect.bell_context"))
+            self._ring_bell(prompt=True, context='connection setup')
 
     def _connection_send(self, call, *args) -> None:
         """One card answer to the gateway, off the UI thread; its outcome arrives as connection.update."""
@@ -727,7 +726,7 @@ class CLIModalMixin:
             except GatewayClientError as exc:  # the gateway refused or was unreachable: say so on the card
                 current = self._connection_state
                 if current and current["payload"].get("op_id") == op_id:
-                    current["target"] = {**current["target"], "detail": str(exc) or t("cli.connect.cannot_restart")}
+                    current["target"] = {**current["target"], "detail": str(exc) or 'This connection cannot be started again. Cancel and ask the agent again.'}
                     current["phase"] = "failed"
                     self._paint_now()
 
@@ -868,7 +867,7 @@ class CLIModalMixin:
         lines = []
         for field in state.get("fields") or ():
             marker = "*" if field.get("required") else ""
-            value = t("cli.connect.secret_set") if field.get("type") == "secret" and draft.get(field.get("name")) else draft.get(field.get("name"), "")
+            value = 'Set' if field.get("type") == "secret" and draft.get(field.get("name")) else draft.get(field.get("name"), "")
             lines.append(f"{field.get('prompt') or field.get('name')}{marker}: {value}")
         return lines
 
@@ -879,31 +878,31 @@ class CLIModalMixin:
             return []
         target = state["target"]
         phase = state.get("phase")
-        buttons = f"{t('cli.connect.button_connect')}    {t('cli.connect.button_cancel')}"
-        lines = [t("cli.connect.set_up", name=target.get("name", ""))]
+        buttons = f"{'Connect'}    {'Cancel'}"
+        lines = [('Set up {name}').format(name=target.get("name", ""))]
         if target.get("instructions"):
             lines.append(str(target["instructions"]))
         if phase == "form":
             lines.extend(self._connection_field_lines(state, target))
             lines.append(buttons)
         elif phase == "url":
-            lines.extend([str(target.get("connect_url") or ""), str(target.get("detail") or ""), t("cli.connect.press_enter_open")])
+            lines.extend([str(target.get("connect_url") or ""), str(target.get("detail") or ""), 'Press Enter to open in browser'])
         elif phase == "failed":
-            lines.append(str(target.get("detail") or t("cli.connect.failed")))
+            lines.append(str(target.get("detail") or 'Connection failed'))
             lines.extend(self._connection_field_lines(state, target))
             lines.append(buttons)
         elif phase == "authorized":
             # A connected row cannot be re-run inside this operation; the agent retries discovery
             # with its next manage_connections call, which needs no new consent.
-            lines.extend([t("cli.connect.authorized_no_tools"), t("cli.connect.button_continue")])
+            lines.extend(['Authorized. Tools unavailable.', 'Continue'])
         elif phase == "connected":
-            lines.append(t("cli.connect.connected"))
+            lines.append('Connected')
             if target.get("alias"):
                 from tools.tool_labels import app_title
 
-                lines.append(t("cli.connect.named_account", name=app_title(target.get("name", "")), alias=target["alias"]))
+                lines.append(('Hermes named this {name} account {alias}. Rename it anytime.').format(name=app_title(target.get("name", "")), alias=target["alias"]))
         else:
-            lines.append(str(target.get("detail") or t("cli.connect.waiting")))
+            lines.append(str(target.get("detail") or 'Waiting…'))
         return [line for line in lines if line]
 
     # --- Batch clarify (multi-question, issue #18450) -----------------------
@@ -946,7 +945,7 @@ class CLIModalMixin:
         entry = state["questions"][state["active"]]
         state["answers"][entry["qid"]] = answer
         state.setdefault("answer_meta", {})[entry["qid"]] = meta or {"kind": "choice"}
-        self._persist_prompt_summary("?", t("cli.clarify.label"), entry["question"], "" if answer is None else str(answer))
+        self._persist_prompt_summary("?", 'Clarify', entry["question"], "" if answer is None else str(answer))
         total = len(state["questions"])
         for offset in range(1, total + 1):
             candidate = (state["active"] + offset) % total
@@ -1014,7 +1013,7 @@ class CLIModalMixin:
         self._clarify_state = state
         self._clarify_batch_set_active(state, 0)
         self._clarify_deadline = None if timeout <= 0 else _time.monotonic() + timeout
-        self._ring_bell(prompt=True, context=t("cli.clarify.bell_context"))
+        self._ring_bell(prompt=True, context='clarify')
         self._paint_now()
 
         result = self._poll_modal_queue(response_queue, "_clarify_deadline")
@@ -1024,7 +1023,7 @@ class CLIModalMixin:
             return {"answers": dict(state["answers"]), "outcome": outcome}
         partial = dict(state["answers"])
         self._clarify_teardown()
-        _cprint(f"\n{_DIM}{t('cli.clarify.timed_out_locked_answers', timeout=timeout)}{_RST}")
+        _cprint(f"\n{_DIM}{(f'(clarify timed out after {timeout}s — locked answers returned)')}{_RST}")
         return {"answers": partial, "outcome": "timed_out"}
 
     def _withdraw_gateway_modal(self, method) -> None:
@@ -1051,7 +1050,7 @@ class CLIModalMixin:
         self._capture_modal_input_snapshot()
         self._sudo_state = {"response_queue": response_queue}
         self._sudo_deadline = _time.monotonic() + 45
-        self._ring_bell(prompt=True, context=t("cli.secret.bell_sudo"))
+        self._ring_bell(prompt=True, context='sudo password')
         self._paint_now()
 
         result = self._poll_modal_queue(response_queue, "_sudo_deadline", refresh=0)
@@ -1060,12 +1059,12 @@ class CLIModalMixin:
         self._restore_modal_input_snapshot()
         self._paint_now()
         if result is _TIMED_OUT:
-            _cprint(f"\n{_DIM}  {t('cli.secret.sudo_timeout')}{_RST}")
+            _cprint(f"\n{_DIM}  {'⏱ Timeout — continuing without sudo'}{_RST}")
             return ""
         if result:
-            _cprint(f"\n{_DIM}  {t('cli.secret.sudo_received')}{_RST}")
+            _cprint(f"\n{_DIM}  {'✓ Password received (cached for session)'}{_RST}")
         else:
-            _cprint(f"\n{_DIM}  {t('cli.secret.sudo_skipped')}{_RST}")
+            _cprint(f"\n{_DIM}  {'⏭ Skipped'}{_RST}")
         return result
 
     def _approval_callback(self, command: str, description: str,
@@ -1096,7 +1095,7 @@ class CLIModalMixin:
                 "selected": 0,
                 "response_queue": response_queue}
             self._approval_deadline = _time.monotonic() + timeout
-            self._ring_bell(prompt=True, context=t("cli.approval.bell_context"), detail=command)
+            self._ring_bell(prompt=True, context='approval', detail=command)
             self._paint_now()
 
             result = self._poll_modal_queue(response_queue, "_approval_deadline")
@@ -1104,12 +1103,12 @@ class CLIModalMixin:
             self._approval_deadline = 0
             self._paint_now()
             if result is _TIMED_OUT:
-                _cprint(f"\n{_DIM}  {t('cli.approval.timeout_denying')}{_RST}")
+                _cprint(f"\n{_DIM}  {'⏱ Timeout — denying command'}{_RST}")
                 self._persist_prompt_summary(
-                    "⚠", t("cli.approval.label"), command, t("cli.approval.timed_out_no_response"))
+                    "⚠", 'Approval', command, 'timed out (no response)')
                 return "timeout"
             self._persist_prompt_summary(
-                "⚠", t("cli.approval.label"), command, _approval_outcome_label(result))
+                "⚠", 'Approval', command, _approval_outcome_label(result))
             return result
 
     def _approval_choices(self, command: str, *, allow_permanent: bool = True,
@@ -1159,7 +1158,7 @@ class CLIModalMixin:
         self._capture_modal_input_snapshot()
         self._sudo_state = {"response_queue": response_queue, "vault_backend": display_name}
         self._sudo_deadline = _time.monotonic() + 120
-        self._ring_bell(prompt=True, context=t("cli.secret.bell_unlock", name=display_name))
+        self._ring_bell(prompt=True, context=(f'unlock {display_name}'))
         self._paint_now()
 
         result = self._poll_modal_queue(response_queue, "_sudo_deadline", refresh=0)
@@ -1168,9 +1167,9 @@ class CLIModalMixin:
         self._restore_modal_input_snapshot()
         self._paint_now()
         if result is _TIMED_OUT or not result:
-            _cprint(f"\n{_DIM}  {t('cli.secret.stays_locked', name=display_name)}{_RST}")
+            _cprint(f"\n{_DIM}  {(f'⏭ {display_name} stays locked')}{_RST}")
             return ""
-        _cprint(f"\n{_DIM}  {t('cli.secret.unlocking_for_session', name=display_name)}{_RST}")
+        _cprint(f"\n{_DIM}  {(f'✓ Unlocking {display_name} for this session')}{_RST}")
         return result
 
     def _vault_save_login_callback(self, origin: str, site: str):
@@ -1186,7 +1185,7 @@ class CLIModalMixin:
                                                                                   "step": step}}
             self._sudo_deadline = _time.monotonic() + 180
             if step == "identifier":
-                self._ring_bell(prompt=True, context=t("cli.secret.bell_save_login", site=site))
+                self._ring_bell(prompt=True, context=(f'save login for {site}'))
             self._paint_now()
             result = self._poll_modal_queue(response_queue, "_sudo_deadline", refresh=0)
             self._sudo_state = None
@@ -1194,10 +1193,10 @@ class CLIModalMixin:
             self._restore_modal_input_snapshot()
             self._paint_now()
             if result is _TIMED_OUT or not result:
-                _cprint(f"\n{_DIM}  {t('cli.secret.login_not_saved', site=site)}{_RST}")
+                _cprint(f"\n{_DIM}  {(f'⏭ Not saving a login for {site}')}{_RST}")
                 return None
             answer[step] = result
-        _cprint(f"\n{_DIM}  {t('cli.secret.login_saved', site=site)}{_RST}")
+        _cprint(f"\n{_DIM}  {(f'✓ Login for {site} saved to your vault')}{_RST}")
         return answer
 
     def _vault_code_callback(self, site: str, hint: str) -> str:
@@ -1209,7 +1208,7 @@ class CLIModalMixin:
         self._capture_modal_input_snapshot()
         self._sudo_state = {"response_queue": response_queue, "vault_code": {"site": site, "hint": hint}}
         self._sudo_deadline = _time.monotonic() + 180
-        self._ring_bell(prompt=True, context=t("cli.secret.bell_verification_code", site=site))
+        self._ring_bell(prompt=True, context=(f'verification code for {site}'))
         self._paint_now()
         result = self._poll_modal_queue(response_queue, "_sudo_deadline", refresh=0)
         self._sudo_state = None
@@ -1217,9 +1216,9 @@ class CLIModalMixin:
         self._restore_modal_input_snapshot()
         self._paint_now()
         if result is _TIMED_OUT or not result:
-            _cprint(f"\n{_DIM}  {t('cli.secret.code_not_entered', site=site)}{_RST}")
+            _cprint(f"\n{_DIM}  {(f'⏭ No code entered for {site}')}{_RST}")
             return ""
-        _cprint(f"\n{_DIM}  {t('cli.secret.code_entered', site=site)}{_RST}")
+        _cprint(f"\n{_DIM}  {(f'✓ Code entered into {site}')}{_RST}")
         return result
 
     def _secret_capture_callback(self, var_name: str, prompt: str, metadata=None) -> dict:

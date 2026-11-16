@@ -72,11 +72,17 @@ _CLI_CHOICE_ALIASES = {
     "a": "always", "always": "always",
 }
 
-_CLI_CHOICE_I18N = {
-    "once": "approval.allowed_once",
-    "session": "approval.allowed_session",
-    "always": "approval.allowed_always",
-    "deny": "approval.denied",
+_CLI_CHOICE_MESSAGES = {
+    "once": "      ✓ Allowed once",
+    "session": "      ✓ Allowed for this session",
+    "always": "      ✓ Added to permanent allowlist",
+    "deny": "      ✗ Denied",
+}
+
+_CLI_MENUS = {
+    "smart_deny": ("      Choice [o/D]: ", "      [o]nce  |  [d]eny"),
+    "long": ("      Choice [o/s/a/D]: ", "      [o]nce  |  [s]ession  |  [a]lways  |  [d]eny"),
+    "short": ("      Choice [o/s/D]: ", "      [o]nce  |  [s]ession  |  [d]eny"),
 }
 
 
@@ -139,30 +145,29 @@ def _ask_human(command: str, description: str, timeout_seconds: int, allow_perma
 
     os.environ["HERMES_SPINNER_PAUSE"] = "1"
     try:
-        from agent.i18n import t
-        # (prompt key, menu key) by menu shape: once/deny, full, or no [a]lways.
+        # Prompt and menu by shape: once/deny, full, or no [a]lways.
         shape = "smart_deny" if once_only else "long" if allow_permanent else "short"
-        prompt_key, menu_key = f"approval.prompt_{shape}", f"approval.choose_{shape}"
-        header = title or t('approval.dangerous_header', description=display_description)
+        prompt, menu = _CLI_MENUS[shape]
+        header = title or (f'⚠️  DANGEROUS COMMAND: {display_description}')
         print(f"\n  {header}"
-              f"\n      {display_command}\n\n{t(menu_key)}\n")
+              f"\n      {display_command}\n\n{menu}\n")
         sys.stdout.flush()
-        choice = _read_choice(t(prompt_key), timeout_seconds)
+        choice = _read_choice(prompt, timeout_seconds)
         if choice is None:
-            print("\n" + t("approval.timeout", **_ctx.approval_timeout_notice_kwargs()))
+            print("\n" + ('      ⏱ No answer in {waited} — the command was not run. Ask again to retry, or raise the limit: hermes config set approvals.timeout {suggested}').format(**_ctx.approval_timeout_notice_kwargs()))
             return "timeout"  # distinct from deny: the user never answered
         if once_only:
-            decision = {**dict.fromkeys(t("approval.smart_deny_once_inputs").split(","), "once"),
-                        **dict.fromkeys(t("approval.smart_deny_deny_inputs").split(","), "deny"),
+            decision = {**dict.fromkeys('o,once'.split(","), "once"),
+                        **dict.fromkeys('d,deny'.split(","), "deny"),
                         }.get(choice, "deny")
         else:
             decision = _CLI_CHOICE_ALIASES.get(choice, "deny")
             if decision == "always" and not allow_permanent:
                 decision = "session"
-        print(t(_CLI_CHOICE_I18N[decision]))
+        print(_CLI_CHOICE_MESSAGES[decision])
         return decision
     except (EOFError, KeyboardInterrupt):
-        print("\n" + t("approval.cancelled"))
+        print("\n" + '      ✗ Cancelled')
         return Unanswered("the prompt was interrupted before an answer was given")
     finally:
         os.environ.pop("HERMES_SPINNER_PAUSE", None)

@@ -12,6 +12,7 @@ import { useStore } from '@nanostores/react'
 import { type ReactNode, useEffect, useState } from 'react'
 
 import { $overlayState, hasPromptOpen, patchOverlayState } from '../app/overlayStore.js'
+import { connectorsEn } from '../copy/connectors.js'
 import {
   accountName,
   accountRowText,
@@ -25,8 +26,6 @@ import {
   reconnectRefusal
 } from '../domain/connectorAccounts.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import type { Translations } from '../i18n/types.js'
-import { useT } from '../i18n/useT.js'
 import { openExternalUrl } from '../lib/openExternalUrl.js'
 import { rpcErrorMessage } from '../lib/rpc.js'
 import type { Theme } from '../theme.js'
@@ -72,13 +71,13 @@ type Stage =
   | { kind: 'list' }
   | { kind: 'rename'; draft: string; row: ConnectorAccountRow }
 
-const problemText = (T: Translations, problem: NameProblem): string =>
+const problemText = (T: typeof connectorsEn, problem: NameProblem): string =>
   problem === 'taken' ? T.connectors.notice.nameTaken : problem === 'invalid' ? T.connectors.notice.nameInvalid : ''
 
-const statusLabel = (T: Translations, row: ConnectorAccountRow): string =>
+const statusLabel = (T: typeof connectorsEn, row: ConnectorAccountRow): string =>
   isRetired(row) ? T.connectors.status.retired : T.connectors.status[row.status]
 
-const errorText = (T: Translations, error: unknown): string =>
+const errorText = (T: typeof connectorsEn, error: unknown): string =>
   error instanceof JsonRpcGatewayError && error.code === ALIAS_TAKEN
     ? T.connectors.notice.nameTaken
     : rpcErrorMessage(error)
@@ -90,7 +89,7 @@ const linkFields = (stage: Stage) =>
     : { linkApp: '', linkDeadline: 0, linkName: '', linkOp: '' }
 
 export function ConnectorsOverlay({ gw, maxWidth, onClose, t }: ConnectorsOverlayProps) {
-  const T = useT()
+  const T = connectorsEn
   const [rows, setRows] = useState<ConnectorAccountRow[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -530,7 +529,7 @@ interface StageViewProps<K extends Stage['kind']> {
 }
 
 function AppPicker({ footer, stage, t, title, width }: StageViewProps<'addApp'>) {
-  const T = useT()
+  const T = connectorsEn
   const { items, offset } = windowItems(stage.apps, stage.idx, VISIBLE)
 
   return (
@@ -550,7 +549,7 @@ function AppPicker({ footer, stage, t, title, width }: StageViewProps<'addApp'>)
 }
 
 function LinkView({ footer, stage, t, title, width }: StageViewProps<'link'>) {
-  const T = useT()
+  const T = connectorsEn
 
   const heading = stage.reconnect
     ? T.connectors.link.reconnectTitle(stage.app, stage.name)

@@ -2,13 +2,11 @@
 
 The chat panel used to echo ``Error: HTTP 401: Invalid API key`` as the assistant's answer. These
 helpers map the classifier verdict (``agent/error_classifier.py``) to WHAT happened + WHAT TO DO,
-and demote the raw provider text to a ``Details:`` line. Copy lives in the i18n catalog under
-``cli.error.*`` and is resolved at render time for the active language.
+and demote the raw provider text to a ``Details:`` line.
 """
 
 from __future__ import annotations
 
-from agent.i18n import t
 
 _SUMMARY_LIMIT = 120
 
@@ -76,12 +74,11 @@ def chat_error_response(
 
         exc = error if isinstance(error, Exception) else Exception(str(error))
         reason = classify_api_error(exc, provider=provider or "", model=model or "").reason.value
-    lead = t(
-        f"cli.error.{_REASON_KEYS.get(reason, _UNKNOWN_KEY)}",
-        provider=provider or t("cli.error.the_provider"),
-        model=model or t("cli.error.the_current_model"),
+    lead = {'auth': 'Your {provider} key was rejected. Run `hermes model` to re-enter it.', 'billing': 'Your {provider} account is out of credit. Top up at the provider, or run /model to switch.', 'model_not_found': "'{model}' isn't available on {provider}. Run /model to pick a valid model.", 'rate_limit': 'Rate limited by {provider}; wait a minute or /model to switch.', 'upstream_blocked': 'A firewall/CDN in front of {provider} blocked the request (not your key). Set a User-Agent via extra_headers, or /model to switch.', 'overloaded': '{provider} is overloaded right now. Send /retry in a moment, or /model to switch.', 'server_error': '{provider} had an internal error. Send /retry in a moment, or /model to switch.', 'timeout': '{provider} did not answer in time. Send /retry, or /model to switch.', 'unknown': 'The model request failed. Run /model to switch or `hermes doctor` to check the setup.', 'the_provider': 'the provider', 'the_current_model': 'the current model', 'with_details': '{lead}\nDetails: {details}', 'agent_init_failed': "Hermes couldn't start the model connection: {error}. Your message was not sent. Run `hermes doctor` to check the setup, or /model to pick a different provider."}[_REASON_KEYS.get(reason, _UNKNOWN_KEY)].format(
+        provider=provider or 'the provider',
+        model=model or 'the current model',
     )
-    return t("cli.error.with_details", lead=lead, details=_short(refusal_text(error), 300))
+    return (f'{lead}\nDetails: {_short(refusal_text(error), 300)}')
 
 
 def agent_init_failure_message(error: BaseException) -> str:
@@ -93,4 +90,4 @@ def agent_init_failure_message(error: BaseException) -> str:
     from hermes_cli.gateway_client import GatewayUnavailableError
 
     limit = None if isinstance(error, GatewayUnavailableError) else _SUMMARY_LIMIT
-    return t("cli.error.agent_init_failed", error=_short(refusal_text(error), limit) or type(error).__name__)
+    return (f"Hermes couldn't start the model connection: {_short(refusal_text(error), limit) or type(error).__name__}. Your message was not sent. Run `hermes doctor` to check the setup, or /model to pick a different provider.")

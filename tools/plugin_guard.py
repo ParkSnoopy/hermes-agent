@@ -18,10 +18,10 @@ from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
 from tools.plugin_guard_context import (
-    STEP_DOWN, catalog_cap, is_agent_facing, is_authorized_keys_prose, is_base64_archive_roundtrip,
+    STEP_DOWN, is_agent_facing, is_authorized_keys_prose, is_base64_archive_roundtrip,
     is_base64_media, is_benign_lazy_os_import, is_ci_workflow, is_coin_name_only,
     is_disclosed_config_note, is_doc_prose, is_env_dump_in_safety_clause, is_hex_in_char_class,
-    is_inert_fixture_line, is_json_prose_value, is_locale_catalog, is_loopback_continuation,
+    is_inert_fixture_line, is_json_prose_value, is_loopback_continuation,
     is_loopback_only, is_own_proc_read, is_pip_install_in_prose_literal, is_public_client_key,
     is_quoted_injection_phrase, is_regex_alternation_token, is_repo_root_traversal,
     is_self_uninstall_doc, is_sudo_inert, is_test_tree, is_trusted_installer_pipe, logical_line, prose_cap)
@@ -174,7 +174,7 @@ def _filter_findings(findings: list[Finding], rel_path: str, file_path: Path) ->
     # A CI workflow definition runs on the forge's runner, not the host: same cap as a README.
     is_ci = is_ci_workflow(rel_path)
     doc_prose = is_doc_prose(rel_path) or is_ci
-    locale_catalog = is_locale_catalog(rel_path)
+
     lines = _file_lines(file_path) if findings else []
     out: list[Finding] = []
     for f in findings:
@@ -188,8 +188,7 @@ def _filter_findings(findings: list[Finding], rel_path: str, file_path: Path) ->
             f.severity = DOC_PROSE_DEMOTIONS[f.pattern_id]
         line = lines[f.line - 1] if 0 < f.line <= len(lines) else f.match
         joined = logical_line(lines, f.line - 1) if 0 < f.line <= len(lines) else line
-        f.severity = _context_severity(f, rel_path, line, joined, doc_prose or locale_catalog, is_code,
-                                       locale_catalog)
+        f.severity = _context_severity(f, rel_path, line, joined, doc_prose, is_code)
         if _is_defensive_documentation(f, rel_path):
             f.severity = _comment_severity(f)
             # A quoted injection phrase in a defensive doc (``"ignore previous instructions"`` in a
@@ -231,15 +230,14 @@ def _file_lines(file_path: Path) -> list[str]:
         return []
 
 
-def _context_severity(f: Finding, rel_path: str, line: str, joined: str, doc_prose: bool, is_code: bool,
-                      locale_catalog: bool = False) -> str:
+def _context_severity(f: Finding, rel_path: str, line: str, joined: str, doc_prose: bool, is_code: bool) -> str:
     """Severity after the inert-context demotions (``plugin_guard_context``). Each rule only
     ever lowers, and every finding stays in the report; the order runs from the broadest
     context (where the text lives) to the narrowest (what the token sits inside). *joined* is
     the logical shell line (``line`` plus its ``\\\\``-continuations)."""
     sev = f.severity
     if doc_prose:
-        sev = (catalog_cap(f) if locale_catalog else prose_cap(f)) or sev
+        sev = prose_cap(f) or sev
         if is_self_uninstall_doc(f, line):
             sev = _at_most(sev, "medium")
     elif is_json_prose_value(f, rel_path, line):

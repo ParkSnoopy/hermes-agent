@@ -21,7 +21,6 @@ from contextvars import Context
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from agent.i18n import t
 from gateway.config import Platform
 from gateway.restart import (
     DEFAULT_GATEWAY_CRON_DRAIN_TIMEOUT, GATEWAY_SERVICE_RESTART_EXIT_CODE,
@@ -562,7 +561,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         except Exception as e:
             logger.debug("Cron interrupt notification unavailable: %s", e)
             return 0
-        action = t("gateway.shutdown.action_restarting" if self._restart_requested else "gateway.shutdown.action_shutting_down")
+        action = ('restarting' if self._restart_requested else 'shutting down')
         notified: set = set()
         for job_id in job_ids:
             try:
@@ -577,7 +576,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
                 logger.debug("Cron interrupt targets unresolved for %s: %s", job_id, e)
                 continue
             job_name = job.get("name") or job_id
-            msg = t("gateway.shutdown.cron_interrupted", job=job_name, action=action)
+            msg = (f"⚠️ Scheduled job '{job_name}' was cut short because Hermes is {action}; no result this run. It will run again on schedule, or run it now with `hermes cron run {job_name}` once Hermes is back.")
             for target in targets or ():
                 try:
                     platform = Platform(str(target.get("platform", "")).lower())
@@ -663,7 +662,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         Called at the start of stop() while adapters are connected; send failures never block shutdown.
         """
         restart_source = self._restart_command_source if self._restart_requested else None
-        msg = t("gateway.shutdown.notice_restart" if self._restart_requested else "gateway.shutdown.notice_shutdown")
+        msg = ("⚠️ Hermes is restarting — your current task will be interrupted. Send any message after the restart and I'll try to resume where you left off." if self._restart_requested else "⚠️ Hermes is shutting down — your current task will be interrupted. When it is back online, send any message and I'll try to pick up where we left off.")
         restart_key = None
         if restart_source is not None:
             with suppress(Exception):

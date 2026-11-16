@@ -116,7 +116,6 @@ async def _rename(agent, client, session_id, title):
 async def _rewind(agent, client, session_id, command, arg):
     """``/undo [N]`` reports the removed message (an editor has no composer to put it back in);
     ``/retry`` resubmits the last user turn's lossless text as this prompt."""
-    from agent.i18n import t
     from hermes_cli.gateway_chat_commands import _rewind_to
     retry = command == 'retry'
     if not retry and arg and not (arg.isdigit() and int(arg) > 0):
@@ -134,7 +133,7 @@ async def _rewind(agent, client, session_id, command, arg):
     result = await agent._mutations.apply(client, session_id, 'rewind', payload)
     if result.get('status') == 'nothing' or not result.get('rewound_count'):
         agent._mutations.acknowledge(session_id, 'rewind', payload)
-        return t('cli.session.retry_no_user_message' if retry else 'cli.session.undo_no_user_message'), None
+        return ('(._.) No user message found to retry.' if retry else '(._.) No user message found to undo.'), None
     # Retained until the refresh lands: a repeat after a lost refresh replays this rewind instead of
     # deriving a new target from the already-shortened transcript (which would drop the turn before).
     await agent._adopt(session_id, await client.rpc('session.resume', session_id=session_id))
@@ -147,7 +146,7 @@ async def _rewind(agent, client, session_id, command, arg):
         except ValueError as exc:
             raise CommandRefused(f'/retry: {exc}') from exc
         if not text.strip():
-            return t('cli.session.retry_no_user_message'), None
+            return '(._.) No user message found to retry.', None
         return None, text
     removed = content if isinstance(content, str) else ''
     count = result['rewound_count']
@@ -180,8 +179,7 @@ async def _steer(agent, session_id, text):
     if result.get('voice_stopped') is True:
         # TUI-26: the guidance was a bare stop phrase that ended this LOCAL session's voice chat;
         # no turn saw it, and sending it on as a prompt would admit ``stop`` as a turn.
-        from agent.i18n import t
-        return t('cli.voice.stop_phrase_typed')
+        return 'Stop phrase typed — ending voice chat.'
     if result.get('status') != 'queued':
         return None
     return f"⏩ Steer queued for the active turn: {text[:80]}{'...' if len(text) > 80 else ''}"
@@ -208,8 +206,7 @@ async def _mutate(agent, client, session_id, command, arg):
 
 
 def _cancelled_text(_result):
-    from agent.i18n import t
-    return t('cli.model.switch_cancelled')
+    return 'Model switch cancelled.'
 
 
 # A mutation answer that committed nothing, so the editor's snapshot is still current: a declined

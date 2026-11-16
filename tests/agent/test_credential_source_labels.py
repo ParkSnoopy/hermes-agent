@@ -15,7 +15,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.i18n import t
 
 
 def _never_called() -> str:
@@ -32,7 +31,7 @@ def _config_api_line(capsys, api_key) -> str:
     cli.session_start = datetime(2031, 1, 1)
     cli.show_config()
     out = capsys.readouterr().out
-    return next(line for line in out.splitlines() if t("cli.config.label_api_key") in line)
+    return next(line for line in out.splitlines() if 'API Key:' in line)
 
 
 def _banner(capsys, key) -> str:
@@ -82,36 +81,36 @@ def _untagged_provider(monkeypatch):
 
 
 CASES = [
-    pytest.param(_entra_provider, "cli.config.microsoft_entra_id", id="entra"),
-    pytest.param(_vertex_provider, "cli.config.google_vertex_oauth", id="vertex"),
-    pytest.param(_key_cmd_provider, "cli.config.key_cmd_token", id="key_cmd"),
-    pytest.param(_minimax_provider, "cli.config.minimax_oauth", id="minimax"),
-    pytest.param(_untagged_provider, "cli.config.token_provider", id="unknown"),
+    pytest.param(_entra_provider, 'Microsoft Entra ID', id="entra"),
+    pytest.param(_vertex_provider, 'Google OAuth (Vertex AI)', id="vertex"),
+    pytest.param(_key_cmd_provider, 'key_cmd token (command)', id="key_cmd"),
+    pytest.param(_minimax_provider, 'MiniMax OAuth', id="minimax"),
+    pytest.param(_untagged_provider, 'Token provider', id="unknown"),
 ]
 
 
 @pytest.mark.parametrize(("build", "label_key"), CASES)
 def test_config_labels_a_callable_key_by_its_source(capsys, monkeypatch, build, label_key):
     line = _config_api_line(capsys, build(monkeypatch))
-    assert t(label_key) in line, line
-    if label_key != "cli.config.microsoft_entra_id":
-        assert t("cli.config.microsoft_entra_id") not in line, line
+    assert label_key in line, line
+    if label_key != 'Microsoft Entra ID':
+        assert 'Microsoft Entra ID' not in line, line
 
 
 @pytest.mark.parametrize(("build", "label_key"), CASES)
 def test_key_banner_labels_a_callable_key_by_its_source(capsys, monkeypatch, build, label_key):
     out = _banner(capsys, build(monkeypatch))
-    assert t(label_key) in out, out
-    if label_key != "cli.config.microsoft_entra_id":
+    assert label_key in out, out
+    if label_key != 'Microsoft Entra ID':
         assert "Microsoft Entra ID" not in out, out
 
 
 def test_both_surfaces_share_one_source_table():
     from agent import credential_source as cs
 
-    labels = {cs.credential_label(cs.tag_credential_source(lambda: "", s)) for s in cs.SOURCE_LABEL_KEYS}
-    assert labels == {t(k) for k in cs.SOURCE_LABEL_KEYS.values()}
-    assert t(cs.UNKNOWN_LABEL_KEY) not in labels, "the neutral label must not collide with a vendor label"
+    labels = {cs.credential_label(cs.tag_credential_source(lambda: "", s)) for s in cs.SOURCE_LABELS}
+    assert labels == set(cs.SOURCE_LABELS.values())
+    assert cs.UNKNOWN_LABEL not in labels, "the neutral label must not collide with a vendor label"
 
 
 def test_string_keys_keep_the_masked_form(capsys):

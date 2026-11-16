@@ -1,7 +1,7 @@
 """Contract: the CLI, gateway and TUI /status renderers report the SAME common facts.
 
 Every surface renders through ``hermes_cli.status_report.build_status_fields``; each keeps
-its own header, labels (the gateway is i18n) and extras. This test feeds the three real
+its own header, labels and extras. This test feeds the three real
 renderers the same session facts and asserts every common value appears in each output —
 a contract between one builder and three renderers, not a snapshot of any layout.
 """

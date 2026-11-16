@@ -102,13 +102,12 @@ async def _title(view, rest):
 
 
 async def _undo(view, rest):
-    from agent.i18n import t
     if rest and not (rest.isdigit() and int(rest) > 0):
         raise GatewayClientError("Usage: /undo [N]")
     turns = int(rest or 1)
     rewound = await _rewind(view, turns)
     if rewound is None:
-        print(t("cli.session.undo_no_user_message"))
+        print('(._.) No user message found to undo.')
         return
     text, count = rewound
     print(f"Undid {turns} turn{'s' if turns != 1 else ''} ({count} message(s)); the removed message is in the composer.")
@@ -116,10 +115,9 @@ async def _undo(view, rest):
 
 
 async def _retry(view, rest):
-    from agent.i18n import t
     rewound = await _rewind(view, 1, retry=True)
     if rewound is None or not rewound[0].strip():
-        print(t("cli.session.retry_no_user_message"))
+        print('(._.) No user message found to retry.')
         return
     print(f"\n{'─' * 40}\n● {rewound[0]}", flush=True)
     await view.submit(rewound[0])
@@ -129,7 +127,6 @@ async def _new(view, rest):
     """A fresh session with this one's frozen launch request (model, toolsets, cwd, ...); the old
     session stays resumable by its id. A title is a separate rename so an existing title is a
     conflict, never a silent attach to that other session."""
-    from agent.i18n import t
     info = await view.client.rpc("session.info", session_id=view.session_id)
     accepted = set((await view.client.rpc("runtime.describe")).get("session_create", {}).get("parameters", []))
     # ``client`` names the client that created that session, never this terminal.
@@ -144,7 +141,7 @@ async def _new(view, rest):
     request.update(client_env_policy(accepted))  # never in launch_request: this shell's, sent afresh
     snapshot = await view.client.rpc("session.create", request_id=uuid.uuid4().hex, **request)
     await view.adopt(snapshot)
-    print(t("cli.session.new_session"))
+    print('(^_^)v New session started!')
     print(f"Session: {view.session_id}", file=sys.stderr, flush=True)
     if rest:
         await _title(view, rest)

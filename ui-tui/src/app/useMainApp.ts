@@ -27,6 +27,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DASHBOARD_TUI_MODE, NATIVE_MODE, STARTUP_RESUME_ID } from '../config/env.js'
 import { WHEEL_SCROLL_STEP } from '../config/limits.js'
 import { RESIZE_COALESCE_MS } from '../config/timing.js'
+import { libTextEn } from '../copy/libText.js'
+import { sessionEn } from '../copy/session.js'
+import { slashCmdEn } from '../copy/slashCmd.js'
 import { hasLeadGap, prevRenderedMsg } from '../domain/blockLayout.js'
 import { SECTION_NAMES, sectionMode } from '../domain/details.js'
 import { hasPasteChip } from '../domain/pasteExpand.js'
@@ -34,8 +37,6 @@ import { composeTabTitle, fmtProjectCwdBranch, shortCwd } from '../domain/paths.
 import { type GatewayClient } from '../gatewayClient.js'
 import { useGitBranch } from '../hooks/useGitBranch.js'
 import { pruneVirtualHeightCache, useVirtualHistory } from '../hooks/useVirtualHistory.js'
-import { t } from '../i18n/runtime.js'
-import { useT } from '../i18n/useT.js'
 import { composerPromptWidth } from '../lib/inputMetrics.js'
 import { appendTranscriptMessage, capTranscriptHistory } from '../lib/messages.js'
 import { DEFAULT_VOICE_RECORD_KEY, isMac, type ParsedVoiceRecordKey } from '../lib/platform.js'
@@ -198,10 +199,10 @@ export async function startPromptLiveSession({
   // the initial title. Auto-title generation can rename it after the first
   // response; pre-queuing prompt text here causes duplicate-title errors when
   // users dispatch common prompts like "Hello, what model are you?".
-  const sid = (await newLiveSession(t('session.lifecycle.newLiveSessionStarted'))) ?? null
+  const sid = (await newLiveSession(sessionEn.session.lifecycle.newLiveSessionStarted)) ?? null
 
   if (!sid) {
-    sys(`error: ${t('session.main.failedToStartLiveSession')}`)
+    sys(`error: ${sessionEn.session.main.failedToStartLiveSession}`)
 
     return null
   }
@@ -219,15 +220,15 @@ export async function startPromptLiveSession({
         // the answer; "switch anyway" re-sends once with the owner's token, then submits.
         patchOverlayState({
           confirm: {
-            cancelLabel: t('slashCmd.session.model.cancel'),
-            confirmLabel: t('slashCmd.session.model.switchAnyway'),
+            cancelLabel: slashCmdEn.slashCmd.session.model.cancel,
+            confirmLabel: slashCmdEn.slashCmd.session.model.switchAnyway,
             danger: true,
-            detail: refusal.confirm_message || t('slashCmd.session.model.expensiveDetail'),
+            detail: refusal.confirm_message || slashCmdEn.slashCmd.session.model.expensiveDetail,
             onConfirm: () =>
               void applyModel(refusal.confirm).catch((error: unknown) =>
                 sys(`error: ${error instanceof Error ? error.message : String(error)}`)
               ),
-            title: t('slashCmd.session.model.confirmTitle', refusal.target_model ?? requestedModel)
+            title: slashCmdEn.slashCmd.session.model.confirmTitle(refusal.target_model ?? requestedModel)
           }
         })
 
@@ -237,13 +238,13 @@ export async function startPromptLiveSession({
       const result = mutation ? { ...mutation.result, value: mutation.result.model } : null
 
       if (!result?.value) {
-        sys(`error: ${t('session.main.invalidModelSwitchResponse')}`)
+        sys(`error: ${sessionEn.session.main.invalidModelSwitchResponse}`)
 
         return
       }
 
       if (isCurrentDestination(destination)) {
-        sys(t('session.main.modelSwitched', result.value))
+        sys(sessionEn.session.main.modelSwitched(result.value))
         maybeWarn(result)
         onModelSwitched?.(result.value, result)
       }
@@ -352,7 +353,7 @@ export function useMainApp(gw: GatewayClient) {
 
   const ui = useStore($uiState)
   const overlay = useStore($overlayState)
-  const i18n = useT()
+
 
   const turnLiveTailActive = useTurnSelector(state =>
     Boolean(
@@ -601,15 +602,15 @@ export function useMainApp(gw: GatewayClient) {
     () =>
       onUserWidgets(({ added, errors, removed }) => {
         for (const id of added) {
-          sys(t('session.main.widgetLive', id))
+          sys(sessionEn.session.main.widgetLive(id))
         }
 
         for (const id of removed) {
-          sys(t('session.main.widgetRemoved', id))
+          sys(sessionEn.session.main.widgetRemoved(id))
         }
 
         for (const err of errors) {
-          sys(t('session.main.widgetFailedToLoad', err.file, err.message))
+          sys(sessionEn.session.main.widgetFailedToLoad(err.file, err.message))
         }
       }),
     [sys]
@@ -649,7 +650,7 @@ export function useMainApp(gw: GatewayClient) {
           return result
         }
 
-        sys(`error: ${t('session.common.invalidResponse', method)}`)
+        sys(`error: ${sessionEn.session.common.invalidResponse(method)}`)
       } catch (e) {
         sys(`error: ${rpcErrorMessage(e)}`)
       }
@@ -1126,7 +1127,7 @@ export function useMainApp(gw: GatewayClient) {
           busy: false,
           compacting: false,
           gatewayConnected: false,
-          status: t('session.status.reconnecting')
+          status: sessionEn.session.status.reconnecting
         })
 
         // Once per outage: each failed redial emits another exit (main printed it once).
@@ -1146,7 +1147,7 @@ export function useMainApp(gw: GatewayClient) {
       const plan = planGatewayRecovery(storedSid, recoverSidRef.current, recoveryAtRef.current, Date.now())
 
       recoveryAtRef.current = plan.attempts
-      patchUiState({ busy: false, compacting: false, gatewayConnected: false, status: t('libText.gateway.exited') })
+      patchUiState({ busy: false, compacting: false, gatewayConnected: false, status: libTextEn.libText.gateway.exited })
 
       if (plan.recover && plan.sid) {
         recoverSidRef.current = plan.sid
@@ -1162,7 +1163,7 @@ export function useMainApp(gw: GatewayClient) {
       // recovery target: when that background reconnect eventually succeeds,
       // gateway.ready must reopen the SAME chat instead of forging a new one.
       recoverSidRef.current = plan.sid
-      patchUiState({ status: t('session.status.stopped') })
+      patchUiState({ status: sessionEn.session.status.stopped })
 
       if (!gaveUpRef.current) {
         gaveUpRef.current = true
@@ -1391,7 +1392,7 @@ export function useMainApp(gw: GatewayClient) {
 
   const closeLiveSession = useCallback(
     async (id: string) => {
-      patchUiState({ status: t('session.status.closingSession') })
+      patchUiState({ status: sessionEn.session.status.closingSession })
 
       try {
         const result = (await session.closeLiveView(id)) as null | SessionCloseResponse
@@ -1506,7 +1507,7 @@ export function useMainApp(gw: GatewayClient) {
       // (Switching between live sessions and `+ new` keep the current session
       // running, so those stay unguarded — that's the orchestrator's purpose.)
       resumeById: (id: string) => {
-        if (session.guardBusySessionSwitch(t('session.lifecycle.switchSessions'))) {
+        if (session.guardBusySessionSwitch(sessionEn.session.lifecycle.switchSessions)) {
           return
         }
 
@@ -1603,16 +1604,16 @@ export function useMainApp(gw: GatewayClient) {
       // CLI parity: the classic prompt_toolkit status bar shows a red dot
       // on REC (cli.py:_get_voice_status_fragments line 2344).
       voiceLabel: voiceRecording
-        ? i18n.session.main.voiceRec
+        ? sessionEn.session.main.voiceRec
         : voiceProcessing
-          ? i18n.session.main.voiceStt
-          : `${voiceEnabled ? i18n.session.main.voiceOn : i18n.session.main.voiceOff}${voiceTts ? i18n.session.main.voiceTtsSuffix : ''}`
+          ? sessionEn.session.main.voiceStt
+          : `${voiceEnabled ? sessionEn.session.main.voiceOn : sessionEn.session.main.voiceOff}${voiceTts ? sessionEn.session.main.voiceTtsSuffix : ''}`
     }),
     [
       cwd,
       gitBranch,
       goodVibesTick,
-      i18n,
+
       lastTurnEndedAt,
       sessionStartedAt,
       stickyPrompt,

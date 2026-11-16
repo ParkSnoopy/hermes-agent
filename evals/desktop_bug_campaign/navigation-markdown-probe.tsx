@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import type { ReactNode } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from '@/lib/query-client'
-import { I18nProvider } from '@/i18n'
+
 import { ThemeProvider } from '@/themes/context'
 import { RootTooltipProvider } from '@/components/ui/tooltip'
 import { MarkdownTextContent } from '@/components/assistant-ui/markdown-text'
@@ -31,6 +31,6 @@ const ingress = {
 const cases = Object.fromEntries(Object.entries(ingress).flatMap(([name, apply]) => Object.entries(samples).map(([kind, input]) => [`${name}-${kind}`, {kind, input, text: apply(input)}])))
 Object.assign(window, {markdownCases: cases, preprocessMarkdown})
 function Providers({children}: {children: ReactNode}) {
-  return <QueryClientProvider client={queryClient}><I18nProvider><ThemeProvider><RootTooltipProvider>{children}</RootTooltipProvider></ThemeProvider></I18nProvider></QueryClientProvider>
+  return <QueryClientProvider client={queryClient}><ThemeProvider><RootTooltipProvider>{children}</RootTooltipProvider></ThemeProvider></QueryClientProvider>
 }
 createRoot(document.getElementById('root')!).render(<Providers><main style={{padding:40}}><h1>Production Markdown renderer probe</h1>{Object.entries(cases).map(([id, {text}]) => <section id={id} key={id}><h2>{id}</h2><MarkdownTextContent text={text} isRunning={false}/></section>)}</main></Providers>)

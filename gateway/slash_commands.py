@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
 
-from agent.i18n import t
+
 from gateway.config import Platform
 from gateway.platforms.base import EphemeralReply
 from gateway.platforms.event import MessageEvent
@@ -36,27 +36,27 @@ from utils import atomic_json_write, is_truthy_value
 logger = logging.getLogger("gateway.run")
 
 
-# /rollback result keys -> i18n line for files the safe restore left alone.
-_ROLLBACK_SKIP_LINES = (("skipped_user_edits", "gateway.rollback.kept_user_edits"),
-                        ("skipped_oversize", "gateway.rollback.kept_oversize"),
-                        ("failed_deletes", "gateway.rollback.failed_deletes"))
+# /rollback result keys -> lines for files the safe restore left alone.
+_ROLLBACK_SKIP_LINES = (("skipped_user_edits", '↷ Kept your hand-edits: {files}\nUse /rollback <N> --all to restore those too.'),
+                        ("skipped_oversize", '↷ Kept (too large for checkpoints, no stored copy to revert to): {files}'),
+                        ("failed_deletes", '⚠️ Could not remove (left in place): {files}'))
 
-# /busy input modes -> (status-card behavior key, set-confirmation behavior key); text via t().
+# /busy input modes -> (status-card description, set-confirmation text).
 _BUSY_MODE_BEHAVIOR = {
-    "queue": ("gateway.busy.behavior_queue_short", "gateway.busy.behavior_queue_long"),
-    "steer": ("gateway.busy.behavior_steer_short", "gateway.busy.behavior_steer_long"),
-    "interrupt": ("gateway.busy.behavior_interrupt_short", "gateway.busy.behavior_interrupt_long"),
+    "queue": ('queues for next turn', 'Messages will be queued for the next turn while Hermes is busy.'),
+    "steer": ('steers into current run (after next tool call)', 'Messages will be steered into the current run (after the next tool call).'),
+    "interrupt": ('interrupts current run', 'Messages will interrupt the current run while Hermes is busy.'),
 }
 
 # /diff argument -> diff mode (unknown args leave the mode unchanged).
 _DIFF_MODE_BY_ARG = {**dict.fromkeys(("staged", "--staged", "cached", "--cached"), "staged"),
                      **dict.fromkeys(("all", "--all", "head"), "all"), "session": "session"}
 
-# /voice subcommand -> stored mode (None = auto-TTS disabled), confirmation i18n key.
+# /voice subcommand -> stored mode (None = auto-TTS disabled), confirmation text.
 _VOICE_MODE_BY_ARG = {
-    **dict.fromkeys(("on", "enable"), ("voice_only", "gateway.voice.enabled_voice_only")),
-    **dict.fromkeys(("off", "disable"), ("off", "gateway.voice.disabled_text")),
-    "tts": ("all", "gateway.voice.tts_enabled")}
+    **dict.fromkeys(("on", "enable"), ("voice_only", "Voice mode enabled.\nI'll reply with voice when you send voice messages.\nUse /voice tts to get voice replies for all messages.")),
+    **dict.fromkeys(("off", "disable"), ("off", 'Voice mode disabled. Text-only replies.')),
+    "tts": ("all", 'Auto-TTS enabled.\nAll replies will include a voice message.')}
 
 # /footer argument -> new enabled state ("" toggles; anything else is a usage error).
 _FOOTER_STATE_BY_ARG = {**dict.fromkeys(("on", "enable", "true", "1"), True),
@@ -203,7 +203,7 @@ class GatewaySlashCommandsMixin(
     @staticmethod
     def _session_db_unavailable_reply() -> str:
         from hermes_state import format_session_db_unavailable
-        return format_session_db_unavailable(prefix=t("gateway.shared.session_db_unavailable_prefix"))
+        return format_session_db_unavailable(prefix='Session database not available')
 
     def _reply_metadata(self, event: MessageEvent):
         """Thread/reply metadata for an outbound send anchored on *event*."""
@@ -311,8 +311,8 @@ class GatewaySlashCommandsMixin(
         # Shared executor resolves process-level fallbacks; the multiplexed per-source overrides
         # (when any) ride in via options.
         reply = _execute("profile", options={"profile_name": profile_name, "home_display": display})
-        return "\n".join([t("gateway.profile.header", profile=reply.data["profile"]),
-                          t("gateway.profile.home", home=reply.data["home"])])
+        return "\n".join([('👤 **Profile:** `{profile}`').format(profile=reply.data["profile"]),
+                          ('📂 **Home:** `{home}`').format(home=reply.data["home"])])
 
     async def _handle_whoami_command(self, event: MessageEvent) -> str:
         """Handle /whoami — platform, DM-vs-group scope, tier and runnable commands (always allowed)."""
@@ -321,18 +321,18 @@ class GatewaySlashCommandsMixin(
         policy = policy_for_runner_source(self, source)
         platform = source.platform.value if source and source.platform else "?"
         chat_type = ((source.chat_type if source else "") or "dm").lower()
-        scope = t("gateway.whoami.scope_dm" if chat_type in {"dm", "direct", "private", ""} else "gateway.whoami.scope_group")
+        scope = ('DM' if chat_type in {"dm", "direct", "private", ""} else 'group/channel')
         user_id = (source.user_id if source else None) or "?"
-        head = t("gateway.whoami.header", platform=platform, scope=scope, user_id=user_id)
+        head = (f'**You** — {platform} ({scope})\nUser ID: `{user_id}`\n')
         if not policy.enabled:
-            return head + t("gateway.whoami.tier_unrestricted")
+            return head + 'Tier: unrestricted (no admin list configured for this scope)\nSlash commands: all available'
         if policy.is_admin(user_id):
-            return head + t("gateway.whoami.tier_admin")
+            return head + 'Tier: **admin**\nSlash commands: all available'
         # Non-admin: floor first (mirrors slash_access._ALWAYS_ALLOWED_FOR_USERS), then operator
         # additions, deduped in order.
         runnable = list(dict.fromkeys(["help", "whoami"] + sorted(policy.user_allowed_commands)))
-        runnable_str = ", ".join(f"/{c}" for c in runnable) if runnable else t("gateway.shared.none_marker")
-        return head + t("gateway.whoami.tier_user", commands=runnable_str)
+        runnable_str = ", ".join(f"/{c}" for c in runnable) if runnable else '(none)'
+        return head + (f'Tier: user\nSlash commands you can run: {runnable_str}')
 
 
     async def _handle_stop_command(self, event: MessageEvent) -> str | EphemeralReply:
@@ -357,10 +357,10 @@ class GatewaySlashCommandsMixin(
         if agent is _AGENT_PENDING_SENTINEL:  # force-clean the sentinel so the session is unlocked
             await _stop(run_key, "stop_command_pending")
             logger.info("STOP (pending) for session %s — sentinel cleared", run_key)
-            return EphemeralReply(t("gateway.stop.stopped_pending"))
+            return EphemeralReply("⚡ Stopped. The agent hadn't started yet — you can continue this session.")
         if agent:  # force-clean the session lock so a truly hung agent doesn't keep it forever
             await _stop(run_key, "stop_command_handler")
-            return EphemeralReply(t("gateway.stop.stopped"))
+            return EphemeralReply('⚡ Stopped. You can continue this session.')
 
         # No run under the caller's own key: a live turn in THIS chat may still carry a differently
         # shaped key. One scan feeds both tiers; the chat tier is a superset of the thread-sibling
@@ -383,14 +383,14 @@ class GatewaySlashCommandsMixin(
                 await _stop(fallback_key, reason)
             logger.info("STOP (%s) by %s — interrupted %d run(s): %s",
                         reason, session_key, len(fallback_keys), ", ".join(fallback_keys))
-            return EphemeralReply(t("gateway.stop.stopped"))
+            return EphemeralReply('⚡ Stopped. You can continue this session.')
 
         # No running agent anywhere for this scope. Background delegations the session dispatched in an
         # earlier turn still count as "active": stop them; each returns as an interrupted completion.
         from tools.async_delegation import interrupt_for_session
         if interrupt_for_session(session_key=session_key, reason="stop_command",
                                  parent_session_id=str(getattr(session_entry, "session_id", "") or "")):
-            return EphemeralReply(t("gateway.stop.stopped"))
+            return EphemeralReply('⚡ Stopped. You can continue this session.')
         # A platform status indicator can still be stuck —
         # e.g. Slack's persistent assistant.threads.setStatus survives a gateway restart or a turn
         # that died without a final send.
@@ -401,7 +401,7 @@ class GatewaySlashCommandsMixin(
                 await adapter._stop_typing_with_metadata(source.chat_id, self._reply_metadata(event))
         except Exception:
             logger.debug("Failed to clear typing on /stop with no active agent", exc_info=True)
-        return t("gateway.stop.no_active")
+        return 'No active task to stop.'
 
 
     async def _handle_restart_command(self, event: MessageEvent) -> str | EphemeralReply | None:
@@ -410,7 +410,7 @@ class GatewaySlashCommandsMixin(
 
         if self._restart_requested or self._draining:
             count = self._running_agent_count()
-            return t("gateway.draining", count=count) if count else EphemeralReply(t("gateway.restart.in_progress"))
+            return (f'⏳ Draining {count} active agent(s) before restart...') if count else EphemeralReply('⏳ Gateway restart already in progress...')
 
         async def _write_marker(name: str, build, label: str) -> None:
             try:
@@ -435,7 +435,7 @@ class GatewaySlashCommandsMixin(
         # Idle: teardown is immediate and a RETURNED ack raced the adapter disconnect (lost on a real
         # Bot API round trip, #65057), so deliver it first. Draining: the drain waits, the reply lands.
         from gateway.restart_ack import send_restart_ack
-        ack = t("gateway.draining", count=active_agents) if active_agents else EphemeralReply(t("gateway.restart.restarting"))
+        ack = (f'⏳ Draining {active_agents} active agent(s) before restart...') if active_agents else EphemeralReply("♻ Restarting gateway. If you aren't notified within 60 seconds, restart from the console with `hermes gateway restart`.")
         sent = not active_agents and await send_restart_ack(self, self._delivery_adapter_for(event.source), event, ack)
         # Under a service manager (systemd/launchd) or Docker/Podman, exit 75 so the supervisor /
         # restart policy restarts us — detached setsid+bash fails there (systemd KillMode=mixed kills
@@ -507,27 +507,27 @@ class GatewaySlashCommandsMixin(
         if args in _VOICE_MODE_BY_ARG:
             mode, reply_key = _VOICE_MODE_BY_ARG[args]
             _set_mode(mode)
-            return t(reply_key)
+            return reply_key
         if args in {"channel", "join", "leave"}:
             return "Voice channels are no longer supported."
         if args == "status":
             mode = self._voice_mode.get(voice_key, "off")
-            label = t(f"gateway.voice.label_{mode}") if mode in ("off", "voice_only", "all") else mode
-            lines = [t("gateway.voice.status_mode", label=label)]
+            label = {'off': 'Off (text only)', 'voice_only': 'On (voice reply to voice messages)', 'all': 'TTS (voice reply to all messages)'}.get(mode, mode)
+            lines = [(f'Voice mode: {label}')]
             return "\n".join(lines)
 
         # Toggle: off → on, on/all → off
         turning_on = self._voice_mode.get(voice_key, "off") == "off"
         _set_mode("voice_only" if turning_on else "off")
-        toggle_line = t("gateway.voice.enabled_short" if turning_on else "gateway.voice.disabled_short")
-        return t("gateway.voice.help", toggle=toggle_line, channels="")
+        toggle_line = ('Voice mode enabled.' if turning_on else 'Voice mode disabled.')
+        return ('{toggle}\n\n**How /voice works**\n• `/voice on` — voice reply when you send a voice message\n• `/voice tts` — voice reply to *every* message\n• `/voice off` — back to text-only replies\n• `/voice status` — show the current mode\n• `/voice` (no argument) — quick toggle between on and off{channels}').format(toggle=toggle_line, channels="")
 
     async def _handle_rollback_command(self, event: MessageEvent) -> str:
         """Handle /rollback command — list or restore filesystem checkpoints."""
         from tools.checkpoint_manager import format_checkpoint_list
         mgr = self._checkpoint_manager(event.source)
         if mgr is None:
-            return t("gateway.rollback.not_enabled")
+            return 'Checkpoints are not enabled.\nEnable in config.yaml:\n```\ncheckpoints:\n  enabled: true\n```'
         cwd = self._terminal_cwd()
         # --all / --force: classic full restore, overwriting user edits too.
         tokens = event.get_command_args().strip().split()
@@ -543,23 +543,23 @@ class GatewaySlashCommandsMixin(
             listing = format_checkpoint_list(checkpoints, cwd)
             return f"{reason}\n{listing}" if reason else listing
         if not checkpoints:
-            return t("gateway.rollback.none_found", cwd=cwd)
+            return (f'No checkpoints found for {cwd}')
 
         # Restore by number or hash (a short hash can be all digits)
         from tools.checkpoint_refs import resolve_checkpoint_ref
         try:
             target_hash = resolve_checkpoint_ref(checkpoints, arg)
         except ValueError:
-            return t("gateway.rollback.invalid_number", max=len(checkpoints))
+            return (f'Invalid checkpoint number. Use 1-{len(checkpoints)}.')
         result = mgr.restore(cwd, target_hash, safe=not restore_all)
         if not result["success"]:
-            return t("gateway.rollback.restore_failed", error=result["error"])
-        msg = t("gateway.rollback.restored", hash=result["restored_to"], reason=result["reason"])
-        for result_key, i18n_key in _ROLLBACK_SKIP_LINES:
+            return ('❌ {error}').format(error=result["error"])
+        msg = ('✅ Restored to checkpoint {hash}: {reason}\nA pre-rollback snapshot was saved automatically.').format(hash=result["restored_to"], reason=result["reason"])
+        for result_key, template in _ROLLBACK_SKIP_LINES:
             files = result.get(result_key) or []
             if files:
                 more = f" (+{len(files) - 5})" if len(files) > 5 else ""
-                msg += "\n" + t(i18n_key, files=", ".join(files[:5]) + more)
+                msg += "\n" + template.format(files=", ".join(files[:5]) + more)
         return msg
 
     async def _handle_diff_command(self, event: MessageEvent) -> str:
@@ -575,7 +575,7 @@ class GatewaySlashCommandsMixin(
             # Cumulative checkpoint-baseline diff.
             mgr = self._checkpoint_manager(event.source)
             if mgr is None:
-                return t("gateway.diff.not_enabled")
+                return "Checkpoints are not enabled, so there's no session baseline.\nEnable in config.yaml:\n```\ncheckpoints:\n  enabled: true\n```\nPlain /diff still works — it uses git directly."
             if reason := mgr.unsupported_backend_reason():  # host baseline is not this session's tree
                 return reason
             result = await asyncio.to_thread(mgr.session_diff, cwd)
@@ -583,7 +583,7 @@ class GatewaySlashCommandsMixin(
             from tools.working_diff import collect_working_diff
             result = await asyncio.to_thread(collect_working_diff, cwd, mode)
         if not result.get("success"):
-            return t("gateway.diff.failed", error=result.get("error") or t("gateway.diff.err_default"))
+            return ('{error}').format(error=result.get("error") or 'Could not generate diff')
         return self._render_diff_result(result, stat_only)
 
     def _render_diff_result(self, result: dict, stat_only: bool) -> str:
@@ -592,14 +592,14 @@ class GatewaySlashCommandsMixin(
         diff = result.get("diff", "")
         untracked = result.get("untracked", [])
         if result.get("empty") or (not stat and not diff and not untracked):
-            return t("gateway.diff.no_changes")
+            return 'No changes.'
         out: list[str] = []
         if stat:
             out.append(f"```\n{stat}\n```")
         if untracked:
             shown = "\n".join(f"+ {rel}" for rel in untracked[:15])
-            more = t("gateway.diff.more_untracked", count=len(untracked) - 15) if len(untracked) > 15 else ""
-            out.append(f"{t('gateway.diff.untracked_label')}\n```\n{shown}{more}\n```")
+            more = (f'\n... and {len(untracked) - 15} more') if len(untracked) > 15 else ""
+            out.append(f"{'**Untracked:**'}\n```\n{shown}{more}\n```")
         if not stat_only and diff:
             out.append(self._fenced_truncated_diff(diff))
         return "\n\n".join(out)
@@ -616,7 +616,7 @@ class GatewaySlashCommandsMixin(
             truncated = True
         note = ""
         if truncated:
-            note = t("gateway.diff.truncated_note", lines=len(diff_lines))
+            note = (f'\n... (truncated — {len(diff_lines)} lines total; use /diff --stat for a summary)')
         return f"```diff\n{diff}{note}\n```"
 
     def _track_background_task(self, coro) -> None:
@@ -630,13 +630,13 @@ class GatewaySlashCommandsMixin(
         result is sent to the same chat without touching the active session's history."""
         prompt = event.get_command_args().strip()
         if not prompt:
-            return t("gateway.background.usage")
+            return 'Usage: /bg <prompt>\nExample: /bg Summarize the top HN stories today\n\nRuns the prompt in a separate session. You can keep chatting — the result will appear here when done.'
         task_id = f"bg_{datetime.now().strftime('%H%M%S')}_{os.urandom(3).hex()}"
         self._track_background_task(self._run_background_task(
             prompt, event.source, task_id, event_message_id=self._reply_anchor_for_event(event),
             # Forward image/audio attachments so the background agent can see them.
             media_urls=list(event.media_urls or []), media_types=list(event.media_types or [])))
-        return t("gateway.background.started", preview=_preview(prompt), task_id=task_id)
+        return (f'🔄 Background task started: "{_preview(prompt)}"\nTask ID: {task_id}\nYou can keep chatting — results will appear when done.')
 
     async def _handle_btw_command(self, event: MessageEvent) -> str:
         """Handle /btw <question> — one-shot auxiliary LLM call on a transcript snapshot; live history
@@ -644,7 +644,7 @@ class GatewaySlashCommandsMixin(
         which spawns a fresh contextless session."""
         question = event.get_command_args().strip()
         if not question:
-            return t("gateway.btw.usage")
+            return 'Usage: /btw <question>\nExample: /btw which file was that error in?\n\nAnswers a quick side question about this conversation without interrupting it. For an independent background task, use /bg <prompt>.'
         source = event.source
         session_entry = await self.async_session_store.get_or_create_session(source)
         try:
@@ -652,13 +652,13 @@ class GatewaySlashCommandsMixin(
         except TranscriptReadError:
             return history_unreadable()
         if not history:
-            return t("gateway.btw.no_history")
+            return 'No conversation yet — send your question as a normal message instead.'
         try:
             model, rt = self._resolve_session_agent_runtime(source=source)
         except Exception:
             model, rt = None, {}
         if not rt.get("api_key"):
-            return t("gateway.btw.no_provider")
+            return '❌ Cannot answer side question: no provider credentials configured.'
         main_runtime = {
             "model": model,
             **{k: rt.get(k) for k in ("provider", "base_url", "api_key", "api_mode")},
@@ -682,15 +682,15 @@ class GatewaySlashCommandsMixin(
                 answer = await asyncio.to_thread(
                     answer_side_question, question, history_snapshot,
                     parent_agent=parent_agent, main_runtime=main_runtime)
-                reply = t("gateway.btw.answer", preview=preview, answer=answer or "")
+                reply = ('💬 /btw: "{preview}"\n\n{answer}').format(preview=preview, answer=answer or "")
             except Exception as e:
                 logger.warning("/btw side question failed: %s", e)
-                reply = t("gateway.btw.failed", preview=preview, error=str(e))
+                reply = (f'❌ /btw failed: "{preview}"\n{e!s}')
             if adapter is not None:
                 await adapter.send(source.chat_id, reply, metadata=_thread_metadata)
 
         self._track_background_task(_run_side_question())
-        return t("gateway.btw.started", preview=preview)
+        return (f'💬 Side question: "{preview}"\nAnswering from a snapshot of this conversation — the current work continues.')
 
     async def _handle_memory_command(self, event: MessageEvent) -> str:
         """Handle /memory — review pending memory writes + toggle the approval gate. Entries are small
@@ -703,7 +703,7 @@ class GatewaySlashCommandsMixin(
         out = handle_pending_subcommand(
             wa.MEMORY, event.get_command_args().strip().split(), memory_store=load_on_disk_store(),
             set_mode_fn=self._write_approval_setter("memory", event))
-        return out if out is not None else t("gateway.memory.unknown_subcommand")
+        return out if out is not None else 'Unknown /memory subcommand. Use: pending, approve <id>, reject <id>, approval <on|off>.'
 
     async def _handle_skills_command(self, event: MessageEvent) -> str:
         """Handle /skills on the gateway — pending skill-write review only (hub stays CLI-only). Gated
@@ -715,17 +715,17 @@ class GatewaySlashCommandsMixin(
         sub = args[0].lower() if args else ""
         gate_off = not wa.write_approval_enabled(wa.SKILLS) and sub not in {"approval", "mode"}
         if gate_off and wa.pending_count(wa.SKILLS) == 0:
-            return t("gateway.skills.gate_off")
+            return 'Skill write approval is off (skills.write_approval). Enable it with /skills approval on, then review staged writes here with /skills pending.'
         out = handle_pending_subcommand(
             wa.SKILLS, args, set_mode_fn=self._write_approval_setter("skills", event))
         if out is None:
-            return t("gateway.skills.unknown_subcommand")
+            return 'Unknown /skills subcommand on this platform. Use: pending, approve <id>, reject <id>, diff <id>, approval <on|off>. (Search/install are CLI-only.)'
 
         # Chat bubbles can't hold a full skill diff — truncate and point at the pending JSON file
         # (NOT `hermes skills diff <name>`, which diffs a bundled skill against its stock version).
         if sub == "diff" and len(out) > 3000:
             pending_id = args[1] if len(args) > 1 else "<id>"
-            out = out[:3000] + t("gateway.skills.diff_truncated", pending_id=pending_id)
+            out = out[:3000] + (f'\n… (truncated — full diff in ~/.hermes/pending/skills/{pending_id}.json)')
         return out
 
     async def _handle_approvals_command(self, event: MessageEvent) -> str:
@@ -738,7 +738,7 @@ class GatewaySlashCommandsMixin(
         # Unconfigured policies remain unrestricted.
         policy = policy_for_runner_source(self, event.source)
         if requested and not policy.is_admin(event.source.user_id):
-            return t("gateway.approvals.admin_only")
+            return 'Only gateway admins can change the persistent approval mode.'
         # Approval checks load config dynamically; do not evict the cached agent or alter its
         # system prompt/tool schema (prompt-cache prefix is sacred).
         return run_approval_mode_command(requested).message
@@ -755,7 +755,7 @@ class GatewaySlashCommandsMixin(
             persist = lambda on: store.set_session_yolo(session_key, on)
         # Off the loop: the persist is a routing-store write (thread-safe, like AsyncSessionStore's calls).
         enable = await asyncio.to_thread(toggle_session_yolo, session_key, persisted=persisted, persist=persist)
-        return EphemeralReply(t("gateway.yolo.enabled" if enable else "gateway.yolo.disabled"))
+        return EphemeralReply('⚡ YOLO mode **ON** for this session — all commands auto-approved. Use with caution.' if enable else '⚠️ YOLO mode **OFF** for this session — dangerous commands will require approval.')
 
     async def _handle_verbose_command(self, event: MessageEvent) -> str:
         """Handle /verbose — cycle tool progress display mode (off → new → all → verbose → log) per
@@ -773,7 +773,7 @@ class GatewaySlashCommandsMixin(
             user_config, gate_enabled = {}, False
         # The opt-in gate is for messaging chats; a local session always owned /verbose.
         if not gate_enabled and live is None:
-            return t("gateway.verbose.not_enabled")
+            return 'The `/verbose` command is not enabled for messaging platforms.\n\nEnable it in `config.yaml`:\n```yaml\ndisplay:\n  tool_progress_command: true\n```'
         # Cycle mode (per-platform), reading the current effective mode via the resolver. ``log``
         # (tool calls to a log file instead of the chat) is a messaging mode: a local client renders
         # every tool event itself.
@@ -784,13 +784,13 @@ class GatewaySlashCommandsMixin(
         new_mode = cycle[(cycle.index(current if current in cycle else "all") + 1) % len(cycle)]
         if live is not None:
             live.tool_progress_mode = new_mode  # what ``config.get verbose`` and the next tool event read
-        description = t(f"gateway.verbose.mode_{new_mode}")
+        description = {'off': '⚙️ Tool progress: **OFF** — no tool activity shown.', 'new': '⚙️ Tool progress: **NEW** — shown when tool changes (preview length: `display.tool_preview_length`, default 40).', 'all': '⚙️ Tool progress: **ALL** — every tool call shown (preview length: `display.tool_preview_length`, default 40).', 'verbose': '⚙️ Tool progress: **VERBOSE** — every tool call with full arguments.', 'log': '⚙️ Tool progress: **LOG** — silent in chat; tool calls written to ~/.hermes/logs/tool_calls.log.'}[new_mode]
         try:
             _write_raw_config_leaf(config_path, ("display", "platforms", platform_key, "tool_progress"), new_mode)
-            return f"{description}\n" + t("gateway.verbose.saved_suffix", platform=platform_key)
+            return f"{description}\n" + (f'_(saved for **{platform_key}** — takes effect on next message)_')
         except Exception as e:
             logger.warning("Failed to save tool_progress mode: %s", e)
-            return f"{description}\n" + t("gateway.verbose.save_failed", error=e)
+            return f"{description}\n" + (f'_(could not save to config: {e})_')
 
     async def _handle_busy_command(self, event: MessageEvent) -> str | EphemeralReply:
         """Handle /busy — control what happens when messaging while Hermes is working."""
@@ -799,15 +799,15 @@ class GatewaySlashCommandsMixin(
         live = local_live(self, event.source)
         if not arg or arg == "status":
             mode = session_busy_mode(self, live) if live is not None else self._effective_busy_input_mode(event.source)
-            behavior = t(_BUSY_MODE_BEHAVIOR.get(mode, _BUSY_MODE_BEHAVIOR["interrupt"])[0])
-            return EphemeralReply(t("gateway.busy.status", mode=mode, behavior=behavior))
+            behavior = _BUSY_MODE_BEHAVIOR.get(mode, _BUSY_MODE_BEHAVIOR["interrupt"])[0]
+            return EphemeralReply(f'**Busy input mode: `{mode}`\nMessages while busy: _{behavior}_\nChange with `/busy queue`, `/busy steer`, or `/busy interrupt`.')
         if arg not in _BUSY_MODE_BEHAVIOR:
-            return EphemeralReply(t("gateway.busy.unknown_mode", arg=arg))
+            return EphemeralReply(f'Unknown mode `{arg}`. Use `/busy queue`, `/busy steer`, or `/busy interrupt`.')
 
         # Persist before mutate
         from cli import save_config_value
         if not save_config_value("display.busy_input_mode", arg):
-            return EphemeralReply(t("gateway.busy.save_failed"))
+            return EphemeralReply('Busy input mode could not be saved to config. Mode unchanged.')
         if live is not None:
             live.busy_input_mode = arg  # the frozen session does not re-read config.yaml
         profile_name = self._busy_profile_name_for_source(event.source)
@@ -823,7 +823,7 @@ class GatewaySlashCommandsMixin(
         adapter = self._delivery_adapter_for(event.source)
         if adapter is not None:
             adapter._busy_text_mode = self._effective_busy_text_mode(event.source)
-        return EphemeralReply(t("gateway.busy.set", mode=arg, behavior=t(_BUSY_MODE_BEHAVIOR[arg][1])))
+        return EphemeralReply(f'Busy input mode set to **`{arg}`** (saved).\n_{_BUSY_MODE_BEHAVIOR[arg][1]}_')
 
     async def _handle_footer_command(self, event: MessageEvent) -> str:
         """Handle /footer command — toggle the runtime-metadata footer."""
@@ -834,16 +834,15 @@ class GatewaySlashCommandsMixin(
         try:
             user_config: dict = _load_gateway_config()
         except Exception as e:
-            return t("gateway.config_read_failed", error=e)
+            return (f'⚠️ Could not read config.yaml: {e}')
         effective = resolve_footer_config(user_config, platform_key)
 
         def _state(enabled: bool) -> str:
-            return t("gateway.footer.state_on") if enabled else t("gateway.footer.state_off")
+            return 'ON' if enabled else 'OFF'
         if arg in {"status", "?"}:
-            return t("gateway.footer.status", state=_state(effective["enabled"]),
-                     fields=", ".join(effective.get("fields") or []), platform=platform_key)
+            return ('📎 Runtime footer: **{state}**\nFields: `{fields}`\nPlatform: `{platform}`').format(state=_state(effective["enabled"]), fields=", ".join(effective.get("fields") or []), platform=platform_key)
         if arg and arg not in _FOOTER_STATE_BY_ARG:
-            return t("gateway.footer.usage")
+            return 'Usage: `/footer [on|off|status]`'
         new_state = _FOOTER_STATE_BY_ARG[arg] if arg else not effective["enabled"]
         try:
             # A local session writes the ``cli`` key, as /reasoning show|hide saves: every local
@@ -854,7 +853,7 @@ class GatewaySlashCommandsMixin(
             _write_raw_config_leaf(config_path, leaf, new_state)
         except Exception as e:
             logger.warning("Failed to save runtime_footer.enabled: %s", e)
-            return t("gateway.config_save_failed", error=e)
+            return (f'⚠️ Could not save config: {e}')
         example = ""
         if new_state:
             # Show a preview using current agent state if available.
@@ -862,8 +861,8 @@ class GatewaySlashCommandsMixin(
                 model=_resolve_gateway_model(user_config) or None, context_tokens=0, context_length=None,
                 fields=effective.get("fields") or ["model", "context_pct", "cwd"])
             if preview:
-                example = t("gateway.footer.example_line", preview=preview)
-        return t("gateway.footer.saved", state=_state(new_state), example=example)
+                example = (f'\nExample: `{preview}`')
+        return (f'📎 Runtime footer: **{_state(new_state)}**{example}\n_(saved globally — takes effect on next message)_')
 
     async def _handle_reload_mcp_command(self, event: MessageEvent) -> Optional[str]:
         """Handle /reload-mcp — reconnect MCP servers and rebuild the cached agent. Reloading
@@ -881,7 +880,7 @@ class GatewaySlashCommandsMixin(
         # with the chosen outcome.
         async def _on_confirm(choice: str) -> Optional[str]:
             if choice == "cancel":
-                return t("gateway.reload_mcp.cancelled")
+                return '🟡 /reload-mcp cancelled. MCP tools unchanged.'
             if choice == "always":
                 # Persist the opt-out and run the reload.
                 try:
@@ -893,11 +892,11 @@ class GatewaySlashCommandsMixin(
             # once / always → run the reload
             result = await self._execute_mcp_reload(event)
             if choice == "always":
-                return f"{result}\n\n" + t("gateway.reload_mcp.always_followup")
+                return f"{result}\n\n" + 'ℹ️ Future `/reload-mcp` calls will run without confirmation. Re-enable via `approvals.mcp_reload_confirm: true` in config.yaml.'
             return result
         return await self._request_slash_confirm(
             event=event, command="reload-mcp", title="/reload-mcp",
-            message=t("gateway.reload_mcp.confirm_prompt"), handler=_on_confirm)
+            message='⚠️ **Confirm /reload-mcp**\n\nReloading MCP servers rebuilds the tool set for this session and **invalidates the provider prompt cache** — the next message will re-send full input tokens.  On long-context or high-reasoning models this can be expensive.\n\nChoose:\n• **Approve Once** — reload now\n• **Always Approve** — reload now and silence this prompt permanently\n• **Cancel** — leave MCP tools unchanged\n\n_Text fallback: reply `/approve`, `/always`, or `/cancel`._', handler=_on_confirm)
 
     async def _handle_reload_skills_command(self, event: MessageEvent) -> str:
         """Handle /reload-skills — rescan skills dir, queue a note for next turn. Skills are invoked at
@@ -925,28 +924,28 @@ class GatewaySlashCommandsMixin(
                     logger.warning("Adapter %s refresh_skill_group raised: %s",
                                    getattr(adapter, "name", adapter), exc)
 
-            lines = [t("gateway.reload_skills.header")]
+            lines = ['🔄 **Skills Reloaded**\n']
             if not added and not removed:
-                lines += [t("gateway.reload_skills.no_new"), t("gateway.reload_skills.total", count=total)]
+                lines += ['No new skills detected.', (f'\n📚 {total} skill(s) available')]
                 return "\n".join(lines)
 
             def _fmt_line(item: dict) -> str:
                 nm, desc = item.get("name", ""), item.get("description", "")
-                return (t("gateway.reload_skills.item_with_desc", name=nm, desc=desc) if desc
-                        else t("gateway.reload_skills.item_no_desc", name=nm))
+                return ((f'    - {nm}: {desc}') if desc
+                        else (f'    - {nm}'))
 
             # Queue a one-shot note for the next user turn in this session too. Format matches how
             # the system prompt renders pre-existing skills (``    - name: description``) so the
             # model reads the diff in the same shape as its original skill catalog.
             sections = ["[USER INITIATED SKILLS RELOAD:"]
-            for i18n_key, note_header, items in (
-                ("gateway.reload_skills.added_header", "Added Skills:", added),
-                ("gateway.reload_skills.removed_header", "Removed Skills:", removed)):
+            for heading, note_header, items in (
+                ('➕ **Added Skills:**', "Added Skills:", added),
+                ('➖ **Removed Skills:**', "Removed Skills:", removed)):
                 if items:
                     formatted = [_fmt_line(item) for item in items]
-                    lines += [t(i18n_key)] + formatted
+                    lines += [heading] + formatted
                     sections += ["", note_header] + formatted
-            lines.append(t("gateway.reload_skills.total", count=total))
+            lines.append(f'\n📚 {total} skill(s) available')
             sections += ["", "Use skills_list to see the updated catalog.]"]
             session_key = self._session_key_for_source(event.source)
             if not hasattr(self, "_pending_skills_reload_notes"):
@@ -956,7 +955,7 @@ class GatewaySlashCommandsMixin(
             return "\n".join(lines)
         except Exception as e:
             logger.warning("Skills reload failed: %s", e)
-            return t("gateway.reload_skills.failed", error=e)
+            return (f'❌ Skills reload failed: {e}')
 
     async def _handle_bundles_command(self, event: MessageEvent) -> str:
         """Handle /bundles — list installed skill bundles (mirrors the CLI handler). Bundles are
@@ -967,13 +966,13 @@ class GatewaySlashCommandsMixin(
             return reply.text
         bundles = reply.data["bundles"]
         if not bundles:
-            return t("gateway.bundles.none", dir=reply.data["dir"])
-        lines = [t("gateway.bundles.header", count=len(bundles)), ""]
+            return ('No skill bundles installed.\nCreate one on the host with:\n  `hermes bundles create <name> --skill <s1> --skill <s2>`\nDirectory: `{dir}`').format(dir=reply.data["dir"])
+        lines = [(f'**Skill Bundles** ({len(bundles)} installed):'), ""]
         for info in bundles:
             skills = info.get("skills", [])
-            desc = info.get("description") or t("gateway.bundles.default_desc", count=len(skills))
-            lines += [t("gateway.bundles.item", slug=info["slug"], desc=desc, count=len(skills))] + [f"    · {s}" for s in skills]
-        return "\n".join(lines + ["", t("gateway.bundles.invoke_hint")])
+            desc = info.get("description") or (f'Load {len(skills)} skills')
+            lines += [('• `/{slug}` — {desc} _({count} skills)_').format(slug=info["slug"], desc=desc, count=len(skills))] + [f"    · {s}" for s in skills]
+        return "\n".join(lines + ["", 'Invoke a bundle with `/<slug>` to load all its skills.'])
 
     def _blocking_approval_or_stale(self, event: MessageEvent, stale_key: str, none_key: str,
                                     resolve_all: bool = False):
@@ -991,8 +990,8 @@ class GatewaySlashCommandsMixin(
             return (session_key, refusal_text(requester), []) if requester else (session_key, None, ids)
         if session_key in self._pending_approvals:
             self._pending_approvals.pop(session_key)
-            return session_key, t(stale_key), []
-        return session_key, t(none_key), []
+            return session_key, stale_key, []
+        return session_key, none_key, []
 
     async def _handle_approve_command(self, event: MessageEvent) -> Optional[str]:
         """Handle /approve — unblock waiting agent thread(s). They block inside tools/approval.py;
@@ -1001,7 +1000,7 @@ class GatewaySlashCommandsMixin(
         # Args: "all", "all session", "all always", "session", "always" ("always" beats "session").
         args = event.get_command_args().strip().lower().split()
         session_key, stale, request_ids = self._blocking_approval_or_stale(
-            event, "gateway.approval_expired", "gateway.approve.no_pending", resolve_all="all" in args)
+            event, '⚠️ Approval expired (agent is no longer waiting). Ask the agent to try again.', 'No pending command to approve.', resolve_all="all" in args)
         if stale:
             return stale
         choices = {_APPROVE_CHOICE_BY_ARG[a] for a in args if a in _APPROVE_CHOICE_BY_ARG}
@@ -1009,8 +1008,8 @@ class GatewaySlashCommandsMixin(
         # Exactly the approvals the sender was checked against, never "the oldest" again.
         count = sum(resolve_gateway_approval(session_key, choice, request_id=rid) for rid in request_ids)
         if not count:
-            return t("gateway.approve.no_pending")
-        confirmation_text = t(f"gateway.approve.{choice}_{'plural' if count > 1 else 'singular'}", count=count)
+            return 'No pending command to approve.'
+        confirmation_text = {'no_pending': 'No pending command to approve.', 'once_singular': '✅ Command approved. The agent is resuming...', 'once_plural': '✅ Commands approved ({count} commands). The agent is resuming...', 'session_singular': '✅ Command approved (pattern approved for this session). The agent is resuming...', 'session_plural': '✅ Commands approved (pattern approved for this session) ({count} commands). The agent is resuming...', 'always_singular': '✅ Command approved (pattern approved permanently). The agent is resuming...', 'always_plural': '✅ Commands approved (pattern approved permanently) ({count} commands). The agent is resuming...'}[f"{choice}_{'plural' if count > 1 else 'singular'}"].format(count=count)
         logger.info("User approved %d dangerous command(s) via /approve (%s)", count, choice)
         return await self._deliver_approval_confirmation(event, confirmation_text, "approve")
 
@@ -1028,18 +1027,19 @@ class GatewaySlashCommandsMixin(
         tokens = raw_args.split()
         resolve_all = bool(tokens) and tokens[0].lower() == "all"
         session_key, stale, request_ids = self._blocking_approval_or_stale(
-            event, "gateway.deny.stale", "gateway.deny.no_pending", resolve_all=resolve_all)
+            event, '❌ Command denied (approval was stale).', 'No pending command to deny.', resolve_all=resolve_all)
         if stale:
             return stale
         reason = (raw_args[len(tokens[0]):].strip() if resolve_all else raw_args)[:280].strip()
         count = sum(resolve_gateway_approval(session_key, "deny", reason=reason or None, request_id=rid)
                     for rid in request_ids)
         if not count:
-            return t("gateway.deny.no_pending")
+            return 'No pending command to deny.'
         logger.info("User denied %d dangerous command(s) via /deny%s", count,
                     " (with reason)" if reason else "")
-        key = "gateway.deny.denied" + ("_reason" if reason else "") + ("_plural" if count > 1 else "_singular")
-        confirmation_text = t(key, count=count, reason=reason)
+        confirmation_text = (f'❌ Commands denied ({count} commands).' if count > 1 else '❌ Command denied.')
+        if reason:
+            confirmation_text += f' Reason relayed to the agent: "{reason}"'
         return await self._deliver_approval_confirmation(event, confirmation_text, "deny")
 
     async def _handle_curator_command(self, event: MessageEvent) -> str:
@@ -1059,7 +1059,7 @@ class GatewaySlashCommandsMixin(
                 except SystemExit:
                     pass  # argparse exits on --help/usage errors; its text is the reply
                 except Exception as exc:  # health: allow BLE001 -- main's CLI handler: the failure line is the reply
-                    print(t("cli.commands.curator.failed", error=exc))
+                    print(f'(._.) curator: {exc}')
             return out.getvalue().rstrip()
 
         return await self._run_in_executor_with_context(_run)
@@ -1076,7 +1076,7 @@ class GatewaySlashCommandsMixin(
         if wants_local and getattr(event.source, "platform", None) != Platform.LOCAL:
             # From a chat the report can't stay on the machine; `/debug local` must never fall
             # through to the public paste. Bare `/debug` is the upload form.
-            return t("gateway.debug.local_refused")
+            return "`/debug local` keeps the report on the machine running Hermes, so it isn't available from a chat. Send `/debug` to upload the summary report."
         if wants_local:
             # A local session's `/debug local` (main's CLI form) asks for the report on this machine:
             # return the redacted report for the client to show, with no network call at all (not
@@ -1092,19 +1092,19 @@ class GatewaySlashCommandsMixin(
             _best_effort_sweep_expired_pastes()
             report = collect_debug_report(log_lines=200, dump_text=_capture_dump())
             try:
-                urls = {t("gateway.debug.report_label"): upload_to_pastebin(report)}
+                urls = {'Report': upload_to_pastebin(report)}
             except Exception as exc:
-                return t("gateway.debug.upload_failed", error=redact_debug_support_text(exc))
+                return (f'✗ Failed to upload debug report: {redact_debug_support_text(exc)}')
             _schedule_auto_delete(list(urls.values()))  # paste.rs only; dpaste.com has no delete
             label_width = max(len(k) for k in urls)
             # The 6-hour line is only true for paste.rs; the privacy notice above already states
             # the dpaste.com fallback retention, so drop the line rather than contradict it.
             auto_delete = [] if any(map(_is_dpaste_url, urls.values())) else [
-                t("gateway.debug.auto_delete")]
-            return "\n".join([_GATEWAY_PRIVACY_NOTICE, "", t("gateway.debug.header"), "",
+                '⏱ Pastes will auto-delete in 6 hours.']
+            return "\n".join([_GATEWAY_PRIVACY_NOTICE, "", '**Debug report uploaded:**', "",
                               *(f"`{label:<{label_width}}`  {url}" for label, url in urls.items()),
-                              "", *auto_delete, t("gateway.debug.full_logs_hint"),
-                              t("gateway.debug.share_hint")])
+                              "", *auto_delete, 'For full log uploads, use `hermes debug share` from the CLI.',
+                              'Share these links with the Hermes team for support.'])
 
         # _run_in_executor_with_context, not a bare hop: this collects the profile's logs/config off
         # ``get_hermes_home()`` and uploads them to a public paste. Losing the contextvar override
@@ -1125,11 +1125,11 @@ class GatewaySlashCommandsMixin(
                 from gateway.platform_registry import platform_registry
                 entry = platform_registry.get(src.platform.value)
                 if not entry or not entry.allow_update_command:
-                    return t("gateway.update.platform_not_messaging")
+                    return '✗ /update is only available from messaging platforms. Run `hermes update` from the terminal.'
             except Exception:
-                return t("gateway.update.platform_not_messaging")
+                return '✗ /update is only available from messaging platforms. Run `hermes update` from the terminal.'
         if is_managed():
-            return f"✗ {format_managed_message(t('gateway.update.managed_action'))}"
+            return f"✗ {format_managed_message('update Hermes Agent')}"
 
         project_root = Path(__file__).parent.parent.resolve()
 
@@ -1144,18 +1144,17 @@ class GatewaySlashCommandsMixin(
 
             method = detect_install_method(project_root)
             if method not in {"git", "unknown"}:
-                return t("gateway.update.not_applicable", method=method,
-                         command=recommended_update_command_for_method(method))
+                return (f'✗ `hermes update` does not apply to this install ({method}).\nUpdate with: {recommended_update_command_for_method(method)}')
         except Exception:
             pass  # config unreadable — fall through to the .git check below
 
         git_dir = project_root / '.git'
 
         if not git_dir.exists():
-            return t("gateway.update.not_git_repo")
+            return '✗ Not a git repository — cannot update.'
         hermes_cmd = _resolve_hermes_bin()
         if not hermes_cmd:
-            return t("gateway.update.hermes_cmd_not_found")
+            return '✗ Could not locate the `hermes` command. Hermes is running, but the update command could not find the executable on PATH or via the current Python interpreter. Try running `hermes update` manually in your terminal.'
         pending_path = _hermes_home / ".update_pending.json"
         output_path = _hermes_home / ".update_output.txt"
         exit_code_path = _hermes_home / ".update_exit_code"
@@ -1176,6 +1175,6 @@ class GatewaySlashCommandsMixin(
         except Exception as e:
             pending_path.unlink(missing_ok=True)
             exit_code_path.unlink(missing_ok=True)
-            return t("gateway.update.start_failed", error=e)
+            return (f'✗ Failed to start update: {e}')
         self._schedule_update_notification_watch()
-        return t("gateway.update.starting")
+        return "☤ Starting Hermes update… I'll stream progress here."

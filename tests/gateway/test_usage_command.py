@@ -295,7 +295,7 @@ class TestUsageContextBreakdown:
              patch("agent.context_breakdown.compute_session_context_breakdown", return_value=fake_payload):
             result = await runner._handle_usage_command(event)
 
-        # Localized header + at least the two non-zero category labels appear,
+        # The header and at least the two non-zero category labels appear,
         # each labelled as a percentage of the estimated total.
         assert "Context breakdown" in result
         assert "System prompt" in result

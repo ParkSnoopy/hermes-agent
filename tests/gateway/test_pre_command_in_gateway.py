@@ -128,7 +128,6 @@ def test_real_cli_startup_and_commands_run_no_plugin_code_in_the_cli(tmp_path, m
     after a rescan here or by another client; each recognized command fires ``pre_command`` once, in the gateway, in typed order,
     with main's values. The CLI starts in a trusted repo the gateway does not run from: its project skill
     is listed and loaded from the session's folder."""
-    from agent.i18n import t
     root = Path(__file__).resolve().parents[2]
     with _gateway(tmp_path, project=True) as (proc, _desc, home, work, env, log, _peer):
         probe = subprocess.run([sys.executable, str(root / 'tests/gateway/fixtures/cli_plugin_free_startup.py'),
@@ -151,12 +150,12 @@ def test_real_cli_startup_and_commands_run_no_plugin_code_in_the_cli(tmp_path, m
     ], fired
     assert {r['session_key'] for r in fired} == {first}  # (``/tools disable`` then starts a new session)
     outputs = result['outputs']
-    detail = (f"(1 {t('cli.plugins.count_noun_tools')}, 1 {t('cli.plugins.count_noun_hooks')}, "
-              f"1 {t('cli.plugins.count_noun_commands')})")
+    detail = (f"(1 {'tools'}, 1 {'hooks'}, "
+              f"1 {'commands'})")
     assert f'probe-hook v1.0 {detail}' in outputs['/plugins'], outputs['/plugins']
     assert '/probe-hook:probe' in outputs['/help skills'] and 'Probe plugin skill' in outputs['/help skills']
     assert '/repo-skill' in outputs['/help skills'], outputs['/help skills']
-    assert t('cli.skills.loading_skill', name='probe-hook:probe') in outputs['/probe-hook:probe check it']
+    assert ('Loading skill: {name}').format(name='probe-hook:probe') in outputs['/probe-hook:probe check it']
     plugin_skill, repo_skill, *later = result['queued']
     assert 'PROBE_SKILL_BODY' in plugin_skill and 'check it' in plugin_skill
     assert 'REPO_SKILL_BODY' in repo_skill and 'from the repo' in repo_skill, outputs['/repo-skill from the repo']
@@ -175,7 +174,6 @@ def test_real_cli_startup_and_commands_run_no_plugin_code_in_the_cli(tmp_path, m
 @pytest.mark.platforms("linux")
 def test_pre_command_fires_once_in_the_gateway_and_cli_plugins_reads_its_list(tmp_path, monkeypatch, capsys):
     import hermes_cli.plugins as plugins_mod
-    from agent.i18n import t
     from cli import HermesCLI
     root = Path(__file__).resolve().parents[2]
     home, user, work = tmp_path / 'state', tmp_path / 'user', tmp_path / 'work'
@@ -250,8 +248,8 @@ def test_pre_command_fires_once_in_the_gateway_and_cli_plugins_reads_its_list(tm
     assert proc.pid != os.getpid()
     assert not [m for m in sys.modules if m.startswith('hermes_plugins.')]
     assert 'plugins.list' in wire.calls
-    detail = (f"(1 {t('cli.plugins.count_noun_tools')}, 1 {t('cli.plugins.count_noun_hooks')}, "
-              f"1 {t('cli.plugins.count_noun_commands')})")
+    detail = (f"(1 {'tools'}, 1 {'hooks'}, "
+              f"1 {'commands'})")
     assert f'probe-hook v1.0 {detail}' in listing, listing
 
 
@@ -405,7 +403,6 @@ def test_commands_refused_during_a_turn_fire_nothing(tmp_path):
     ``busy_policy``): through ``slash.exec`` and ``command.dispatch`` it is refused and fires nothing.
     A mid-run variant that refuses its arguments (``/goal <new text>``, ``/loop <new loop>``) fires
     nothing either; the same variant accepting a control verb (``/goal status``) fires once."""
-    from agent.i18n import t
     with _gateway(tmp_path) as (_proc, desc, home, work, _env, log, peer):
         wire = _Wire(home, desc)
         try:
@@ -422,8 +419,8 @@ def test_commands_refused_during_a_turn_fire_nothing(tmp_path):
             peer.release.set()
         finally:
             wire.close()
-    assert [r['output'] for r in replies] == [t('gateway.busy.slash_rejected', command='reasoning')] * 2
-    assert [r['output'] for r in variants] == [t('gateway.busy.reject_goal'), t('gateway.busy.reject_loop')]
+    assert [r['output'] for r in replies] == [("⏳ Agent is running — `/{command}` can't run mid-turn. Wait for the current response or `/stop` first.").format(command='reasoning')] * 2
+    assert [r['output'] for r in variants] == ['Agent is running — use /goal status / pause / clear / wait mid-run, or /stop before setting a new goal.', 'Agent is running — use /loop status / pause / stop mid-run, or /stop before setting a new loop.']
     assert [(r['command'], r['args_raw']) for r in fired] == [('goal', 'status'), ('history', '')], fired
 
 

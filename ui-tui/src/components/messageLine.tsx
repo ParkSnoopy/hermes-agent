@@ -4,12 +4,12 @@ import { memo, useState } from 'react'
 
 import { TERMUX_TUI_MODE } from '../config/env.js'
 import { LONG_MSG } from '../config/limits.js'
+import { chatBitsEn } from '../copy/chatBits.js'
 import { hasLeadGap } from '../domain/blockLayout.js'
 import { splitComposerHighlights } from '../domain/composerHighlights.js'
 import { sectionMode } from '../domain/details.js'
 import { userDisplay } from '../domain/messages.js'
 import { ROLE } from '../domain/roles.js'
-import { useT } from '../i18n/useT.js'
 import { transcriptBodyWidth, transcriptGutterWidth } from '../lib/inputMetrics.js'
 import { boundedLiveRenderText, compactPreview, isPasteBackedText } from '../lib/text.js'
 import { type GaugeStyle, hasUsageGauge, splitUsageGaugeLine } from '../lib/usageGauge.js'
@@ -62,7 +62,7 @@ export const MessageLine = memo(function MessageLine({
   timestamps = false,
   tools = []
 }: MessageLineProps) {
-  const T = useT().chatBits.messageLine
+  const T = chatBitsEn.chatBits.messageLine
 
   // Per-section overrides win over the global mode, so resolve each section
   // we might consume here once and gate visibility on the *content-bearing*

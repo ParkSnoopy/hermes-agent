@@ -8,8 +8,8 @@ import { promisify } from 'node:util'
 
 import type { SubmissionDestination } from '../app/submissionDestination.js'
 import { sessionCwd } from '../app/uiStore.js'
+import { canonicalEn } from '../copy/canonical.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { t } from '../i18n/runtime.js'
 
 import { pythonHelperPath } from './pythonHelpers.js'
 
@@ -35,7 +35,7 @@ function imageFormat(bytes: Buffer): { mime: string; ext: string } {
     return { mime: 'image/webp', ext: '.webp' }
   }
 
-  throw new Error(t('canonical.images.unsupported'))
+  throw new Error(canonicalEn.canonical.images.unsupported)
 }
 
 // Match an existing whole path first, so unquoted filenames with spaces survive.
@@ -61,7 +61,7 @@ async function resolveImagePath(raw: string, base: string): Promise<{ path: stri
 
       if (!info.isFile()) { continue }
 
-      if (info.size > MAX_IMAGE_BYTES) { throw new Error(t('canonical.images.tooLarge')) }
+      if (info.size > MAX_IMAGE_BYTES) { throw new Error(canonicalEn.canonical.images.tooLarge) }
 
       return { path, remainder: remainder! }
     } catch (error) {
@@ -69,7 +69,7 @@ async function resolveImagePath(raw: string, base: string): Promise<{ path: stri
     }
   }
 
-  throw new Error(t('canonical.images.notFound', value))
+  throw new Error(canonicalEn.canonical.images.notFound(value))
 }
 
 async function extractClipboardImage(path: string): Promise<boolean> {
@@ -103,7 +103,7 @@ export async function stageImagePath(raw: string, _gw: GatewayClient, destinatio
   const source = await resolveImagePath(raw, base)
   const bytes = await readFile(source.path)
 
-  if (bytes.length > MAX_IMAGE_BYTES) { throw new Error(t('canonical.images.tooLarge')) }
+  if (bytes.length > MAX_IMAGE_BYTES) { throw new Error(canonicalEn.canonical.images.tooLarge) }
   const { mime, ext } = imageFormat(bytes)
   const name = basename(source.path)
 

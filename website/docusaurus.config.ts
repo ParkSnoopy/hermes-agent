@@ -23,20 +23,6 @@ const config: Config = {
     },
   },
 
-  i18n: {
-    defaultLocale: 'en',
-    locales: ['en', 'zh-Hans'],
-    localeConfigs: {
-      en: {
-        label: 'English',
-      },
-      'zh-Hans': {
-        label: '简体中文',
-        htmlLang: 'zh-Hans',
-      },
-    },
-  },
-
   themes: [
     '@docusaurus/theme-mermaid',
   ],
@@ -84,8 +70,7 @@ const config: Config = {
           routeBasePath: '/',  // Docs at the root of /docs/
           sidebarPath: './sidebars.ts',
           editUrl: 'https://github.com/NousResearch/hermes-agent/edit/main/website/',
-          // Relative `.md` links (readable on GitHub, #114428) must also resolve
-          // across the zh-Hans fallback boundary; see src/remark/relativeDocLinks.js.
+          // Relative `.md` links remain readable on GitHub.
           beforeDefaultRemarkPlugins: [[relativeDocLinks, {siteDir: __dirname}]],
         },
         blog: false,
@@ -104,8 +89,7 @@ const config: Config = {
     // answers from Algolia's servers with no client index at all. These are
     // public search-only credentials — safe to commit (the admin key is not
     // in the repo). Index is populated by the Algolia Crawler configured at
-    // crawler.algolia.com; contextualSearch scopes results to the active
-    // locale via the docusaurus_tag/lang facets the crawler records carry.
+    // crawler.algolia.com.
     algolia: {
       appId: '2JLBVEYZN5',
       apiKey: '9629ec26628d1a126535fd5ef408990d',
@@ -150,10 +134,6 @@ const config: Config = {
           href: 'https://hermes-agent.nousresearch.com/',
           label: 'Download',
           position: 'left',
-        },
-        {
-          type: 'localeDropdown',
-          position: 'right',
         },
         {
           href: 'https://hermes-agent.nousresearch.com',

@@ -414,7 +414,6 @@ def _reset_session_model_override(sid: str, session: dict) -> dict:
     mid-turn): drop this session's pin and any armed ``--once`` restore, adopt config.yaml's model
     through the config-sync switch (no new pin, never written back), and persist the row so
     ``session.resume`` cannot restore the old pin. History is kept."""
-    from agent.i18n import t
     had_override = bool(session.get("model_override"))
     session.pop("model_override", None)
     session.pop("one_turn_model_restore", None)
@@ -431,9 +430,13 @@ def _reset_session_model_override(sid: str, session: dict) -> dict:
             count_switch=False)
     _persist_live_session_runtime(session)
     _emit_session_info(sid, session)
-    shown = model or getattr(agent, "model", "") or t("gateway.shared.unknown_value")
-    return {"value": shown, "warning": t("gateway.model.reset_done" if had_override else "gateway.model.reset_none",
-                                         model=shown),
+    shown = model or getattr(agent, "model", "") or "unknown"
+    warning = (
+        f"Session model override cleared — now using `{shown}` (the channel/global default). Conversation history kept."
+        if had_override else
+        f"No session model override is active — already using `{shown}` (the channel/global default)."
+    )
+    return {"value": shown, "warning": warning,
             "confirm_required": False, "scope": "session"}
 
 

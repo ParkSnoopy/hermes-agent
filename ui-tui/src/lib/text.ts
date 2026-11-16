@@ -10,7 +10,7 @@ import {
   VERBOSE_TRAIL_MAX_LINES
 } from '../config/limits.js'
 import { VERBS } from '../content/verbs.js'
-import { t } from '../i18n/runtime.js'
+import { libTextEn } from '../copy/libText.js'
 import type { ThinkingMode } from '../types.js'
 
 const WS_RE = /\s+/g
@@ -65,7 +65,7 @@ export const edgePreview = (s: string, head = 16, tail = 28) => {
 export const pasteTokenLabel = (text: string, lineCount: number) => {
   const preview = edgePreview(text)
 
-  const chip = t('libText.text.pasteLinesChip', compactNumber(lineCount))
+  const chip = libTextEn.libText.text.pasteLinesChip(compactNumber(lineCount))
 
   if (!preview) {
     return `[[ ${chip} ]]`
@@ -107,7 +107,7 @@ export const thinkingPreview = (reasoning: string, mode: ThinkingMode, max: numb
 export const boundedLiveRenderText = (
   text: string,
   { maxChars = LIVE_RENDER_MAX_CHARS, maxLines = LIVE_RENDER_MAX_LINES } = {}
-) => boundedRenderText(text, t('libText.text.showingLiveTail'), { maxChars, maxLines })
+) => boundedRenderText(text, libTextEn.libText.text.showingLiveTail, { maxChars, maxLines })
 
 const boundedRenderText = (
   text: string,
@@ -147,8 +147,8 @@ const boundedRenderText = (
 
   const label =
     omittedLines > 0
-      ? t('libText.text.omittedLinesChars', labelPrefix, compactNumber(omittedLines), compactNumber(omittedChars))
-      : t('libText.text.omittedChars', labelPrefix, compactNumber(omittedChars))
+      ? libTextEn.libText.text.omittedLinesChars(labelPrefix, compactNumber(omittedLines), compactNumber(omittedChars))
+      : libTextEn.libText.text.omittedChars(labelPrefix, compactNumber(omittedChars))
 
   return `${label}\n${tail}`
 }
@@ -230,8 +230,8 @@ export const verboseToolTrailLine = (
   resultText?: string
 ) => {
   const detail = [
-    verboseToolBlock(t('libText.text.argsLabel'), argsText),
-    verboseToolBlock(error ? t('libText.text.errorLabel') : t('libText.text.resultLabel'), resultText)
+    verboseToolBlock(libTextEn.libText.text.argsLabel, argsText),
+    verboseToolBlock(error ? libTextEn.libText.text.errorLabel : libTextEn.libText.text.resultLabel, resultText)
   ]
     .filter(Boolean)
     .join('\n')
@@ -359,14 +359,14 @@ export const formatAbandonedClarify = (
     const answer = answers[q.qid]
 
     return answer
-      ? `  ${t('libText.text.clarifyAnswered', q.question, clarifyAnswerText(answer, q.multiSelect))}`
-      : `  ${t('libText.text.clarifyUnanswered', q.question)}`
+      ? `  ${libTextEn.libText.text.clarifyAnswered(q.question, clarifyAnswerText(answer, q.multiSelect))}`
+      : `  ${libTextEn.libText.text.clarifyUnanswered(q.question)}`
   })
 
   return [
-    t('libText.text.clarifyHead', questions.length),
+    libTextEn.libText.text.clarifyHead(questions.length),
     ...lines,
-    `  ${t('libText.text.clarifyReason', reason)}`
+    `  ${libTextEn.libText.text.clarifyReason(reason)}`
   ].join('\n')
 }
 

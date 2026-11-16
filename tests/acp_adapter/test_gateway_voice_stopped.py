@@ -29,7 +29,6 @@ class _Conn:
 
 @pytest.mark.asyncio
 async def test_acp_prompt_settles_a_voice_stopped_reply_as_an_ended_turn(tmp_path, monkeypatch):
-    from agent.i18n import t
     monkeypatch.setenv('HERMES_HOME', str(tmp_path))
     agent = GatewayACPAgent()
     agent._gateway = _VoiceStoppedClient()
@@ -40,4 +39,4 @@ async def test_acp_prompt_settles_a_voice_stopped_reply_as_an_ended_turn(tmp_pat
     assert [m for m, _ in agent._gateway.calls] == ['prompt.submit']
     assert 's' not in agent._admissions and not agent._inflight
     texts = [getattr(getattr(u, 'content', None), 'text', '') for _, u in agent._conn.updates]
-    assert any(t('cli.voice.stop_phrase_typed') in text for text in texts), texts
+    assert any('Stop phrase typed — ending voice chat.' in text for text in texts), texts

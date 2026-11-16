@@ -333,7 +333,6 @@ _COMMAND_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧
 # ~/.hermes/.env first, project .env as dev fallback; user env files override stale shell exports.
 from hermes_constants import get_hermes_home
 from hermes_cli.env_loader import load_hermes_dotenv
-from agent.i18n import t as _t
 
 _hermes_home = get_hermes_home()
 _project_env = Path(__file__).parent / '.env'
@@ -564,23 +563,23 @@ def _cleanup_worktree(info: dict[str, str] | None = None) -> None:
 
     if _worktree_is_dirty(wt_path, repo_root, timeout=10):
         # Uncommitted work: say so, and don't hint at `remove --force`, which would destroy it.
-        _cprint(f"\n\033[33m{_t('cli.worktree.uncommitted_keeping', path=wt_path)}\033[0m")
+        _cprint(f"\n\033[33m{(f'⚠ Worktree has uncommitted changes, keeping: {wt_path}')}\033[0m")
         return
 
     if _worktree_has_unpushed_commits(wt_path, timeout=10):
         if _repo_is_shallow(repo_root):
             # Shallow boundary makes the unpushed verdict unreliable; the startup pruner reaps later.
-            _cprint(f"\n\033[33m{_t('cli.worktree.shallow_clone_keeping', path=wt_path)}\033[0m")
-            print(f"  {_t('cli.worktree.next_session_deepens')}")
+            _cprint(f"\n\033[33m{(f'⚠ Shallow clone — cannot verify push state, keeping: {wt_path}')}\033[0m")
+            print(f"  {'The next `hermes -w` session deepens the clone and prunes merged worktrees automatically.'}")
         else:
-            _cprint(f"\n\033[33m{_t('cli.worktree.unpushed_keeping', path=wt_path)}\033[0m")
-            print(f"  {_t('cli.worktree.clean_up_manually', path=wt_path)}")
+            _cprint(f"\n\033[33m{(f'⚠ Worktree has unpushed commits, keeping: {wt_path}')}\033[0m")
+            print(f"  {(f'To clean up manually: git worktree remove --force {wt_path}')}")
         return
 
     from hermes_cli.worktree_ops import removal_blocked
     blocked = removal_blocked(wt_path)  # an embedded repo or private ref dies with it
     if blocked:
-        _cprint(f"\n\033[33m{_t('cli.worktree.kept_reason', path=wt_path, reason=blocked[1])}\033[0m")
+        _cprint(f"\n\033[33m{(f'⚠ Keeping worktree ({blocked[1]}): {wt_path}')}\033[0m")
         return
 
     # Release the tree's language servers while the path still exists, then unlock so `remove`
@@ -589,7 +588,7 @@ def _cleanup_worktree(info: dict[str, str] | None = None) -> None:
     _git_quiet(["worktree", "unlock", wt_path], repo_root, log="git worktree unlock failed (non-fatal)")
     _git_quiet(["worktree", "remove", wt_path, "--force"], repo_root, timeout=15, log="Failed to remove worktree")
     _git_quiet(["branch", "-D", branch], repo_root, log=f"Failed to delete branch {branch}")
-    _cprint(f"\033[32m{_t('cli.worktree.cleaned_up', path=wt_path)}\033[0m")
+    _cprint(f"\033[32m{(f'✓ Worktree cleaned up: {wt_path}')}\033[0m")
 
 
 # Light/dark terminal detection (mirrors ui-tui/src/theme.ts detectLightMode()). Priority:
@@ -1046,7 +1045,7 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
         terminal_timeout = os.getenv("TERMINAL_TIMEOUT", "60")
 
         config_path = _hermes_home / 'config.yaml'
-        config_status = _t("cli.config.loaded") if config_exists(config_path) else _t("cli.config.not_found")
+        config_status = '(loaded)' if config_exists(config_path) else '(not found)'
         from hermes_cli.config_backend import get_config_backend
         if not get_config_backend().supports_file_tooling():  # no local file: name where config comes from
             config_path, config_status = get_config_backend().describe(_hermes_home), ""
@@ -1065,49 +1064,48 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
         elif isinstance(display_key, str) and len(display_key) > 12:
             api_key_display = f"{display_key[:8]}...{display_key[-4:]}"
         else:
-            api_key_display = _t("cli.config.api_key_not_set")
+            api_key_display = 'Not set!'
 
-        title = _t("cli.config.title")
+        title = '(^_^) Configuration'
         width = 50
         pad = width - len(title)
-        _unset = _t("cli.config.value_not_set")
+        _unset = 'not set'
         ssh_target = (
             f"{os.getenv('TERMINAL_SSH_USER', _unset)}@{os.getenv('TERMINAL_SSH_HOST', _unset)}"
             f":{os.getenv('TERMINAL_SSH_PORT', '22')}"
         ) if terminal_env == "ssh" else None
-        # (section key, ((label key, value), ...)); labels are re-padded at print time so
-        # translated widths still line up instead of carrying alignment spaces in the catalog.
+        # Align each section by its longest label.
         sections = (
-            ("cli.config.section_model", (
-                ("cli.config.label_model", self.model),
-                ("cli.config.label_base_url", self.base_url),
-                ("cli.config.label_api_key", api_key_display))),
-            ("cli.config.section_terminal", (
-                ("cli.config.label_environment", terminal_env),
-                *((("cli.config.label_ssh_target", ssh_target),) if ssh_target else ()),
-                ("cli.config.label_working_dir", terminal_cwd),
-                ("cli.config.label_timeout", f"{terminal_timeout}s"),
+            ('Model', (
+                ('Model:', self.model),
+                ('Base URL:', self.base_url),
+                ('API Key:', api_key_display))),
+            ('Terminal', (
+                ('Environment:', terminal_env),
+                *((('SSH Target:', ssh_target),) if ssh_target else ()),
+                ('Working Dir:', terminal_cwd),
+                ('Timeout:', f"{terminal_timeout}s"),
             )),
-            ("cli.config.section_agent", (
-                ("cli.config.label_max_turns", self.max_turns),
-                ("cli.config.label_toolsets", ", ".join(self.enabled_toolsets) if self.enabled_toolsets else "all"),
-                ("cli.config.label_verbose", self.verbose),
+            ('Agent', (
+                ('Max Turns:', self.max_turns),
+                ('Toolsets:', ", ".join(self.enabled_toolsets) if self.enabled_toolsets else "all"),
+                ('Verbose:', self.verbose),
             )),
-            ("cli.config.section_session", (
-                ("cli.config.label_started", self.session_start.strftime("%Y-%m-%d %H:%M:%S")),
-                ("cli.config.label_config_file", f"{config_path} {config_status}"),
+            ('Session', (
+                ('Started:', self.session_start.strftime("%Y-%m-%d %H:%M:%S")),
+                ('Config File:', f"{config_path} {config_status}"),
             )),
         )
         print()
         print("+" + "-" * width + "+")
         print("|" + " " * (pad // 2) + title + " " * (pad - pad // 2) + "|")
         print("+" + "-" * width + "+")
-        for section_key, rows in sections:
+        for section, rows in sections:
             print()
-            print(f"  -- {_t(section_key)} --")
-            label_width = max(len(_t(label_key)) for label_key, _ in rows)
-            for label_key, value in rows:
-                print(f"  {_t(label_key):<{label_width}} {value}")
+            print(f"  -- {section} --")
+            label_width = max(len(label) for label, _ in rows)
+            for label, value in rows:
+                print(f"  {label:<{label_width}} {value}")
         print()
 
     # canonical command -> (method name, pass cmd_original?). Absent commands resolve to
@@ -1235,15 +1233,15 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
             if target:
                 target = target if target.startswith("/") else f"/{target}"
                 return self.process_command(f"{target} {user_args}".strip(), redispatch=True)
-            self._console_print(f"[bold red]{_t('cli.quick.no_target', command=base_cmd)}[/]")
+            self._console_print('[bold red]' + format(((f"Quick command '{base_cmd}' has no target defined")), '') + '[/]')
             return True
         if qtype != "exec":
-            self._console_print(f"[bold red]{_t('cli.quick.unsupported_type', command=base_cmd)}[/]")
+            self._console_print('[bold red]' + format(((f"Quick command '{base_cmd}' has unsupported type (supported: 'exec', 'alias')")), '') + '[/]')
             return True
         import subprocess
         exec_cmd = qcmd.get("command", "")
         if not exec_cmd:
-            self._console_print(f"[bold red]{_t('cli.quick.no_command', command=base_cmd)}[/]")
+            self._console_print('[bold red]' + format(((f"Quick command '{base_cmd}' has no command defined")), '') + '[/]')
             return True
         try:
             # shell=True is intentional (user-authored config snippets, never LLM controlled);
@@ -1262,11 +1260,11 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
                 from agent.redact import redact_sensitive_text
                 self._console_print(_rich_text_from_ansi(redact_sensitive_text(output)))
             else:
-                self._console_print(f"[dim]{_t('cli.quick.no_output')}[/]")
+                self._console_print(f"[dim]{'Command returned no output'}[/]")
         except subprocess.TimeoutExpired:
-            self._console_print(f"[bold red]{_t('cli.quick.timed_out')}[/]")
+            self._console_print(f"[bold red]{'Quick command timed out (30s)'}[/]")
         except Exception as e:
-            self._console_print(f"[bold red]{_t('cli.quick.error', error=str(e))}[/]")
+            self._console_print(f"[bold red]{(f'Quick command error: {e!s}')}[/]")
         return True
 
     def _run_plugin_slash_command(self, base_cmd: str, user_args: str):
@@ -1289,7 +1287,7 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
             if result:
                 _cprint(str(result))
         except Exception as e:
-            _cprint(f"\033[1;31m{_t('cli.plugin.command_error', error=str(e))}{_RST}")
+            _cprint(f"\033[1;31m{(f'Plugin command error: {e!s}')}{_RST}")
 
     def _queue_skill_message(self, msg) -> None:
         if hasattr(self, '_pending_input'):
@@ -1299,16 +1297,16 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
         """``/<bundle>`` loads several skills at once (bundles win over same-named skills)."""
         bundle_result = build_bundle_invocation_message(base_cmd, user_instruction, task_id=self.session_id)
         if not bundle_result:
-            ChatConsole().print(f"[bold red]{_t('cli.skills.bundle_load_failed', command=base_cmd)}[/]")
+            ChatConsole().print(f"[bold red]{(f'Failed to load bundle for {base_cmd}')}[/]")
             return
         msg, loaded_names, missing = bundle_result
         self._queue_loaded_skills(
-            msg, _t("cli.skills.loading_bundle", name=bundle_info['name'], count=str(len(loaded_names))), missing)
+            msg, ('Loading bundle: {name} ({count} skills)').format(name=bundle_info['name'], count=str(len(loaded_names))), missing)
 
     def _queue_loaded_skills(self, msg, label: str, missing) -> None:
         print(f"\n⚡ {label}")
         if missing:
-            ChatConsole().print(f"[yellow]{_t('cli.skills.skipped_missing', names=', '.join(missing))}[/]")
+            ChatConsole().print(f"[yellow]{('Skipped missing skills: {names}').format(names=', '.join(missing))}[/]")
         self._queue_skill_message(msg)
 
     def _run_skill_slash_command(self, base_cmd: str, skill_info: dict, rest: str) -> None:
@@ -1326,19 +1324,19 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
                 [base_cmd, *extra_keys], user_instruction, task_id=self.session_id,
             )
             if not stacked_result:
-                ChatConsole().print(f"[bold red]{_t('cli.skills.stacked_load_failed', command=base_cmd)}[/]")
+                ChatConsole().print(f"[bold red]{(f'Failed to load stacked skills for {base_cmd}')}[/]")
                 return
             msg, loaded_names, missing = stacked_result
             self._queue_loaded_skills(
-                msg, _t("cli.skills.loading_stacked", count=str(len(loaded_names)), names=', '.join(loaded_names)),
+                msg, ('Loading {count} stacked skills: {names}').format(count=str(len(loaded_names)), names=', '.join(loaded_names)),
                 missing,
             )
             return
         msg = build_skill_invocation_message(base_cmd, rest, task_id=self.session_id)
         if msg:
-            self._queue_loaded_skills(msg, _t("cli.skills.loading_skill", name=skill_info['name']), None)
+            self._queue_loaded_skills(msg, ('Loading skill: {name}').format(name=skill_info['name']), None)
         else:
-            ChatConsole().print(f"[bold red]{_t('cli.skills.skill_load_failed', command=base_cmd)}[/]")
+            ChatConsole().print(f"[bold red]{(f'Failed to load skill for {base_cmd}')}[/]")
 
     def _expand_slash_prefix(self, cmd_original: str, cmd_lower: str, skill_commands, skill_bundles) -> bool:
         """Unique-prefix expansion against built-in COMMANDS + skill commands/bundles (agrees with tab-completion)."""
@@ -1359,8 +1357,8 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
             # Expand to the full name, preserving arguments.
             return self.process_command(matches[0] + cmd_original.strip()[len(typed_base):], redispatch=True)
         if len(matches) > 1:
-            _cprint(f"{_ACCENT}{_t('cli.command.ambiguous', command=cmd_lower)}{_RST}")
-            _cprint(f"{_DIM}{_t('cli.command.did_you_mean_many', candidates=', '.join(sorted(matches)))}{_RST}")
+            _cprint(f"{_ACCENT}{(f'Ambiguous command: {cmd_lower}')}{_RST}")
+            _cprint(f"{_DIM}{('Did you mean: {candidates}?').format(candidates=', '.join(sorted(matches)))}{_RST}")
         else:
             # Exact token with no handler (never re-dispatch the same token: recursion), or no match.
             from hermes_cli.cli_unknown_command import unknown_command_lines
@@ -1498,7 +1496,7 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
             elif _errno in {errno.EINVAL, errno.EBADF} or any(
                 s in _msg for s in ("is not registered", "Bad file descriptor", "Invalid argument")
             ):
-                print(_t("cli.startup.stdin_unusable", error=str(_stdin_err)))
+                print(f'\nError: stdin is not usable ({_stdin_err!s}).\nThis can happen with certain Python installations (e.g. uv-managed cPython on macOS)\nwhere kqueue cannot register fd 0.\nTry reinstalling Python via pyenv or Homebrew, then re-run: hermes setup')
             else:
                 raise
         finally:
@@ -1736,7 +1734,7 @@ def main(
         register_self("cli")
         warning = shared_profile_warning()
         if warning:
-            print(_t("cli.startup.warning", warning=warning), file=sys.stderr)
+            print((f'Warning: {warning}'), file=sys.stderr)
 
     _join_worktree = _start_worktree_setup(list_tools, list_toolsets, worktree, w)
     query = query or q

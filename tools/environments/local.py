@@ -502,8 +502,8 @@ def _is_routed_home(target_home: str | Path) -> bool:
 def strip_launch_profile_env(env: dict, target_home: str | Path | None = None) -> dict:
     """Drop the LAUNCH profile's residue from a child env built for another served profile.
     ``os.environ`` holds the default profile's ``.env`` and its bridged ``TERMINAL_*`` settings;
-    the secret scrub removes credentials but not settings (``HERMES_MODEL``, ``TERMINAL_ENV``,
-    ``HERMES_LANGUAGE``...), so a standalone ``hermes -p X`` worker and a served one saw different
+    the secret scrub removes credentials but not settings (``HERMES_MODEL``, ``TERMINAL_ENV``),
+    so a standalone ``hermes -p X`` worker and a served one saw different
     envs. The child re-loads X's own ``.env`` and bridges X's config itself. ``target_home``
     defaults to the active home override; no-op when there is no target or the target IS the
     launch profile. The authority test is "does this task serve a routed home", not "is the

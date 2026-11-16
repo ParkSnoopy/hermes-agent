@@ -1,8 +1,8 @@
 import { Box, Text, useInput, wrapAnsi } from '@hermes/ink'
 import { useEffect, useState } from 'react'
 
-import { messages } from '../i18n/runtime.js'
-import { useT } from '../i18n/useT.js'
+import { overlaysEn } from '../copy/overlays.js'
+import { sessionEn } from '../copy/session.js'
 import { clarifyAnswerText, clarifyRevisitState } from '../lib/text.js'
 import type { Theme } from '../theme.js'
 import type { ApprovalReq, ClarifyReq, ConfirmReq } from '../types.js'
@@ -16,7 +16,7 @@ const APPROVAL_OPTS_NO_ALWAYS = APPROVAL_OPTS.filter(o => o !== 'always')
 const APPROVAL_OPTS_SMART_DENY = ['once', 'deny'] as const
 
 const approvalLabels = (): Record<ApprovalChoice, string> => {
-  const p = messages().prompt.approval
+  const p = overlaysEn.prompt.approval
 
   return { always: p.always, deny: p.deny, once: p.once, session: p.session, tell: p.tell }
 }
@@ -117,7 +117,6 @@ export function approvalAction(
 }
 
 export function ApprovalPrompt({ cols = 80, onChoice, onTell, req, t }: ApprovalPromptProps) {
-  const T = useT()
   const [sel, setSel] = useState(0)
   const [page, setPage] = useState(0)
   const [telling, setTelling] = useState(false)
@@ -161,12 +160,12 @@ export function ApprovalPrompt({ cols = 80, onChoice, onTell, req, t }: Approval
 
   const { end, pages, start } = commandPage(rawLines.length, page)
   const shown = rawLines.slice(start, end)
-  const pager = end < rawLines.length ? T.prompt.approval.pageMore : T.prompt.approval.pageEnd
+  const pager = end < rawLines.length ? overlaysEn.prompt.approval.pageMore : overlaysEn.prompt.approval.pageEnd
 
   return (
     <Box borderColor={t.color.warn} borderStyle="double" flexDirection="column" paddingX={1}>
       <Text bold color={t.color.warn}>
-        {T.prompt.approval.title} · {req.description}
+        {overlaysEn.prompt.approval.title} · {req.description}
       </Text>
 
       <Box flexDirection="column" paddingLeft={1}>
@@ -205,7 +204,7 @@ export function ApprovalPrompt({ cols = 80, onChoice, onTell, req, t }: Approval
 
       <Text color={t.color.muted}>
         {telling
-          ? T.prompt.approval.tellHint
+          ? overlaysEn.prompt.approval.tellHint
           : `↑/↓ select · Enter confirm · 1-${opts.length} quick pick · Esc/Ctrl+C deny`}
       </Text>
     </Box>
@@ -213,7 +212,6 @@ export function ApprovalPrompt({ cols = 80, onChoice, onTell, req, t }: Approval
 }
 
 export function ClarifyPrompt({ cols = 80, onCancel, onQuestionAnswer, req, t }: ClarifyPromptProps) {
-  const T = useT()
   const [sel, setSel] = useState(0)
   const [custom, setCustom] = useState('')
   const [typing, setTyping] = useState(false)
@@ -366,13 +364,13 @@ export function ClarifyPrompt({ cols = 80, onCancel, onQuestionAnswer, req, t }:
     }
   })
 
-  const enterAction = remainingCount === 1 ? T.prompt.clarify.confirmAndContinue : T.prompt.clarify.lockAnswer
+  const enterAction = remainingCount === 1 ? overlaysEn.prompt.clarify.confirmAndContinue : overlaysEn.prompt.clarify.lockAnswer
 
   const hint = typing
-    ? T.prompt.clarify.typingHint(enterAction)
+    ? overlaysEn.prompt.clarify.typingHint(enterAction)
     : multi
-      ? `${T.prompt.clarify.toggle} · ${T.prompt.clarify.hint(enterAction)}`
-      : T.prompt.clarify.hint(enterAction)
+      ? `${overlaysEn.prompt.clarify.toggle} · ${overlaysEn.prompt.clarify.hint(enterAction)}`
+      : overlaysEn.prompt.clarify.hint(enterAction)
 
   return (
     <Box flexDirection="column">
@@ -381,8 +379,8 @@ export function ClarifyPrompt({ cols = 80, onCancel, onQuestionAnswer, req, t }:
         <Text color={t.color.text}>
           {' '}
           {questions.length === 1
-            ? T.session.main.clarifyQuestionsOne('1')
-            : T.session.main.clarifyQuestionsOther(String(questions.length))}
+            ? sessionEn.session.main.clarifyQuestionsOne('1')
+            : sessionEn.session.main.clarifyQuestionsOther(String(questions.length))}
         </Text>
       </Text>
 
@@ -404,7 +402,7 @@ export function ClarifyPrompt({ cols = 80, onCancel, onQuestionAnswer, req, t }:
               // current answers stay readable while Tab walks the list.
               <Box paddingLeft={2}>
                 <Text color={answer ? t.color.ok : t.color.muted} italic={!answer}>
-                  {answer ? clarifyAnswerText(answer, q.multiSelect) : T.prompt.clarify.skipped}
+                  {answer ? clarifyAnswerText(answer, q.multiSelect) : overlaysEn.prompt.clarify.skipped}
                 </Text>
               </Box>
             ) : null}
@@ -423,7 +421,7 @@ export function ClarifyPrompt({ cols = 80, onCancel, onQuestionAnswer, req, t }:
                 </Box>
               ) : (
                 <Box flexDirection="column" paddingLeft={2}>
-                  {[...activeChoices, T.prompt.clarify.other].map((c, ci) => (
+                  {[...activeChoices, overlaysEn.prompt.clarify.other].map((c, ci) => (
                     <Text key={ci}>
                       <Text color={t.color.muted} {...chipRowProps(t, sel === ci)}>
                         {sel === ci ? '▸ ' : '  '}
@@ -447,7 +445,6 @@ export function ClarifyPrompt({ cols = 80, onCancel, onQuestionAnswer, req, t }:
 }
 
 export function ConfirmPrompt({ onCancel, onConfirm, req, t }: ConfirmPromptProps) {
-  const T = useT()
   const [sel, setSel] = useState(0)
 
   useInput((ch, key) => {
@@ -477,8 +474,8 @@ export function ConfirmPrompt({ onCancel, onConfirm, req, t }: ConfirmPromptProp
   const accent = req.danger ? t.color.error : t.color.warn
 
   const rows = [
-    { color: t.color.text, label: req.cancelLabel ?? T.prompt.confirm.cancel },
-    { color: req.danger ? t.color.error : t.color.text, label: req.confirmLabel ?? T.prompt.confirm.confirm }
+    { color: t.color.text, label: req.cancelLabel ?? overlaysEn.prompt.confirm.cancel },
+    { color: req.danger ? t.color.error : t.color.text, label: req.confirmLabel ?? overlaysEn.prompt.confirm.confirm }
   ]
 
   return (
@@ -504,7 +501,7 @@ export function ConfirmPrompt({ onCancel, onConfirm, req, t }: ConfirmPromptProp
         </Text>
       ))}
 
-      <Text color={t.color.muted}>{T.prompt.confirm.hint}</Text>
+      <Text color={t.color.muted}>{overlaysEn.prompt.confirm.hint}</Text>
     </Box>
   )
 }

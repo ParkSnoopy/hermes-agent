@@ -615,8 +615,7 @@ class GatewayAgent:
         except GatewayClientError:
             return False
         if (result or {}).get("voice_stopped") is True:
-            from agent.i18n import t
-            self._emit_print(t("cli.voice.stop_phrase_typed"))
+            self._emit_print('Stop phrase typed — ending voice chat.')
             return VOICE_STOPPED
         return (result or {}).get("status") in {"queued", "redirected"}
 
@@ -1268,9 +1267,8 @@ class GatewayAgent:
         """TUI-26: the owner took a bare stop phrase typed into this LOCAL session's voice chat (turned
         on by another viewer) as the end of that chat and admitted nothing, so no ``message.complete``
         will come. The turn ends at once with main's typed-stop notice; the history is unchanged."""
-        from agent.i18n import t
         self._give_back_turn_route()  # nothing was admitted: a ``/model --once`` pick is still owed
-        self._emit_print(t("cli.voice.stop_phrase_typed"))
+        self._emit_print('Stop phrase typed — ending voice chat.')
         return {**_RESULT_DEFAULTS, "messages": list(history), "voice_stopped": True, "session_id": self.session_id}
 
     def _unadmitted(self, history, user_message, error):

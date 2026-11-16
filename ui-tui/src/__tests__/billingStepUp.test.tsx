@@ -5,6 +5,8 @@ import { stripAnsi } from '@hermes/shared/ansi'
 import React from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { billingEn } from '../copy/billing.js'
+
 // Stub useInput so the overlay doesn't enter raw mode under renderSync.
 vi.mock('@hermes/ink', async importOriginal => {
   const mod = await importOriginal()
@@ -16,7 +18,6 @@ import type { BillingStateResponse } from '@hermes/shared/gateway-types'
 
 import type { BillingOverlayState } from '../app/interfaces.js'
 import { BillingOverlay } from '../components/billingOverlay.js'
-import { messages } from '../i18n/runtime.js'
 import { DEFAULT_THEME } from '../theme.js'
 
 const t = DEFAULT_THEME
@@ -171,6 +172,6 @@ describe('BillingOverlay — auto-reload card divergence', () => {
     })
 
     expect(out).not.toContain('not your card on file')
-    expect(out).not.toContain(messages().billing.autoReload.manageCardOnPortal)
+    expect(out).not.toContain(billingEn.billing.autoReload.manageCardOnPortal)
   })
 })

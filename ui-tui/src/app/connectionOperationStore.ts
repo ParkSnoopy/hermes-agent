@@ -5,7 +5,7 @@ import type {
 } from '@hermes/shared/gateway-events'
 import { atom } from 'nanostores'
 
-import { t } from '../i18n/runtime.js'
+import { connectionEn } from '../copy/connection.js'
 
 import { patchOverlayState } from './overlayStore.js'
 
@@ -56,7 +56,7 @@ const settledLines = (target: ConnectionOperationTarget): string[] => {
   const outcome = `${target.name}${target.alias ? ` (${target.alias})` : ''}: ${outcomeWord(target)}`
 
   return target.state === 'connected' && target.alias
-    ? [outcome, t('connection.namedAccount', target.name, target.alias)]
+    ? [outcome, connectionEn.connection.namedAccount(target.name, target.alias)]
     : [outcome]
 }
 

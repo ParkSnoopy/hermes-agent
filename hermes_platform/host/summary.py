@@ -1,7 +1,7 @@
 """One summary of this machine and its OS account, for the desktop first-run onboarding.
 
-Hardware facts come from ``hermes_platform.host``. Account facts (full name, locale) come from OS
-user records through ``pwd`` or Win32/CoreFoundation calls, never from environment variables such
+Hardware facts come from ``hermes_platform.host``. Account facts (full name) come from OS
+user records through ``pwd`` or Win32 calls, never from environment variables such
 as HOME or LANG, and never from a subprocess or the network. They describe the machine that runs
 the Hermes backend; when the desktop app drives a remote backend, that is not the user's laptop.
 """
@@ -69,68 +69,6 @@ def full_name_from(login: str, full: str) -> str | None:
     return name
 
 
-def _darwin_locale() -> str:
-    """First preferred UI language, e.g. ``de-DE``, via CoreFoundation."""
-    import ctypes
-    import ctypes.util
-
-    cf = ctypes.CDLL(ctypes.util.find_library("CoreFoundation"))
-    cf.CFLocaleCopyPreferredLanguages.restype = ctypes.c_void_p
-    cf.CFArrayGetCount.argtypes = [ctypes.c_void_p]
-    cf.CFArrayGetCount.restype = ctypes.c_long
-    cf.CFArrayGetValueAtIndex.argtypes = [ctypes.c_void_p, ctypes.c_long]
-    cf.CFArrayGetValueAtIndex.restype = ctypes.c_void_p
-    cf.CFStringGetCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
-    cf.CFStringGetCString.restype = ctypes.c_bool
-    cf.CFRelease.argtypes = [ctypes.c_void_p]
-
-    languages = cf.CFLocaleCopyPreferredLanguages()
-    if not languages:
-        return ""
-    try:
-        if cf.CFArrayGetCount(languages) < 1:
-            return ""
-        buffer = ctypes.create_string_buffer(64)
-        # kCFStringEncodingUTF8
-        if not cf.CFStringGetCString(cf.CFArrayGetValueAtIndex(languages, 0), buffer, 64, 0x08000100):
-            return ""
-        return buffer.value.decode()
-    finally:
-        cf.CFRelease(languages)
-
-
-def _windows_locale() -> str:
-    import ctypes
-
-    buffer = ctypes.create_unicode_buffer(85)
-    return buffer.value if ctypes.windll.kernel32.GetUserDefaultLocaleName(buffer, 85) else ""
-
-
-def _linux_locale() -> str:
-    """System locale from its config file; the shell's LANG is deliberately not read."""
-    for path in ("/etc/locale.conf", "/etc/default/locale"):
-        try:
-            with open(path, encoding="utf-8-sig") as handle:
-                for line in handle:
-                    key, _, value = line.strip().partition("=")
-                    if key == "LANG" and value:
-                        return value.strip("\"'").split(".", 1)[0].replace("_", "-")
-        except OSError:
-            continue
-    return ""
-
-
-def _locale() -> str:
-    try:
-        if sys.platform == "darwin":
-            return _darwin_locale()
-        if sys.platform == "win32":
-            return _windows_locale()
-        return _linux_locale()
-    except (AttributeError, OSError, TypeError, ValueError):
-        return ""
-
-
 # --- the summary ----------------------------------------------------------------------
 
 
@@ -148,7 +86,7 @@ def _os_release(os_family: str) -> str:
 @functools.cache
 def summary() -> dict:
     """This machine and account as measured. ``machine`` leaves out a key that was not measured;
-    ``locale`` and ``full_name`` are None when the OS has none to give."""
+    ``full_name`` is None when the OS has none to give."""
     os_family, arch, gpu, cpu = host.os_family(), host.native_arch(), host.gpu_class(), host.cpu_model()
     ram = host.ram_total_bytes()
     nvidia = products.nvidia_platform()
@@ -168,6 +106,6 @@ def summary() -> dict:
         "machine_kind": _machine_kind(os_family, nvidia),
         "has_nvidia_gpu": gpu == "nvidia",
         "nvidia_platform": nvidia,
-        "locale": _locale() or None,
+
         "full_name": full_name_from(*_account()),
     }

@@ -432,8 +432,7 @@ Once per rolling 24 hours, the first activation also emits a
 memory provider (a bundled provider name, `builtin`, or `plugin`), bucketed
 counts of MCP servers, enabled plugins, installed skills, enabled cron jobs,
 profiles and connected messaging platforms, the main provider id, the terminal
-backend (`local`, `docker`, `ssh`, ... or `other`), the display language (a
-shipped locale or `other`) and `install_age_bucket`: how long ago the profile's
+backend (`local`, `docker`, `ssh`, ... or `other`) and `install_age_bucket`: how long ago the profile's
 first-ever session started. Install age is what lets the backend tell a new user
 from an existing one who just opted in. Server, plugin, skill, job and profile
 names are never read into the event. The same compare-and-set latch as `hermes.client.active` keeps it to one

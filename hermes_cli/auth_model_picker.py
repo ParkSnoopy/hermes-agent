@@ -140,7 +140,7 @@ class _ModelPickerRows:
         segs: list[tuple[str, str | None]] = [(f"{mid:<{self.name_col}}", "dim" if self.usage.blocks(mid) else None)]
         from hermes_cli.model_picker_usage import usage_level_label
         level = self.levels.get(mid)
-        word = usage_level_label(level, "en")
+        word = usage_level_label(level)
         segs.extend(((_GAUGE_GAP, None), (f"{word:<{_COST_COL}}", _LEVEL_STYLE.get(level or ""))))
         return segs
 

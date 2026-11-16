@@ -5,7 +5,6 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@electron/osx-sign>isbinaryfile': 5.0.7
   lodash: 4.18.1
   protobufjs: ^8.7.1
   brace-expansion: 5.0.12

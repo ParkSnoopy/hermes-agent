@@ -12,7 +12,7 @@ from agent.context_compressor import (
     SUMMARY_PREFIX,
     _SUMMARY_END_MARKER,
 )
-from agent.i18n import t
+
 from gateway.config import GatewayConfig
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.run import GatewayRunner
@@ -700,7 +700,7 @@ async def test_gateway_retry_draining_refusal_leaves_transcript_unchanged(tmp_pa
         MessageEvent(text="/retry", message_type=MessageType.TEXT, source=MagicMock())
     )
 
-    assert result == t("gateway.busy.draining_maintenance")
+    assert result == "⏳ This agent is draining for a maintenance action and isn't accepting new turns right now. It'll be back in a moment — please resend shortly."
     assert store._db.get_messages("retry-draining-session", include_inactive=True) == before
     gw._handle_message.assert_not_awaited()
     assert session_entry.last_prompt_tokens == 111

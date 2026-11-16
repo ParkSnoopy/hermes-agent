@@ -16,7 +16,6 @@ import shlex
 from contextlib import redirect_stdout
 from io import StringIO
 
-from agent.i18n import t
 
 
 def _cp(*lines: str) -> None:
@@ -60,19 +59,10 @@ def _accent_line(text: str) -> str:
     return f"  {_accent(text)}"
 
 
-def _t(key: str, **kwargs) -> str:
-    """Catalog text for this module: ``cli.commands.<key>`` in the active language."""
-    return t(f"cli.commands.{key}", **kwargs)
 
 
-def _tn(key: str, count: int, **kwargs) -> str:
-    """Plural-aware ``_t``: ``<key>_one`` when ``count == 1``, else ``<key>_other``."""
-    return _t(f"{key}_{'one' if count == 1 else 'other'}", count=count, **kwargs)
 
 
-def _gt(key: str, **kwargs) -> str:
-    """A ``gateway.<key>`` catalog entry the CLI shares verbatim with the messaging gateway."""
-    return t(f"gateway.{key}", **kwargs)
 
 
 def _lines(text: str, pad: str = "  ") -> list:
@@ -84,11 +74,11 @@ def _rollback_kept(result: dict) -> None:
     """The kept / not-removed path lines of a restore result (in-process CLI and gateway client alike)."""
     from hermes_cli.cli_commands_mixin import _summarize_paths
     if skipped := result.get("skipped_user_edits"):
-        _pr(*_lines(_gt("rollback.kept_user_edits", files=_summarize_paths(skipped))))
+        _pr(*_lines(f'↷ Kept your hand-edits: {_summarize_paths(skipped)}\nUse /rollback <N> --all to restore those too.'))
     if oversize := result.get("skipped_oversize"):
-        print(f"  {_gt('rollback.kept_oversize', files=_summarize_paths(oversize))}")
+        print(f"  {(f'↷ Kept (too large for checkpoints, no stored copy to revert to): {_summarize_paths(oversize)}')}")
     if failed := result.get("failed_deletes"):
-        print(f"  {_gt('rollback.failed_deletes', files=_summarize_paths(failed))}")
+        print(f"  {(f'⚠️ Could not remove (left in place): {_summarize_paths(failed)}')}")
 
 
 def _probe(module: str, name: str, default, *args):
@@ -118,7 +108,7 @@ class CLICommandsSessionToolsMixin:
         history = self.conversation_history
         if history and rollback_rewinds_newest_turn(history, _user_turn_indices(history), taken):
             self.undo_last(prefill=False)
-            print(f"  {_t('rollback.chat_turn_undone')}")
+            print(f"  {'Chat turn undone to match restored file state.'}")
 
     # ---- /stop, /agents -------------------------------------------------------------------
     def _handle_stop_command(self):
@@ -134,7 +124,7 @@ class CLICommandsSessionToolsMixin:
             return _stop_background_work()
         if getattr(self, "agent", None):
             from agent.interrupt_compat import request_hard_interrupt
-            _cp(f"  {t('cli.tui.interrupting')}")
+            _cp(f"  {'⚡ Interrupting agent...'}")
             request_hard_interrupt(self.agent)
         from agent.memory_provider import spawn_context_thread
         spawn_context_thread(_stop_background_work, name="cli-stop").start()
@@ -150,18 +140,18 @@ class CLICommandsSessionToolsMixin:
         processes = process_registry.list_sessions()
         running = [p for p in processes if p.get("status") == "running"]
         finished = [p for p in processes if p.get("status") != "running"]
-        _cp(f"  {_t('agents.running_processes', count=len(running))}")
+        _cp(f"  {(f'Running processes: {len(running)}')}")
         for p in running:
             up = format_uptime_short(p.get("uptime_seconds", 0))
             _cp(f"    {p.get('session_id', '?')} · {up} · {p.get('command', '')[:80]}")
         if finished:
-            _cp(f"  {_t('agents.recently_finished', count=len(finished))}")
+            _cp(f"  {(f'Recently finished: {len(finished)}')}")
         if view is None:
             _print_local_delegations()
         elif n_async := view.active_delegations():
-            _cp(f"  {_t('agents.background_delegations', count=n_async)}")
+            _cp(f"  {(f'Background delegations: {n_async} running')}")
         agent_running = getattr(self, "_agent_running", False)
-        _cp(f"  {_t('agents.agent_running') if agent_running else _t('agents.agent_idle')}")
+        _cp(f"  {'Agent: running' if agent_running else 'Agent: idle'}")
 
     # ---- /journey, /paste, /copy, /image --------------------------------------------------
     def _handle_journey_command(self, cmd_original: str) -> None:
@@ -185,7 +175,7 @@ class CLICommandsSessionToolsMixin:
                 args.func(args)
             _cp(buf.getvalue().rstrip("\n"))
         except Exception as exc:
-            _cp(f"  {_t('journey.failed', error=exc)}")
+            _cp(f"  {(f'/journey failed: {exc}')}")
 
     def _handle_paste_command(self):
         """Handle /paste — explicitly check clipboard for an image.
@@ -196,11 +186,11 @@ class CLICommandsSessionToolsMixin:
         """
         from hermes_cli.clipboard import has_clipboard_image
         if not has_clipboard_image():
-            _cp(_dim_line(_t("paste.no_image")))
+            _cp(_dim_line('(._.) No image found in clipboard'))
         elif self._try_attach_clipboard_image():
-            _cp(f"  {_t('paste.attached', index=len(self._attached_images))}")
+            _cp(f"  {(f'📎 Image #{len(self._attached_images)} attached from clipboard')}")
         else:
-            _cp(_dim_line(_t("paste.extract_failed")))
+            _cp(_dim_line('(>_<) Clipboard has an image but extraction failed'))
 
     def _handle_copy_command(self, cmd_original: str) -> None:
         """Handle /copy [number] — copy assistant output to clipboard."""
@@ -208,22 +198,22 @@ class CLICommandsSessionToolsMixin:
         arg = _command_arg(cmd_original)
         assistant = [m for m in self.conversation_history if m.get("role") == "assistant"]
         if not assistant:
-            return _cp(f"  {_t('copy.nothing_yet')}")
+            return _cp(f"  {'Nothing to copy yet.'}")
         if arg:
             try:
                 idx = int(arg) - 1
             except ValueError:
-                return _cp(f"  {_t('copy.usage')}")
+                return _cp(f"  {'Usage: /copy [number]'}")
             if idx < 0 or idx >= len(assistant):
-                return _cp(f"  {_t('copy.invalid_number', max=len(assistant))}")
+                return _cp(f"  {(f'Invalid response number. Use 1-{len(assistant)}.')}")
         else:  # latest response that has copyable text
             idx = next((i for i in range(len(assistant) - 1, -1, -1)
                         if _assistant_copy_text(assistant[i].get("content"))), -1)
             if idx < 0:
-                return _cp(f"  {_t('copy.nothing_in_responses')}")
+                return _cp(f"  {'Nothing to copy in assistant responses yet.'}")
         text = _assistant_copy_text(assistant[idx].get("content"))
         if not text:
-            return _cp(f"  {_t('copy.nothing_in_response')}")
+            return _cp(f"  {'Nothing to copy in that assistant response.'}")
         try:
             from hermes_cli.clipboard import is_remote_shell_session, write_clipboard_text
             # Over SSH native tools write the REMOTE clipboard; OSC 52 reaches the user's terminal.
@@ -231,11 +221,11 @@ class CLICommandsSessionToolsMixin:
             if is_remote_shell_session() or not write_clipboard_text(text):
                 # Fixes #31528.
                 self._write_osc52_clipboard(text)
-                _cp(f"  {_t('copy.copied_osc52', index=idx + 1)}")
+                _cp(f"  {(f'Copied assistant response #{idx + 1} via OSC 52 (terminal support required)')}")
             else:
-                _cp(f"  {_t('copy.copied', index=idx + 1)}")
+                _cp(f"  {(f'Copied assistant response #{idx + 1} to clipboard')}")
         except Exception as e:
-            _cp(f"  {_t('copy.failed', error=e)}")
+            _cp(f"  {(f'Clipboard copy failed: {e}')}")
 
     def _handle_image_command(self, cmd_original: str):
         """Handle /image <path> — attach a local image file for the next prompt."""
@@ -243,19 +233,19 @@ class CLICommandsSessionToolsMixin:
         raw_args = (cmd_original.split(None, 1)[1].strip() if " " in cmd_original else "")
         if not raw_args:
             hint = "/path/to/image.png"
-            _cprint(f"  {_DIM}{_t('image.usage', example=hint)}{_RST}")
+            _cprint(f"  {_DIM}{(f'Usage: /image <path>  e.g. /image {hint}')}{_RST}")
             return
 
         path_token, _remainder = _split_path_input(raw_args)
         image_path = _resolve_attachment_path(path_token)
         if image_path is None:
-            return _cp(_dim_line(_t("image.not_found", path=path_token)))
+            return _cp(_dim_line(f'(>_<) File not found: {path_token}'))
         if image_path.suffix.lower() not in _IMAGE_EXTENSIONS:
-            return _cp(_dim_line(_t("image.unsupported", name=image_path.name)))
+            return _cp(_dim_line(f'(._.) Not a supported image file: {image_path.name}'))
         self._attached_images.append(image_path)
-        _cp(f"  {_t('image.attached', name=image_path.name)}")
+        _cp(f"  {(f'📎 Attached image: {image_path.name}')}")
         if _remainder:
-            _cprint(f"  {_DIM}{_t('image.now_type_prompt', text=_remainder)}{_RST}")
+            _cprint(f"  {_DIM}{(f'Now type your prompt (or use --image in single-query mode): {_remainder}')}{_RST}")
 
     # ---- /tools, /profile -----------------------------------------------------------------
     def _handle_tools_command(self, cmd: str):
@@ -270,18 +260,17 @@ class CLICommandsSessionToolsMixin:
             return self._run_tools_config(tools_action="list", platform="cli")
         names = parts[1:]
         if not names:
-            return _pr(_t("tools.usage", subcommand=subcommand),
-                       f"  {_t('tools.example_toolset', subcommand=subcommand)}",
-                       f"  {_t('tools.example_mcp', subcommand=subcommand)}")
+            return _pr((f'(._.) Usage: /tools {subcommand} <name> [name ...]'),
+                       f"  {(f'Built-in toolset:  /tools {subcommand} web')}",
+                       f"  {(f'MCP tool:          /tools {subcommand} github:create_issue')}")
         # Typing the command is consent. Do NOT use input() — it hangs in prompt_toolkit's loop.
-        _cp(_accent(_t("tools.disabling" if subcommand == "disable" else "tools.enabling",
-                       names=", ".join(names))))
+        _cp(_accent((('Disabling {names}...' if subcommand == "disable" else 'Enabling {names}...')).format(names=", ".join(names))))
         self._run_tools_config(tools_action=subcommand, names=names, platform="cli")
         from hermes_cli.tools_config import _get_platform_tools
         from hermes_cli.config import load_config
         self.enabled_toolsets = sorted(_get_platform_tools(load_config(), "cli"))  # plain data for session.create
         self.new_session()
-        _cp(_dim(_t("tools.session_reset")))
+        _cp(_dim('Session reset. New tool configuration is active.'))
 
     def _run_tools_config(self, **ns) -> None:
         """Run ``tools_disable_enable_command``. Inside the interactive TUI its ANSI print() output
@@ -305,8 +294,8 @@ class CLICommandsSessionToolsMixin:
         """Display active profile name and home directory."""
         from hermes_cli.slash_exec import CommandContext, execute_command
         reply = execute_command("profile", CommandContext(surface="cli"))
-        _say_block(f"  {_t('profile.profile', profile=reply.data['profile'])}",
-                   f"  {_t('profile.home', home=reply.data['home'])}")
+        _say_block(f"  {('Profile: {profile}').format(profile=reply.data['profile'])}",
+                   f"  {('Home:    {home}').format(home=reply.data['home'])}")
 
 
 def _stop_background_work() -> None:
@@ -321,31 +310,31 @@ def _stop_background_work() -> None:
     # Background subagents live in their own registry, not the process registry.
     n_async = view.active_delegations() if view is not None else _probe("tools.async_delegation", "active_count", 0)
     if not running and not n_async:
-        return _cp(f"  {_t('stop.none_running')}")
+        return _cp(f"  {'No running background processes.'}")
     if running:
-        _cp(f"  {_t('stop.stopping', count=len(running))}")
-        _cp(f"  {_t('stop.stopped', count=process_registry.kill_all(source='cli.stop'))}")
+        _cp(f"  {(f'Stopping {len(running)} background process(es)...')}")
+        _cp(f"  {('✅ Stopped {count} process(es).').format(count=process_registry.kill_all(source='cli.stop'))}")
     if n_async:
         if view is not None:
             interrupted = view.interrupt_delegations()  # the gateway interrupts this session's own
         else:
             from tools.async_delegation import interrupt_all
             interrupted = interrupt_all(reason='/stop')
-        _cp(f"  {_t('stop.interrupted_delegations', count=interrupted)}")
+        _cp(f"  {(f'✅ Interrupted {interrupted} background delegation(s).')}")
 
 
 def print_session_diff(cli, result: dict, stat_only: bool) -> None:
     """Render a ``CheckpointManager.session_diff`` result (``/diff session``): this process's agent's,
     or the gateway session's ``rollback.session_diff`` (``diff_lines``: its uncut body's line count)."""
     if not result.get("success"):
-        return print(f"  {result.get('error') or _t('shared.could_not_generate_diff')}")
+        return print(f"  {result.get('error') or 'Could not generate diff'}")
     stat, diff = result.get("stat", ""), result.get("diff", "")
     if result.get("empty") or (not stat and not diff):
-        return print(f"  {_t('diff.no_session_changes')}")
+        return print("  No changes — Hermes hasn't edited any files here yet.")
     if stat:
         cli._print_diff_text(f"\n{stat}")
     if (diff or result.get("diff_lines")) and not stat_only:  # a body cut to nothing still names its lines
-        cli._print_diff_body(diff, _t("diff.stat_hint_session"), total=int(result.get("diff_lines") or 0))
+        cli._print_diff_body(diff, 'run /diff session --stat for a summary', total=int(result.get("diff_lines") or 0))
 
 
 def _print_local_delegations() -> None:
@@ -354,7 +343,7 @@ def _print_local_delegations() -> None:
     if not delegations:
         return
     running_d = [d for d in delegations if d.get("status") in ("running", "stalling")]
-    _cp(f"  {_t('agents.background_delegations', count=len(running_d))}")
+    _cp(f"  {(f'Background delegations: {len(running_d)} running')}")
     for d in delegations:
         status = d.get("status", "?")
         line = f"    {d.get('delegation_id', '?')} · {status} · {(d.get('goal') or '')[:60]}"
@@ -363,22 +352,21 @@ def _print_local_delegations() -> None:
         if status == "stalling":
             quiet = d.get("stalled_after_quiet_seconds")
             if quiet is not None:
-                line += _t("agents.no_progress", seconds=f"{quiet:.0f}")
+                line += (' · no progress {seconds}s — interrupting').format(seconds=f"{quiet:.0f}")
         elif status == "running":
             quiet = d.get("seconds_since_progress")
             if quiet is not None and quiet >= 60:
-                line += _t("agents.quiet", seconds=f"{quiet:.0f}")
+                line += (' · quiet {seconds}s').format(seconds=f"{quiet:.0f}")
         _cp(line)
         for i, child in enumerate(d.get("children_activity") or []):
             if not isinstance(child, dict):
                 continue
             tool = child.get("current_tool")
-            doing = _t("agents.in_tool", tool=tool) if tool else _t("agents.between_turns")
-            part = "      " + _t("agents.child_line", index=i + 1,
-                                 api_calls=child.get("api_calls", "?"), doing=doing)
+            doing = (f'in {tool}') if tool else 'between turns'
+            part = "      " + ('└ child {index}: {api_calls} api calls · {doing}').format(index=i + 1, api_calls=child.get("api_calls", "?"), doing=doing)
             idle = child.get("seconds_since_activity")
             if idle is not None:
-                part += _t("agents.last_activity", seconds=f"{idle:.0f}")
+                part += (' · last activity {seconds}s ago').format(seconds=f"{idle:.0f}")
             _cp(part)
 
 

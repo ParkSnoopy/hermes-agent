@@ -14,31 +14,14 @@ from dataclasses import dataclass
 from typing import Optional
 
 from utils import is_truthy_value
-from agent.i18n import t
 from hermes_constants import INDICATOR_STYLES
 
 logger = logging.getLogger(__name__)
 
 
-def _localized(key: str, default: str) -> str:
-    """``t(key)`` with *default* when no catalog (not even ``en``) carries the key."""
-    value = t(key)
-    return default if value == key else value
-
-
-# Category identifiers -> ``slash.category.<slug>`` (identifiers stay English; labels are localized
-# only at render time via ``category_label``).
-_CATEGORY_SLUGS: dict[str, str] = {
-    "Session": "session", "Configuration": "configuration", "Info": "info",
-    "Tools & Skills": "tools_skills", "Plugins": "plugins", "Exit": "exit",
-    "Context": "context", "Background & Automation": "background_automation",
-}
-
-
 def category_label(category: str) -> str:
-    """Localized label for a registry category / help sub-group identifier."""
-    slug = _CATEGORY_SLUGS.get(category)
-    return _localized(f"slash.category.{slug}", category) if slug else category
+    """Return the English registry category label."""
+    return category
 
 
 @dataclass(frozen=True)
@@ -73,8 +56,8 @@ class CommandDef:
     desktop_subcommands: tuple[str, ...] | None = None
 
     def describe(self) -> str:
-        """Localized description (``slash.<name>.description``); ``description`` is the English source."""
-        return _localized(f"slash.{self.name}.description", self.description)
+        """Return the English command description."""
+        return self.description
 
 
 VALID_BUSY_POLICIES: frozenset[str] = frozenset({"dispatch", "reject", "interrupt_then_dispatch"})
@@ -103,7 +86,7 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("rewind", "Rewind to an earlier prompt to edit & resend it, or fork from there (Esc Esc)",
                "Session", cli_only=True, args_hint="[N | fork N]", desktop="terminal"),
     CommandDef("title", "Set a title for the current session", "Session", args_hint="[name]"),
-    CommandDef("branch", "Branch the current session",
+    CommandDef("branch", "Branch the current session (new thread on Discord/Telegram/Slack/Matrix; --here stays here)",
                "Session", aliases=("fork",), args_hint="[--here] [name]"),
     CommandDef("worktree", "Show, list, create, or prune isolated git worktrees", "Session",
                cli_only=True, args_hint="[new [name]|list|prune [--dry-run]]",
@@ -389,17 +372,16 @@ def resolve_command(name: str) -> CommandDef | None:
 
 
 def _build_description(cmd: CommandDef) -> str:
-    """CLI-facing localized description including the usage hint."""
+    """CLI-facing description including the usage hint."""
     if not cmd.args_hint:
         return cmd.describe()
-    return t("slash.shared.usage_suffix", description=cmd.describe(), name=cmd.name, args_hint=cmd.args_hint)
+    return (f'{cmd.describe()} (usage: /{cmd.name} {cmd.args_hint})')
 
 
 def build_commands_by_category() -> dict[str, dict[str, str]]:
-    """Localized ``{category: {"/command": description}}`` (excludes gateway_only).
+    """``{category: {"/command": description}}`` (excludes gateway_only).
 
-    Built per call so a ``display.language`` change applies without a restart; category keys are
-    the registry identifiers -- render them with ``category_label``.
+    Category keys are registry identifiers -- render them with ``category_label``.
     """
     grouped: dict[str, dict[str, str]] = {}
     for cmd in COMMAND_REGISTRY:
@@ -407,22 +389,21 @@ def build_commands_by_category() -> dict[str, dict[str, str]]:
             continue
         entries = {f"/{cmd.name}": _build_description(cmd)}
         for alias in cmd.aliases:
-            entries[f"/{alias}"] = t("slash.shared.alias_for", description=cmd.describe(), name=cmd.name)
+            entries[f"/{alias}"] = (f'{cmd.describe()} (alias for /{cmd.name})')
         grouped.setdefault(cmd.category, {}).update(entries)
     return grouped
 
 
 def build_commands() -> dict[str, str]:
-    """Localized flat ``{"/command": description}`` (excludes gateway_only)."""
+    """Flat ``{"/command": description}`` (excludes gateway_only)."""
     flat: dict[str, str] = {}
     for entries in build_commands_by_category().values():
         flat.update(entries)
     return flat
 
 
-# ``COMMANDS`` / ``COMMANDS_BY_CATEGORY`` resolve lazily through the module ``__getattr__`` below so
-# every ``from hermes_cli.commands import COMMANDS`` sees the active language.
-_LAZY_LOCALIZED_TABLES = {"COMMANDS": build_commands, "COMMANDS_BY_CATEGORY": build_commands_by_category}
+# ``COMMANDS`` / ``COMMANDS_BY_CATEGORY`` resolve lazily through the module ``__getattr__`` below.
+_LAZY_COMMAND_TABLES = {"COMMANDS": build_commands, "COMMANDS_BY_CATEGORY": build_commands_by_category}
 
 # Subcommands lookup: "/cmd" -> ["sub1", ...]; explicit ``subcommands`` first (in
 # registry order), then pipe patterns in args_hint ("[on|off|status]") as fallback.
@@ -532,7 +513,7 @@ def gateway_help_lines(allowed: Optional[Iterable[str]] = None) -> list[str]:
         # Skip internal aliases like reload_mcp (underscore variant of the name).
         alias_parts = [f"`/{a}`" for a in cmd.aliases
                        if not (a.replace("-", "_") == cmd.name.replace("-", "_") and a != cmd.name)]
-        alias_note = t("slash.shared.alias_note", aliases=", ".join(alias_parts)) if alias_parts else ""
+        alias_note = (' (alias: {aliases})').format(aliases=", ".join(alias_parts)) if alias_parts else ""
         lines.append(f"`/{cmd.name}{args}` -- {cmd.describe()}{alias_note}")
     return lines
 
@@ -545,13 +526,13 @@ def _iter_plugin_command_entries() -> list[tuple[str, str, str]]:
         commands = get_plugin_commands() or {}
     except Exception:
         return []
-    return [(name, str(meta.get("description") or t("slash.shared.plugin_default_desc", name=name)),
+    return [(name, str(meta.get("description") or (f'Run /{name}')),
              str(meta.get("args_hint") or "").strip())
             for name, meta in commands.items() if isinstance(name, str) and isinstance(meta, dict)]
 
 
-def __getattr__(name):  # PEP 562 — COMMANDS / COMMANDS_BY_CATEGORY are built per call so labels follow the active language
-    localized = _LAZY_LOCALIZED_TABLES.get(name)
-    if localized is None:
+def __getattr__(name):  # PEP 562 — COMMANDS / COMMANDS_BY_CATEGORY are built per call
+    build = _LAZY_COMMAND_TABLES.get(name)
+    if build is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    return localized()
+    return build()

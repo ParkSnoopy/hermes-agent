@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto'
 
 import { CANONICAL_REASONING_EFFORTS, TUI_SESSION_MODEL_FLAG } from '@hermes/shared/slash-input'
 
+import { canonicalEn } from '../../copy/canonical.js'
+import { sessionEn } from '../../copy/session.js'
+import { slashCmdEn } from '../../copy/slashCmd.js'
 import { introMsg, toTranscriptMessages } from '../../domain/messages.js'
-import { t } from '../../i18n/runtime.js'
 import { asRpcResult, rpcErrorMessage } from '../../lib/rpc.js'
 import { patchOverlayState } from '../overlayStore.js'
 import { getUiState, patchUiState } from '../uiStore.js'
@@ -24,7 +26,7 @@ function modelPayload(arg: string) {
   const payload: Record<string, string> = { model }
 
   if (model.startsWith('--')) {
-    throw new Error(t('canonical.controls.modelUsage'))
+    throw new Error(canonicalEn.canonical.controls.modelUsage)
   }
 
   while (parts.length) {
@@ -48,7 +50,7 @@ function modelPayload(arg: string) {
       continue
     }
 
-    throw new Error(t('canonical.controls.unsupportedModelOption', flag))
+    throw new Error(canonicalEn.canonical.controls.unsupportedModelOption(flag))
   }
 
   return payload
@@ -124,7 +126,7 @@ export async function mutateCanonical(
     }
 
     if (!Number.isSafeInteger(snapshot?.revision) || !Number.isSafeInteger(snapshot?.execution_generation)) {
-      throw new Error(t('canonical.controls.identityUnavailable'))
+      throw new Error(canonicalEn.canonical.controls.identityUnavailable)
     }
 
     const body = typeof payload === 'function' ? payload(snapshot!) : payload
@@ -150,7 +152,7 @@ export async function mutateCanonical(
     result = asRpcResult(await gw.request('session.mutate', params))
 
     if (!result) {
-      throw new Error(t('session.common.invalidResponse', 'session.mutate'))
+      throw new Error(sessionEn.session.common.invalidResponse('session.mutate'))
     }
 
     requests.delete(key)
@@ -204,7 +206,7 @@ const needsModelConfirmation = (result: CanonicalControlResult): result is Model
  *  switch landed first) is reported, never re-asked in a loop. */
 function askModelConfirmation(refusal: ModelConfirmation, arg: string, ctx: SlashRunCtx, confirmed: boolean) {
   if (confirmed) {
-    throw new Error(`${refusal.confirm_message ?? ''}\n\n${t('slashCmd.session.model.confirmStale')}`.trim())
+    throw new Error(`${refusal.confirm_message ?? ''}\n\n${slashCmdEn.slashCmd.session.model.confirmStale}`.trim())
   }
 
   openModelConfirmation(
@@ -218,12 +220,12 @@ function askModelConfirmation(refusal: ModelConfirmation, arg: string, ctx: Slas
 export function openModelConfirmation(detail: string | undefined, target: string, onConfirm: () => void) {
   patchOverlayState({
     confirm: {
-      cancelLabel: t('slashCmd.session.model.cancel'),
-      confirmLabel: t('slashCmd.session.model.switchAnyway'),
+      cancelLabel: slashCmdEn.slashCmd.session.model.cancel,
+      confirmLabel: slashCmdEn.slashCmd.session.model.switchAnyway,
       danger: true,
-      detail: detail || t('slashCmd.session.model.expensiveDetail'),
+      detail: detail || slashCmdEn.slashCmd.session.model.expensiveDetail,
       onConfirm,
-      title: t('slashCmd.session.model.confirmTitle', target)
+      title: slashCmdEn.slashCmd.session.model.confirmTitle(target)
     }
   })
 }
@@ -246,7 +248,7 @@ function isSupersededControl(
 
 export async function applyBranchResult(result: CanonicalControlResult, arg: string, ctx: SlashRunCtx) {
   if (!result.branched_session_id) {
-    throw new Error(t('session.common.invalidResponse', 'branch'))
+    throw new Error(sessionEn.session.common.invalidResponse('branch'))
   }
 
   // The child resume repaints the transcript; main's "branched →" line is printed after it, or the
@@ -263,19 +265,19 @@ export async function applyBranchResult(result: CanonicalControlResult, arg: str
   // The resume moved this view to the child, so the slash's own staleness check no longer applies:
   // print only while the child is still the view's session.
   if (getUiState().sid === child) {
-    ctx.transcript.sys(t('slashCmd.session.branch.branched', asRpcResult(info)?.title?.trim() || arg || child))
+    ctx.transcript.sys(slashCmdEn.slashCmd.session.branch.branched(asRpcResult(info)?.title?.trim() || arg || child))
   }
 }
 
 function applyModelResult(result: CanonicalControlResult, sys: (text: string) => void) {
   if (!result.model) {
-    throw new Error(t('session.main.invalidModelSwitchResponse'))
+    throw new Error(sessionEn.session.main.invalidModelSwitchResponse)
   }
 
   if (result.status === 'deferred') {
     // A turn is running: the owner keeps the pick for the next turn, and session.info repaints the
     // model when it lands (or a refusal / confirmation follows on session.updated).
-    sys(t('slashCmd.session.model.switchedDeferred', result.model))
+    sys(slashCmdEn.slashCmd.session.model.switchedDeferred(result.model))
 
     return
   }
@@ -291,11 +293,11 @@ function applyModelResult(result: CanonicalControlResult, sys: (text: string) =>
     }
   }))
   // `/model reset` on a session already on the configured default: the owner's note, nothing changed.
-  sys(typeof result.note === 'string' ? result.note : t('session.main.modelSwitched', result.model))
+  sys(typeof result.note === 'string' ? result.note : sessionEn.session.main.modelSwitched(result.model))
 
   if (typeof result.effort === 'string') {
     // The level committed in the same selection (a deferred result carries none yet).
-    sys(t('slashCmd.session.reasoning.current', result.effort))
+    sys(slashCmdEn.slashCmd.session.reasoning.current(result.effort))
   }
 }
 
@@ -324,7 +326,7 @@ export async function switchCanonicalModel(
 
   if (needsModelConfirmation(result)) {
     if (confirm) {
-      return sys(t('slashCmd.session.model.confirmStale'))
+      return sys(slashCmdEn.slashCmd.session.model.confirmStale)
     }
 
     return openModelConfirmation(
@@ -365,7 +367,7 @@ function usageAfterManualCompress<U extends { compressions?: null | number }>(us
 /** The authority's report (headline, token line, note), as the native /compress prints it. */
 function printCompressSummary(summary: CompressSummary, ctx: SlashRunCtx) {
   ctx.transcript.sys(
-    summary?.headline ? `${summary.noop ? '' : '✓ '}${summary.headline}` : t('canonical.controls.compressed')
+    summary?.headline ? `${summary.noop ? '' : '✓ '}${summary.headline}` : canonicalEn.canonical.controls.compressed
   )
 
   for (const line of [summary?.token_line, summary?.note]) {
@@ -384,7 +386,7 @@ async function applyCompressResult(gw: MutationGateway, sid: string, result: Can
   }
 
   if (!snapshot || !Array.isArray(snapshot.messages)) {
-    throw new Error(t('session.common.invalidResponse', 'compressed transcript'))
+    throw new Error(sessionEn.session.common.invalidResponse('compressed transcript'))
   }
 
   const info = { ...before.info, ...snapshot.info }
@@ -393,7 +395,7 @@ async function applyCompressResult(gw: MutationGateway, sid: string, result: Can
     info.execution_epoch !== before.info?.execution_epoch ||
     (info.execution_generation ?? -1) < (result.execution_generation ?? 0)
   ) {
-    throw new Error(t('canonical.controls.compressedStale'))
+    throw new Error(canonicalEn.canonical.controls.compressedStale)
   }
 
   ctx.transcript.setHistoryItems([introMsg(info), ...toTranscriptMessages(snapshot.messages)])
@@ -411,7 +413,7 @@ export async function runCanonicalSessionControl(
 
   try {
     if (!ctx.sid) {
-      throw new Error(t('slashCmd.core.status.noActiveSession'))
+      throw new Error(slashCmdEn.slashCmd.core.status.noActiveSession)
     }
 
     const mutation = await mutateCanonicalSession(gw, ctx.sid, operation, arg, ctx.stale, confirm)

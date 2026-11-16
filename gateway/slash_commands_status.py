@@ -11,7 +11,6 @@ import time
 from typing import Any
 
 from agent.account_usage import fetch_account_usage, render_account_usage_lines
-from agent.i18n import t
 
 from gateway.platforms.event import MessageEvent
 from gateway.session_transcript import TranscriptReadError
@@ -67,15 +66,14 @@ async def _quiet(call, default=None):
         return default
 
 
-# English source for the transcript-read-failure reply; callers render ``history_unreadable()``
-# (``gateway.shared.history_unreadable``) so the active language applies.
+# Transcript-read-failure reply shared by command handlers.
 HISTORY_UNREADABLE = ("⚠️ I can't read this conversation's history right now (your earlier messages "
                       "exist but cannot be loaded). Run `hermes doctor --fix` on the host, or use /new "
                       "to start fresh.")
 
 
 def history_unreadable() -> str:
-    return t("gateway.shared.history_unreadable")
+    return HISTORY_UNREADABLE
 
 
 def _configured_provider() -> str:
@@ -149,25 +147,20 @@ def _context_compressor_lines(agent, ctx, used: int) -> list[str]:
     threshold_pct = f"{_n(ctx, 'threshold_percent') * 100:.0f}"
     if threshold > 0:
         if used >= threshold:
-            lines.append(t("gateway.context.over_threshold", threshold=_fmt(threshold),
-                           threshold_pct=threshold_pct))
+            lines.append(f'⚠️ **Over auto-compression threshold ({_fmt(threshold)}, {threshold_pct}%)**')
         else:
-            lines.append(t("gateway.context.threshold", threshold=_fmt(threshold),
-                           threshold_pct=threshold_pct, to_go=mark + _fmt(threshold - used)))
+            lines.append(f'Auto-compresses at: {_fmt(threshold)} ({threshold_pct}%) — {mark + _fmt(threshold - used)} to go')
     compressions = _n(ctx, "compression_count")
-    lines.append(t("gateway.context.compressions", count=compressions))
+    lines.append(f'Compressions this session: {compressions}')
     savings = getattr(ctx, "_last_compression_savings_pct", None) if compressions else None
     if savings is not None:
-        lines.append(t("gateway.context.last_savings", savings=f"{savings:.0f}"))
+        lines.append(('Last compression freed: {savings}% of context').format(savings=f"{savings:.0f}"))
     lines += [
         "",
-        t("gateway.context.totals_header", calls=_n(agent, "session_api_calls")),
-        t("gateway.context.totals_line",
-          input=_fmt(_n(agent, "session_input_tokens")),
-          output=_fmt(_n(agent, "session_output_tokens")),
-          reasoning=_fmt(_n(agent, "session_reasoning_tokens"))),
-        t("gateway.context.total_billed", total=_fmt(_n(agent, "session_total_tokens"))),
-        t("gateway.context.throughput_note"),
+        ('Session totals (cumulative across {calls} API calls)').format(calls=_n(agent, "session_api_calls")),
+        ('Input {input} · Output {output} · Reasoning {reasoning}').format(input=_fmt(_n(agent, "session_input_tokens")), output=_fmt(_n(agent, "session_output_tokens")), reasoning=_fmt(_n(agent, "session_reasoning_tokens"))),
+        ('Total billed: {total}').format(total=_fmt(_n(agent, "session_total_tokens"))),
+        '_Throughput, not context size — each call re-sends the window above._',
     ]
     return lines
 
@@ -180,9 +173,9 @@ def _agents_delegation_lines(d: dict) -> list[str]:
     row = f"- `{d.get('delegation_id', '?')}` · {status}"
     quiet = d.get("stalled_after_quiet_seconds")
     if status == "stalling" and quiet is not None:
-        row += t("gateway.agents.no_progress", seconds=f"{quiet:.0f}")
+        row += (' · no progress {seconds}s').format(seconds=f"{quiet:.0f}")
     elif status != "stalling" and d.get("seconds_since_progress", 0) >= 60:
-        row += t("gateway.agents.quiet_for", seconds=f"{d['seconds_since_progress']:.0f}")
+        row += (' · quiet {seconds}s').format(seconds=f"{d['seconds_since_progress']:.0f}")
     if goal:
         row += f" · {goal}"
     lines = [row]
@@ -190,10 +183,10 @@ def _agents_delegation_lines(d: dict) -> list[str]:
         if not isinstance(child, dict):
             continue
         tool = child.get("current_tool")
-        doing = f"`{tool}`" if tool else t("gateway.agents.between_turns")
-        part = t("gateway.agents.child_row", index=i + 1, calls=child.get("api_calls", "?"), doing=doing)
+        doing = f"`{tool}`" if tool else 'between turns'
+        part = ('  - child {index}: {calls} api calls · {doing}').format(index=i + 1, calls=child.get("api_calls", "?"), doing=doing)
         idle = child.get("seconds_since_activity")
-        lines.append(part + (t("gateway.agents.active_ago", seconds=f"{idle:.0f}") if idle is not None else ""))
+        lines.append(part + ((' · active {seconds}s ago').format(seconds=f"{idle:.0f}") if idle is not None else ""))
     return lines
 
 
@@ -204,14 +197,14 @@ def _usage_agent_stats_lines(agent) -> list[str]:
     rl_state = agent.get_rate_limit_state()
     if rl_state and rl_state.has_data:
         from agent.rate_limit_tracker import format_rate_limit_compact
-        lines += [t("gateway.usage.rate_limits", state=format_rate_limit_compact(rl_state)), ""]
+        lines += [(f'⏱️ **Rate Limits:** {format_rate_limit_compact(rl_state)}'), ""]
     lines += [
-        t("gateway.usage.header_session"),
-        t("gateway.usage.label_model", model=agent.model),
-        t("gateway.usage.label_input_tokens", count=_fmt(_n(agent, "session_input_tokens"))),
-        t("gateway.usage.label_output_tokens", count=_fmt(_n(agent, "session_output_tokens"))),
-        t("gateway.usage.label_total", count=_fmt(agent.session_total_tokens)),
-        t("gateway.usage.label_api_calls", count=agent.session_api_calls),
+        '📊 **Session Token Usage**',
+        (f'Model: `{agent.model}`'),
+        ('Input tokens: {count}').format(count=_fmt(_n(agent, "session_input_tokens"))),
+        ('Output tokens: {count}').format(count=_fmt(_n(agent, "session_output_tokens"))),
+        (f'Total: {_fmt(agent.session_total_tokens)}'),
+        (f'API calls: {agent.session_api_calls}'),
     ]
     ctx = agent.context_compressor
     if ctx.last_prompt_tokens > 0:
@@ -219,10 +212,9 @@ def _usage_agent_stats_lines(agent) -> list[str]:
         from agent.context_breakdown import context_display_source
         from agent.context_pin import agent_context_suffix
         mark = "~" if context_display_source(ctx) != "provider_usage" else ""
-        lines.append(t("gateway.usage.label_context", used=mark + _fmt(ctx.last_prompt_tokens),
-                       total=_fmt(ctx.context_length), pct=f"{mark}{pct:.0f}") + agent_context_suffix(agent))
+        lines.append(('Context: {used} / {total} ({pct}%)').format(used=mark + _fmt(ctx.last_prompt_tokens), total=_fmt(ctx.context_length), pct=f"{mark}{pct:.0f}") + agent_context_suffix(agent))
     if ctx.compression_count:
-        lines.append(t("gateway.usage.label_compressions", count=ctx.compression_count))
+        lines.append(f'Compressions: {ctx.compression_count}')
     return lines
 
 
@@ -232,7 +224,7 @@ def _capped_rows(items: list, render) -> list[str]:
     for item in items[:_LIST_CAP]:
         lines.extend(render(item))
     if len(items) > _LIST_CAP:
-        lines.append(t("gateway.agents.more", count=len(items) - _LIST_CAP))
+        lines.append(f'... and {len(items) - _LIST_CAP} more')
     return lines
 
 
@@ -277,16 +269,16 @@ class GatewayStatusCommandsMixin:
             created=session_entry.created_at, last_activity=session_entry.updated_at,
             tokens=db_total_tokens, agent_running=is_running,
         )
-        lines = [t("gateway.status.header"), "",
-                 t("gateway.status.session_id", session_id=fields["session_id"])]
+        lines = ['📊 **Hermes Gateway Status**', "",
+                 ('**Session ID:** `{session_id}`').format(session_id=fields["session_id"])]
         if fields["title"]:
-            lines.append(t("gateway.status.title", title=fields["title"]))
-        lines += [t("gateway.status.created", timestamp=fields["created"]),
-                  t("gateway.status.last_activity", timestamp=fields["last_activity"])]
+            lines.append(('**Title:** {title}').format(title=fields["title"]))
+        lines += [('**Created:** {timestamp}').format(timestamp=fields["created"]),
+                  ('**Last Activity:** {timestamp}').format(timestamp=fields["last_activity"])]
         if fields["model"] and fields["provider"]:
-            lines.append(t("gateway.status.model_provider", model=fields["model"], provider=fields["provider"]))
+            lines.append(('**Model:** `{model}` ({provider})').format(model=fields["model"], provider=fields["provider"]))
         elif fields["model"]:
-            lines.append(t("gateway.status.model", model=fields["model"]))
+            lines.append(('**Model:** `{model}`').format(model=fields["model"]))
         from agent.context_breakdown import context_display_source
         mark = "~" if context_display_source(getattr(status_agent, "context_compressor", None)) != "provider_usage" else ""
         if context_total:
@@ -294,17 +286,16 @@ class GatewayStatusCommandsMixin:
             from agent.context_pin import agent_context_suffix  # (pinned) / (fallback) for the agent's own window
             compressor_total = _n(getattr(status_agent, "context_compressor", None), "context_length")
             suffix = agent_context_suffix(status_agent) if compressor_total and compressor_total == context_total else ""
-            lines.append(t("gateway.status.context", used=mark + _fmt(context_used), total=_fmt(context_total),
-                           pct=f"{mark}{pct}") + suffix)
+            lines.append(('**Context:** {used} / {total} ({pct}%)').format(used=mark + _fmt(context_used), total=_fmt(context_total), pct=f"{mark}{pct}") + suffix)
         elif context_used:
-            lines.append(t("gateway.status.context_used", used=mark + _fmt(context_used)))
-        state = t("gateway.status.state_yes") if fields["agent_running"] else t("gateway.status.state_no")
-        lines += [t("gateway.status.tokens", tokens=fields["tokens"]),
-                  t("gateway.status.agent_running", state=state)]
+            lines.append(f'**Context:** ~{mark + _fmt(context_used)} tokens')
+        state = 'Yes ⚡' if fields["agent_running"] else 'No'
+        lines += [('**Lifetime tokens billed:** {tokens} _(not your current context size; use `/context`)_').format(tokens=fields["tokens"]),
+                  (f'**Agent Running:** {state}')]
         if queue_depth:
-            lines.append(t("gateway.status.queued", count=queue_depth))
+            lines.append(f'**Queued follow-ups:** {queue_depth}')
 
-        lines += ["", t("gateway.status.platforms", platforms=', '.join(p.value for p in self.adapters))]
+        lines += ["", ('**Connected Platforms:** {platforms}').format(platforms=', '.join(p.value for p in self.adapters))]
         return "\n".join(lines)
 
     async def _status_session_db_facts(self, session_id: str):
@@ -350,17 +341,17 @@ class GatewayStatusCommandsMixin:
             pct = _pct(used, context_length)
             filled = round(pct / 100 * 24)
             lines = [
-                t("gateway.context.header"), "",
-                t("gateway.context.model", model=model_name or "?"),
-                t("gateway.context.window", total=_fmt(context_length)) + window_suffix,
-                t("gateway.context.in_use", used=mark + _fmt(used), total=_fmt(context_length), pct=f"{mark}{pct:.0f}"),
-                t("gateway.context.bar", bar="█" * max(0, filled) + "░" * max(0, 24 - filled)),
-                t("gateway.context.headroom", headroom=mark + _fmt(max(0, context_length - used))),
+                '🧠 **Context Window**', "",
+                ('Model: `{model}`').format(model=model_name or "?"),
+                (f'Window: {_fmt(context_length)} tokens') + window_suffix,
+                ('In use: {used} / {total} ({pct}%)').format(used=mark + _fmt(used), total=_fmt(context_length), pct=f"{mark}{pct:.0f}"),
+                ('{bar}').format(bar="█" * max(0, filled) + "░" * max(0, 24 - filled)),
+                (f'Headroom to limit: {mark + _fmt(max(0, context_length - used))} tokens'),
                 "",
             ]
             # Full view — compression / throughput need the live agent.
             lines += _context_compressor_lines(agent, ctx, used) if ctx is not None else [
-                t("gateway.context.detail_after_first")]
+                '_(Full compression and throughput stats available after the first agent response)_']
             # Per-category estimated breakdown (+ optional expanded listings). Same chars/4 engine
             # the desktop popover and /usage use; plain text (monospace isn't guaranteed on
             # messaging platforms). Fail-open: rendering errors never break /context.
@@ -372,12 +363,12 @@ class GatewayStatusCommandsMixin:
         except TranscriptReadError:
             return history_unreadable()
         if not history:
-            return t("gateway.context.no_data")
+            return 'No context data available yet. Send a message to start a session.'
         approx, count = _transcript_estimate(history)
         return "\n".join([
-            t("gateway.context.header"), "",
-            t("gateway.context.estimated", count=_fmt(approx), messages=count),
-            t("gateway.context.detail_after_first"),
+            '🧠 **Context Window**', "",
+            (f'Estimated context: ~{_fmt(approx)} tokens across {count} messages'),
+            '_(Full compression and throughput stats available after the first agent response)_',
         ])
 
     async def _resolve_context_figures(self, agent, ctx, session_entry, source):
@@ -431,7 +422,7 @@ class GatewayStatusCommandsMixin:
             agent_rows.append({
                 "session_key": session_key,
                 "elapsed": max(0, int(now - float(running_started.get(session_key, now)))),
-                "state": t("gateway.agents.state_starting") if pending else t("gateway.agents.state_running"),
+                "state": 'starting' if pending else 'running',
                 "session_id": "" if pending else str(getattr(agent, "session_id", "") or ""),
                 "model": "" if pending else str(getattr(agent, "model", "") or ""),
             })
@@ -450,7 +441,7 @@ class GatewayStatusCommandsMixin:
 
         def _agent_row(idx_row):
             idx, row = idx_row
-            current = t("gateway.agents.this_chat") if row["session_key"] == current_session_key else ""
+            current = ' · this chat' if row["session_key"] == current_session_key else ""
             sid = f" · `{row['session_id']}`" if row["session_id"] else ""
             model = f" · `{row['model']}`" if row["model"] else ""
             return [f"{idx}. `{row['session_key']}` · {row['state']} · "
@@ -461,16 +452,16 @@ class GatewayStatusCommandsMixin:
             return [f"- `{proc.get('session_id', '?')}` · "
                     f"{format_uptime_short(int(proc.get('uptime_seconds', 0)))} · `{cmd}`"]
 
-        lines = [t("gateway.agents.header"), "", t("gateway.agents.active_agents", count=len(agent_rows))]
+        lines = ['🤖 **Active Agents & Tasks**', "", (f'**Active agents:** {len(agent_rows)}')]
         lines += _capped_rows(list(enumerate(agent_rows, 1)), _agent_row)
-        lines += ["", t("gateway.agents.running_processes", count=len(running_processes))]
+        lines += ["", (f'**Running background processes:** {len(running_processes)}')]
         lines += _capped_rows(running_processes, _proc_row)
-        lines += ["", t("gateway.agents.async_jobs", count=len(background_tasks))]
+        lines += ["", (f'**Gateway async jobs:** {len(background_tasks)}')]
         if delegations:
-            lines += ["", t("gateway.agents.background_delegations", count=len(delegations))]
+            lines += ["", (f'**Background delegations:** {len(delegations)}')]
             lines += _capped_rows(delegations, _agents_delegation_lines)
         if not (agent_rows or running_processes or background_tasks or delegations):
-            lines += ["", t("gateway.agents.none")]
+            lines += ["", 'No active agents or running tasks.']
         return "\n".join(lines)
 
     async def _handle_topup_command(self, event: MessageEvent) -> str:
@@ -479,13 +470,13 @@ class GatewayStatusCommandsMixin:
         from agent.account_usage import build_credits_view
         view = await _quiet(lambda: asyncio.to_thread(build_credits_view, markdown=True))
         if view is None or not view.logged_in:
-            return t("gateway.credits.not_logged_in")
+            return 'Not logged into Nous Portal. Log in to see your credit balance and top up.'
         # Drop the helper's 📈 header; we print our own.
-        lines = [t("gateway.topup.header")] + [ln for ln in view.balance_lines if not ln.lstrip().startswith("📈")]
+        lines = ['💳 **Nous balance**'] + [ln for ln in view.balance_lines if not ln.lstrip().startswith("📈")]
         if view.identity_line:
             lines += ["", view.identity_line]
         if view.topup_url:
-            lines += ["", t("gateway.topup.portal_link", url=view.topup_url), t("gateway.topup.hint")]
+            lines += ["", (f'Manage billing on the portal: {view.topup_url}'), 'Top up and manage billing in the browser — your balance updates here after.']
         return "\n".join(lines)
 
     def _context_breakdown_block(self, agent, source, expanded: bool) -> list[str]:
@@ -530,17 +521,15 @@ class GatewayStatusCommandsMixin:
             if not categories:
                 return []
             total = payload.get("estimated_total") or 0
-            out = [t("gateway.usage.breakdown_header")]
+            out = ['🧩 **Context breakdown** _(estimated)_']
             for cat in categories:
                 tokens = int(cat.get("tokens") or 0)
                 if tokens <= 0:
                     continue
                 cat_id = str(cat.get("id") or "")
-                label = t(f"gateway.usage.breakdown_cat_{cat_id}")
-                if label.endswith(f"breakdown_cat_{cat_id}"):  # missing key: t() echoes it back
-                    label = str(cat.get("label") or cat_id)
+                label = {'system_prompt': 'System prompt', 'tool_definitions': 'Tool definitions', 'rules': 'Rules', 'skills': 'Skills', 'mcp': 'MCP', 'subagent_definitions': 'Subagent definitions', 'memory': 'Memory', 'conversation': 'Conversation'}.get(cat_id, str(cat.get("label") or cat_id))
                 pct = round(tokens / total * 100) if total else 0
-                out.append(t("gateway.usage.breakdown_line", label=label, count=_fmt(tokens), pct=f"~{pct}"))
+                out.append(('• {label}: ~{count} ({pct}%)').format(label=label, count=_fmt(tokens), pct=f"~{pct}"))
             return out if len(out) > 1 else []
         except Exception:
             return []
@@ -554,7 +543,7 @@ class GatewayStatusCommandsMixin:
         args = [a.lower() for a in raw_args.split()] if raw_args else []
         wants_reset = bool(args) and args[0] == "reset"
         if args and not wants_reset:
-            return t("gateway.usage.unknown_subcommand", args=raw_args)
+            return (f'Unknown /usage subcommand: `{raw_args}`. Try `/usage` or `/usage reset [--force]`.')
 
         # Running agent first (mid-turn), then cached agent (between turns).
         agent = self._resident_agent_for(session_key)
@@ -573,7 +562,7 @@ class GatewayStatusCommandsMixin:
             provider = await _quiet(lambda: asyncio.to_thread(_configured_provider)) or None
         if wants_reset:
             if str(provider or "").strip().lower() != "openai-codex":
-                return t("gateway.usage.reset_wrong_provider")
+                return 'Banked usage resets are only available on the openai-codex provider. Switch with `/model` first.'
             from agent.account_usage import redeem_codex_reset_credit
             result = await asyncio.to_thread(
                 redeem_codex_reset_credit, base_url=base_url, api_key=api_key, force="--force" in args[1:],
@@ -628,14 +617,14 @@ class GatewayStatusCommandsMixin:
         if history:
             approx, count = _transcript_estimate(history)
             return _with_account_blocks([
-                t("gateway.usage.header_session_info"),
-                t("gateway.usage.label_messages", count=count),
-                t("gateway.usage.label_estimated_context", count=_fmt(approx)),
-                t("gateway.usage.detailed_after_first"),
+                '📊 **Session Info**',
+                (f'Messages: {count}'),
+                (f'Estimated context: ~{_fmt(approx)} tokens'),
+                '_(Detailed usage available after the first agent response)_',
             ])
         if account_lines or credits_lines:
             return _with_account_blocks([])
-        return t("gateway.usage.no_data")
+        return 'No usage data available for this session.'
 
     async def _persisted_billing_route(self, source):
         """``(provider, base_url)`` from the SessionDB row / most recent route when no agent is resident."""
@@ -661,7 +650,7 @@ class GatewayStatusCommandsMixin:
                 try:
                     days = int(value)
                 except ValueError:
-                    return t("gateway.insights.invalid_days", value=value)
+                    return (f'Invalid --days value: {value}')
                 i += 2
             elif flag == "--source" and value is not None:
                 source, i = value, i + 2
@@ -687,4 +676,4 @@ class GatewayStatusCommandsMixin:
             return await self._run_in_executor_with_context(_run_insights)
         except Exception as e:
             logger.error("Insights command error: %s", e, exc_info=True)
-            return t("gateway.insights.error", error=e)
+            return (f'Error generating insights: {e}')

@@ -16,7 +16,7 @@ import uuid
 from contextlib import suppress
 from typing import Any, Dict, List, Optional
 
-from agent.i18n import t
+
 
 try:
     from aiohttp import web
@@ -152,7 +152,7 @@ def _hermes_extras(completed, is_partial, is_failed, err_msg, finish_reason: str
 
 
 def _transformed_notice() -> str:
-    return t("platform.api_server.transformed_notice")
+    return '\n\n[Response transformed after streaming]\n'
 
 
 def _post_stream_transform(result: Any) -> tuple:

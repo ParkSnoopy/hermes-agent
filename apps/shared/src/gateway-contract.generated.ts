@@ -857,7 +857,7 @@ export interface ProviderUsageWindow {
   resets_at?: string | null
   scope?: 'account' | 'model'
 }
-/** One account of a provider's credential pool (``hermes_cli/inventory.py::_pool_usage_accounts``). ``id`` is a stable non-secret account identity (never a key or URL); ``label`` may be empty (UI falls back to a localized "Account N"). ``windows`` is empty while the account's usage is not yet known — state carries the meaning, never a fabricated gauge. ``state``: ``ready`` — live quota below the cap (numeric windows present); ``limited`` — a live credential-wide cooldown or exhausted account-scoped quota windows; ``unknown`` — no live numeric windows (failed/empty fetch, stale snapshot, provider without a usage API); ``unavailable`` — DEAD auth row (kept visible, never a quota row). ``resets_at``: for a limited account, the LATEST of its exhausted account-scoped windows (or a live cooldown when later); ``None`` when unknown (the frontend renders its own advisory, e.g. the earliest limited sibling). */
+/** One account of a provider's credential pool (``hermes_cli/inventory.py::_pool_usage_accounts``). ``id`` is a stable non-secret account identity (never a key or URL); ``label`` may be empty (UI falls back to "Account N"). ``windows`` is empty while the account's usage is not yet known — state carries the meaning, never a fabricated gauge. ``state``: ``ready`` — live quota below the cap (numeric windows present); ``limited`` — a live credential-wide cooldown or exhausted account-scoped quota windows; ``unknown`` — no live numeric windows (failed/empty fetch, stale snapshot, provider without a usage API); ``unavailable`` — DEAD auth row (kept visible, never a quota row). ``resets_at``: for a limited account, the LATEST of its exhausted account-scoped windows (or a live cooldown when later); ``None`` when unknown (the frontend renders its own advisory, e.g. the earliest limited sibling). */
 export interface ProviderUsageAccount {
   id: string
   label?: string
@@ -1936,29 +1936,6 @@ export interface BotRelayReplyParams {
   error?: string | null
   reason?: string | null
 }
-export interface I18nLanguagesResult {
-  languages: LanguageOption[]
-}
-/** ``agent.i18n_languages.language_options`` row. ``source`` is ``bundled``, ``overlay`` or ``plugin:<name>`` — the highest layer that supplies the language. ``surfaces`` are the surfaces some layer has strings for; a renderer leaves out a language it does not bundle and that lacks its surface, since picking it would only show English. */
-export interface LanguageOption {
-  id: string
-  endonym: string
-  rtl: boolean
-  source: string
-  surfaces: LocaleSurface[]
-}
-export type LocaleSurface = 'core' | 'tui' | 'desktop'
-export interface I18nCatalogParams {
-  profile?: string | null
-  lang: string
-  surface?: LocaleSurface
-}
-/** ``messages`` is ONLY the pack + user-overlay layer for that surface (flat dotted keys); the client merges it over its bundled ``en``/``<lang>``. ``lang`` is the canonical id the request resolved to (``pt-BR`` → ``pt-br``; an unknown id resolves to ``en`` with an empty layer). */
-export interface I18nCatalogResult {
-  lang: string
-  surface: LocaleSurface
-  messages: Record<string, string>
-}
 export type PingParams = Record<string, never>
 export interface PingResult {
   pong: boolean
@@ -1975,13 +1952,12 @@ export interface ClientCapabilitiesResult {
 }
 /** Client→server method params / server→client request params. Unknown keys are rejected. */
 export type Params = Record<string, never>
-/** ``machine_kind`` is ``Spark``, ``Mac``, ``PC`` or ``computer``. ``nvidia_platform`` is ``products.nvidia_platform()``: ``rtx_spark``, ``dgx_spark``, ``discrete`` or null. ``locale`` is the OS account's first UI language, null when the OS has none. */
+/** ``machine_kind`` is ``Spark``, ``Mac``, ``PC`` or ``computer``. ``nvidia_platform`` is ``products.nvidia_platform()``: ``rtx_spark``, ``dgx_spark``, ``discrete`` or null. */
 export interface MachineFactsResult {
   machine: MachineInfo
   machine_kind: string
   has_nvidia_gpu: boolean
   nvidia_platform?: 'rtx_spark' | 'dgx_spark' | 'discrete' | null
-  locale?: string | null
 }
 /** Measured hardware; a key that was not measured is absent. */
 export interface MachineInfo {
@@ -3457,7 +3433,7 @@ export interface SessionUndoResult {
   removed: number
   undo_hint?: UndoRollbackHint | null
 }
-/** ``/undo``'s line naming the files the undone turns changed and pointing at ``/rollback``: ``files`` are the changed paths, ``text`` is the rendered line in the backend's language. */
+/** ``/undo``'s line naming the files the undone turns changed and pointing at ``/rollback``: ``files`` are the changed paths, ``text`` is the rendered line. */
 export interface UndoRollbackHint {
   files?: string[]
   text: string
@@ -4511,7 +4487,7 @@ export interface PluginSettingField {
   has_value?: boolean | null
 }
 export type PluginSettingFieldType = 'string' | 'number' | 'boolean' | 'enum' | 'secret' | 'json'
-/** What a plugin loaded mid-run does NOW vs later (``hermes_cli.plugins_activation``). ``activated_now`` kinds (``{kind: [names]}``): ``gateway_commands`` (slash names), ``locales`` (``<lang>.<surface>`` language-pack layers), ``gateway_transforms`` / ``hooks`` (hook names), ``callbacks`` (platforms / ``slack:<action_id>``) — live in the running gateway once it reloaded (``gateway_reloaded``). ``live_now``: the plugin's MCP servers (connected, with their tools, or the error) and skills, usable in every open chat of the profile from its next turn — the chats also get a note listing them. ``deferred`` kinds: ``tools`` (Python tool names) and ``prompt`` (section ids) apply from the next session. ``missing_dependencies``: the plugin's declared Python requirements a running process cannot import (installed after it booted, or never); ``missing_in`` names which processes (``gateway``, ``backend`` = the Desktop / dashboard process) — only restarting them loads them. */
+/** What a plugin loaded mid-run does NOW vs later (``hermes_cli.plugins_activation``). ``activated_now`` kinds (``{kind: [names]}``): ``gateway_commands`` (slash names), ``gateway_transforms`` / ``hooks`` (hook names), ``callbacks`` (platforms / ``slack:<action_id>``) — live in the running gateway once it reloaded (``gateway_reloaded``). ``live_now``: the plugin's MCP servers (connected, with their tools, or the error) and skills, usable in every open chat of the profile from its next turn — the chats also get a note listing them. ``deferred`` kinds: ``tools`` (Python tool names) and ``prompt`` (section ids) apply from the next session. ``missing_dependencies``: the plugin's declared Python requirements a running process cannot import (installed after it booted, or never); ``missing_in`` names which processes (``gateway``, ``backend`` = the Desktop / dashboard process) — only restarting them loads them. */
 export interface PluginActivation {
   name: string
   key: string
@@ -6172,10 +6148,6 @@ export interface RpcMethods {
   'groups.state': { params: GroupsStateParams; result: GroupsStateResult }
   /** Durably cancel queued or running work for one hosted room. */
   'groups.stop': { params: GroupsStopParams; result: GroupsStopResult }
-  /** Pack + overlay messages for one language and surface; the renderer merges them over its bundled catalog. */
-  'i18n.catalog': { params: I18nCatalogParams; result: I18nCatalogResult }
-  /** Every language some layer supplies (bundled ∪ user overlay ∪ plugin packs), en first. */
-  'i18n.languages': { params: ProfileParams; result: I18nLanguagesResult }
   /** Queue a gateway-visible image file for the next turn. */
   'image.attach': { params: ImageAttachParams; result: AttachedImageResult }
   /** Queue an image uploaded as base64 (remote client); reply mirrors image.attach. */
@@ -6601,8 +6573,6 @@ export const RPC_METHODS = [
   'groups.send',
   'groups.state',
   'groups.stop',
-  'i18n.catalog',
-  'i18n.languages',
   'image.attach',
   'image.attach_bytes',
   'image.detach',

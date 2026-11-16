@@ -2,7 +2,7 @@
 config reader returns, plus (troubleshooting workers only) the safe/ignore-user-config bypass.
 
 Stdlib-only: hermes_cli's config/env layer imports it, so it ships in the installer's
-hermes_cli + i18n-kernel tail and must never import beyond the standard library.
+CLI bootstrap tail and must never import beyond the standard library.
 
 Bind once in a fresh exec, before config/agent/plugin imports. This is not a
 sandbox or a public launch switch: only the managed worker bootstrap consumes
