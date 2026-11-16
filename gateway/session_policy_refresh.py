@@ -152,14 +152,9 @@ def _prepare(authority, session_id, mcp_only=False, adopt_only=False):
     home = Path(authority.db.db_path).resolve().parent
     terminal = {} if mcp_only or adopt_only else build_profile_terminal_scope(home)
     live, picked = load_profile_config(home), policy_picks(authority.db, session_id)
-    base = old
-    if not mcp_only:
-        # Opening a Bot Chat an earlier build froze adopts it: it follows its profile from now on.
-        from gateway.session_local_migration import follow_bot_chat
-        base = follow_bot_chat(authority, session_id, old, live, picked)
     if adopt_only:
-        return None if base is old else (stored, old, base, {}, set(), generation)
-    policy, secrets, replaced = refreshed_policy(base, live, terminal, picked=picked, mcp_only=mcp_only)
+        return None
+    policy, secrets, replaced = refreshed_policy(old, live, terminal, picked=picked, mcp_only=mcp_only)
     return None if policy is old else (stored, old, policy, secrets, replaced, generation)
 
 

@@ -117,14 +117,12 @@ def _outstanding_attempt(repo: Path, remote: str) -> tuple[str, int, str] | None
 RUN_FIELDS = "databaseId,url,headBranch,headSha,displayTitle,status"
 
 
-def _is_claim_run(row: dict, claim_tag: str, commit: str) -> bool:
-    return stable.is_claim_run(
-        title=row.get("displayTitle"), head_branch=row.get("headBranch"),
-        head_sha=row.get("headSha"), claim_tag=claim_tag, commit=commit)
+def _is_claim_run(row: dict, claim_tag: str) -> bool:
+    return stable.is_claim_run(title=row.get("displayTitle"), claim_tag=claim_tag)
 
 
-def _attempt_run(execute, repository: str, ref: str, commit: str) -> dict | None:
-    """The workflow run for ``ref`` at ``commit``, or None when none is listed."""
+def _attempt_run(execute, repository: str, ref: str) -> dict | None:
+    """The workflow run for ``ref``, or None when none is listed."""
     raw = execute([
         "gh", "run", "list", "--repo", repository, "--workflow", WORKFLOW, "--limit", "100",
         "--json", RUN_FIELDS,
@@ -133,7 +131,7 @@ def _attempt_run(execute, repository: str, ref: str, commit: str) -> dict | None
         rows = json.loads(raw or "[]")
     except json.JSONDecodeError:
         return None
-    return next((row for row in rows if isinstance(row, dict) and _is_claim_run(row, ref, commit)
+    return next((row for row in rows if isinstance(row, dict) and _is_claim_run(row, ref)
                  and row.get("url") and row.get("databaseId") is not None), None)
 
 
@@ -141,7 +139,7 @@ def _refuse_outstanding(outstanding: tuple[str, int, str], *, repo: Path, remote
                         repository: str, execute) -> ReleaseRefused:
     """Print the blocking run and both ways out, then return the refusal to raise."""
     version, _attempt, ref = outstanding
-    run = _attempt_run(execute, repository, ref, _claim_commit(repo, ref))
+    run = _attempt_run(execute, repository, ref)
     lines = [f"{ref} is outstanding: it has no abandon marker and v{version} is not published."]
     lines.append(f"Workflow: {run['url']}" if run else f"No workflow run is listed for {ref}.")
     lines += ["If the attempt is unfixable, abandon it:",
@@ -444,13 +442,13 @@ def publish(version: str, *, repository: str, dispatch, inspect=None, head_versi
     return {"requested": tag, "version": version, "repository": repository}
 
 
-def _in_progress_runs(inspect, repository: str, tag: str, commit: str) -> list[dict]:
+def _in_progress_runs(inspect, repository: str, tag: str) -> list[dict]:
     """Release runs of ``tag`` that have not completed, as ``gh run list`` rows."""
     rows = json.loads(inspect([
         "gh", "run", "list", "--repo", repository, "--workflow", WORKFLOW, "--limit", "100",
         "--json", RUN_FIELDS,
     ]) or "[]")
-    return [row for row in rows if row["status"] != "completed" and _is_claim_run(row, tag, commit)]
+    return [row for row in rows if row["status"] != "completed" and _is_claim_run(row, tag)]
 
 
 def _abandon_attempt(version: str, attempt: int, tag: str, *, repo: Path, remote: str,
@@ -460,7 +458,7 @@ def _abandon_attempt(version: str, attempt: int, tag: str, *, repo: Path, remote
         draft = _release_view(tag, repository, inspect)
         if draft is not None and draft.get("isDraft") is not True:
             raise ReleaseRefused(f"{tag} is published and cannot be abandoned")
-        for run in _in_progress_runs(inspect, repository, tag, _claim_commit(repo, tag)):
+        for run in _in_progress_runs(inspect, repository, tag):
             execute(["gh", "run", "cancel", str(run["databaseId"]), "--repo", repository, "--force"])
             cancelled.append(run["url"])
         if draft is not None:
@@ -517,10 +515,7 @@ def next_steps(result: dict, *, bold: bool = False) -> str:
     if left_out:
         effects = "; ".join(lane_set.LEFT_OUT[name] for name in left_out)
         lines.append(f"Not built: {', '.join(left_out)}. {effects[0].upper()}{effects[1:]}.")
-    if lane_set.has_bundles(lanes) and not lane_set.advances_desktop(lanes):
-        lines.append("This is a partial desktop release: its packages are verified, but the desktop "
-                     "update channel and feeds stay on the previous release (they move only when "
-                     "windows and macos-arm64 are both built).")
+
     untested = [name for name in lane_set.NAMES if name not in lanes and name not in lane_set.LEFT_OUT
                 and not (name == "termux-checks" and "termux" not in lanes)]
     if untested:

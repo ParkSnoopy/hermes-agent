@@ -91,10 +91,6 @@ def test_valid_shapes_are_accepted(hermes_env):
     )
     assert skills_job["skills"] == ["daily-report"]
 
-    legacy_skill_job = create_job(
-        prompt="  ", schedule="every 5m", skill="daily-report", deliver="local"
-    )
-    assert legacy_skill_job["skill"] == "daily-report"
 
 # ---------------------------------------------------------------------------
 # update_job validation — the MERGED record is what counts
@@ -388,7 +384,7 @@ def test_tool_update_rejects_the_2026_08_03_destructive_shape(hermes_env):
 
     # Atomicity: a guard that raises after a partial save is worse than none.
     after = get_job(job["id"])
-    for field in ("prompt", "name", "skills", "skill", "script",
+    for field in ("prompt", "name", "skills", "script",
                   "enabled_toolsets", "workdir", "context_from",
                   "schedule", "deliver", "enabled", "state"):
         assert after.get(field) == before.get(field), f"{field} was clobbered"

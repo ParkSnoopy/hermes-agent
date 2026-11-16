@@ -1458,9 +1458,11 @@ def _with_runtime_toolset(event: dict[str, Any]) -> dict[str, Any]:
     if event.get("toolset") or not tool_name:
         return event
     try:
-        from model_tools import get_toolset_for_tool
+        from importlib import import_module
+        from tools.registry import registry
 
-        toolset = get_toolset_for_tool(tool_name)
+        import_module("model_tools")  # Its first import discovers the built-in tools.
+        toolset = registry.get_toolset_for_tool(tool_name)
     except Exception:
         toolset = None
     return {**event, "toolset": toolset or "other"}

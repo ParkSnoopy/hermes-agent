@@ -14,7 +14,7 @@
   writeText,
   callPackage,
   runCommand,
-  electron,
+
   git,
   openssh,
   ffmpeg-headless,
@@ -74,7 +74,7 @@ let
     else
       version;
 
-  # CLI and Electron consume the same provenance and update owner.
+  # The CLI and TUI consume the same provenance and update owner.
   installStampFile = writeText "hermes-install-stamp.json" (
     builtins.toJSON {
       schemaVersion = 2;
@@ -110,10 +110,6 @@ let
     inherit uv2nix pyproject-nix pyproject-build-systems;
   };
 
-  # Icons render on the runtime venv: Pillow and resvg-py are core dependencies.
-  generatedIcons = callPackage ./icons.nix {
-    inherit (mkHermesVenv [ ]) venv;
-  };
 
   hermesNpmLib = callPackage ./lib.nix {
     inherit pmPackages;
@@ -123,14 +119,6 @@ let
     inherit hermesNpmLib;
   };
 
-  hermesWeb = callPackage ./web.nix {
-    inherit hermesNpmLib generatedIcons;
-  };
-
-  # The store is read-only, so the Webapp is built here and never by `hermes webapp`.
-  hermesWebapp = callPackage ./webapp.nix {
-    inherit hermesNpmLib;
-  };
 
   bundledSkills = lib.cleanSourceWith {
     src = ../skills;
@@ -228,8 +216,7 @@ let
       };
       frontends = {
         tui = "${hermesTui}/lib/hermes-tui";
-        web = toString hermesWeb;
-        webapp = toString hermesWebapp;
+
       };
       ref = if dirty then null else rev;
       stamp = toString installStampFile;
@@ -401,8 +388,7 @@ stdenv.mkDerivation (finalAttrs: {
     {
       inherit
         hermesTui
-        hermesWeb
-        hermesWebapp
+
         hermesNpmLib
         hermesVenv
         agentBuilderSrc
@@ -415,23 +401,6 @@ stdenv.mkDerivation (finalAttrs: {
         pmPython
         ;
 
-      # `hermesDesktop` references `finalAttrs.finalPackage` (this whole
-      # derivation, after all overrides are applied) so the desktop wrapper
-      # can pin its `hermes` command via HERMES_DESKTOP_HERMES. The
-      # deployment override then picks up the fully wrapped
-      # `hermes` binary — venv with all deps, bundled skills/plugins,
-      # runtime PATH (ripgrep/git/ffmpeg/etc).  No re-implementation
-      # of the agent resolution in the desktop wrapper.
-      hermesDesktop = callPackage ./desktop.nix {
-        inherit
-          hermesNpmLib
-          electron
-          installStampFile
-          generatedIcons
-          ;
-        python3 = python;
-        hermesAgent = finalAttrs.finalPackage;
-      };
 
       devShellHook = ''
         export HERMES_PYTHON=${devVenv}/bin/python3

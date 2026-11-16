@@ -33,11 +33,11 @@ def _start_update_prefetch():
 
 def _grouped(tools):
     """``{toolset: [tool names]}`` exactly as main's ``_session_info`` grouped ``agent.tools``."""
-    from model_tools import get_toolset_for_tool
+    from tools.registry import registry
     grouped: dict[str, list[str]] = {}
     for tool in tools or []:
         name = tool["function"]["name"]
-        grouped.setdefault(get_toolset_for_tool(name) or "other", []).append(name)
+        grouped.setdefault(registry.get_toolset_for_tool(name) or "other", []).append(name)
     return grouped
 
 
@@ -79,10 +79,10 @@ def _cli_startup_notices(enabled):
     with contextlib.suppress(Exception):
         from hermes_cli.tool_availability_notices import (
             current_terminal_backend, filter_to_enabled_toolsets, tool_availability_warning_lines)
-        from model_tools import check_tool_availability
+        from tools.registry import registry
         from tools.terminal_tool import terminal_backend_unavailable_reason
         from toolsets import resolve_toolset
-        _, unavailable = check_tool_availability()
+        _, unavailable = registry.check_tool_availability()
         unavailable = filter_to_enabled_toolsets(unavailable, enabled or [], resolve_toolset)
         notices["tool_availability_warnings"] = tool_availability_warning_lines(
             unavailable, terminal_reason=terminal_backend_unavailable_reason(),

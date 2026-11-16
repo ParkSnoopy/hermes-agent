@@ -1123,7 +1123,7 @@ class GatewayStartupMixin:
 
     @staticmethod
     def _start_register_plugins_relay_hooks() -> None:
-        """Plugin discovery, relay registration and shell-hook/webhook registration. Never raises."""
+        """Plugin discovery, relay registration and shell-hook registration. Never raises."""
         # Discover plugins before shell hooks (plugin block decisions win ties). Explicit: the gateway
         # lazily imports run_agent, so model_tools' discover_plugins() side-effect may not have run.
         with _log_suppressed(logging.WARNING, "plugin discovery failed at gateway startup", exc_info=True):
@@ -1144,17 +1144,17 @@ class GatewayStartupMixin:
         from agent.secret_scope import is_multiplex_active
         if not is_multiplex_active():
             GatewayStartupMixin._register_config_hooks(
-                "shell-hook/webhook registration failed at gateway startup", level=logging.WARNING)
+                "shell-hook registration failed at gateway startup", level=logging.WARNING)
             return
         from gateway.run import _profile_runtime_scope
         from hermes_constants import get_process_hermes_home
         with _profile_runtime_scope(get_process_hermes_home()):
             GatewayStartupMixin._register_config_hooks(
-                "shell-hook/webhook registration failed at gateway startup", level=logging.WARNING)
+                "shell-hook registration failed at gateway startup", level=logging.WARNING)
 
     @staticmethod
     def _register_config_hooks(fail_fmt: str, *fail_args, level: int = logging.DEBUG) -> None:
-        """Register declarative shell hooks + outbound webhooks from the CURRENT scope's config.
+        """Register declarative shell hooks from the CURRENT scope's config.
 
         The gateway never prompts (register_from_config defaults to ``interactive=False``), even
         when a hidden console makes stdin look like a TTY, so consent must come from the allowlist,
@@ -1165,10 +1165,8 @@ class GatewayStartupMixin:
         try:
             from hermes_cli.config import load_config
             from agent.shell_hooks import register_from_config
-            from agent.outbound_webhooks import register_from_config as register_outbound_webhooks
             _hooks_cfg = load_config()
             register_from_config(_hooks_cfg, accept_hooks=False)
-            register_outbound_webhooks(_hooks_cfg)
         except Exception:
             logger.log(level, fail_fmt, *fail_args, exc_info=True)
 
@@ -1717,7 +1715,7 @@ class GatewayStartupMixin:
         if await self._abort_startup_if_shutdown_requested():
             return True
         self.delivery_router.adapters = self.adapters
-        self._wire_teams_pipeline_runtime()
+
         self._running = True
         self._install_plugin_message_injector()
         # A boot that could not start every configured platform is not a normal run: stamp ``degraded``

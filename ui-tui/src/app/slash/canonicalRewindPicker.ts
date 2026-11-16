@@ -70,8 +70,7 @@ const readable = (path: string) => {
 
 /** Put a picked prompt back in the composer as the user typed it: the image notes the model got are
  *  dropped and each image they name is attached again as a composer image. The paths are the owner's
- *  files and re-attaching reads them here, so a gateway on another machine (HERMES_TUI_GATEWAY_URL)
- *  whose files this machine cannot read keeps the notes in the text instead, and says so. */
+ *  files and re-attaching reads them here. Unreadable images keep their notes in the text. */
 function prefillPrompt(ctx: SlashRunCtx, stored: string) {
   const { images, text } = splitImageNotes(stored)
 
@@ -80,7 +79,7 @@ function prefillPrompt(ctx: SlashRunCtx, stored: string) {
   const prefill = (value: string) =>
     ctx.composer.restoreDraft?.(value, [], captureDestination()) || ctx.composer.setInput(value)
 
-  if (images.length && process.env.HERMES_TUI_GATEWAY_URL?.trim() && !images.every(readable)) {
+  if (images.length && !images.every(readable)) {
     prefill(stored)
 
     return ctx.transcript.sys(t('slashCmd.core.rewind.imagesKeptAsNotes', images.length))

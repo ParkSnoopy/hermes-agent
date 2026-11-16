@@ -318,7 +318,6 @@ def _refresh_live_sessions(home=None, *, preserve_prefix: bool = False,
     launch home). ``preserve_prefix``: append-only rebuild inside a live conversation. ``plugin_note``:
     ``(plugin_key, text)`` queued once per session for its next tool result or turn
     (``agent/plugin_live_notes.py``)."""
-    from agent.onboarding_session import carry_onboarding_toolset
     from hermes_constants import hermes_home_key
     want = hermes_home_key(home) if home is not None else None
     with _sessions_lock:
@@ -329,7 +328,7 @@ def _refresh_live_sessions(home=None, *, preserve_prefix: bool = False,
         agent = sess["agent"]
         try:
             with _session_profile_runtime_scope(sess):
-                enabled = carry_onboarding_toolset(_load_enabled_toolsets(getattr(agent, "platform", None)), agent)
+                enabled = _load_enabled_toolsets(getattr(agent, "platform", None))
                 disabled = _load_disabled_toolsets()
                 refresh(agent, enabled_override=enabled, disabled_override=disabled,
                         quiet_mode=True, preserve_prefix=preserve_prefix)
@@ -1242,6 +1241,7 @@ def _(rid, params: dict) -> dict:
 @_rpc("tools.show", 5034)
 def _(rid, params: dict) -> dict:
     mt = _tools_mod("model_tools")
+    from tools.registry import registry
     session = _sessions.get(params.get("session_id", ""))
     enabled, disabled = _session_toolsets(session)
     # Pre-assembly list: /tools must also show tools deferred behind the tool_search bridge (as the CLI).
@@ -1253,7 +1253,7 @@ def _(rid, params: dict) -> dict:
         desc = str(tool["function"].get("description", "") or "").split("\n")[0]
         if ". " in desc:
             desc = desc[: desc.index(". ") + 1]
-        sections.setdefault(mt.get_toolset_for_tool(name) or "unknown", []).append({"name": name, "description": desc})
+        sections.setdefault(registry.get_toolset_for_tool(name) or "unknown", []).append({"name": name, "description": desc})
     sections_out = [{"name": n, "tools": rows} for n, rows in sorted(sections.items())]
     return _ok(rid, {"sections": sections_out, "total": len(tools)})
 

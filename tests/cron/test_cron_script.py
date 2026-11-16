@@ -800,7 +800,7 @@ class TestScriptTimeoutTreeKill:
             encoding="utf-8",
         )
         monkeypatch.setenv("HERMES_CRON_SCRIPT_TIMEOUT", "2")
-        monkeypatch.setattr(sched, "_SCRIPT_TIMEOUT", sched._DEFAULT_SCRIPT_TIMEOUT)
+
 
         ok, out = sched_script._run_job_script(
             str(scripts_dir / "spawner.py"), workdir=str(cron_env)

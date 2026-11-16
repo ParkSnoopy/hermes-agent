@@ -122,7 +122,7 @@ def _complete_locked(
             owed.append((name, reason))
 
     step("launchers", lambda: publish_launchers(root))
-    step("build", lambda: build_update_products(root, desktop=desktop, after_dependencies=after_dependencies))
+    step("build", lambda: build_update_products(root, after_dependencies=after_dependencies))
     if announce:
         print(announce)
     verdict: list[bool] = []

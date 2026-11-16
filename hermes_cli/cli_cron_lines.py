@@ -158,7 +158,7 @@ def _edit_lines(subcommand: str, opts: dict) -> list[str]:
     elif replacement_skills:
         final_skills = replacement_skills
     elif add_skills or remove_skills:
-        existing_skills = list(existing.get("skills") or ([existing["skill"]] if existing.get("skill") else []))
+        existing_skills = list(existing.get("skills") or [])
         final_skills = [skill for skill in existing_skills if skill not in remove_skills]
         final_skills += [skill for skill in add_skills if skill not in final_skills]
     result = _cron(

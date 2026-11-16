@@ -2,7 +2,7 @@
 response frame carrying the same ``id``.
 
 JSON-RPC is peer-to-peer; this is the backend's half. Every "ask the renderer" bridge (clarify,
-approval, sudo, secret, vault prompts, desktop GUI reads, MCP setup consent, the tour) is one
+approval, sudo, secret, vault prompts and MCP setup consent) is one
 :func:`send` (blocking) or :func:`send_async` (queue-backed approvals) and one response frame from
 the client — no paired ``*.request`` notification / ``*.respond`` method, no per-kind ``*.expire``.
 
@@ -16,18 +16,12 @@ Reconnect: unanswered requests are returned as ``open_requests`` by ``session.re
 ``session.activate`` / ``session.events.since`` (:func:`open_requests`); the shared TypeScript
 channel re-delivers them as if they had just arrived, so the notification replay ring never
 has to carry "a question still waiting for an answer".
-Vault preview operations are live-only: their script payload is discarded after
-dispatch and is never included in these reconnect snapshots.
+
 
 Batch clarify keeps per-question locks (``clarify.lock`` → :func:`lock_answer`): answers stay
 editable until every question is locked, locked answers survive a timeout, and the last lock
 resolves the request with the full answer set.
 
-Window-owned bridges (``preview.read`` / ``preview.act`` / ``terminal.read`` / ``window.read`` /
-``tour``) are answered only by the window showing the session; every other attached window declines
-with :data:`NOT_SHOWN_CODE`. A decline does not settle the request — the owner may still answer — until
-every answering client attached to the session has declined; then the request resolves with
-:data:`NOT_SHOWN_MESSAGE` at once instead of the agent waiting out the deadline (#119333).
 
 Capability: a client says once per connection that it answers server→client requests
 (``client.capabilities {server_requests: true}`` → :func:`advertise`). A WebSocket client that never
@@ -38,7 +32,6 @@ return the same ``None`` an error response produces without writing the frame (#
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
@@ -54,7 +47,7 @@ class ServerRequest:
     __slots__ = (
         "answered",
         "created_at",
-        "declined",
+
         "event",
         "id",
         "locked",
@@ -62,7 +55,7 @@ class ServerRequest:
         "on_result",
         "params",
         "qids",
-        "replayable",
+
         "result",
         "sid",
         "transport",
@@ -76,7 +69,7 @@ class ServerRequest:
         self.sid = sid
         self.method = method
         self.params = dict(params)
-        self.replayable = can_replay_request(method, params)
+
         self.event = threading.Event()
         self.result: dict | None = None
         self.answered = False
@@ -85,8 +78,7 @@ class ServerRequest:
         self.qids = list(qids) if qids else None
         self.locked: dict[str, str | None] = {}
         self.on_result = on_result
-        # Client transports that answered NOT_SHOWN_CODE (no window there shows this session).
-        self.declined: set = set()
+
         # Set = the frame goes to this one client socket and only a response from it settles the request.
         self.transport: Any = None
         # Published but frame not yet written; a cancel in that gap parks its reason in ``withdrawn`` for _register.
@@ -110,9 +102,6 @@ _lock = threading.Lock()
 _open: dict[str, ServerRequest] = {}
 
 
-def can_replay_request(method: str, params: dict) -> bool:
-    """Secure page scripts belong only to the original live request, never a resume."""
-    return not (method == "preview.act" and params.get("action") == "vault")
 
 # Frame sinks, bound by ``bind_sinks`` from server.py at import time (like the method_ctx split
 # modules): importing server back from here would pick a different module object under the test
@@ -122,15 +111,7 @@ _emit: Callable[[str, str, dict], Any] = lambda event, sid, payload: None
 # ``answerable(sid)``: False only when every client attached to the session is a build that never
 # advertised handling server→client requests (session_transports.py::_session_client_answers_requests).
 _answerable: Callable[[str], bool] = lambda sid: True
-# ``clients(sid)``: the attached client transports that answer server→client requests — the set whose
-# unanimous NOT_SHOWN_CODE decline settles a window-owned request (session_transports.py).
-_clients: Callable[[str], list] = lambda sid: []
 
-# Error code a client answers when none of its windows shows the request's session, and the refusal the
-# tool reports once every attached client said so. Mirrored in apps/desktop server-requests.ts.
-NOT_SHOWN_CODE = 4404
-NOT_SHOWN_MESSAGE = ("No Hermes Desktop window is showing this chat, so its preview, terminal and tour are out "
-                     "of reach. Ask the user to open this chat in the Desktop app, then retry.")
 
 # Client transports that sent ``client.capabilities {server_requests: true}`` (identity set: StdioTransport
 # has __slots__ and cannot be weak-referenced; ws.py forgets a peer on disconnect).
@@ -138,11 +119,9 @@ _answering_clients: set = set()
 
 
 def bind_sinks(write_json: Callable[[dict], Any], emit: Callable[[str, str, dict], Any],
-               answerable: Callable[[str], bool], clients: Callable[[str], list] | None = None) -> None:
-    global _write, _emit, _answerable, _clients
+               answerable: Callable[[str], bool]) -> None:
+    global _write, _emit, _answerable
     _write, _emit, _answerable = write_json, emit, answerable
-    if clients is not None:
-        _clients = clients
 
 
 def advertise(transport: Any, server_requests: bool) -> None:
@@ -187,10 +166,7 @@ def _register(req: ServerRequest) -> None:
     if problem is not None:
         raise ValueError(problem)  # a key the renderer's typed handler would never read: our bug
     frame = req.frame()
-    if not req.replayable:
-        # Build the immediate wire frame first; pending state keeps only correlation
-        # and cancellation metadata, never the secret-bearing expression.
-        req.params = {}
+
     with _lock:
         req.writing = True
         _open[req.id] = req
@@ -267,42 +243,10 @@ def send_async(method: str, sid: str, params: dict, on_result: Callable[[dict | 
     return settle
 
 
-def _is_not_shown(frame: dict) -> bool:
-    error = frame.get("error")
-    return isinstance(error, dict) and error.get("code") == NOT_SHOWN_CODE
-
-
-def _decline(rid: str, transport: Any) -> bool:
-    """One client's "no window here shows this session". Settles only once every answering client
-    attached to the session declined: a bystander window must not beat the owner (#113348), and with
-    no owner at all the agent gets the refusal now rather than at the deadline (#119333). A decline
-    from an unknown transport (relayed, proxied) is recorded nowhere and the wait goes on."""
-    with _lock:
-        req = _open.get(rid)
-    if req is None:
-        logger.debug("server request %s: decline dropped, request no longer open", rid)
-        return False
-    clients = set(_clients(req.sid)) if transport is not None else set()
-    with _lock:
-        if _open.get(rid) is not req:
-            return True  # settled meanwhile
-        if transport is not None:
-            req.declined.add(transport)
-        if not clients or not clients <= req.declined:
-            return True
-        _open.pop(rid, None)
-        req.result = {"value": json.dumps({"success": False, "error": NOT_SHOWN_MESSAGE})}
-        req.answered = True
-    if req.on_result is not None:
-        req.on_result(req.result)
-    req.event.set()
-    return True
-
-
 def resolve_response(frame: dict, transport: Any = None) -> bool:
     """Route one client response frame to its open request. False when nothing is waiting for that id
     (already timed out / cancelled, or owned by another process — see the compute-host bridge).
-    *transport* is the client connection the frame arrived on (counts a NOT_SHOWN_CODE decline)."""
+    *transport* is the client connection the frame arrived on (checked for pinned requests)."""
     rid = frame.get("id")
     if not isinstance(rid, str):
         return False
@@ -311,8 +255,7 @@ def resolve_response(frame: dict, transport: Any = None) -> bool:
     if pinned is not None and pinned.transport is not None and pinned.transport is not transport:
         logger.debug("server request %s: response from a client it was not sent to dropped", rid)
         return False
-    if _is_not_shown(frame) and (pinned is None or pinned.transport is None):
-        return _decline(rid, transport)
+
     with _lock:
         req = _open.get(rid)
         if req is None:
@@ -394,7 +337,7 @@ def cancel(sid: str | None = None, reason: str = "interrupted", *, method: str |
 def open_requests(sid: str) -> list[dict]:
     """Unanswered requests for *sid*, oldest first."""
     with _lock:
-        reqs = sorted((req for req in _open.values() if req.sid == sid and req.replayable),
+        reqs = sorted((req for req in _open.values() if req.sid == sid),
                       key=lambda r: r.created_at)
     return [req.snapshot() for req in reqs]
 

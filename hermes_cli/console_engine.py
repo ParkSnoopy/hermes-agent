@@ -294,9 +294,6 @@ _CLI_FAMILIES: dict[str, tuple[_CliSurface, str]] = {
         _sub("auth", "build_auth_parser", "cmd_auth"),
         "list, status, *reset, *priority, *refresh, *add, *remove, *logout"),
 
-    "webhook": (
-        _sub("webhook", "build_webhook_parser", "cmd_webhook"),
-        "list, *subscribe, *remove, test"),
     "hooks": (_sub("hooks", "build_hooks_parser", "cmd_hooks"), "list, *test, *doctor, *revoke"),
 
     "profile": (

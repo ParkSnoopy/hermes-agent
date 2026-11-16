@@ -1661,9 +1661,7 @@ TERMINAL_SCHEMA = {
                 "default": False,
                 "description": "With background=true: survive session end, /new, compression and other cleanup (not host exit). Only for jobs the user explicitly wants to outlive the conversation."
             }
-            # Legacy aliases (unadvertised, still accepted): notify_on_complete
-            # (bool) and watch_patterns (list). notify=true|[...] maps onto
-            # them in the dispatch wrapper; explicit notify wins on conflict.
+
         },
         "required": ["command"]
     }
@@ -1681,18 +1679,19 @@ def _handle_terminal(args, **kw):
             "command in 'command'. Use execute_code(code=...) for Python; "
             "for shell, retry as terminal(command=...)."
         )
-    # `notify` is the advertised interface (true → notify_on_complete,
-    # [...] → watch_patterns); the legacy args stay accepted, explicit
-    # `notify` wins. Notification INTENT on a foreground call is refused with
+    # `notify` maps to the internal completion and pattern flags. Notification
+    # intent on a foreground call is refused with
     # the corrected call. A foreground `heartbeat` carries no intent: it has
     # no execution meaning without a tracked process, and providers that
     # materialize every schema property (or models copying a background call
     # shape) send `heartbeat=60` on ordinary commands — refusing it produced
     # identical-call retry loops (46 subagent sessions, 4 refusals each, 38 of
     # which never ran a single command), so it is normalized away instead.
+    if "notify_on_complete" in args or "watch_patterns" in args:
+        return tool_error("Use notify=true or notify=[patterns] instead of retired notification arguments.")
     notify = args.get("notify")
-    notify_on_complete = args.get("notify_on_complete", False)
-    watch_patterns = args.get("watch_patterns")
+    notify_on_complete = False
+    watch_patterns = None
     heartbeat = args.get("heartbeat") or 0
     persist_on_release = bool(args.get("persist_on_release", False))
     if not isinstance(heartbeat, int) or isinstance(heartbeat, bool) or heartbeat < 0:

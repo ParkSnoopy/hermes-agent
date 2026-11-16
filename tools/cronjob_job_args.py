@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
 
-from cron.jobs import effective_job_state
+from cron.jobs import _normalize_skill_list, effective_job_state
 
 import hermes_time
 
@@ -224,15 +224,6 @@ def _clean_str_list(items: Any) -> list[str]:
     if isinstance(items, str):
         items = [items]
     return [s for s in (str(i).strip() for i in items) if s]
-
-
-def _canonical_skills(skill: Optional[str] = None, skills: Optional[Any] = None) -> list[str]:
-    if skills is None:
-        skills = [skill] if skill else []
-    elif isinstance(skills, str):
-        skills = [skills]
-    # `item or ""`: a None entry must drop out, not stringify to "None".
-    return list(dict.fromkeys(_clean_str_list(item or "" for item in skills)))
 
 
 def _normalize_optional_job_value(value: Optional[Any], *, strip_trailing_slash: bool = False) -> Optional[str]:
@@ -477,13 +468,12 @@ def _format_job(job: dict[str, Any]) -> dict[str, Any]:
     from agent.redact import redact_sensitive_text
 
     prompt = str(job.get("prompt") or "")
-    skills = _canonical_skills(job.get("skill"), job.get("skills"))
+    skills = _normalize_skill_list(job.get("skills"))
     job_id = str(job.get("id") or "unknown")
     name = str(job.get("name") or prompt[:50] or (skills[0] if skills else "") or job_id or "cron job")
     result = {
         "job_id": job_id,
         "name": name,
-        "skill": skills[0] if skills else None,
         "skills": skills,
         "prompt_preview": prompt[:100] + "..." if len(prompt) > 100 else prompt,
         "model": job.get("model"),

@@ -128,7 +128,7 @@ class SessionCreateParams(ProfileParams):
     model: str | None = None
     provider: str | None = None
     reasoning_effort: str | None = None
-    fast: bool | None = None  # presence is the contract: omitted inherits, true pins priority, false pins normal
+
     service_tier: str | None = None
     close_on_disconnect: bool = False
     hidden: bool = False
@@ -671,7 +671,7 @@ class SpawnTreeListParams(ProfileParams):
 
 
 class SpawnTreeEntry(OpenModel):
-    """Index row (``server._append_spawn_tree_index``) or a legacy file scan."""
+    """A persisted spawn-tree index row."""
 
     path: str
     session_id: str | None = None

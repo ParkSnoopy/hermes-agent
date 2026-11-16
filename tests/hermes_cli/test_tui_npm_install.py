@@ -56,8 +56,7 @@ def test_source_launch_prepares_base_union_but_compiles_only_tui(tui_source):
     assert [event["step"] for event in _events(root)] == ["deps", "tui"]
     assert acquired == ["pnpm"]
     assert (root / "ui-tui/node_modules").exists()
-    assert (root / "web/node_modules").exists()
-    assert not (root / "apps/desktop/node_modules").exists()
+    assert not (root / "apps/shared/node_modules").exists()
     # A launch someone waits for, which can fall back, gives up on an unreachable registry sooner.
     assert _events(root)[0]["retries"] == "1"
 
@@ -345,11 +344,11 @@ def test_runtime_node_comes_from_pm_without_legacy_repair(tmp_path, monkeypatch)
 
 
 @pytest.mark.platforms("linux")
-def test_tui_rebuild_preserves_the_prepared_desktop_and_web_union(tui_source):
+def test_tui_rebuild_reuses_the_prepared_dependency_claim(tui_source):
     from hermes_cli.source_build import build_update_products
 
     root, acquired = tui_source
-    build_update_products(root, desktop=True)
+    build_update_products(root)
     before = _events(root)
     main_tui_launch._make_tui_argv(root / "ui-tui", tui_dev=False)
     assert _events(root) == before, "fresh launch must not prepare or rebuild"
@@ -360,5 +359,5 @@ def test_tui_rebuild_preserves_the_prepared_desktop_and_web_union(tui_source):
     main_tui_launch._make_tui_argv(root / "ui-tui", tui_dev=False)
     assert _events(root) == [*before, {"step": "tui"}]
     assert acquired == ["pnpm", "pnpm"]
-    assert (root / "web/node_modules").exists()
-    assert (root / "apps/desktop/node_modules").exists()
+    assert (root / "ui-tui/node_modules").exists()
+    assert not (root / "apps/shared/node_modules").exists()

@@ -260,7 +260,7 @@ Only after the base chat works. Pick what you need:
 
 ### Programmatic access
 
-For programmatic access, see [A2A](../user-guide/messaging/a2a.md) and [webhooks](../user-guide/messaging/webhooks.md).
+For agent-to-agent access, see [A2A](../user-guide/messaging/a2a.md).
 
 ### Automation and tools
 

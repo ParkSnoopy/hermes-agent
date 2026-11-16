@@ -20,43 +20,6 @@ def all_assignees_spawnable(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _suppress_concurrent_hermes_gate(request, monkeypatch):
-    """Default ``_detect_concurrent_hermes_instances`` to ``[]`` for every test.
-
-    The Windows update path now refuses to proceed when another
-    ``hermes.exe`` is detected (issue #26670). On a developer's Windows
-    machine running the test suite via ``hermes`` itself, this would
-    flag the running agent as a concurrent instance and abort every
-    ``cmd_update`` test. Tests that want to exercise the gate explicitly
-    re-patch ``_detect_concurrent_hermes_instances`` with their own
-    return value — autouse here gives a clean default without touching
-    the rest of the suite.
-
-    Tests that need to call the REAL function (e.g. unit tests for the
-    helper itself) opt out with ``@pytest.mark.real_concurrent_gate``.
-    """
-    if request.node.get_closest_marker("real_concurrent_gate"):
-        return
-    try:
-        from hermes_cli import main as _cli_main
-    except Exception:
-        return
-    # raising=False: under pytest's per-test spawn isolation, a concurrent
-    # xdist worker importing a module that transitively touches hermes_cli.main
-    # can briefly expose a partially-initialized module object here — one where
-    # _detect_concurrent_hermes_instances isn't defined yet. A bare setattr
-    # would raise AttributeError and error the (unrelated) test. The attribute
-    # always exists once main.py finishes importing, so a no-op when it's
-    # transiently absent is the correct, race-free default.
-    monkeypatch.setattr(
-        _cli_main,
-        "_detect_concurrent_hermes_instances",
-        lambda *_a, **_k: [],
-        raising=False,
-    )
-
-
-@pytest.fixture(autouse=True)
 def _private_repo_checkout_lock(monkeypatch, tmp_path_factory):
     """``cmd_update`` locks the checkout it runs from: in tests, this repository, whose git
     common dir every parallel test process (and, from a linked worktree, the live install's
@@ -97,9 +60,9 @@ def _source_channels_resolve_locally(request, monkeypatch):
         return ChannelResolution(record, record, None)
 
     monkeypatch.setattr(source_releases, "_resolve_channel", resolve)
-    # stable reads GitHub releases directly; keep it off the network the same way.
-    monkeypatch.setattr(source_releases, "_resolve_stable", lambda repository, *_: source_releases.SourceTarget(
-        "stable", "stable", repository, branch="stable"))
+    # Published stable/canary releases use GitHub directly; keep both off the network.
+    monkeypatch.setattr(source_releases, "_resolve_published", lambda channel, repository, *_: source_releases.SourceTarget(
+        channel, channel, repository, branch=channel))
 
 
 @pytest.fixture(autouse=True)

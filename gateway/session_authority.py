@@ -213,9 +213,8 @@ class SessionAuthority:
                 raise RuntimeStoreError('not_found')
             from hermes_state_local import POLICY_PREFIX
             with self.db._read_ctx() as conn:
-                from hermes_state_local_migration import LEGACY_PREFIX
-                local = conn.execute('SELECT 1 FROM state_meta WHERE key IN (?,?)',
-                    (POLICY_PREFIX + ref.session_id, LEGACY_PREFIX + ref.session_id)).fetchone()
+                local = conn.execute('SELECT 1 FROM state_meta WHERE key=?',
+                    (POLICY_PREFIX + ref.session_id,)).fetchone()
             if local or str(row.get('chat_id') or '').startswith('local-'):
                 from gateway.session_local_recovery import restore_local_session
                 restore_local_session(self, ref.session_id)
@@ -362,10 +361,7 @@ class SessionAuthority:
         from gateway.session_local_recovery import local_history, prepare_history, transcript_target
         # The lineage read stays off the loop and the lock; without history the target is resolved under it.
         prepared = await prepare_history(self, ref) if history else None
-        from gateway.session_onboarding import keep_from_discard
-        # The last await before the viewer joins: a fresh launch's claim is taken back with no yield
-        # before the join, and a delete already past it answers not_found below.
-        await keep_from_discard(self, ref.session_id)
+
         # A delete or eviction can land during those awaits: re-check, so it answers not_found, never a KeyError.
         self.authorize(actor, ref, 'session:read')
         live = self.sessions[ref.session_id]

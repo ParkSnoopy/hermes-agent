@@ -15,7 +15,7 @@ import { useSessionLifecycle } from '../app/useSessionLifecycle.js'
 import { useQueue } from '../hooks/useQueue.js'
 import { loadPendingInputs } from '../lib/pendingInputs.js'
 
-async function coldResume(legacy: boolean) {
+async function coldResume(control: boolean) {
   const home = mkdtempSync(join(tmpdir(), 'ink-cold-native-'))
   vi.stubEnv('HERMES_HOME', home)
   resetUiState()
@@ -27,7 +27,8 @@ async function coldResume(legacy: boolean) {
     for (const [i, text] of ['ambiguous', 'waiting'].entries()) savePendingInput({
       submissionId: randomUUID(), destination, text, display: text, createdAt: i,
       inFlight: i === 0, preparedText: i === 0 ? 'frozen payload' : undefined,
-      legacyAttempted: i === 0 && ${legacy}
+      controlMethod: i === 0 && ${control} ? 'session.redirect' : undefined,
+      controlAttempted: i === 0 && ${control}
     });
     savePendingInput({ submissionId: randomUUID(), destination: { ...destination, profile: 'foreign' }, text: 'foreign', display: 'foreign' });
     savePendingInput({ submissionId: randomUUID(), destination: { ...destination, storedSid: 'other' }, text: 'other', display: 'other' });
@@ -42,7 +43,7 @@ async function coldResume(legacy: boolean) {
   function Harness() {
     queue = useQueue()
     lifecycle = useSessionLifecycle({ colsRef: { current: 80 }, composerActions: { setComposerTokens: vi.fn() },
-      gw: { request }, rpc: async () => ({}), scrollRef: { current: null }, panel: vi.fn(), sys: vi.fn(),
+      gw: { isCanonical: true, request }, rpc: async () => ({}), scrollRef: { current: null }, panel: vi.fn(), sys: vi.fn(),
       setHistoryItems: vi.fn(), setLastUserMsg: vi.fn(), setSessionStartedAt: vi.fn(), setStickyPrompt: vi.fn(),
       setVoiceProcessing: vi.fn(), setVoiceRecording: vi.fn() } as any)
 
@@ -68,9 +69,9 @@ async function coldResume(legacy: boolean) {
     await new Promise(resolve => setImmediate(resolve))
     const submissions = request.mock.calls.filter(([method]) => method === 'prompt.submit')
 
-    if (legacy) {
+    if (control) {
       expect(submissions).toEqual([])
-      expect(queue.queueRef.current[0]).toMatchObject({ failed: true, legacyAttempted: true })
+      expect(queue.queueRef.current[0]).toMatchObject({ failed: true, controlAttempted: true })
     } else {
       expect(submissions).toEqual([['prompt.submit', { session_id: 'R2', submission_id: item.submissionId, text: 'frozen payload', queued: true }]])
       expect(item.destination).toMatchObject({ sid: 'R1', storedSid: 'S' })
@@ -86,4 +87,4 @@ async function coldResume(legacy: boolean) {
 }
 
 it('cold-resumes native queued and ambiguous records by durable identity with a live retry target', async () => coldResume(false))
-it('cold recovery excludes foreign identities and never replays an ambiguous legacy attempt', async () => coldResume(true))
+it('cold recovery excludes foreign identities and never replays an ambiguous control', async () => coldResume(true))

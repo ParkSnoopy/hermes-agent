@@ -13,7 +13,7 @@ import { loadPendingInputs } from '../lib/pendingInputs.js'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nL8AAAAASUVORK5CYII=', 'base64')
 
-it('stages private immutable local bytes, uploads remote bytes, and never falls back to a client path', async () => {
+it('stages private immutable local image bytes', async () => {
   // macOS: tmpdir() is /var/..., a symlink to /private/var; captureDestination() realpaths
   // HERMES_HOME, so the expected staging dir must be built from the canonical path too.
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'ink-images-')))
@@ -39,14 +39,7 @@ it('stages private immutable local bytes, uploads remote bytes, and never falls 
     submitPrompt(source, { gw: { isCanonical: true, request: prompt } as any, appendMessage: vi.fn(), enqueue: vi.fn(), expand: s => s, setLastUserMsg: vi.fn(), sys: vi.fn() })
     await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith('prompt.submit', expect.objectContaining({ attachments: [{ path: expect.any(String), mime: 'image/png' }] })))
     expect(readFileSync(prompt.mock.calls.find(([method]) => method === 'prompt.submit')![1].attachments[0].path)).toEqual(png)
-    vi.stubEnv('HERMES_TUI_GATEWAY_URL', 'wss://owner.example/ws')
-    const remote = await stageImagePath(source, gw, captureDestination())
-    expect(remote.path).toBe('/owner/cache/images/upload.png')
-    expect(request).toHaveBeenCalledWith('image.attach_bytes', expect.objectContaining({
-      content_base64: png.toString('base64'), session_id: 'owner'
-    }))
-    request.mockRejectedValueOnce(new Error('upload refused'))
-    await expect(stageImagePath(source, gw, captureDestination())).rejects.toThrow('upload refused')
+
     writeFileSync(source, 'not an image')
     await expect(stageImagePath(source, gw, captureDestination())).rejects.toThrow(/image/i)
   } finally { resetUiState(); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
@@ -71,10 +64,10 @@ it('resolves a relative image path in the session folder, never the ui-tui insta
   } finally { resetUiState(); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 
-it('extracts clipboard on the client and uploads only captured bytes to a remote owner', async () => {
+it('extracts clipboard into the local owner image cache', async () => {
   const home = mkdtempSync(join(tmpdir(), 'ink-clipboard-'))
   vi.stubEnv('HERMES_HOME', home)
-  vi.stubEnv('HERMES_TUI_GATEWAY_URL', 'wss://remote.example')
+
   resetUiState(); patchUiState({ sid: 'owner' })
   const request = vi.fn(async () => ({ path: '/owner/cache/images/clip.png' }))
 
@@ -84,11 +77,11 @@ it('extracts clipboard on the client and uploads only captured bytes to a remote
 
   try {
     const image = await stageClipboardImage({ request } as any, captureDestination(), extract)
-    expect(image).toMatchObject({ path: '/owner/cache/images/clip.png', mime: 'image/png' })
-    expect(request).toHaveBeenCalledWith('image.attach_bytes', expect.objectContaining({ content_base64: png.toString('base64') }))
+    expect(image).toMatchObject({ mime: 'image/png' })
+    expect(readFileSync(image!.path)).toEqual(png)
     expect(() => readFileSync(extract.mock.calls[0]![0])).toThrow()
     expect(await stageClipboardImage({ request } as any, captureDestination(), async () => false)).toBeNull()
-    expect(request).toHaveBeenCalledTimes(1)
+    expect(request).not.toHaveBeenCalled()
   } finally { resetUiState(); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 

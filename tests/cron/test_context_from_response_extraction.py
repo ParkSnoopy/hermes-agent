@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 import cron.scheduler
-import run_agent
+
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -42,8 +42,23 @@ def _write_archive(cron_env, job_id: str, filename: str, body: str) -> None:
     (out_dir / filename).write_text(body, encoding="utf-8")
 
 
+def _framed_archive(prompt: str, answer: str) -> str:
+    return (f"# Cron Job: probe\n\n**Prompt Characters:** {len(prompt)}\n"
+            f"## Prompt\n\n{prompt}\n\n**Response Characters:** {len(answer)}\n"
+            f"## Response\n\n{answer}\n")
+
+
+def test_unframed_agent_archive_is_not_used():
+    from cron.scheduler_prompt import _archive_answer
+
+    assert _archive_answer("# Cron Job\n\n## Prompt\n\nnoise\n\n## Response\n\nold\n") is None
+    assert _archive_answer(_framed_archive("noise", "current")) == "current"
+
+
 def _run_stub_job(monkeypatch, job, answer):
     """Run ``job`` through the real writer with a stub agent returning ``answer``."""
+    import run_agent
+
     class Agent:
         def __init__(self, *args, **kwargs):
             pass
@@ -67,8 +82,7 @@ class TestResponseSurvivesLongPrompt:
         job = create_job(prompt="Run the daily check", schedule="0 8 * * *", context_from="self")
         _write_archive(
             cron_env, job["id"], "2026-09-19_08-00-00.md",
-            "# Cron Job: probe\n\n## Prompt\n\n" + "SKILL LINE\n" * 1800 +
-            "\n\n## Response\n\nCONCLUSION-MARKER-42\n",
+            _framed_archive("SKILL LINE\n" * 1800, "CONCLUSION-MARKER-42"),
         )
 
         prompt = _build_job_prompt(job)
@@ -87,11 +101,11 @@ class TestUnusableAnswersFallThrough:
         job = create_job(prompt="Report", schedule="0 8 * * *", context_from="self")
         _write_archive(
             cron_env, job["id"], "2026-09-18_08-00-00.md",
-            "# Cron Job: probe\n\n## Prompt\n\ndo the thing\n\n## Response\n\nOLDER-REAL-ANSWER\n",
+            _framed_archive("do the thing", "OLDER-REAL-ANSWER"),
         )
         _write_archive(
             cron_env, job["id"], "2026-09-19_08-00-00.md",
-            "# Cron Job: probe\n\n## Prompt\n\ndo the thing\n\n## Response\n\n[SILENT]\n",
+            _framed_archive("do the thing", "[SILENT]"),
         )
 
         prompt, injected = _inject_context_from(job, "Report")
@@ -161,7 +175,7 @@ def test_truncated_outer_frame_cannot_promote_a_quoted_inner_frame(cron_env, mon
     assert not injected
     assert prompt == "Next task"
 
-    _write_archive(cron_env, job["id"], "older.md", "## Response\n\nOLDER COMPLETE ANSWER\n")
+    _write_archive(cron_env, job["id"], "older.md", _framed_archive("Report", "OLDER COMPLETE ANSWER"))
     os.utime(OUTPUT_DIR / job["id"] / "older.md", (1, 1))
     prompt, injected = _inject_context_from(job, "Next task")
     assert injected

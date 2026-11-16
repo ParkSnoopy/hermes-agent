@@ -360,17 +360,7 @@ documents-pdf = [
 trace-upload = ["huggingface-hub==1.33.0"]
 # Cloud memory providers are opt-in PM extras. They stay outside [all]
 # so a quarantined release cannot break fresh installs.
-# Image resize recovery for the vision tools. Pillow is now a CORE dependency
-# (see the main `dependencies` list above) since the byte/pixel shrink paths are on
-# the default vision-embed path and the mid-session lazy install deadlocked the
-# CLI under prompt_toolkit (#40490). This extra is kept as a no-op back-compat
-# alias so existing requests for the `vision` extra resolve.
-vision = []
-# Kept as a no-op back-compat alias — `ptyprocess` and `pywinpty` are now
-# in the main `dependencies` list (with the same platform markers), so
-# any existing requests for the `pty` extra resolve cleanly
-# without pulling in extra packages.
-pty = []
+
 # CVE-2026-48710 (BadHost): Starlette is pulled transitively by mcp's
 # sse-starlette / HTTP-SSE stack (and by fastapi in the `web` extra). Before
 # 1.0.1, a malformed Host header makes `request.url.path` desync from the path
@@ -391,9 +381,7 @@ mcp = [
   "httpx2==2.15.1",
   "starlette==1.9.0",
 ] # starlette: CVE-2026-48710
-# Backwards-compatible no-op alias. Relay is a core dependency on supported
-# wheel targets and intentionally unavailable on other platforms.
-nemo-relay = []
+
 
 # Computer use talks to PM's pinned cua-driver over MCP stdio. This extra
 # provides the MCP client, independently of the native driver package.
@@ -437,8 +425,7 @@ termux-all = [
 
   "hermes-agent[termux]",
   "hermes-agent[google]",
-  "hermes-agent[web]",
-  "hermes-agent[pty]",
+
 ]
 
 google = [
@@ -463,18 +450,6 @@ youtube = [
   # at first invocation with ModuleNotFoundError (issue #22243).
   "youtube-transcript-api==1.2.4",
 ]
-# `hermes dashboard` (localhost SPA + API).  Not in core to keep the default install lean.
-# starlette==1.3.1 pinned for CVE-2026-48710 (BadHost) — fastapi pulls Starlette
-# transitively and pre-1.0.1 is the vulnerable range. See the mcp extra above.
-# uvicorn pin without [standard] — httptools / watchfiles are now core deps,
-# and uvloop is gated behind the [uvloop] extra.  This keeps [web] safe for
-# termux-all which includes it.
-web = [
-  "fastapi==0.133.1",
-  "uvicorn==0.54.0",
-  "starlette==1.9.0",
-  "python-multipart==0.0.32",
-]
 all = [
   # Policy (2026-05-12): `[all]` includes only extras that genuinely
   # CAN'T be prepared on demand by PM — i.e. things every
@@ -492,12 +467,12 @@ all = [
   #
 
   "hermes-agent[cron]",
-  "hermes-agent[pty]",
+
   "hermes-agent[mcp]",
   "hermes-agent[uvloop]",
   "hermes-agent[acp]",
   "hermes-agent[google]",
-  "hermes-agent[web]",
+
   "hermes-agent[youtube]",
 ]
 
@@ -653,8 +628,7 @@ include = [
   "providers.*",
   "hermes_platform",
   "hermes_platform.*",
-  "hermes_agent",
-  "hermes_agent.*",
+
   "pm",
   "pm.*",
   "tools",

@@ -64,21 +64,13 @@ def list_remotes() -> list[str]:
     return [name for name in result.stdout.split() if name]
 
 
-def dispatch_desktop_build(tag: str, gh_repo: str | None) -> bool:
-    """Dispatch the release pipeline after its draft exists.
-
-    Both channels run the default-branch workflow with the tag as an input, so
-    caches share one scope and scripts come from main. A stable run resolves its
-    claim tag to the commit under test. Its gate owns artifact publication and
-    channel promotion. Explicit dispatch also works for tags created by GITHUB_TOKEN.
-    """
-    canary = _CANARY_TAG_RE.fullmatch(tag) is not None
-    if not canary and not STABLE_TAG_RE.fullmatch(tag):
-        raise ValueError("Expected an exact stable or canary release tag")
-    workflow = "desktop-bundled-release.yml" if canary else "stable-release.yml"
-    cmd = ["gh", "workflow", "run", workflow, "--ref", "main", "-f", f"tag={tag}"]
-    if canary:
-        cmd += ["-f", "upload_release=true"]
+def dispatch_canary_build(tag: str, gh_repo: str | None) -> bool:
+    """Dispatch the retained Termux pipeline after the exact canary draft exists."""
+    if not is_canary_tag(tag):
+        raise ValueError("Expected an exact canary release tag")
+    workflow = "termux-release.yml"
+    cmd = ["gh", "workflow", "run", workflow, "--ref", "main", "-f", f"tag={tag}",
+           "-f", "upload_release=true"]
     if gh_repo:
         cmd += ["--repo", gh_repo]
 
@@ -420,7 +412,7 @@ def generate_changelog(commits, tag_name, semver, repo_url="https://github.com/N
 
 
 def _resume_canary(tag: str, remote: str, repository: str, *, notes_file: Path | None = None) -> None:
-    """Converge a tag-pushed canary through draft, dispatch, and protected head."""
+    """Converge a tag-pushed canary through draft, Termux build, and publication."""
     ref = f"refs/tags/{tag}"
     local_object = git("rev-parse", ref)
     commit = git("rev-parse", f"{ref}^{{commit}}")
@@ -460,15 +452,15 @@ def _resume_canary(tag: str, remote: str, repository: str, *, notes_file: Path |
             raise ValueError("Canary release state differs from its receipt")
         draft_url = release.get("url") or ""
 
-    from scripts.releases.versioning import published_channel_identity
-    published = published_channel_identity(repository, "canary")
+    from scripts.releases.versioning import published_release_identity
+    published = published_release_identity(repository, channel="canary")
     if published is not None and published == (tag[1:], commit):
         print(f"✓ {tag} is already published.")
         return
-    if not dispatch_desktop_build(tag, repository):
+    if not dispatch_canary_build(tag, repository):
         raise SystemExit(1)
     print(f"Resumed canary publication for {tag}.")
-    print(f"Workflow: https://github.com/{repository}/actions/workflows/desktop-bundled-release.yml")
+    print(f"Workflow: https://github.com/{repository}/actions/workflows/termux-release.yml")
     print("Wait for that workflow to finish. It builds this canary and publishes the draft when the build is green.")
     print(f"The draft is at {draft_url}.")
 
@@ -477,17 +469,13 @@ def cmd_canary(args) -> None:
     """--canary: tag + draft a canary source identity.
 
     The source identity is the newest stable version plus a full UTC timestamp
-    in SemVer build metadata. It therefore compares equal to that stable; only
-    the R2 canary head moves subscribers. No version-file bump or commit is
+    in SemVer build metadata. Its UTC stamp orders published canaries for source
+    subscribers. No version-file bump or commit is
     created — the receipt tag points at HEAD as-is.
 
-    Created as a DRAFT prerelease, for the same reason the stable path
-    drafts: a published release with no installers attached is a release
-    users can reach and cannot use. The desktop matrix attaches the
-    installers to this draft by tag, and the canary workflow's publish
-    job flips it to published only after that matrix is green. A failed
-    bundle therefore leaves an inspectable draft rather than a broken
-    canary.
+    Created as a DRAFT prerelease. The Termux workflow publishes the verified
+    APT repository before publishing the exact GitHub prerelease. Failed payload
+    work leaves an inspectable draft rather than moving source subscribers.
 
     Exits 0 with "nothing to do" when HEAD is already tagged by the last
     canary — the skip-if-no-new-commits gate lives HERE, not in workflow
@@ -639,7 +627,7 @@ def main():
                              "release. Required with --publish when more than one remote "
                              "is configured; the single remote is used when only one exists.")
     parser.add_argument("--date", type=str,
-                        help="Override release date metadata (format: YYYY.M.D)")
+                        help="Override the canary UTC stamp (format: YYYYMMDDTHHMMSSZ)")
 
     parser.add_argument("--no-changelog", action="store_true",
                         help="Skip changelog")
@@ -698,8 +686,8 @@ def main():
     if validate_arguments(parser, args):
         cmd_channel(args)
         return
-    if (args.bundle_env or args.bundle_unset) and args.build_commit is None:
-        parser.error("--bundle-env and --bundle-unset require --build-commit")
+    if args.bundle_env or args.bundle_unset:
+        parser.error("--bundle-env and --bundle-unset are not supported for one-off Termux builds")
     if args.build_commit is not None:
         conflicting = [name for name, supplied in (
             ("--canary", args.canary), ("--prune-canaries", args.prune_canaries),

@@ -1028,8 +1028,8 @@ def _load_tools(agent, enabled_toolsets, disabled_toolsets):
             print(f"   ✅ Enabled toolsets: {', '.join(enabled_toolsets)}")
         if disabled_toolsets:
             print(f"   ❌ Disabled toolsets: {', '.join(disabled_toolsets)}")
-        import model_tools
-        requirements = model_tools.check_toolset_requirements()
+        from tools.registry import registry
+        requirements = registry.check_toolset_requirements()
         missing_reqs = [name for name, available in requirements.items() if not available]
         if missing_reqs:
             agent._safe_print(f"⚠️  Some tools may not work due to missing requirements: {missing_reqs}", diagnostic=True)
@@ -2060,11 +2060,7 @@ def init_agent(
     session_id: str | None = None, tool_progress_callback: Callable[..., Any] | None = None,
     tool_start_callback: Callable[..., Any] | None = None, tool_complete_callback: Callable[..., Any] | None = None,
     thinking_callback: Callable[..., Any] | None = None, reasoning_callback: Callable[..., Any] | None = None,
-    clarify_callback: Callable[..., Any] | None = None, read_terminal_callback: Callable[..., Any] | None = None,
-    read_preview_callback: Callable[..., Any] | None = None, drive_preview_callback: Callable[..., Any] | None = None,
-    read_window_below_callback: Callable[..., Any] | None = None, connection_callback: Callable[..., Any] | None = None,
-    tour_callback: Callable[..., Any] | None = None, theme_callback: Callable[..., Any] | None = None,
-    setup_beat_callback: Callable[..., Any] | None = None,
+    clarify_callback: Callable[..., Any] | None = None, connection_callback: Callable[..., Any] | None = None,
     step_callback: Callable[..., Any] | None = None,
     stream_delta_callback: Callable[..., Any] | None = None, interim_assistant_callback: Callable[..., Any] | None = None,
     tool_gen_callback: Callable[..., Any] | None = None, status_callback: Callable[..., Any] | None = None,

@@ -79,7 +79,7 @@ export const normalizeIndicatorStyle = (raw: unknown): IndicatorStyle => {
 
 const FALSEY_MOUSE = new Set(['0', 'false', 'no', 'off'])
 const TRUTHY_MOUSE_ALL = new Set(['1', 'true', 'yes', 'on', 'all', 'full', 'any'])
-const hasOwn = (obj: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(obj, key)
+
 
 // `display.inline_images`: YAML 1.1 reads a bare `off` as false; the quoted string means the same.
 export const inlineImagesEnabled = (raw: unknown): boolean =>
@@ -94,12 +94,10 @@ export const inlineImagesEnabled = (raw: unknown): boolean =>
 // `wheel` enables 1000+1006 — scroll wheel + click only, no drag or hover,
 // which silences tmux's "No image in clipboard" spam over the prompt row.
 // `buttons` adds 1002 so terminal-side text selection drags still register.
-// Legacy `tui_mouse` is honored only if `mouse_tracking` is absent.
 export const normalizeMouseTracking = (display: {
   mouse_tracking?: unknown
-  tui_mouse?: unknown
 }): MouseTrackingMode => {
-  const raw = hasOwn(display, 'mouse_tracking') ? display.mouse_tracking : display.tui_mouse
+  const raw = display.mouse_tracking
 
   if (raw === false || raw === 0) {
     return 'off'

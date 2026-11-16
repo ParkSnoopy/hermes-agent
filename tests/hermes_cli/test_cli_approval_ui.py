@@ -4,6 +4,8 @@ import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 import cli as cli_module
 from agent.i18n import t
 from cli import HermesCLI
@@ -68,6 +70,26 @@ def _make_background_cli_stub():
 
 
 class TestCliApprovalUi:
+    @pytest.mark.parametrize("title", [None, "Confirm local action"])
+    def test_current_approval_request_reaches_the_panel(self, title):
+        from tools.approval_prompt import _ask_human
+
+        cli = _make_cli_stub()
+        cli._paint_now = MagicMock()
+        cli._ring_bell = MagicMock()
+        cli._persist_prompt_summary = MagicMock()
+
+        def respond(response_queue, deadline_attr):
+            assert cli._approval_state["choices"] == ["once", "deny"]
+            rendered = "".join(text for _style, text in cli._get_approval_display_fragments())
+            assert (title or t("cli.tui.approval_title")) in rendered
+            return "once"
+
+        cli._poll_modal_queue = respond
+        assert _ask_human("echo approved", "local action", 30, False,
+                          cli._approval_callback, False, False, title=title) == "once"
+        assert cli._approval_state is None
+
     def test_smart_denied_callback_offers_only_once_and_deny(self):
         cli = _make_cli_stub()
         result = {}

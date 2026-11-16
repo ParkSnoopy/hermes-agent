@@ -30,6 +30,7 @@ _CRON_RUN_HEARTBEAT_CEILING = 6 * 3600.0
 
 from cron.jobs import (
     AmbiguousJobReference,
+    _normalize_skill_list,
     claim_job_for_fire,
     get_job,
     is_job_runnable,
@@ -45,7 +46,6 @@ from cron.jobs import (
 from tools.cronjob_prompt_scan import _scan_cron_prompt
 from tools.cronjob_job_args import (
     _apply_continuity,
-    _canonical_skills,
     _clean_str_list,
     _format_job,
     _gateway_liveness_notice,
@@ -603,7 +603,7 @@ def _action_create(a: dict[str, Any]) -> str:
     deliver = _normalize_deliver_param(a["deliver"])
     if not a["schedule"]:
         return tool_error("schedule is required for create", success=False)
-    canonical_skills = _canonical_skills(a["skill"], a["skills"])
+    canonical_skills = _normalize_skill_list(a["skills"])
     _no_agent = bool(a["no_agent"])
     # no_agent=True -> the script IS the job (prompt/skills optional); else prompt or skills.
     if _no_agent:
@@ -671,7 +671,7 @@ def _action_create(a: dict[str, Any]) -> str:
     # The builtin ticker lives in the gateway process: with no gateway running the job is stored
     # but never fires — tell the model (the CLI already warns).
     _result = {
-        "success": True, "job_id": job["id"], "name": job["name"], "skill": job.get("skill"),
+        "success": True, "job_id": job["id"], "name": job["name"],
         "skills": job.get("skills", []), "schedule": job["schedule_display"], "repeat": _repeat_display(job),
         "deliver": job.get("deliver", "local"), "next_run_at": job["next_run_at"], "job": _format_job(job),
         "message": _create_message, **_gateway_liveness_notice(),
@@ -772,7 +772,7 @@ def _pick(updates: dict[str, Any], job: dict[str, Any], key: str) -> Any:
 
 def _update_core_fields(job: dict[str, Any], a: dict[str, Any], updates: dict[str, Any]) -> Optional[str]:
     """prompt / name / deliver / skills / model pins; returns an error string or None."""
-    prompt, deliver, skill, skills = a["prompt"], a["deliver"], a["skill"], a["skills"]
+    prompt, deliver, skills = a["prompt"], a["deliver"], a["skills"]
     if prompt is not None:
         scan_error = _scan_cron_prompt(prompt)
         if scan_error:
@@ -800,10 +800,8 @@ def _update_core_fields(job: dict[str, Any], a: dict[str, Any], updates: dict[st
         updates["failure_deliver"] = _norm_fd
     if a["catch_up"] is not None:
         updates["catch_up"] = a["catch_up"]
-    if skills is not None or skill is not None:
-        canonical_skills = _canonical_skills(skill, skills)
-        updates["skills"] = canonical_skills
-        updates["skill"] = canonical_skills[0] if canonical_skills else None
+    if skills is not None:
+        updates["skills"] = _normalize_skill_list(skills)
     if a["model"] is not None:
         updates["model"] = _normalize_optional_job_value(a["model"])
     if a["provider"] is not None:
@@ -975,7 +973,6 @@ def cronjob(
     repeat: Optional[int] = None,
     deliver: Optional[str] = None,
     include_disabled: bool = False,
-    skill: Optional[str] = None,
     skills: Optional[list[str]] = None,
     model: Optional[str] = None,
     provider: Optional[str] = None,
@@ -1160,7 +1157,7 @@ def check_cronjob_requirements() -> bool:
 # create/edit --model`, hand-edited jobs) — the agent must not point unattended spend at a
 # different model. Programmatic callers of cronjob() itself retain the parameters.
 _HANDLER_FORWARDED_ARGS = (
-    "job_id", "prompt", "schedule", "name", "repeat", "deliver", "failure_deliver", "skill", "skills", "reason",
+    "job_id", "prompt", "schedule", "name", "repeat", "deliver", "failure_deliver", "skills", "reason",
     "script", "context_from", "continuity", "enabled_toolsets", "workdir", "no_agent", "attach_to_session",
     "paused_reason", "pinned", "timezone", "grace_minutes", "catch_up")
 

@@ -38,11 +38,6 @@ PROJECT_ROOT = Path(__file__).parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from hermes_agent.compat.finder import Finder as _CompatFinder
-from hermes_agent.compat.moves import MOVES as _COMPAT_MOVES
-
-# In-repo code must use current module names; an old name fails here instead of being aliased.
-sys.meta_path.insert(0, _CompatFinder(_COMPAT_MOVES, strict=True))
 
 # Every test file runs in its own process, and in a checkout without an install stamp
 # get_version_info() shells out to git 7 times (~0.55 s per process in a large local
@@ -270,7 +265,7 @@ from tests._fixtures.platform_gating import _platforms_gate_reason, _reject_cont
 
 
 @pytest.fixture(autouse=True)
-def _hermetic_environment(tmp_path, tmp_path_factory, monkeypatch):
+def _isolate_hermes_home(tmp_path, tmp_path_factory, monkeypatch):
     """Blank out all credential/behavioral env vars so local and CI match.
 
     Also redirects HOME and HERMES_HOME to per-test tempdirs so code that
@@ -333,9 +328,7 @@ def _hermetic_environment(tmp_path, tmp_path_factory, monkeypatch):
                                            sources=(install_state._active_root,))
     monkeypatch.setattr(install_state, "machine_places", lambda: isolated_places)
     install_state.probe.cache_clear()
-    from hermes_cli import onboarding_due
 
-    onboarding_due.reset_for_tests()
     # Per-TEST host-rendezvous dir (see the session-level block at the top): the
     # host gateway/serve record is shared per OS user by design, so without this
     # one test's published owner makes the next test's lifecycle code attach to it.
@@ -446,13 +439,6 @@ def _hermetic_environment(tmp_path, tmp_path_factory, monkeypatch):
     monkeypatch.delenv("GMI_API_KEY", raising=False)
     monkeypatch.delenv("GMI_BASE_URL", raising=False)
 
-
-# Backward-compat alias — old tests reference this fixture name. Keep it
-# as a no-op wrapper so imports don't break.
-@pytest.fixture(autouse=True)
-def _isolate_hermes_home(_hermetic_environment):
-    """Alias preserved for any test that yields this name explicitly."""
-    return
 
 
 @pytest.fixture(autouse=True)
@@ -1506,14 +1492,6 @@ def _capture_real_hermes_root() -> list[Path]:
 
 
 _REAL_HERMES_ROOT_CANDIDATES = _capture_real_hermes_root()
-# Captured before any test can patch sys.platform, HOME or XDG_*: a test that runs the real
-# GUI uninstall or update swap would otherwise delete the developer's own Hermes app. Only the
-# ones present (none on CI runners, so the guard costs nothing there), each literal and resolved.
-from hermes_cli.gui_uninstall import packaged_gui_app_paths
-
-_REAL_INSTALLED_GUI_APPS = sorted({
-    os.path.normcase(form) for app in packaged_gui_app_paths() if os.path.lexists(app)
-    for form in (os.path.abspath(app), os.path.realpath(app))})
 
 
 @pytest.fixture(autouse=True)
@@ -1545,7 +1523,7 @@ def _forbid_real_hermes_home_io(monkeypatch, request):
         return
     from tests.home_io_guard import HomeIOGuard
 
-    HomeIOGuard(lambda: _REAL_HERMES_ROOT_CANDIDATES, lambda: _REAL_INSTALLED_GUI_APPS).install(monkeypatch)
+    HomeIOGuard(lambda: _REAL_HERMES_ROOT_CANDIDATES).install(monkeypatch)
 
 
 @pytest.fixture

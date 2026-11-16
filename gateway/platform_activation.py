@@ -82,19 +82,6 @@ def _matches(name: str, candidates: Iterable[str]) -> bool:
     return any(c.lower() == lowered or c.lower().startswith(lowered + "_") for c in candidates)
 
 
-def _legacy_gateway_json_names(home: Path) -> set[str]:
-    try:
-        with open(home / "gateway.json", encoding="utf-8-sig") as handle:
-            rows = (json.load(handle) or {}).get("platforms") or {}
-        return {str(k) for k in rows} if isinstance(rows, dict) else set()
-    except FileNotFoundError:
-        return set()
-    except (OSError, ValueError, AttributeError):
-        # Unreadable or not a {"platforms": {...}} document: the YAML/env/pool evidence still applies.
-        logger.debug("platform activation: gateway.json unreadable", exc_info=True)
-        return set()
-
-
 def activation_predicate(
     *, yaml_cfg: Any = None, platform_names: Iterable[str] = (), home: Optional[Path] = None,
     registry: Any = None,
@@ -115,8 +102,7 @@ def activation_predicate(
         except Exception:
             logger.debug("platform activation: config.yaml unreadable", exc_info=True)
     blocks = _yaml_block_names(yaml_cfg) | {str(getattr(n, "value", n)) for n in platform_names}
-    if home is not None:
-        blocks |= _legacy_gateway_json_names(home)
+
     env = _env_names(home)
     upper_env = {e.upper() for e in env}
     pools = _credential_pool_names(home)

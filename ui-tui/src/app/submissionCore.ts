@@ -1,4 +1,4 @@
-import type { InputDetectDropResponse, PromptSubmitResponse, SessionActivateResponse } from '@hermes/shared/gateway-types'
+import type { PromptSubmitResponse, SessionActivateResponse } from '@hermes/shared/gateway-types'
 import { isUndeliveredCorrectionRefusal } from '@hermes/shared/json-rpc-channel'
 
 import type { GatewayClient } from '../gatewayClient.js'
@@ -117,7 +117,7 @@ function prepareQueueItem(
 
   // Busy controls have no deduplication receipt: never replay after an ambiguous reply.
   if (item.controlMethod) {
-    item.legacyAttempted = true
+    item.controlAttempted = true
   }
 
   item.attachments ??= opts.attachments?.map(attachment => ({ ...attachment }))
@@ -160,7 +160,7 @@ function submitParams(
 export function readmitAsPrompt(item: QueueItem): void {
   delete item.controlMethod
   delete item.executionGeneration
-  item.legacyAttempted = false
+  item.controlAttempted = false
   item.queued = true
   savePendingInput(item)
 }
@@ -285,50 +285,6 @@ function refreshExecutionStatus({ deps, focused, owner, sid }: AdmissionContext)
     })
 }
 
-async function submitLegacy(
-  item: QueueItem,
-  sid: string,
-  submitText: string,
-  deps: SubmitPromptDeps,
-  focused: () => boolean
-): Promise<void> {
-  if (focused()) {
-    deps.sys(t('canonical.submit.legacyDelivery'))
-  }
-
-  try {
-    item.legacyAttempted = true
-    savePendingInput(item)
-
-    const r = await deps.gw.request<PromptSubmitResponse>('prompt.submit', {
-      session_id: sid,
-      text: item.preparedText ?? submitText,
-      queued: item.queued !== false
-    })
-
-    const accepted = Boolean(
-      r?.voice_stopped || ['streaming', 'queued', 'steered', 'redirected'].includes(r?.status ?? '')
-    )
-
-    item.settle?.(accepted)
-
-    if (focused()) {
-      if (r?.voice_stopped) {
-        patchUiState({ busy: false, status: 'ready' })
-      } else if (!accepted) {
-        deps.sys(t('canonical.submit.legacyUnconfirmed'))
-        patchUiState({ status: t('canonical.submit.statusDeliveryUnconfirmed') })
-      }
-    }
-  } catch (error) {
-    item.settle?.(false)
-
-    if (focused()) {
-      deps.sys(t('canonical.submit.legacyUnconfirmedWith', error instanceof Error ? error.message : String(error)))
-      patchUiState({ status: t('canonical.submit.statusDeliveryUnconfirmed') })
-    }
-  }
-}
 
 // Submit a ready prompt (already resolved to be neither a slash command nor a
 // shell escape, with a live session). Pulled out of useSubmission so the
@@ -360,8 +316,8 @@ export function submitPrompt(
     return deps.sys('session not ready yet')
   }
 
-  // An identityless write cannot be deduplicated, even after the owner upgrades.
-  if (opts.queueItem?.legacyAttempted) {
+  // Busy controls cannot be deduplicated after an ambiguous outcome.
+  if (opts.queueItem?.controlAttempted) {
     opts.queueItem.settle?.(false)
 
     if (focused()) {
@@ -461,19 +417,7 @@ export function submitPrompt(
           settleAdmissionReply(item, r, { deps, destination, focused, owner, sid })
         }
       })
-      .catch(async (e: Error & { code?: number }) => {
-        // 4094 is a pre-admission refusal, not an ambiguous write; so is 4000 when the
-        // legacy `hermes serve` contract refuses `submission_id` as an unknown key. Special
-        // compute modes still support legacy submit; retry only these refusals,
-        // keeping the prepared payload, destination and queue mode unchanged.
-        const preAdmissionRefusal = e.code === 4094 || (e.code === 4000 && /submission_id/.test(e.message ?? ''))
-
-        if (item && preAdmissionRefusal && !deps.gw.isCanonical && !item.attachments?.length) {
-          await submitLegacy(item, sid, submitText, deps, focused)
-
-          return
-        }
-
+      .catch((e: Error & { code?: number }) => {
         if (item?.controlMethod && isUndeliveredCorrectionRefusal(e)) {
           readmit(item)
 
@@ -533,42 +477,29 @@ export function submitPrompt(
     return startSubmit(text, deps.expand(text), showUserMessage)
   }
 
-  if (deps.gw.isCanonical) {
-    if (
-      /^(?:["']?(?:[/.~]|[A-Za-z]:[/\\])|file:\/\/)/.test(text) &&
-      /\.(?:png|jpe?g|gif|webp)(?:["']?)(?:\s|$)/i.test(text)
-    ) {
-      void stageImagePath(text, deps.gw, destination)
-        .then(image => {
-          opts.attachments = [{ path: image.path, mime: image.mime }]
-          startSubmit(text, image.remainder || 'What do you see in this image?', showUserMessage)
-        })
-        .catch((error: Error) => {
-          opts.queueItem?.settle?.(false)
+  if (
+    /^(?:["']?(?:[/.~]|[A-Za-z]:[/\\])|file:\/\/)/.test(text) &&
+    /\.(?:png|jpe?g|gif|webp)(?:["']?)(?:\s|$)/i.test(text)
+  ) {
+    void stageImagePath(text, deps.gw, destination)
+      .then(image => {
+        opts.attachments = [{ path: image.path, mime: image.mime }]
+        startSubmit(text, image.remainder || 'What do you see in this image?', showUserMessage)
+      })
+      .catch((error: Error) => {
+        opts.queueItem?.settle?.(false)
 
-          if (focused()) {
-            deps.sys(t('canonical.submit.imageNotSubmitted', error.message))
+        if (focused()) {
+          deps.sys(t('canonical.submit.imageNotSubmitted', error.message))
 
-            if (ownsTurn()) {
-              patchUiState({ busy: false, status: t('canonical.submit.statusImageNotSubmitted') })
-            }
+          if (ownsTurn()) {
+            patchUiState({ busy: false, status: t('canonical.submit.statusImageNotSubmitted') })
           }
-        })
+        }
+      })
 
-      return
-    }
-
-    return startSubmit(text, deps.expand(text), showUserMessage)
+    return
   }
 
-  deps.gw
-    .request<InputDetectDropResponse>('input.detect_drop', { session_id: sid, text })
-    .then(r => {
-      if (!r?.matched) {
-        return startSubmit(text, deps.expand(text), showUserMessage)
-      }
-
-      startSubmit(r.text || text, deps.expand(r.text || text), showUserMessage)
-    })
-    .catch(() => startSubmit(text, deps.expand(text), showUserMessage))
+  return startSubmit(text, deps.expand(text), showUserMessage)
 }

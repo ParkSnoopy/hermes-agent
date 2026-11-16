@@ -218,6 +218,39 @@ class TestCronjobRequirements:
         assert check_cronjob_requirements() is False
 
 
+def test_skills_are_normalized_for_create_and_update(monkeypatch):
+    import cron.scheduler
+    import tools.cronjob_tools as tool
+
+    stored = {"id": "job-1", "name": "job", "schedule_display": "every 1h",
+              "next_run_at": None, "prompt": "hello"}
+
+    def create(**kwargs):
+        stored["skills"] = kwargs["skills"]
+        return stored
+
+    def update(job_id, updates):
+        assert job_id == "job-1"
+        stored.update(updates)
+        return stored
+
+    monkeypatch.setattr(cron.scheduler, "create_job_with_scheduler_registration", create)
+    monkeypatch.setattr(tool, "resolve_job_ref", lambda job_id: stored)
+    monkeypatch.setattr(tool, "update_job", update)
+    monkeypatch.setattr(tool, "_notify_provider_jobs_changed_safe", lambda: None)
+    monkeypatch.setattr(tool, "_gateway_liveness_notice", lambda **kwargs: {})
+
+    created = json.loads(tool.cronjob(action="create", prompt="hello", schedule="every 1h",
+                                      skills=[" alpha ", "alpha", "beta"]))
+    assert created["skills"] == ["alpha", "beta"]
+    assert "skill" not in created and "skill" not in created["job"]
+    updated = json.loads(tool.cronjob(action="update", job_id="job-1", skills=[" beta ", "beta"]))
+    assert updated["job"]["skills"] == ["beta"]
+    assert "skill" not in stored and "skill" not in updated["job"]
+    cleared = json.loads(tool.cronjob(action="update", job_id="job-1", skills=[]))
+    assert cleared["job"]["skills"] == []
+
+
 class TestUnifiedCronjobTool:
     @pytest.fixture(autouse=True)
     def _setup_cron_dir(self, tmp_path, monkeypatch):

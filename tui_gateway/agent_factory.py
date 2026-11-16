@@ -27,10 +27,8 @@ def _resolve_model() -> str:
 
 
 def _resolve_session_platform() -> str:
-    """``HERMES_DESKTOP=1`` without ``HERMES_DESKTOP_TERMINAL`` → "desktop" (chat panel; the agent then
-    suggests TUI-only slash commands), else "tui" (embedded terminal pane or standalone ``hermes --tui``)."""
-    desktop = is_truthy_value(os.environ.get("HERMES_DESKTOP"))
-    return "desktop" if desktop and not is_truthy_value(os.environ.get("HERMES_DESKTOP_TERMINAL")) else "tui"
+    """The terminal client's session platform."""
+    return "tui"
 
 
 def _resolve_session_source(explicit: str | None) -> str:
@@ -110,13 +108,11 @@ def _parse_model_config(raw, *, quiet: bool = False) -> dict:
 
 
 def _row_follows_profile(row: dict | None) -> bool:
-    """Whether a stored row is a canonical Bot Chat whose runtime follows the member profile's config.
-    Identity is the persisted ``follow_profile_config`` marker; the bare title compare stays ONLY here as
-    the legacy fallback for rows written before the marker existed."""
+    """Whether the stored session explicitly follows its member profile's config."""
     if not row:
         return False
     model_config = _parse_model_config(row.get("model_config"), quiet=True)
-    return bool(model_config.get("follow_profile_config") or str(row.get("title") or "").strip() == "Bot Chat")
+    return bool(model_config.get("follow_profile_config"))
 
 
 def _stored_session_runtime_overrides(row: dict | None) -> dict:
@@ -321,28 +317,6 @@ def _load_tool_progress_mode() -> str:
     return mode if mode in _TOOL_PROGRESS_MODES else "all"
 
 
-def _gui_surface_toolsets(platform: str) -> set[str]:
-    """Toolsets that exist because of the CLIENT (off ``_HERMES_CORE_TOOLS``; this is the one gate).
-    ``platform`` is the SESSION's source, never a process env var: the desktop may drive a URL/cloud
-    backend where ``HERMES_DESKTOP`` is unset (AGENTS.md surface rule)."""
-    from toolsets import CLIENT_SURFACE_TOOLSETS
-    return set(CLIENT_SURFACE_TOOLSETS) if platform == "desktop" else {"project"}
-
-
-def _with_session_toolsets(selection, platform: str) -> list[str]:
-    """*selection* plus the client surface's toolsets the session carries whatever its config says.
-
-    The fold-in happens after ``_get_platform_tools`` already subtracted ``agent.disabled_toolsets``,
-    so the same subtraction is applied to the fold-in itself — otherwise ``disabled_toolsets:
-    [project]`` is a no-op on desktop/TUI, the only surfaces where the client toolsets exist
-    (#54433). ``desktop_ui`` is kept regardless: it is the client's own control surface, not a
-    model toolset."""
-    fold_in = _gui_surface_toolsets(platform) - set(selection)
-    disabled = set(_load_disabled_toolsets() or [])
-    if disabled:
-        fold_in -= disabled - {"desktop_ui"}
-    return [*selection, *sorted(fold_in)]
-
 
 def _tui_notice(text: str) -> None:
     print(text, file=sys.stderr, flush=True)
@@ -404,7 +378,7 @@ def _load_enabled_toolsets(platform: str | None = None) -> list[str] | None:
             from agent.coding_context import coding_selection
             selection = coding_selection(platform=session_platform)
             if selection is not None:
-                return sorted(_with_session_toolsets(selection, session_platform))
+                return sorted(selection)
     try:
         from toolsets import validate_toolset
     except Exception:
@@ -428,7 +402,7 @@ def _load_enabled_toolsets(platform: str | None = None) -> list[str] | None:
         if fallback_notice is not None:
             _tui_notice(fallback_notice)
         if enabled:
-            return sorted(_with_session_toolsets(enabled, session_platform))
+            return sorted(enabled)
         # An explicitly saved list that resolves to nothing (``platform_toolsets.cli: []`` with no
         # enabled MCP servers) is an explicit zero-tool state, not "no filter": fail closed with []
         # instead of None (#82010). The client-surface fold-in must not resurrect tools the user
@@ -487,7 +461,7 @@ def _tool_progress_enabled(sid: str) -> bool:
 
 _TOOL_LIFECYCLE_UI_TOOLS = frozenset({
     "clarify", "manage_connections", "setup_mcp",
-    "image_generate", "manage_catalog", "delegate_task", "setup_beat", "set_theme",
+    "image_generate", "delegate_task",
     # File edits are the turn's deliverable — the diff card the user reviews.
     "edit_file", "patch", "write_file",
 })
@@ -496,12 +470,8 @@ _TOOL_LIFECYCLE_UI_TOOLS = frozenset({
 def _tool_lifecycle_required_for_ui(name: str) -> bool:
     """Interactive UI / card surfaces, not optional chrome.
 
-    Desktop renders these from the tool-call part itself, so suppressing the
-    lifecycle hides the turn's deliverable entirely (`isCardTool` /
-    `isFileEditTool` in apps/desktop/src/lib/tool-render-class.ts must stay in
-    sync with `_TOOL_LIFECYCLE_UI_TOOLS`): clarify / connection cards are
-    consent surfaces, image_generate / manage_catalog / delegate_task draw the
-    thing the user asked for, and file edits are the diff the user reviews.
+    Clarify and connection cards are consent surfaces; generated images,
+    delegations and file edits are the deliverables the user reviews.
     The start and complete guards both consult this set, so a card's
     `tool.complete` can never arrive without its `tool.start`.
     """
@@ -644,7 +614,6 @@ def _make_agent(
     synthetic = maybe_build_synthetic_agent(session_id or key, model_override)
     if synthetic is not None:
         return synthetic
-    from agent.onboarding_session import onboarding_toolsets
     from run_agent import AIAgent
     # MCP discovery runs in a daemon thread (a dead server can't freeze the shell); the agent snapshots its tool
     # list once, so briefly wait for in-flight discovery. Dashboard /api/ws uses mcp_startup; TUI stdio uses entry.
@@ -673,8 +642,7 @@ def _make_agent(
         reasoning_config=(
             reasoning_config_override if reasoning_config_override is not None else _load_reasoning_config(str(model or ""))),
         service_tier=service_tier_override if service_tier_override is not None else _load_service_tier(),
-        enabled_toolsets=onboarding_toolsets(_load_enabled_toolsets(platform),
-                                             session_db if session_db is not None else _get_db(), session_id or key),
+        enabled_toolsets=_load_enabled_toolsets(platform),
         disabled_toolsets=_load_disabled_toolsets(),
         # OpenRouter provider_routing prefs (gateway + CLI parity).
         providers_allowed=_pr.get("only"), providers_ignored=_pr.get("ignore"), providers_order=_pr.get("order"),

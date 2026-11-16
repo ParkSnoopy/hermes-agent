@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Sequence
 
 
 from hermes_constants import get_hermes_home
-from hermes_state_legacy_refusal import LEGACY_REFUSAL_REPAIR_DONE, advance_legacy_refusal_repair
+
 from hermes_startup_watchdog import report_startup_progress
 from utils import safe_json_loads
 from hermes_state_common import (
@@ -60,6 +60,51 @@ def _holder_cmdline(pid: int) -> str:
 
 # schema_read_probe_statements() cache (parses SCHEMA_SQL in an in-memory DB; once per process).
 _READ_PROBE_STATEMENTS: Optional[tuple] = None
+
+
+class UnsupportedStateSchemaError(RuntimeError):
+    """The existing store is not in the supported current format."""
+
+
+def require_current_schema(conn: sqlite3.Connection) -> None:
+    """Inspect an existing database without changing it; reject older or partial layouts."""
+    tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    )}
+    if not tables:
+        return
+    try:
+        rows = conn.execute("SELECT version FROM schema_version").fetchall()
+        if len(rows) != 1 or rows[0][0] != SCHEMA_VERSION:
+            raise UnsupportedStateSchemaError("unsupported state.db schema version")
+        reference = sqlite3.connect(":memory:")
+        try:
+            reference.executescript(SCHEMA_SQL)
+            names = [row[0] for row in reference.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            )]
+            for name in names:
+                expected = reference.execute(f'PRAGMA table_info({_q(name)})').fetchall()
+                actual = conn.execute(f'PRAGMA table_info({_q(name)})').fetchall()
+                expected_columns = {row[1] for row in expected}
+                actual_columns = {row[1] for row in actual}
+                expected_pk = [(row[1], row[5]) for row in expected if row[5]]
+                actual_pk = [(row[1], row[5]) for row in actual if row[5]]
+                if not expected_columns <= actual_columns or expected_pk != actual_pk:
+                    raise UnsupportedStateSchemaError(f"unsupported state.db table layout: {name}")
+        finally:
+            reference.close()
+        fts = conn.execute("SELECT sql FROM sqlite_master WHERE name='messages_fts' AND type='table'").fetchone()
+        if fts and 'messages_fts_src' not in (fts[0] or ''):
+            raise UnsupportedStateSchemaError("unsupported state.db FTS layout")
+        trigram = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name='messages_fts_trigram' AND type='table'"
+        ).fetchone()
+        if trigram and ('messages_fts_trigram_src' not in (trigram[0] or '') or
+                        'tool_calls' in (trigram[0] or '').lower()):
+            raise UnsupportedStateSchemaError("unsupported state.db trigram FTS layout")
+    except sqlite3.DatabaseError as exc:
+        raise UnsupportedStateSchemaError("unsupported state.db schema") from exc
 
 # Trigram triggers need the trigram tokenizer (SQLite >= 3.34); without it _ensure_fts_schema
 # soft-fails that DDL and "all six present" is unsatisfiable, so a trigger's absence is
@@ -463,10 +508,7 @@ class SessionSchemaMixin:
 
     def _defer_stale_fts_for_holders(self, cursor: sqlite3.Cursor, foreign_holders) -> bool:
         """Record a deferral diagnostic for the foreign processes holding the DB; True = defer
-        (holders remain). After ``_FTS_HOLDER_ESCALATE_ATTEMPTS`` deferrals spanning
-        ``_FTS_HOLDER_ESCALATE_SECONDS``, provably inactive orphan Desktop backends are
-        reaped and the holders re-checked. The orphan reap is the only exit, so a supervised
-        peer (never an orphan) blocks forever: once the SAME PID set has blocked
+        (holders remain). Once the SAME PID set has blocked
         ``_FTS_HOLDER_FUTILE_ATTEMPTS`` deferrals over ``_FTS_HOLDER_FUTILE_SECONDS`` the
         record is marked ``futile`` and the escalation names the holders and the remedy that
         works from inside a gateway session (stop only the other holder; this process's own
@@ -492,17 +534,7 @@ class SessionSchemaMixin:
         holder_pids = sorted({pid for pid, _path in foreign_holders if pid > 0})
         if holder_pids != record.get("holder_pids"):
             holders_since, holders_attempts = now, 1
-        if attempts >= _FTS_HOLDER_ESCALATE_ATTEMPTS and now - first_seen >= _FTS_HOLDER_ESCALATE_SECONDS:
-            reaped = self._reap_inactive_orphan_desktop_holders(
-                foreign_holders, min_age_seconds=_FTS_HOLDER_ESCALATE_SECONDS,
-            )
-            if reaped:
-                logger.error(
-                    "Reaped inactive orphan Desktop backend(s) %s after %d "
-                    "state.db FTS rebuild deferrals; checking holders again.", reaped, attempts,
-                )
-                foreign_holders = self._foreign_state_db_holders()
-                holder_pids = sorted({pid for pid, _path in foreign_holders if pid > 0})
+
         futile = bool(holder_pids) and (
             holders_attempts >= _FTS_HOLDER_FUTILE_ATTEMPTS and now - holders_since >= _FTS_HOLDER_FUTILE_SECONDS
         )
@@ -912,6 +944,7 @@ class SessionSchemaMixin:
         # loops for a rare failure mode.
         report_startup_progress(600.0, phase="state_db_init_schema")
         cursor = self._conn.cursor()
+        require_current_schema(self._conn)
         cursor.executescript(SCHEMA_SQL)
         # Before the table rebuilds below: renaming a table re-parses every trigger, and the retired
         # index's triggers name a tokenizer this process cannot load.
@@ -922,13 +955,6 @@ class SessionSchemaMixin:
                 "%s is no longer loaded and can be deleted.", get_hermes_home() / "lib" / "libfts5_cjk.so",
             )
 
-        # Column reconciliation, then the two table-shape repairs ADD COLUMN cannot express.
-        self._reconcile_columns(cursor)
-        self._heal_gateway_routing_pk(cursor)
-        # Rebuild session_model_usage if its PRIMARY KEY lacks the ``task`` column (5-column PK on installs
-        # already at v22+ when the column landed — the version-gated rebuild is unreachable there, #73823).
-        # Same PK-rebuild constraint as gateway_routing above.
-        self._heal_session_model_usage_pk(cursor)
 
         # Indexes referencing reconciler-added columns must be created AFTER _reconcile_columns
         # (in SCHEMA_SQL the executescript would fail on legacy DBs).
@@ -955,9 +981,6 @@ class SessionSchemaMixin:
         # the unconditional form blocked every open behind a sibling's write transaction. The
         # probe is short-circuited on the modern NOT NULL column and index-served on legacy
         # ones. Deliberately not INDEXED BY (raises "no query solution" on NOT NULL columns).
-        with contextlib.suppress(sqlite3.OperationalError):
-            if cursor.execute("SELECT 1 FROM messages WHERE active IS NULL LIMIT 1").fetchone() is not None:
-                cursor.execute("UPDATE messages SET active = 1 WHERE active IS NULL")
 
         fts5_available = self._sqlite_supports_fts5(cursor)
         stale_row = cursor.execute("SELECT 1 FROM state_meta WHERE key = ? LIMIT 1", (FTS_STALE_KEY,)).fetchone()
@@ -979,19 +1002,16 @@ class SessionSchemaMixin:
             cursor.executemany(
                 "INSERT OR IGNORE INTO state_meta (key, value) VALUES (?, ?)",
                 [("store_instance_id", str(uuid.uuid4())), ("store_created_at_utc", now_iso),
-                 (_MESSAGE_UID_BACKFILL_DONE, "1"),  # a fresh store has no legacy rows to backfill
-                 (LEGACY_REFUSAL_REPAIR_DONE, "1")],
+                 (_MESSAGE_UID_BACKFILL_DONE, "1")],  # a fresh store has no legacy rows to backfill
             )
-        else:
-            self._run_data_migrations(cursor, row[0], fts5_available)
+
 
         self._ensure_unique_title_index(cursor)
         if fts5_available:
             self._init_fts(cursor)
             self._stamp_settled_fts_layout(cursor)
         self._conn.commit()
-        # After the commit: the repair takes its own write transaction, and only once per store.
-        advance_legacy_refusal_repair(self, self._conn)
+
 
     def _stamp_settled_fts_layout(self, cursor: sqlite3.Cursor) -> None:
         """Write ``fts_storage_version`` once the stored layout is exactly current and nothing is in flight.
@@ -1363,10 +1383,8 @@ def apply_declared_schema(cursor: sqlite3.Cursor) -> None:
     (a no-op for tables the script just created whole). Locking, snapshots and commit stay with the
     callers. ``_reconcile_columns`` only touches the staticmethod ``_parse_schema_columns``, so a bare
     instance is enough and the column reconciler keeps one implementation."""
-    shim = object.__new__(SessionSchemaMixin)
-    shim._reconcile_columns(cursor)
+    require_current_schema(cursor.connection)
     SessionSchemaMixin._execute_ddl_script_transactional(cursor, SCHEMA_SQL)
-    shim._reconcile_columns(cursor)
 
 
 def reconcile_state_schema(conn: sqlite3.Connection) -> None:

@@ -2,6 +2,8 @@
 
 import base64
 
+import pytest
+
 from tui_gateway import server
 
 
@@ -58,4 +60,22 @@ def test_unavailable_or_mismatched_image_keeps_inline_payload(tmp_path):
     row = {"role": "user", "content": parts}
     assert url in server._history_to_messages([row])[0]["text"]
     image.unlink()
+    assert url in server._history_to_messages([row])[0]["text"]
+
+
+@pytest.mark.parametrize("name", ["Auth.JSON", "config.yaml", ".ENV.preview", ".envrc",
+                                 "mcp-tokens/shot.png", "PAIRING/shot.png"])
+def test_sensitive_image_reference_is_not_read(tmp_path, monkeypatch, name):
+    image = tmp_path / name
+    image.parent.mkdir(parents=True, exist_ok=True)
+    image.write_bytes(b"fixture bytes")
+    url = "data:image/png;base64," + base64.b64encode(b"fixture bytes").decode()
+    row = {"role": "user", "content": [
+        {"type": "text", "text": f"Caption\n@image:{image}"},
+        {"type": "image_url", "image_url": {"url": url}}]}
+
+    def refuse_read(_path):
+        raise AssertionError("sensitive attachment must be refused before reading")
+
+    monkeypatch.setattr(type(image), "read_bytes", refuse_read)
     assert url in server._history_to_messages([row])[0]["text"]

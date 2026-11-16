@@ -643,12 +643,10 @@ def _uninstall_profile(profile) -> None:
 def run_data_uninstall(args):
     """Erase this home's data, preserving installed runtimes and sibling profiles."""
     from hermes_cli.data_cleanup import plan_data_removal, remove_data
-    from hermes_cli.gui_uninstall import desktop_userdata_dir
 
     home = get_hermes_home()
     try:
-        userdata = getattr(args, "desktop_userdata", None)
-        plan = plan_data_removal(home, get_project_root(), Path(userdata) if userdata else desktop_userdata_dir())
+        plan = plan_data_removal(home, get_project_root())
     except (OSError, ValueError, RuntimeError) as exc:
         log_warn(str(exc))
         raise SystemExit(1) from exc
@@ -684,74 +682,6 @@ def run_data_uninstall(args):
             log_warn(f"{path}: {reason}")
         raise SystemExit(1)
     log_success("Hermes data removed.")
-
-
-def run_gui_uninstall(args):
-    """GUI-only uninstall: remove the Chat GUI, leave the agent + data intact.
-
-    Mirrors ``hermes uninstall --gui``. Removes the desktop app's built
-    artifacts, the packaged app bundle (best-effort), and the Electron
-    userData dir — nothing under ``$HERMES_HOME`` config/sessions/.env, and
-    never the Python agent or its venv.
-    """
-    from hermes_cli.gui_uninstall import (
-        agent_is_installed,
-        desktop_install_record,
-        gui_install_summary,
-        uninstall_gui,
-    )
-
-    _refuse_if_steward_owned()
-
-    hermes_home = get_hermes_home()
-    summary = gui_install_summary(hermes_home)
-    skip_confirm = bool(getattr(args, "yes", False))
-
-    print()
-    _print_box("│         ☤ Hermes Chat GUI Uninstaller                  │", Colors.MAGENTA)
-    print()
-
-    if not summary["gui_installed"]:
-        print("No Hermes Chat GUI installation was found.")
-        print(f"  Checked: {hermes_home}, and the standard app locations for this OS.")
-        return
-
-    print(color("This removes the Chat GUI only. The Hermes agent stays installed.", Colors.CYAN))
-    print()
-    print(color("Will remove:", Colors.YELLOW, Colors.BOLD))
-    for p in (*summary["source_built_artifacts"], *summary["packaged_app_paths"]):
-        print(f"  • {p}")
-    if (install_record := desktop_install_record()).exists():
-        print(f"  • {install_record}  (desktop install record)")
-    if summary["userdata_exists"]:
-        print(f"  • {summary['userdata_dir']}  (desktop app data)")
-    print()
-    if agent_is_installed(hermes_home):
-        print(color("Kept intact:", Colors.GREEN, Colors.BOLD))
-        print(f"  • The Hermes agent at {hermes_home / 'hermes-agent'}")
-        print(f"  • Your config, sessions, and secrets under {hermes_home}")
-        if (shared_modules := hermes_home / "hermes-agent" / "node_modules").exists():
-            print(f"  • Shared workspace dependencies at {shared_modules}")
-        print()
-
-    if bool(getattr(args, "dry_run", False)):
-        print("Dry run: no files or processes changed.")
-        return
-
-    if not skip_confirm and not _confirm_yes("to remove the Chat GUI"):
-        return
-
-    print()
-    print(color("Uninstalling Chat GUI...", Colors.CYAN, Colors.BOLD))
-    print()
-    uninstall_gui(hermes_home)
-
-    print()
-    _print_box("│            ✓ Chat GUI Uninstalled!                      │", Colors.GREEN)
-    print()
-    print("The Hermes agent is still installed. Run 'hermes' to use the CLI,")
-    print("or 'hermes uninstall' to remove the agent too.")
-    print()
 
 
 def run_uninstall(args):
@@ -796,9 +726,6 @@ def run_uninstall(args):
     print(f"  Config:  {hermes_home / 'config.yaml'}")
     print(f"  Secrets: {hermes_home / '.env'}")
     print(f"  Data:    {hermes_home / 'cron/'}, {hermes_home / 'sessions/'}, {hermes_home / 'logs/'}")
-    from hermes_cli.gui_uninstall import desktop_userdata_dir
-    if (desktop_userdata := desktop_userdata_dir()).exists():
-        print(f"  Desktop: {desktop_userdata}  (app data - kept by 'Keep data', removed by 'Full uninstall')")
     print()
 
     if named_profiles:
@@ -872,20 +799,11 @@ def _print_uninstall_dry_run(*, project_root: Path, hermes_home: Path, full_unin
     print("  • Gateway services and standalone gateway processes")
     print("  • Hermes PATH entries from shell configs / Windows User PATH")
     print("  • Hermes wrapper scripts and Hermes-managed node/npm/npx symlinks")
-    print("  • Desktop Chat GUI artifacts")
     print(f"  • Code checkout: {project_root}")
-    from hermes_cli.gui_uninstall import desktop_userdata_dir
-    userdata = desktop_userdata_dir()
     if not full_uninstall:
         print(f"  • Keep Hermes config/data: {hermes_home}")
-        if userdata.exists():
-            print(f"  • Keep desktop app data: {userdata}")
     else:
         print(f"  • Hermes config/data: {hermes_home}")
-        if sys.platform == "darwin":
-            print("  • macOS: dashboard/serve launchd jobs, Electron + setup caches")
-        if userdata.exists():
-            print(f"  • Desktop app data: {userdata}")
         profiles = _discover_named_profiles() if _is_default_hermes_home(hermes_home) else []
         if profiles:
             print("  • Named profiles (interactive uninstall asks before removing):")
@@ -1043,28 +961,6 @@ def _perform_uninstall(
         if on_this_platform:
             _remove_step(label, remove, success_fmt, none_msg)
 
-    # 3c. Chat GUI artifacts go with the agent code. uninstall_gui() never touches config/sessions/
-    #     .env (safe in keep-data mode); the packaged app + Electron userData live OUTSIDE HERMES_HOME.
-    #     The userData dir is user configuration (connections.json, OAuth partitions, renderer
-    #     state), so keep-data preserves it — only the full wipe removes it.
-    log_info("Removing desktop Chat GUI artifacts...")
-    try:
-        from hermes_cli.gui_uninstall import uninstall_gui
-        if not uninstall_gui(hermes_home, remove_userdata=full_uninstall):
-            log_info("No desktop GUI artifacts found")
-    except Exception as e:
-        log_warn(f"Could not remove desktop GUI artifacts: {e}")
-
-    # 3d. Per-user app leftovers outside HERMES_HOME: macOS Library caches/logs/
-    #     browser-store/state entries, the XDG cache dir, and (full mode) the XDG
-    #     data dir. Only Hermes-named entries are touched (#62209).
-    log_info("Removing app caches and leftovers outside the install...")
-    removed_leftovers = remove_desktop_app_leftovers(full_uninstall=full_uninstall)
-    if removed_leftovers:
-        for path in removed_leftovers:
-            log_success(f"Removed {path}")
-    else:
-        log_info("No app caches or leftovers found")
 
     # 4. Remove installation directory (code) — we may be running from inside it.
     log_info("Removing installation directory...")
@@ -1098,21 +994,6 @@ def _perform_uninstall(
         #     but their services + alias scripts live OUTSIDE the default root.
         for prof in named_profiles if remove_profiles else ():
             _uninstall_profile(prof)
-        # 5b. macOS: dashboard/serve launchd jobs the gateway uninstall never reaches (it
-        #     only removes the gateway label) — boot them out and delete their plists,
-        #     mirroring the enumeration main_dashboard uses to find them (#62209).
-        if sys.platform == "darwin":
-            _remove_step(
-                "Removing dashboard/serve launchd jobs...",
-                remove_dashboard_launchd_jobs, "Removed {}",
-                "No dashboard/serve launchd jobs found")
-        # 5c. macOS: Electron/Chromium and setup cache dirs written OUTSIDE HERMES_HOME
-        #     survive both the checkout removal and the home rmtree below (#62209).
-        if sys.platform == "darwin":
-            _remove_step(
-                "Removing Electron and setup caches...",
-                lambda: _remove_each(_macos_cache_leftover_dirs(), _rmtree_if_exists), "Removed {}",
-                "No Electron or setup caches found")
         log_info("Removing configuration and data...")
         _rmtree_step(hermes_home)
     else:
@@ -1125,9 +1006,7 @@ def _perform_uninstall(
     if not full_uninstall:
         print(color("Your configuration and data have been preserved:", Colors.CYAN))
         print(f"  {hermes_home}/")
-        from hermes_cli.gui_uninstall import desktop_userdata_dir
-        if (desktop_userdata := desktop_userdata_dir()).exists():
-            print(f"  {desktop_userdata}  (desktop app data)")
+
         _, preserved = _xdg_leftover_paths(full_uninstall=False)
         for path in preserved:
             print(f"  {path}/")
@@ -1157,13 +1036,11 @@ _RELOAD_HINT = {
 class _UninstallArgs:
     """Lightweight args namespace for the module entrypoint below."""
 
-    def __init__(self, *, mode: str, desktop_userdata: Path | None = None):
-        self.gui = mode == "gui"
-        self.gui_summary = False
+    def __init__(self, *, mode: str):
         self.full = mode == "full"
         self.data = mode == "data"
         self.yes = True  # the module entrypoint is always non-interactive
-        self.desktop_userdata = desktop_userdata
+
 
 
 def main(argv=None) -> int:
@@ -1188,21 +1065,16 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="python -m hermes_cli.uninstall")
     parser.add_argument(
         "--mode",
-        choices=["gui", "lite", "full", "data"],
+        choices=["lite", "full", "data"],
         required=True,
-        help="gui = Chat GUI only; lite = GUI + agent, keep data; "
+        help="lite = remove agent, keep data; "
         "full = everything; data = user data only, keep code",
     )
-    parser.add_argument("--desktop-userdata", type=Path, help=argparse.SUPPRESS)
     ns = parser.parse_args(argv)
-    if ns.desktop_userdata is not None and ns.mode != "data":
-        parser.error("--desktop-userdata requires --mode data")
-    args = _UninstallArgs(mode=ns.mode, desktop_userdata=ns.desktop_userdata)
+    args = _UninstallArgs(mode=ns.mode)
 
     if args.data:
         run_data_uninstall(args)
-    elif args.gui:
-        run_gui_uninstall(args)
     else:
         run_uninstall(args)
     return 0

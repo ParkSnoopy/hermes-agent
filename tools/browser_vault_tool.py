@@ -63,12 +63,9 @@ _PAGE_FILL_FAILED = {"hermes_vault_eval_failed": True}
 
 
 def _page_backend(task_id: str):
-    """The page this operation runs on when it is not the task's CDP session: the Desktop in-app browser
-    page pinned for a ``target='preview'`` operation, else the plugin browser holding this task's live page
-    (e.g. Camofox), else None."""
+    """The plugin browser holding this task's live page, or None for CDP."""
     from agent.browser_page_registry import backend_for_task
-    from tools.browser_vault_preview import active_page
-    return active_page() or backend_for_task(task_id)
+    return backend_for_task(task_id)
 
 
 def _page_eval(backend: Any, task_id: str, expression: str, *, secret: bool) -> dict[str, Any]:
@@ -161,8 +158,7 @@ def _eval_js_secret(task_id: str, expression: str) -> dict[str, Any]:
     # human-length prompt (enter_code waits for the user's code); a takeover during that wait must
     # refuse here, before the credential lands in a page the human is now typing into. The outer
     # epoch check only discards the result, and a fill is a side effect, not a result.
-    from tools.browser_vault_preview import active_page
-    if active_page() is None and _bot_desktop_browser_session(task_id):
+    if _bot_desktop_browser_session(task_id):
         from tools.bot_desktop import lease as _bd_lease
         try:
             _bd_lease.assert_agent_may_act()
@@ -678,9 +674,6 @@ BROWSER_VAULT_SCHEMA = {
             "handle": {"type": "string", "description": "fill / enter_code: a handle from list."},
             "backend": {"type": "string", "enum": ["onepassword", "bitwarden"], "description": "unlock only."},
             "label": {"type": "string", "description": "save_login only: short site name (default: the host)."},
-            "target": {"type": "string", "enum": ["browser", "preview"],
-                       "description": "fill / save_login / enter_code: 'preview' = the Desktop in-app browser "
-                                      "page beside the chat, 'browser' = the managed automation browser."},
         },
         "required": ["action"],
     },
@@ -719,14 +712,9 @@ def _handle_vault(args: dict[str, Any], **kwargs) -> str:
         return json.dumps({"success": False, "error": f"Unknown action {action!r}; use list, fill, save_login, "
                                                        "enter_code or unlock."})
     target = args.get("target") or "browser"
-    if target == "preview":
-        # The in-app browser is not the Bot Desktop browser; its window owns the page and refuses a
-        # changed tab or document itself. Never retried on another browser.
-        from tools.browser_vault_preview import run_preview_vault
-        return run_preview_vault(kwargs.get("preview_callback"), page_ops[action])
     if target != "browser":
         return json.dumps({"success": False, "error_type": "invalid_target",
-                           "error": "target must be 'browser' or 'preview'."})
+                           "error": "target must be 'browser'."})
     return _fenced_page_op(tid, page_ops[action])
 
 

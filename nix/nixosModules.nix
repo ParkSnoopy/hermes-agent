@@ -208,8 +208,7 @@
         else
           cfg.workingDirectory;
 
-      # The hardening and the environment that the gateway unit and the
-      # backend unit share.
+      # The hardening and the environment for the gateway unit.
       commonServiceConfig = {
         User = cfg.user;
         Group = cfg.group;
@@ -236,8 +235,7 @@
       commonUnitEnvironment = {
         HOME = cfg.stateDir;
       }
-      // common.processEnvironment { inherit hermesHome; }
-      // common.backendSessionEnvironment { inherit cfg; };
+      // common.processEnvironment { inherit hermesHome; };
 
       unitPath = common.processPath { inherit pkgs cfg; };
 
@@ -251,12 +249,12 @@
     in
     {
       options.services.hermes-agent =
-        common.sharedOptions {
+        (common.sharedOptions {
           defaultPackage = hermes-agent;
           defaultPackageText = lib.literalExpression "hermes-agent.packages.\${system}.default";
           defaultWorkingDirectory = "${cfg.stateDir}/workspace";
           defaultWorkingDirectoryText = lib.literalExpression ''"''${cfg.stateDir}/workspace"'';
-        }
+        })
         // (
           with lib;
           {
@@ -399,19 +397,7 @@
                 opt = options.services.hermes-agent.workingDirectory;
                 optionPath = "services.hermes-agent";
               }
-              ++ common.backendBindAssertions {
-                inherit cfg;
-                optionPath = "services.hermes-agent";
-              }
-              ++ [
-                {
-                  # Container mode runs one command in one container. A second
-                  # process needs its own container and its own ports. This
-                  # module does not do that.
-                  assertion = !(cfg.container.enable && cfg.backend.mode != "none");
-                  message = "services.hermes-agent: backend.mode is not supported together with container.enable — the container runs the gateway only.";
-                }
-              ];
+              ;
           }
 
           # ── Per-user profile for extraPackages ───────────────────────────
@@ -611,25 +597,6 @@
             };
           })
 
-          # ── The backend: hermes serve or hermes dashboard ─────────────────
-          # This is a different process from the gateway. Both use one
-          # HERMES_HOME.
-          (lib.mkIf (!cfg.container.enable && cfg.backend.mode != "none") {
-            systemd.services.hermes-backend = {
-              description = common.backendDescription cfg;
-              wantedBy = [ "multi-user.target" ];
-              after = [ "network-online.target" ];
-              wants = [ "network-online.target" ];
-
-              environment = commonUnitEnvironment;
-
-              serviceConfig = commonServiceConfig // {
-                ExecStart = lib.escapeShellArgs (common.backendArgv { inherit pkgs cfg; });
-              };
-
-              path = unitPath;
-            };
-          })
 
           # ══════════════════════════════════════════════════════════════════
           # MODE B: OCI container (persistent writable layer)

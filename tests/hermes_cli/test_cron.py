@@ -52,7 +52,7 @@ class TestCronCommandLifecycle:
         job = create_job(
             prompt="Combine skill outputs",
             schedule="every 1h",
-            skill="blogwatcher",
+            skills=["blogwatcher"],
         )
 
         cron_command(
@@ -64,7 +64,6 @@ class TestCronCommandLifecycle:
                 name="Edited Job",
                 deliver=None,
                 repeat=None,
-                skill=None,
                 skills=["maps", "blogwatcher"],
                 clear_skills=False,
                 add_skills=None,
@@ -80,6 +79,14 @@ class TestCronCommandLifecycle:
         assert updated["prompt"] == "Revised prompt"
         assert updated["schedule_display"] == "every 120m"
 
+        cron_command(Namespace(
+            cron_command="edit", job_id=job["id"],
+            add_skills=[" arxiv ", "arxiv"], remove_skills=["maps"],
+        ))
+        merged = get_job(job["id"])
+        assert merged is not None
+        assert merged["skills"] == ["blogwatcher", "arxiv"]
+
         cron_command(
             Namespace(
                 cron_command="edit",
@@ -89,7 +96,6 @@ class TestCronCommandLifecycle:
                 name=None,
                 deliver=None,
                 repeat=None,
-                skill=None,
                 skills=None,
                 clear_skills=True,
                 add_skills=None,
@@ -101,7 +107,6 @@ class TestCronCommandLifecycle:
         )
         cleared = get_job(job["id"])
         assert cleared["skills"] == []
-        assert cleared["skill"] is None
 
         out = capsys.readouterr().out
         assert "Updated job" in out
@@ -115,7 +120,6 @@ class TestCronCommandLifecycle:
                 name="Skill combo",
                 deliver=None,
                 repeat=None,
-                skill=None,
                 skills=["blogwatcher", "maps"],
                 script=None,
                 workdir=None,
@@ -374,7 +378,6 @@ class TestExternalCronProviderStatus:
                 name="Ping",
                 deliver=None,
                 repeat=None,
-                skill=None,
                 skills=None,
                 script=None,
                 workdir=None,
@@ -409,7 +412,6 @@ def test_cron_create_failure_returns_nonzero(monkeypatch, capsys):
         name=None,
         deliver=None,
         repeat=None,
-        skill=None,
         skills=None,
         script=None,
         workdir=None,

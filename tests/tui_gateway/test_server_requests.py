@@ -67,10 +67,10 @@ class _Socket:
 
 def test_a_pinned_request_goes_to_and_is_settled_only_by_the_socket_that_asked(wire):
     asker, bystander = _Socket(), _Socket()
-    params = {"action": "vault", "vault": {"operation": "close", "target": "t"}}
+    params = {"command": "sudo example"}
     out: list = []
     worker = threading.Thread(target=lambda: out.append(
-        server_requests.send("preview.act", "", params, timeout=10, transport=asker)))
+        server_requests.send("sudo", "", params, timeout=10, transport=asker)))
     worker.start()
     for _ in range(1000):
         if asker.frames:
@@ -87,6 +87,31 @@ def test_a_pinned_request_goes_to_and_is_settled_only_by_the_socket_that_asked(w
     assert server_requests.resolve_pinned_response({"id": rid, "result": {"value": "ok"}}, asker)
     worker.join(timeout=10)
     assert out == [{"value": "ok"}]
+
+
+def test_compute_host_response_is_forwarded_untouched(monkeypatch):
+    from types import SimpleNamespace
+
+    from agent.redact import clear_vault_redaction_values, register_vault_redaction_value
+    from tui_gateway import server
+
+    sid = "response-relay"
+    session = {"history_lock": threading.Lock(),
+               "_compute_host_open_request": {"id": "srq-relay", "method": "clarify"}}
+    monkeypatch.setitem(server._sessions, sid, session)
+    monkeypatch.setattr(server, "_session_uses_compute_host", lambda _session: True)
+    captured = {}
+    monkeypatch.setattr(server, "_get_compute_host_supervisor", lambda: SimpleNamespace(
+        respond=lambda _sid, params: captured.update(params)))
+    secret = "synthetic-relay-value"
+    register_vault_redaction_value(secret)
+    try:
+        frame = {"id": "srq-relay", "result": {"answers": {"q0": secret}}}
+        assert server._relay_compute_host_response(frame)
+        assert captured == {"frame": frame}
+        assert "_compute_host_open_request" not in session
+    finally:
+        clear_vault_redaction_values()
 
 
 def _answer_with_error(code, message):

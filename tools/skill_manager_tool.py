@@ -733,10 +733,10 @@ def _act_patch(a):
 
 
 # action -> handler(args dict) returning a result dict, or a tool_error JSON string for
-# argument-shape errors. "edit" is a legacy alias for a full rewrite (not in the schema).
+# argument-shape errors.
 _ACTION_HANDLERS = {
     "create": lambda a: _create_skill(a["name"], a["content"], a["category"]),
-    "edit": lambda a: _edit_skill(a["name"], a["content"]),
+
     "patch": _act_patch,
     "delete": lambda a: _delete_skill(a["name"], absorbed_into=a["absorbed_into"]),
     "write_file": lambda a: _write_file(a["name"], a["file_path"], a["file_content"]),
@@ -774,7 +774,7 @@ def _record_success(action, name, result, *, file_path, absorbed_into, task_id,
         if action == "create":
             record_created(name, agent_created=is_background_review(),
                            task_id=task_id, session_id=session_id)
-        elif action in {"patch", "edit", "write_file", "remove_file"}:
+        elif action in {"patch", "write_file", "remove_file"}:
             bump_patch(name, action=action, task_id=task_id, session_id=session_id)
         elif action == "delete" and not result.get("_archived"):
             forget(name)
@@ -821,7 +821,7 @@ def skill_manage(
             _ledger_before = _ledger.capture_before(
                 _pre["path"] if _pre else None, complete_package=(action == "delete"), skill=name)
         handler = _ACTION_HANDLERS.get(action, lambda a: _err(
-            f"Unknown action '{action}'. Use: create, edit, patch, delete, write_file, remove_file"))
+            f"Unknown action '{action}'. Use: create, patch, delete, write_file, remove_file"))
         result = handler({"name": name, **args})
         if isinstance(result, str):
             return result  # tool_error JSON for argument-shape problems (patch)

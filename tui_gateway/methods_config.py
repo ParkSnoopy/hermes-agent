@@ -107,10 +107,8 @@ def _(rid, params: dict) -> dict:
     policy = _repo_discovery_policy()
     policy_key = _repo_discovery_policy_key(policy)
     incoming = params.get("discovery_policy")
-    if isinstance(incoming, dict):
-        accepted = _repo_discovery_policy_key(_repo_discovery_policy(incoming)) == policy_key
-    else:
-        accepted = _repo_discovery_policy_is_default(policy)  # legacy client without a policy
+    accepted = (isinstance(incoming, dict)
+                and _repo_discovery_policy_key(_repo_discovery_policy(incoming)) == policy_key)
     accepted = bool(policy["enabled"] and accepted)
     pairs = [(item, None) if isinstance(item, str) else (str(item["root"]), item.get("label"))
              for item in params.get("repos") or []
@@ -237,10 +235,7 @@ def _cfg_get_fast(params):
 
 
 def _cfg_get_thinking_mode(params):
-    raw = _display_word("thinking_mode", "", _THINKING_MODES)
-    if not raw:  # legacy details_mode fallback
-        raw = "full" if _display_word("details_mode", "collapsed", _DETAIL_MODES) == "expanded" else "collapsed"
-    return {"value": raw}
+    return {"value": _display_word("thinking_mode", "collapsed", _THINKING_MODES)}
 
 
 def _cfg_get_mtime(params):

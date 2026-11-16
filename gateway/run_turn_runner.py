@@ -1026,10 +1026,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                 kwargs["persist_user_display_metadata"] = ctx.persist_user_display_metadata
             if ctx.moa_config is not None:
                 kwargs["moa_config"] = ctx.moa_config
-            from gateway.session_onboarding import arm_onboarding_turn
-            prelude = arm_onboarding_turn(agent, self._approval_owner, agent_history)
-            if prelude is not None and _accepts_keyword(agent.run_conversation, "prelude"):
-                kwargs["prelude"] = prelude
+
             if persist_user_timestamp_override is not None:
                 kwargs["persist_user_timestamp"] = persist_user_timestamp_override
             # The RAW inbound id (not event_message_id, the reply anchor) rides the persisted user
@@ -1313,16 +1310,6 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         reasoning_config = one_turn_reasoning(self, reasoning_config)  # `/model --once --reasoning X`
         runner._service_tier = (policy.current_service_tier(runner, ctx.session_key) if policy else
             runner._resolve_session_service_tier(source=ctx.source, session_key=ctx.session_key))
-        from gateway.session_api_turn import api_execution
-        api = api_execution.get()
-        if api is not None:
-            from gateway.platforms.api_server import _request_reasoning_config, _request_service_tier, _REQUEST_OPTION_MISSING
-            requested_reasoning = _request_reasoning_config(api['settings'].get('model_options'))
-            if requested_reasoning is not None:
-                reasoning_config = requested_reasoning
-            tier = _request_service_tier(api['settings'].get('model_options'))
-            if tier is not _REQUEST_OPTION_MISSING:
-                runner._service_tier = tier
         runner._reasoning_config = reasoning_config
         stream_consumer, stream_delta_cb, interim_cb, want_interim = self._setup_stream_consumer(platform_key)
         turn_route = runner._resolve_turn_agent_config(ctx.message, model, runtime_kwargs)

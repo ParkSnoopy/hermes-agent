@@ -171,7 +171,7 @@ def test_ledger_entry_on_edit_and_delete(ledger_env):
     assert _create()["success"] is True
     edited = json.loads(
         skill_manage(
-            action="edit",
+            action="patch",
             name="my-skill",
             content=VALID_SKILL_CONTENT.replace("Original body.", "Edited body."),
         )
@@ -183,7 +183,7 @@ def test_ledger_entry_on_edit_and_delete(ledger_env):
     assert deleted["success"] is True
 
     actions = [r["action"] for r in skill_ledger.list_entries(skill="my-skill")]
-    assert actions == ["delete", "edit", "create"]  # newest first
+    assert actions == ["delete", "patch", "create"]  # newest first
 
     delete_entry = skill_ledger.list_entries(skill="my-skill")[0]
     # Delete intent recorded: explicit prune (absorbed_into="") + hard delete.

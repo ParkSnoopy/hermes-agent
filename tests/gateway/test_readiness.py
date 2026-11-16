@@ -4,6 +4,9 @@ import json
 import os
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from gateway.readiness import collect_runtime_readiness
 
@@ -92,4 +95,36 @@ def test_readiness_uses_running_session_store_state_over_independent_probe(
     )
     assert recovered["checks"]["session_store"] == {"status": "ok"}
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("profile", ["default", "other", "missing", "../escape"])
+async def test_session_readiness_authorizes_profile_before_probe(tmp_path, monkeypatch, profile):
+    from gateway.session_readiness import readiness
+    from hermes_cli import profiles
+    from hermes_state_runtime import RuntimeStoreError
+
+    home = tmp_path / "home"
+    home.mkdir()
+    other = tmp_path / "profiles" / "other"
+    other.mkdir(parents=True)
+    (other / "config.yaml").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(profiles, "_get_default_hermes_home", lambda: home)
+    monkeypatch.setattr(profiles, "_get_profiles_root", lambda: tmp_path / "profiles")
+    probes = []
+
+    async def run_probe(probe):
+        probes.append(probe)
+        return {"provider_configured": True}
+
+    monkeypatch.setattr("gateway.session_readiness.asyncio.to_thread", run_probe)
+    authority = SimpleNamespace(profile_id=str(home))
+    actor = SimpleNamespace(profile_id=str(home), capabilities={"session:create"})
+    if profile == "default":
+        result = await readiness(authority, actor, {"profile": profile}, runtime=False)
+        assert result == {"provider_configured": True}
+        assert len(probes) == 1
+    else:
+        with pytest.raises(RuntimeStoreError, match="profile_mismatch"):
+            await readiness(authority, actor, {"profile": profile}, runtime=False)
+        assert probes == []
 

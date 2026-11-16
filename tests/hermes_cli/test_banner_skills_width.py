@@ -6,14 +6,14 @@ from unittest.mock import patch
 from rich.console import Console
 
 from hermes_cli import banner
-import model_tools
+from tools.registry import registry
 import tools.mcp_tool_discovery
 
 def _build_banner_with_skills(skills_by_category, term_width=160):
     """Helper: build banner with given skills and return captured output."""
     with (
         patch.object(
-            model_tools,
+            registry,
             "check_tool_availability",
             return_value=([], []),
         ),

@@ -14,11 +14,10 @@ import itertools
 def validate_local_lineage(conn, receipt):
     from hermes_state_compression import _CHAIN_STEP_SQL
     from hermes_state_keys import local_identity
-    if ('legacy_session_id' not in receipt and
+    if ('legacy_session_id' in receipt or
             receipt['session_id'] != local_identity(receipt['profile_id'], receipt['principal_id'], receipt['request_id'])):
         raise RuntimeStoreError('storage_unavailable')
-    from hermes_state_local_migration import legacy_lineage_root
-    root = legacy_lineage_root(conn, receipt)
+    root = receipt['session_id']
     lineage = receipt.get('lineage', [root])
     if (not isinstance(lineage, list) or not lineage or len(set(lineage)) != len(lineage)
             or lineage[0] != root or lineage[-1] != receipt['entry']['session_id']):
@@ -75,9 +74,7 @@ def advance_local_target(conn, parent_session_id, child_session_id, *, entry=Non
     key = POLICY_PREFIX + logical_id
     raw = conn.execute('SELECT value FROM state_meta WHERE key=?', (key,)).fetchone()
     if raw is None:
-        from hermes_state_local_migration import LEGACY_PREFIX
-        legacy = conn.execute('SELECT 1 FROM state_meta WHERE key=?', (LEGACY_PREFIX + logical_id,)).fetchone()
-        if logical_id.startswith('local-') or legacy:
+        if logical_id.startswith('local-'):
             raise RuntimeStoreError('storage_unavailable')
         return
     try:

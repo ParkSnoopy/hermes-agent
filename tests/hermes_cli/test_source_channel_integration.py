@@ -84,6 +84,47 @@ def saved(source):
     return channel_record(require_readable_config_before_write(source.home / "config.yaml"), source.root)
 
 
+@pytest.mark.parametrize("invalid", [None, "draft", "prerelease", "origin", "missing"])
+@pytest.mark.parametrize("channel", ["stable", "canary"])
+def test_published_source_resolves_without_desktop_metadata(source, monkeypatch, invalid, channel):
+    tag = "v1.2.3+canary.20260818T103000Z" if channel == "canary" else "v1.2.3"
+    older = "v1.2.3+canary.20260817T103000Z" if channel == "canary" else "v1.2.2"
+    for name, commit in ((tag, source.commits[1]), (older, source.commits[0])):
+        git(source.origin, "tag", "-a", name, commit, "-m", "Canary source fixture")
+    calls = []
+
+    def api(url):
+        calls.append(url)
+        release = {"tag_name": tag, "draft": invalid == "draft",
+                   "prerelease": (channel == "canary") != (invalid == "prerelease")}
+        if url.endswith("/releases/latest"):
+            return {} if invalid == "missing" else release
+        if "/releases?" in url:
+            if invalid == "missing":
+                return []
+            return [{**release, "tag_name": older}, release,
+                    {"tag_name": "v1.2.3+canary.20260819T103000Z", "draft": True, "prerelease": True}]
+        assert url.endswith("/commits/" + tag)
+        return {"sha": source.commits[2] if invalid == "origin" else source.commits[1]}
+
+    def no_desktop_record(*args, **kwargs):
+        raise AssertionError("Published source must not read Desktop channel metadata")
+
+    monkeypatch.setattr(source_releases, "_json", api)
+    monkeypatch.setattr(source_releases, "_resolve_channel", no_desktop_record)
+    monkeypatch.setattr(source_releases, "_read", no_desktop_record)
+    before = git(source.root, "rev-parse", "HEAD")
+    if invalid is None:
+        target = source_releases.resolve_source_target(channel, ["git"], source.root)
+        assert (target.channel, target.version, target.commit, target.build_id) == (
+            channel, tag[1:], source.commits[1], None)
+        assert calls[-1].endswith("/commits/" + tag)
+    else:
+        with pytest.raises(ValueError):
+            source_releases.resolve_source_target(channel, ["git"], source.root)
+    assert git(source.root, "rev-parse", "HEAD") == before
+
+
 def test_tagless_channel_check_apply_is_pinned_not_branch_tip(source, monkeypatch, capsys):
     name = "preview-unknown-at-build"
     set_install_channel(name, source.root)
@@ -346,7 +387,7 @@ def test_offline_retirement_uses_qualified_build_before_current_stable(
     assert git(source.root, "rev-parse", "HEAD") == source.commits[1]
     assert saved(source)["channel"] == "stable"
     # The adopted stable subscription follows the published GitHub release, not R2.
-    monkeypatch.setattr(source_releases, "_resolve_stable", lambda repository, *_: source_releases.SourceTarget(
+    monkeypatch.setattr(source_releases, "_resolve_published", lambda channel, repository, *_: source_releases.SourceTarget(
         "stable", "stable", repository, commit=source.commits[2], version="1.2.4"))
     status = source_check.check_for_updates(install_root=source.root, home=source.home, force=True)
     assert status["targetSha"] == source.commits[2], status

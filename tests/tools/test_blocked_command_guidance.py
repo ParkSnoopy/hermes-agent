@@ -65,7 +65,7 @@ class TestBackgroundGuidanceRecipes:
         msg = _foreground_background_guidance("nohup ./worker.sh > /dev/null 2>&1")
         assert msg is not None
         assert "WITHOUT the wrapper" in msg
-        assert "notify_on_complete=true" in msg
+        assert "notify=true" in msg
 
     def test_plain_command_unaffected(self):
         assert _foreground_background_guidance("echo hello") is None

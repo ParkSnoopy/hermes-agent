@@ -48,47 +48,28 @@ def test_release_reuses_whole_ci_and_docker_before_publication():
     assert "secrets" not in jobs["ci"]
     assert jobs["docker"]["uses"] == jobs["publish-docker"]["uses"]
     assert jobs["docker"]["with"]["release-phase"] == "test"
-    # B7: every gate and every signed candidate starts straight after admit.
+    # Every gate and the retained package candidate starts straight after admit.
     # The acceptance join requires CI, so a slow gate cannot delay a build.
     for parallel in ("docker", "nix", "pm-bundle", "termux-checks", "windows-live", "install-e2e"):
         assert direct_needs(jobs, parallel) == ["admit"], parallel
-    candidate_calls = ["candidates-darwin-arm64", "candidates-win32-arm64",
-                       "candidates-win32-x64", "candidates-win32-bundle", "candidates-termux"]
-    # The Windows bundle group is the only candidate that waits on a peer.
+    candidate_calls = ["candidates-termux"]
     for call in candidate_calls:
-        assert set(direct_needs(jobs, call)) <= {
-            "admit", "candidates-win32-arm64", "candidates-win32-x64"}, call
-    required = {"ci", "docker", "nix", "pm-bundle", "install-e2e", "windows-packaged",
-                "macos-packaged-arm64", "termux-checks", "windows-live",
-                "candidate-manifest", "transitions-darwin-arm64",
-                "transitions-win32", "bootstrap-version", *candidate_calls}
+        assert direct_needs(jobs, call) == ["admit"], call
+    required = {"ci", "docker", "nix", "pm-bundle", "install-e2e", "termux-checks",
+                "windows-live", "candidate-manifest", *candidate_calls}
     assert required <= ancestors(jobs, "acceptance")
-    # B3: stable calls one build group at a time; the bundle group waits for
-    # both Windows arches, and the Linux groups are not called at all.
     assert "candidates" not in jobs
-    for name, group in zip(candidate_calls, ("darwin-arm64", "win32-arm64",
-                                            "win32-x64", "win32-bundle", "termux"), strict=True):
+    for name in candidate_calls:
         call = jobs[name]
-        assert call["uses"] == "./.github/workflows/desktop-bundled-release.yml"
+        assert call["uses"] == "./.github/workflows/termux-release.yml"
         assert call["with"]["release-phase"] == "candidate"
-        assert call["with"]["jobs"] == group
         assert {"tag", "claim-tag", "claim-object"} <= set(call["with"])
-    assert {"candidates-win32-arm64", "candidates-win32-x64"} <= set(jobs["candidates-win32-bundle"]["needs"])
     assert not any("linux" in name for name in jobs)
-    # B4: each install arm starts from its own receipt, and the manifest is
-    # written after every candidate call (so after every smoke).
-    for name in ("transitions", "macos-packaged"):
+    for name in ("transitions", "macos-packaged", "bootstrap-version", "windows-packaged"):
         assert name not in jobs
     assert set(jobs["candidate-manifest"]["needs"]) == \
         {"admit", *candidate_calls}
-    for receipt, call, packaged, matrix in (
-            ("transitions-darwin-arm64", "candidates-darwin-arm64", "macos-packaged-arm64", "macos"),
-            ("transitions-win32", "candidates-win32-bundle", "windows-packaged", "windows")):
-        assert jobs[receipt]["needs"] == ["admit", call]
-        # The packaged leg names the claim commit, so it reads admit directly.
-        assert jobs[packaged]["needs"] == ["admit", receipt]
-        assert jobs[packaged]["strategy"]["matrix"] == \
-            "${{ fromJSON(needs." + receipt + ".outputs." + matrix + ") }}"
+
     # B5: publish-docker starts when the docker tests pass; it does not wait
     # for the acceptance join. publish-bundles still does.
     assert jobs["publish-docker"]["needs"] == ["admit", "docker"]
@@ -103,13 +84,55 @@ def test_release_reuses_whole_ci_and_docker_before_publication():
         assert gate(jobs[name]["if"], {}, failed), name
 
 
+def test_termux_canary_wires_the_exact_admitted_receipt_into_publication():
+    jobs = workflow("termux-release.yml")["jobs"]
+    admission = next(step for step in jobs["validate"]["steps"] if step.get("id") == "admission")
+    assert "python -m scripts.releases.termux admit-canary" in admission["run"]
+    assert admission["env"]["RELEASE_TAG"] == "${{ inputs.tag }}"
+    assert jobs["validate"]["outputs"]["tag-object"] == "${{ steps.admission.outputs.tag-object }}"
+    payload = jobs["termux-deb"]
+    checkout = next(step for step in payload["steps"] if is_checkout(step))
+    assert checkout["with"]["ref"] == "${{ needs.validate.outputs.sha }}"
+    assert payload["env"]["HERMES_RELEASE_COMMIT"] == "${{ inputs.build_commit == '' && needs.validate.outputs.sha || '' }}"
+    publisher = jobs["canary-publish"]
+    assert set(publisher["needs"]) == {"validate", "termux-deb"}
+    assert publisher["env"]["RELEASE_COMMIT"] == "${{ needs.validate.outputs.sha }}"
+    assert publisher["env"]["RELEASE_TAG_OBJECT"] == "${{ needs.validate.outputs.tag-object }}"
+    assert publisher["env"]["RELEASE_NEEDS"] == "${{ toJSON(needs) }}"
+    assert any(step.get("run") == "python -m scripts.releases.termux publish-canary" for step in publisher["steps"])
+    assert "canary-publish" in jobs["phase-result"]["needs"]
+    assert jobs["phase-result"]["if"] == "always()"
+
+
+@pytest.mark.parametrize("phase,canary", [("candidate", False), ("publish", False), ("", True), ("", False)],
+                         ids=["candidate", "stable-publication", "canary", "commit"])
+@pytest.mark.parametrize("job", ["validate", "termux-deb", "stable-publish", "canary-publish"])
+@pytest.mark.parametrize("status", ["failure", "skipped", "missing"])
+def test_termux_phase_gate_requires_every_selected_job(tmp_path, phase, canary, job, status):
+    jobs = workflow("termux-release.yml")["jobs"]
+    step = jobs["phase-result"]["steps"][0]
+    selected = {"validate", "stable-publish" if phase == "publish" else "termux-deb"}
+    if canary:
+        selected.add("canary-publish")
+    results = {name: {"result": "success" if name in selected else "skipped"}
+               for name in jobs["phase-result"]["needs"]}
+    if status == "missing":
+        del results[job]
+    else:
+        results[job]["result"] = status
+    result = subprocess.run(["bash", "-euo", "pipefail", "-c", step["run"]], cwd=tmp_path,
+                            env={**os.environ, "PHASE": phase, "CANARY": str(canary).lower(),
+                                 "RESULTS": json.dumps(results)}, capture_output=True,
+                            text=True, encoding="utf-8", timeout=10, check=False)
+    assert (result.returncode == 0) == (job not in selected), result.stdout + result.stderr
+
+
 LANE_SETS = {
     "default": lane_set.DEFAULT,
     "everything": frozenset(lane_set.NAMES),
-    "windows and docker, untested": lane_set.select(only=["windows", "docker"]),
+    "termux and docker, untested": lane_set.select(only=["termux", "docker"]),
     "docker only": lane_set.select(only=["docker"]),
-    "no mac": lane_set.select(without=["macos-arm64"]),
-    "no tests": lane_set.select(without=lane_set.NAMES[5:]),
+    "no tests": lane_set.select(only=["docker", "termux"]),
     "nothing": frozenset(),
     # Each lane alone and each lane missing, so no job's condition can borrow another lane's flag.
     **{f"only {name}": frozenset({name}) for name in lane_set.NAMES},
@@ -144,22 +167,9 @@ def test_every_lane_controlled_job_runs_exactly_when_the_lane_table_says(lanes):
 
 def test_lane_inputs_reach_the_workflows_they_configure():
     jobs = workflow("stable-release.yml")["jobs"]
-    # Tests the image and the candidates run for themselves follow their own lane.
+    # Image tests follow their own lane; Termux acceptance is intrinsic to its build.
     assert jobs["docker"]["with"]["skip-tests"] == "${{ !fromJSON(needs.admit.outputs.lanes)['docker-tests'] }}"
-    for name in ("candidates-darwin-arm64", "candidates-win32-arm64",
-                 "candidates-win32-x64", "candidates-win32-bundle", "candidates-termux"):
-        assert jobs[name]["with"]["skip-tests"] == "${{ !fromJSON(needs.admit.outputs.lanes).smoke }}", name
-    # Which Windows packages the shared builds make follows the two Windows lanes, and the Store
-    # submission follows the Store lane.
-    store_off = "${{ !fromJSON(needs.admit.outputs.lanes)['windows-store'] }}"
-    for name in ("candidates-win32-arm64", "candidates-win32-x64", "candidates-win32-bundle"):
-        assert jobs[name]["with"]["skip-signed"] == "${{ !fromJSON(needs.admit.outputs.lanes).windows }}", name
-        assert jobs[name]["with"]["skip-store"] == store_off, name
-        # The MSIX smokes run in the bundle call, so the bundle never waits for them.
-        assert jobs[name]["with"]["windows-smokes-with-bundle"] == "true", name
-    assert jobs["publish-bundles"]["with"]["skip-store"] == store_off
-    desktop = workflow("desktop-bundled-release.yml")["jobs"]
-    assert "inputs.skip-store" in desktop["stable-store"]["if"]
+    assert "skip-tests" not in jobs["candidates-termux"]["with"]
     assert {"lanes", "jobs"} <= set(jobs["admit"]["outputs"])
     for name in ("acceptance", "publication", "complete"):
         gate_step = next(step for step in jobs[name]["steps"]
@@ -170,17 +180,6 @@ def test_lane_inputs_reach_the_workflows_they_configure():
         assert set(gated) <= set(direct_needs(jobs, name)), name
 
 
-def test_a_store_only_build_is_handed_no_signing_variables():
-    """after-pack and electron-builder sign whenever AZURE_SIGN_* are set; the Azure login is skipped
-    with the signed lane, so the build step must see them empty."""
-    jobs = workflow("desktop-bundled-release.yml")["jobs"]
-    step = next(step for step in jobs["build-win32-x64-release"]["steps"] if step.get("name") == "Build and package")
-    azure = {key: value for key, value in step["env"].items() if key.startswith("AZURE_") and key != "AZURE_TOKEN_CREDENTIALS"}
-    assert set(azure) == {"AZURE_SIGN_ENDPOINT", "AZURE_SIGN_ACCOUNT", "AZURE_SIGN_PROFILE", "AZURE_SIGN_PUBLISHER",
-                          "AZURE_CLIENT_ID", "AZURE_TENANT_ID"}
-    for key, value in azure.items():
-        assert value == f"${{{{ inputs.skip-signed != true && vars.{key} || '' }}}}", key
-
 
 def test_admit_emits_the_same_lanes_and_jobs_the_gate_reads(tmp_path):
     from scripts.releases import stable
@@ -189,7 +188,7 @@ def test_admit_emits_the_same_lanes_and_jobs_the_gate_reads(tmp_path):
     summary = tmp_path / "summary"
     admitted = {"claim_tag": "rc.1-v1.2.3", "claim_object": "a" * 40, "tag": "v1.2.3", "commit": "b" * 40,
                 "version": "1.2.3", "attempt": 1, "claim_epoch": 1, "autopublish": False,
-                "lanes": lane_set.select(only=["windows", "docker"])}
+                "lanes": lane_set.select(only=["termux", "docker"])}
     env = {"GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary), "GITHUB_REPOSITORY": "o/r"}
     from unittest import mock
     with mock.patch.object(stable, "check_claim", return_value=admitted), \
@@ -199,29 +198,14 @@ def test_admit_emits_the_same_lanes_and_jobs_the_gate_reads(tmp_path):
     emitted = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
     assert lane_set.from_flags(json.loads(emitted["lanes"])) == admitted["lanes"]
     assert json.loads(emitted["jobs"]) == lane_set.jobs_to_run(admitted["lanes"])
-    assert "on: docker, windows" in summary.read_text(encoding="utf-8")
+    assert "on: docker, termux" in summary.read_text(encoding="utf-8")
 
 
-def test_a_skipped_upgrade_arm_never_skips_a_gated_publish_job():
-    """The signed-package upgrade arms skip when there is no published baseline (the first bundled
-    release). A gated job downstream of one without a status function inherits that skip, and the
-    publication gate then refuses it: rc.11-v0.21.7 blocked on publish-bundles=skipped."""
-    from scripts.releases.stable import PACKAGED_BY
-
-    jobs = workflow("stable-release.yml")["jobs"]
-
-    for name, job in jobs.items():
-        if set(PACKAGED_BY) & ancestors(jobs, name):
-            condition = str(job.get("if", ""))
-            assert "always()" in condition or "!cancelled()" in condition, (
-                f"{name} skips whenever an upgrade arm skips")
-
-
-def test_all_applicable_ci_jobs_are_aggregated_and_desktop_e2e_stays_deferred():
+def test_all_applicable_ci_jobs_are_aggregated_without_retired_desktop_e2e():
     jobs = workflow("ci.yaml")["jobs"]
     checks = {name for name, job in jobs.items() if "uses" in job}
     assert checks <= set(jobs["all-checks-pass"]["needs"])
-    assert not gate(jobs["e2e-desktop"]["if"], {}, {})
+    assert "e2e-desktop" not in jobs
     assert "workflow_call" in workflow("ci.yaml")["on"]
 
 
@@ -233,38 +217,13 @@ def test_claim_custody_and_final_payload_identity_reach_every_privileged_phase()
     assert not {"autopublish", "lanes", "skip-bundles", "skip-tests"}.intersection(inputs)
     assert {"claim-tag", "claim-object", "tag", "commit", "version", "release-id", "release-epoch"} <= \
         set(jobs["admit"]["outputs"])
-    for name in ("publish-bundles", *("candidates-darwin-arm64",
-                                      "candidates-win32-arm64", "candidates-win32-x64",
-                                      "candidates-win32-bundle", "candidates-termux")):
+    for name in ("publish-bundles", "candidates-termux"):
         call = jobs[name]["with"]
         assert call["tag"] == "${{ needs.admit.outputs.tag }}"
         assert call["claim-tag"] == "${{ needs.admit.outputs.claim-tag }}"
         assert call["claim-object"] == "${{ needs.admit.outputs.claim-object }}"
-    desktop = workflow("desktop-bundled-release.yml")
-    assert "release-epoch" in desktop["jobs"]["validate"]["outputs"]
-    assert "HERMES_RELEASE_EPOCH" not in desktop["jobs"]["termux-deb"]["env"]
-    # B3: each build group stages its own receipt before its smoke, and the
-    # receipt URL and digest cross the call boundary as workflow outputs.
-    assert "manifest-url" not in desktop["on"]["workflow_call"]["outputs"]
-    assert "manifest-sha256" not in desktop["on"]["workflow_call"]["outputs"]
-    receipts = {"darwin-arm64": "stage-receipt-darwin-arm64", "win32-bundle": "assemble-win32-bundle"}
-    for group, job in receipts.items():
-        producer = desktop["jobs"][job]
-        assert producer["outputs"]["receipt-url"] == "${{ steps.receipt.outputs.receipt-url }}"
-        assert producer["outputs"]["receipt-sha256"] == "${{ steps.receipt.outputs.receipt-sha256 }}"
-        for suffix, output in (("url", "receipt-url"), ("sha256", "receipt-sha256")):
-            expected = "${{ jobs." + job + ".outputs." + output + " }}"
-            assert desktop["on"]["workflow_call"]["outputs"][f"{group}-receipt-{suffix}"]["value"] == expected
-    for name in ("smoke-darwin-arm64",):
-        assert f"stage-receipt-{name.removeprefix('smoke-')}" in desktop["jobs"][name]["needs"]
-    for call, key, output in (("candidates-darwin-arm64", "RECEIPT_URL", "darwin-arm64-receipt-url"),
-                              ("candidates-darwin-arm64", "RECEIPT_SHA256", "darwin-arm64-receipt-sha256"),
-                              ("candidates-win32-bundle", "RECEIPT_URL", "win32-bundle-receipt-url"),
-                              ("candidates-win32-bundle", "RECEIPT_SHA256", "win32-bundle-receipt-sha256")):
-        receipt_job = {"candidates-darwin-arm64": "transitions-darwin-arm64",
-                       "candidates-win32-bundle": "transitions-win32"}[call]
-        expected = "${{ needs." + call + ".outputs." + output + " }}"
-        assert jobs[receipt_job]["steps"][-1]["env"][key] == expected
+    termux = workflow("termux-release.yml")
+    assert "HERMES_RELEASE_EPOCH" not in termux["jobs"]["termux-deb"]["env"]
     for name in ("docker", "nix"):
         assert jobs[name]["with"]["version"] == "${{ needs.admit.outputs.version }}"
     assert "version" not in jobs["pm-bundle"]["with"]
@@ -279,15 +238,13 @@ def test_claim_custody_and_final_payload_identity_reach_every_privileged_phase()
                       if step.get("name", "").startswith("Validate the accepted candidate archive"))
     assert "DOCKER_MANIFEST_DIGEST" not in complete[validation]["env"]
     assert "RELEASE_ID" not in complete[validation]["env"]
-    # B4: complete and the render read the manifest that stable-release.yml's
-    # candidate-manifest job wrote.
+    # Complete and publication read the same accepted candidate manifest.
     assert complete[validation]["env"]["CANDIDATE_MANIFEST_SHA256"] == \
         "${{ needs.candidate-manifest.outputs.manifest-sha256 }}"
     assert jobs["publish-bundles"]["with"]["manifest-sha256"] == \
         "${{ needs.candidate-manifest.outputs.manifest-sha256 }}"
-    render = next(i for i, step in enumerate(complete) if step.get("name", "").startswith("Render the admitted"))
     reconcile = next(i for i, step in enumerate(complete) if step.get("name", "").startswith("Reconcile ordered"))
-    assert validation < render < reconcile
+    assert validation < reconcile
     assert not any("Create the final tag" in step.get("name", "") for step in complete)
 
 
@@ -299,14 +256,6 @@ def test_docker_dev_stamp_checkout_has_release_history():
 
 
 def test_release_gates_extract_consumer_facing_versions():
-    release_jobs = workflow("stable-release.yml")["jobs"]
-    bootstrap = next(
-        step["run"] for step in release_jobs["bootstrap-version"]["steps"]
-        if step.get("name") == "Stamp and verify the Cargo and Tauri release identity"
-    )
-    assert "cargo metadata" in bootstrap
-    assert "tauri.conf.json" in bootstrap
-    assert "uv build --wheel --sdist" not in bootstrap
 
     docker = workflow("docker.yml")["jobs"]
     image_check = next(
@@ -432,28 +381,3 @@ def test_every_run_step_receives_the_variables_it_reads():
             used = set(re.findall(r"\$\{?([A-Z][A-Z0-9_]+)", step.get("run", ""))) - runner
             missing = used - given - set(step.get("env") or {})
             assert not missing, f"{name} / {step.get('name') or step['run'][:40]}: {sorted(missing)}"
-
-
-def test_the_builds_table_render_cannot_block_the_release_and_has_its_r2_inputs():
-    """The table is presentation: it never fails 'Stable release is green', and it gets the
-    R2 credentials its listing and page writes need."""
-    step = next(step for step in workflow("stable-release.yml")["jobs"]["complete"]["steps"]
-                if step.get("name") == "Render the admitted candidate smoke results")
-    assert str(step.get("continue-on-error")).lower() == "true"  # base YAML loader: a string
-    assert {"CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_SECRET_ACCESS_KEY",
-            "CLOUDFLARE_R2_BUCKET", "CLOUDFLARE_R2_PUBLIC_URL", "RELEASE_CLAIM_TAG"} <= set(step["env"])
-
-
-@pytest.mark.parametrize("arch", ["arm64"])
-def test_macos_smoke_runs_without_a_receipt_outside_the_candidate_phase(arch):
-    """Only a candidate stages a receipt; a canary's skipped stage-receipt must not skip the smoke,
-    or its publish gate (which needs every job to succeed) fails on every canary."""
-    smoke = workflow("desktop-bundled-release.yml")["jobs"][f"smoke-darwin-{arch}"]["if"]
-    base = {"validate": {"result": "success", "outputs": {"sha": "a" * 40, f"darwin-{arch}": "true"}},
-            f"build-darwin-{arch}": {"result": "success"}}
-    inputs = {"release-phase": "", "upload_release": True, "skip-tests": False}
-    skipped = {**base, f"stage-receipt-darwin-{arch}": {"result": "skipped"}}
-    staged = {**base, f"stage-receipt-darwin-{arch}": {"result": "success"}}
-    assert gate(smoke, inputs, skipped)
-    assert not gate(smoke, {**inputs, "release-phase": "candidate"}, skipped)
-    assert gate(smoke, {**inputs, "release-phase": "candidate"}, staged)

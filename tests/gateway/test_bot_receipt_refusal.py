@@ -86,36 +86,6 @@ async def test_a_transient_refusal_leaves_the_same_id_resendable(bot, monkeypatc
     assert [row['request_id'] for row in rows] == ['bot:' + KEY]
 
 
-@pytest.mark.asyncio
-async def test_a_cron_report_parked_across_a_drain_is_delivered_on_the_next_tick(bot, monkeypatch):
-    """``cron/bot_chat_legacy`` keeps a record queued when the door raises and replays the same id
-    next tick: a drain during a gateway restart must not turn into a transferred refusal."""
-    import asyncio
-    import json
-    from cron.bot_chat_legacy import drain_legacy_pending
-    from gateway.session_bot import deliver
-    from tools import bot_live_delivery as mailbox
-    loop = asyncio.get_running_loop()
-    monkeypatch.setattr(mailbox, 'authority_delivery', lambda home, params: asyncio.run_coroutine_threadsafe(
-        deliver(bot.connection, params), loop).result())
-    monkeypatch.setattr(mailbox, 'find_canonical_live_owner', lambda home: dict(
-        profile_home=str(bot.home.resolve()), session_id='', lease_id='fixture', live_session_id=''))
-    root = bot.home / 'cron' / 'bot_chat_pending'
-    root.mkdir(parents=True)
-    path = root / f'{KEY}.json'
-    path.write_text(json.dumps(dict(id=KEY, status='queued', job={'id': 'digest', 'name': 'Digest'},
-                                    content='the report', home=str(bot.home), for_failure=False, sequence=1)))
-    refusing = _refuse(monkeypatch, 'runtime_draining')
-    await asyncio.to_thread(drain_legacy_pending)
-    assert json.loads(path.read_text())['status'] == 'queued'
-    refusing.clear()
-    await asyncio.to_thread(drain_legacy_pending)
-    record = json.loads(path.read_text())
-    assert record['status'] == 'transferred' and record['receipt_status'] != 'failed', record
-    rows = list_session_admissions(bot.authority.db, session_id=bot.chat, pending_only=False)
-    assert [row['request_id'] for row in rows] == ['bot:' + KEY]
-
-
 def _rpc_connection(bot):
     """The relay Desktop's own connection: ``bot_relay.deliver`` crosses the contract-checked dispatch."""
     from gateway.session_controls import AuthorityConnection

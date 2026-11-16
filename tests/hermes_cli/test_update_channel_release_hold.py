@@ -142,7 +142,7 @@ def test_an_explicit_branch_to_a_pre_runtime_commit_is_still_refused(source, mon
 
 
 def _stable_publishes(monkeypatch, commit):
-    monkeypatch.setattr(source_releases, "_resolve_stable", lambda repository, *_: source_releases.SourceTarget(
+    monkeypatch.setattr(source_releases, "_resolve_published", lambda channel, repository, *_: source_releases.SourceTarget(
         "stable", "stable", repository, commit=commit, version="0.22.2"))
 
 

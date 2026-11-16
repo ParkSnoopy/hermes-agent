@@ -137,11 +137,9 @@ class TestGmiDoctor:
         ):
             monkeypatch.delenv(env_name, raising=False)
 
-        fake_model_tools = types.SimpleNamespace(
-            check_tool_availability=lambda *a, **kw: ([], []),
-            TOOLSET_REQUIREMENTS={},
-        )
-        monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+        monkeypatch.setitem(sys.modules, "model_tools", types.SimpleNamespace())
+        monkeypatch.setattr("tools.registry.registry.check_tool_availability", lambda *a, **kw: ([], []))
+        monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", dict)
 
         try:
             from hermes_cli import auth as _auth_mod

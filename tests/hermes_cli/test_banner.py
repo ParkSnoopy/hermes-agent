@@ -5,8 +5,24 @@ from unittest.mock import patch
 from rich.console import Console
 
 from hermes_cli import banner
-import model_tools
+from tools.registry import registry
 import tools.mcp_tool_discovery
+
+def test_toolset_availability_uses_live_registry_metadata(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    monkeypatch.setitem(sys.modules, "model_tools", SimpleNamespace())
+    monkeypatch.setattr(registry, "check_tool_availability", lambda **kwargs: ([], [
+        {"name": "lazy", "tools": ["lazy_tool"]},
+        {"name": "disabled", "tools": ["disabled_tool"]},
+        {"name": "other", "tools": ["other_tool"]},
+    ]))
+    monkeypatch.setattr(registry, "get_toolset_requirements", lambda: {"lazy": {"check_fn": lambda: False}})
+
+    result = banner.compute_toolset_availability(["lazy", "disabled"])
+    assert result["lazy_tools"] == ["lazy_tool"]
+    assert result["disabled_tools"] == ["disabled_tool"]
+    assert [item["name"] for item in result["unavailable_toolsets"]] == ["lazy", "disabled"]
 
 def test_banner_snapshot_accepts_bom_without_weakening_freshness(tmp_path, monkeypatch):
     import json
@@ -40,7 +56,7 @@ def test_empty_model_shows_no_model_configured(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
     (tmp_path / ".hermes").mkdir()
     with (
-        patch.object(model_tools, "check_tool_availability", return_value=([], [])),
+        patch.object(registry, "check_tool_availability", return_value=([], [])),
         patch.object(banner, "get_available_skills", return_value={}),
         patch.object(banner, "get_update_result", return_value=None),
         patch.object(tools.mcp_tool_discovery, "get_mcp_status", return_value=[]),
@@ -61,7 +77,7 @@ def test_build_welcome_banner_does_not_center_pad_hero_art():
     skin = SimpleNamespace(banner_hero="[green]\u2800X[/]", banner_logo="")
     buf = io.StringIO()
     with (
-        patch.object(model_tools, "check_tool_availability", return_value=([], [])),
+        patch.object(registry, "check_tool_availability", return_value=([], [])),
         patch.object(banner, "get_available_skills", return_value={}),
         patch.object(banner, "get_update_result", return_value=None),
         patch.object(banner, "get_latest_release_tag", return_value=None),

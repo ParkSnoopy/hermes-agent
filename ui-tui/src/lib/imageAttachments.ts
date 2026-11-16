@@ -98,12 +98,8 @@ export async function stageClipboardImage(
   } finally { await rm(directory, { recursive: true, force: true }) }
 }
 
-export async function stageImagePath(raw: string, gw: GatewayClient, destination: SubmissionDestination): Promise<StagedImage> {
-  // Explicit URL attachments may target another machine, even a loopback SSH
-  // tunnel. Only discovery-owned local connections share our profile filesystem.
-  const remote = Boolean(process.env.HERMES_TUI_GATEWAY_URL?.trim())
-  // A remote session's folder names the owner's filesystem; the bytes are read here.
-  const base = (remote ? process.env.HERMES_CWD : sessionCwd()) || process.cwd()
+export async function stageImagePath(raw: string, _gw: GatewayClient, destination: SubmissionDestination): Promise<StagedImage> {
+  const base = sessionCwd() || process.cwd()
   const source = await resolveImagePath(raw, base)
   const bytes = await readFile(source.path)
 
@@ -111,15 +107,6 @@ export async function stageImagePath(raw: string, gw: GatewayClient, destination
   const { mime, ext } = imageFormat(bytes)
   const name = basename(source.path)
 
-  if (remote) {
-    const result = await gw.request<{ path?: string }>('image.attach_bytes', {
-      session_id: destination.sid, filename: `${randomUUID()}${ext}`, content_base64: bytes.toString('base64')
-    })
-
-    if (!result?.path) { throw new Error(t('canonical.images.noOwnerPath')) }
-
-    return { path: result.path, mime, name, remainder: source.remainder }
-  }
 
   const directory = join(destination.profileHome, 'cache', 'images')
   await mkdir(directory, { recursive: true, mode: 0o700 })

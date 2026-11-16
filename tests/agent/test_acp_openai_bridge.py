@@ -89,7 +89,7 @@ def test_tool_call_block_is_parsed_and_stripped_from_the_text():
 def test_multiple_blocks_are_all_parsed():
     text = "".join(
         f'<tool_call>{{"id": "c{i}", "type": "function", '
-        f'"function": {{"name": "todo", "arguments": "{{}}"}}}}</tool_call>'
+        f'"function": {{"name": "todo_list", "arguments": "{{}}"}}}}</tool_call>'
         for i in range(3)
     )
     calls, cleaned = extract_tool_calls_from_text(text)
@@ -100,9 +100,9 @@ def test_multiple_blocks_are_all_parsed():
 def test_non_string_arguments_are_json_encoded_and_missing_ids_synthesised():
     calls, _ = extract_tool_calls_from_text(
         '<tool_call>{"type": "function", "function": '
-        '{"name": "todo", "arguments": {"op": "list"}}}</tool_call>'
+        '{"name": "todo_list", "arguments": {"todos": []}}}</tool_call>'
     )
-    assert calls[0].function.arguments == '{"op": "list"}'
+    assert calls[0].function.arguments == '{"todos": []}'
     assert calls[0].id == "acp_call_1"
 
 

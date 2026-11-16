@@ -6,8 +6,8 @@ Covers:
   - Rate limiting (WATCH_MAX_PER_WINDOW) and overload kill switch
   - watch_queue population
   - Checkpoint persistence of watch_patterns
-  - Terminal tool schema includes watch_patterns
-  - Terminal tool handler passes watch_patterns through
+  - Terminal tool schema exposes patterns through notify
+  - Foreground pattern notifications are rejected
 """
 
 import json
@@ -262,8 +262,7 @@ class TestCheckpointPersistence:
 
 class TestTerminalToolSchema:
     def test_schema_unified_notify_covers_patterns(self):
-        """Pattern-watching is advertised through `notify` (list form); the
-        legacy watch_patterns arg stays handler-accepted but unadvertised."""
+        """Pattern-watching is advertised through `notify` (list form)."""
         from tools.terminal_tool import TERMINAL_SCHEMA
         props = TERMINAL_SCHEMA["parameters"]["properties"]
         assert "watch_patterns" not in props
@@ -276,7 +275,7 @@ class TestTerminalToolSchema:
         corrected call shape instead of being silently ignored."""
         from tools.terminal_tool import _handle_terminal
         result = json.loads(
-            _handle_terminal({"command": "echo hi", "watch_patterns": ["ERR"]}, task_id="t1")
+            _handle_terminal({"command": "echo hi", "notify": ["ERR"]}, task_id="t1")
         )
         assert "error" in result
         assert "background=true" in result["error"]

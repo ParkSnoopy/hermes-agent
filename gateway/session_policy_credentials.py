@@ -3,7 +3,7 @@ import hashlib
 import hmac
 import json
 import logging
-from dataclasses import asdict
+
 from pathlib import Path
 
 from agent.credential_persistence import fingerprint_secret_value
@@ -55,46 +55,6 @@ class RecoveredSecrets(dict):
     in config.yaml since the session started (never supplied; the policy disables what used them)."""
     dropped = ()
     session = None
-
-
-def policy_identity(policy, unhashed=()):
-    data = asdict(policy)
-    data.pop('credential_ref')
-    data.pop('config_secret_ref')
-    # Fields added after release are hashed only when set, so an older session's reference still matches.
-    if data.get('editor_mcp_json') is None:
-        data.pop('editor_mcp_json', None)
-    if not data.get('coding_posture'):
-        data.pop('coding_posture', None)
-    for name in ('client_env_json', 'client_env_rules_json'):
-        if data.get(name) is None:
-            data.pop(name, None)
-    if not data.get('client_env_remote'):
-        data.pop('client_env_remote', None)
-    if data.get('edit_approval_policy', 'ask') == 'ask':
-        data.pop('edit_approval_policy', None)
-    for name in unhashed:  # _legacy_identities: a field the stamping gateway did not have yet
-        data.pop(name, None)
-    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
-
-
-# Policy fields a release added after frozen config secrets shipped, hashed unconditionally by the
-# gateway that added them. A reference an older gateway stamped never hashed them; at their defaults
-# they carry nothing that gateway could have seen, so the same policy without them is its policy.
-# The commit that added each, to audit this list against the stamping releases:
-_LATER_POLICY_FIELDS = (('skills_prompt', None),          # 2ee1cd1ebb02
-                        ('kanban_json', None),            # c8f8d9ae6384
-                        ('safe_mode', False),             # 53d362e18741
-                        ('ignore_user_config', False))    # 53d362e18741
-
-
-def _legacy_identities(policy):
-    """Every whole-policy hash a gateway older than ``bound`` could have stamped for *policy*: the
-    current hash, plus each subset of the later fields dropped while they are at their defaults."""
-    from itertools import combinations
-    unset = [name for name, default in _LATER_POLICY_FIELDS if getattr(policy, name) == default]
-    return {policy_identity(policy, dropped)
-            for size in range(len(unset) + 1) for dropped in combinations(unset, size)}
 
 
 def _fingerprint(value):
@@ -196,9 +156,7 @@ def config_reference(authority, session_id, policy, secrets):
     home = Path(authority.db.db_path).resolve().parent
     config = json.loads(policy.config_json)
     return PREFIX + json.dumps({'home': str(home), 'profile': authority.profile_id,
-        # ``policy`` (the whole-policy hash) is still written for an older gateway reading this reference;
-        # this gateway checks ``bound``: each secret against the endpoint it authenticates (CFG-10).
-        'session': session_id, 'policy': policy_identity(policy),
+        'session': session_id,
         'bound': [[list(path), _binding(config, path)] for path in secrets],
         'entries': [[list(path), _fingerprint(value)] for path, value in secrets.items()]},
         sort_keys=True)
@@ -216,14 +174,6 @@ def _check_scope(authority, source, policy, home, skip):
         if source[name] != mine:
             raise RuntimeStoreError('launch_credentials_unavailable', field=name,
                                     detail=f'the frozen config credentials belong to another {name}')
-    if 'bound' not in source:
-        # Stamped before ``bound``: its whole-policy hash is its only endpoint guard, so it must still
-        # match -- allowing for the policy fields added since, at their defaults (_legacy_identities).
-        # The next re-bind writes ``bound``.
-        if source['policy'] not in _legacy_identities(policy):
-            raise RuntimeStoreError('launch_credentials_unavailable', field='config_secret_ref',
-                                    detail='stamped by an older gateway for another session policy')
-        return
     config = json.loads(policy.config_json)
     for path, digest in source['bound']:
         if path[0] not in skip and not hmac.compare_digest(_binding(config, path), digest):

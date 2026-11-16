@@ -312,13 +312,15 @@ def observe_request_tools(agent: Any, tools_for_api: Any) -> None:
 def tool_snapshot(agent: Any, tools_for_api: list) -> tuple[tuple[str, ...], frozenset[str], int, int]:
     """(sent tool names, enabled shipped toolsets, enabled tool count, estimated schema tokens)."""
     from agent.model_metadata import _estimate_tools_tokens_rough
-    from model_tools import get_toolset_for_tool
+    from importlib import import_module
+    from tools.registry import registry
+    import_module("model_tools")  # Its first import discovers the built-in tools.
 
     names = tuple(_tool_names(tools_for_api))
     enabled = list(_tool_names(getattr(agent, "tools", None) or tools_for_api))
     extra = getattr(agent, "valid_tool_names", None) or ()
     enabled_names = set(enabled) | {n for n in extra if isinstance(n, str)}
-    toolsets = frozenset(toolset_metric_name(get_toolset_for_tool(n)) for n in enabled_names)
+    toolsets = frozenset(toolset_metric_name(registry.get_toolset_for_tool(n)) for n in enabled_names)
     return names, toolsets, len(enabled_names), _estimate_tools_tokens_rough(tools_for_api) if tools_for_api else 0
 
 

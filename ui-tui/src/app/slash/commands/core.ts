@@ -4,7 +4,7 @@ import type {
   ConfigGetValueResponse,
   ConfigSetResponse,
   SessionExportResponse,
-  SessionSaveResponse,
+
   SessionStatusResponse,
   SessionSteerResponse,
   SessionTitleResponse,
@@ -35,7 +35,7 @@ import { canonicalRewind, canonicalTitle } from '../canonicalSessionCommands.js'
 import type { SlashCommand, SlashRunCtx } from '../types.js'
 
 // The JSON spellings `session.save` (the pre-export RPC) can honour.
-const LEGACY_SAVE_FORMATS = new Set(['json', 'snapshot'])
+
 
 /** `/save [format] [filename] [redact|--redact]`: only a trailing token is the redact flag. */
 const parseSaveArgs = (arg: string) => {
@@ -697,11 +697,8 @@ export const coreCommands: SlashCommand[] = [
       // The same verb serves a remote Desktop, where the gateway's disk is not the user's.
       const { filename, format, redact } = parseSaveArgs(arg)
 
-      if (ctx.gateway.gw?.isCanonical) {
-        // The user's folder, fixed now: a local session's cwd, else the launch HERMES_CWD (a remote
-        // session's folder names the gateway host's disk, not this one).
-        const remote = Boolean(process.env.HERMES_TUI_GATEWAY_URL?.trim())
-        const cwd = (remote ? process.env.HERMES_CWD : sessionCwd()) || process.cwd()
+      {
+        const cwd = sessionCwd() || process.cwd()
 
         // The write is the user's accepted request: it runs even when another slash has started
         // since (the stale-flight guard drops only the success notice; a failure always shows).
@@ -725,27 +722,7 @@ export const coreCommands: SlashCommand[] = [
           .catch(ctx.guardedErr)
       }
 
-      // A listener without session.export (HERMES_TUI_GATEWAY_URL on an older or non-authority
-      // gateway): its session.save writes default-named, unredacted JSON on the gateway host, so
-      // only a plain /save may use it, as the CLI and Desktop do.
-      if (redact || filename || !LEGACY_SAVE_FORMATS.has(format.toLowerCase())) {
-        return ctx.transcript.sys(t('slashCmd.core.save.legacyRefused'))
-      }
 
-      ctx.gateway
-        .rpc<SessionSaveResponse>('session.save', { session_id: ctx.sid })
-        .then(
-          ctx.guarded<SessionSaveResponse>(r => {
-            const file = r?.file
-
-            if (file) {
-              ctx.transcript.sys(t('slashCmd.core.save.savedOnHost', file))
-            } else {
-              ctx.transcript.sys(t('slashCmd.core.save.failed'))
-            }
-          })
-        )
-        .catch(ctx.guardedErr)
     }
   },
 

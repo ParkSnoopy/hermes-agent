@@ -1,7 +1,7 @@
 """profiles.create inherits the launch profile's model together with the custom gateway backing it.
 
 ``_inherit_launch_model`` pins the launch ``model`` into the new profile through the same
-validated path as ``/api/model/set``, and that validation runs inside the new profile's home. A
+validated path as ``/model``, and that validation runs inside the new profile's home. A
 launch model on a custom ``providers:`` gateway is therefore only valid once the gateway
 definition is already in the profile — writing it after the pin never ran (#101885 / #94071).
 """
@@ -17,16 +17,10 @@ from hermes_cli.config import DEFAULT_CONFIG, atomic_config_write, read_user_con
 import tui_gateway.server as srv
 
 
-@pytest.mark.parametrize(
-    "schema,provider",
-    [
-        ("providers", "custom:my-gateway"),
-        ("custom_providers", "custom:my-gateway"),
-    ],
-)
 def test_inherit_launch_model_carries_a_custom_provider_gateway(
-    monkeypatch, tmp_path, schema, provider
+    monkeypatch, tmp_path
 ):
+    provider = "my-gateway"
     home = tmp_path / ".hermes"
     home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -38,16 +32,12 @@ def test_inherit_launch_model_carries_a_custom_provider_gateway(
         "api_key": "${FAKE_GW_TOKEN}",
     }
     unrelated = {"name": "unrelated", "base_url": "http://127.0.0.1:11435/v1"}
-    catalog = (
-        {"my-gateway": endpoint, "unrelated": unrelated}
-        if schema == "providers"
-        else [endpoint, unrelated]
-    )
+    catalog = {"my-gateway": endpoint, "unrelated": unrelated}
     atomic_config_write(
         home / "config.yaml",
         {
             "model": {"provider": provider, "default": "my-finetune"},
-            schema: catalog,
+            "providers": catalog,
             "_config_version": DEFAULT_CONFIG["_config_version"],
         },
     )
@@ -60,16 +50,12 @@ def test_inherit_launch_model_carries_a_custom_provider_gateway(
     }
     # Same identity under another key: runtime takes the first alias match, so it must not survive.
     stale = {"name": "my-gateway", "base_url": "http://127.0.0.1:11437/v1"}
-    retained_catalog = (
-        {"stale": stale, "retained": retained}
-        if schema == "providers"
-        else [stale, retained]
-    )
+    retained_catalog = {"stale": stale, "retained": retained}
     atomic_config_write(
         profile / "config.yaml",
         {
             "tts": {"provider": "edge"},
-            schema: retained_catalog,
+            "providers": retained_catalog,
             "_config_version": DEFAULT_CONFIG["_config_version"],
         },
     )
@@ -81,18 +67,10 @@ def test_inherit_launch_model_carries_a_custom_provider_gateway(
         provider,
         "my-finetune",
     )
-    expected = (
-        {"my-gateway": endpoint, "retained": retained}
-        if schema == "providers"
-        else [endpoint, retained]
-    )
-    assert cfg[schema] == expected
+    expected = {"my-gateway": endpoint, "retained": retained}
+    assert cfg["providers"] == expected
     # The gateway travels as the launch file wrote it: the ref, never the launch secret.
-    copied = (
-        cfg["providers"]["my-gateway"]
-        if schema == "providers"
-        else cfg["custom_providers"][0]
-    )
+    copied = cfg["providers"]["my-gateway"]
     assert copied["api_key"] == "${FAKE_GW_TOKEN}"
 
 

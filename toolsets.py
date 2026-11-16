@@ -3,10 +3,7 @@
 from typing import Dict, List, Any, Set, Optional, Tuple
 
 
-# Shared tool list for local and API sessions. Desktop GUI affordances live
-# in `desktop_ui`/`project`, enabled per desktop-sourced session by the GUI gateway
-# (tui_gateway/server.py::_load_enabled_toolsets). Computer-use
-# entries are further gated by their tools' check_fns.
+# Shared tools for CLI/TUI sessions. Computer-use tools also require their check_fns.
 _HERMES_CORE_TOOLS = [
     "web_search", "web_extract",
     "terminal", "process_manage",
@@ -28,10 +25,6 @@ _HERMES_CORE_TOOLS = [
     "manage_connections",
 ]
 
-# Webhook payloads are untrusted third-party content: no file/system execution.
-_HERMES_WEBHOOK_SAFE_TOOLS = ["web_search", "web_extract", "vision_analyze", "clarify"]
-
-
 
 def _ts(description, tools=(), includes=(), **extra):
     """One TOOLSETS entry (fresh lists per entry; extra keys such as posture pass through)."""
@@ -52,9 +45,6 @@ def _core_without(*excluded):
 # tts, image_gen, cron and computer-use.
 _CODING_TOOLS = _core_without("image_generate", "text_to_speech", "cronjob_manage", "computer_use")
 
-# Toolsets a CLIENT adds to its own sessions (tui_gateway/server.py::_gui_surface_toolsets), never
-# config: another surface lacking them made no configuration choice.
-CLIENT_SURFACE_TOOLSETS = frozenset({"project", "desktop_ui", "catalog"})
 
 # Core toolset definitions: individual tools or references to other toolsets.
 TOOLSETS = {
@@ -116,27 +106,10 @@ TOOLSETS = {
     "context_engine": _ts("Runtime tools exposed by the active context engine"),
     "session_search": _ts("Search and recall past conversations with summarization", ["session_search"]),
     "connections": _ts("Remote connector discovery, execution, and account authorization", ["manage_connections"]),
-    "project": _ts("Desktop Projects — create/switch named workspaces (GUI sessions only)", ["desktop_project"]),
+
     "bot_room": _ts("Verified text-only Group Chat turn capabilities"),
 
-    # GUI-renderer affordances, enabled per desktop-sourced SESSION by the GUI
-    # gateway (tui_gateway/server.py::_load_enabled_toolsets) — never by a
-    # process env var, which is blind to a desktop client on a remote backend.
-    "desktop_ui": _ts(
-        "Desktop GUI affordances — in-app terminal/browser panes, pane focus, "
-        "reactions, appearance (GUI sessions only)",
-        ["read_terminal", "close_terminal", "desktop_preview", "drive_preview",
-         "annotate_preview", "read_window_below", "focus_pane", "react_to_message",
-         "gui_tour", "show_tip", "set_theme"],
-    ),
-    "onboarding": _ts("First-run onboarding cards; folded in only for the onboarding chat (tui_gateway/methods_onboarding.py)",
-                      ["setup_beat"], platforms=frozenset({"desktop"})),
-    # ``platforms``: the session platforms this toolset exists for (TOOLSET_SESSION_PLATFORMS).
-    "catalog": _ts(
-        "Desktop catalog plugin/skill install requests through the approval card (GUI sessions only)",
-        ["manage_catalog"],
-        platforms=frozenset({"desktop"}),
-    ),
+
     "clarify": _ts("Ask the user clarifying questions (multiple-choice or open-ended)", ["clarify"]),
     "code_execution": _ts("Run Python scripts that call tools programmatically (reduces LLM round trips)", ["execute_code"]),
     "delegation": _ts("Spawn subagents with isolated context for complex subtasks", ["delegate_task"]),
@@ -148,7 +121,7 @@ TOOLSETS = {
     "safe": _ts("Safe toolkit without terminal access", [], includes=["web", "vision", "image_gen"]),
 
     # Coding posture, auto-selected in a code workspace (agent/coding_context.py).
-    # `desktop_ui` is folded in separately by the GUI gateway for desktop sessions.
+
     # posture=True: per-session posture, never auto-recovered into platform tool
     # config (see the non-configurable-toolset recovery loop in hermes_cli/tools_config.py).
     "coding": _ts(
@@ -164,21 +137,17 @@ TOOLSETS = {
         "messaging, audio, or clarify UI",
         [t for t in _CODING_TOOLS if t != "clarify"],
     ),
-    "hermes-api-server": _ts(
-        "OpenAI-compatible API server — full agent tools accessible via HTTP (no "
-        "interactive UI tools like clarify)",
-        _core_without("text_to_speech", "clarify", "computer_use"),
-    ),
+
     "hermes-cli": _bundle("Full interactive CLI toolset - all default tools plus cronjob management"),
 
     # Mirrors hermes-cli; `hermes tools` platform config filters it down and
     # _get_platform_tools() drops _DEFAULT_OFF_TOOLSETS unless user-enabled.
     "hermes-cron": _bundle("Default cron toolset - same core tools as hermes-cli; gated by `hermes tools`"),
-    "hermes-webhook": _ts("Webhook toolset - receive and process external webhook events", _HERMES_WEBHOOK_SAFE_TOOLS),
+
     "hermes-gateway": _ts(
         "Shared session runtime toolset",
         [],
-        includes=["hermes-cli", "hermes-webhook"],
+        includes=["hermes-cli"],
     ),
 }
 

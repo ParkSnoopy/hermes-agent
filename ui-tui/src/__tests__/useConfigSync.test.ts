@@ -185,15 +185,14 @@ describe('normalizeStatusBar', () => {
 })
 
 describe('normalizeMouseTracking', () => {
-  it('defaults to all and prefers canonical mouse_tracking over legacy tui_mouse', () => {
+  it('defaults to all and honors mouse_tracking', () => {
     expect(normalizeMouseTracking({})).toBe('all')
     expect(normalizeMouseTracking({ mouse_tracking: false })).toBe('off')
     expect(normalizeMouseTracking({ mouse_tracking: 0 })).toBe('off')
     expect(normalizeMouseTracking({ mouse_tracking: 'off' })).toBe('off')
     expect(normalizeMouseTracking({ mouse_tracking: 'false' })).toBe('off')
-    expect(normalizeMouseTracking({ mouse_tracking: null, tui_mouse: false })).toBe('all')
-    expect(normalizeMouseTracking({ mouse_tracking: true, tui_mouse: false })).toBe('all')
-    expect(normalizeMouseTracking({ tui_mouse: false })).toBe('off')
+    expect(normalizeMouseTracking({ mouse_tracking: null })).toBe('all')
+    expect(normalizeMouseTracking({ mouse_tracking: true })).toBe('all')
   })
 
   it('accepts preset strings (wheel/buttons/all) and their aliases', () => {

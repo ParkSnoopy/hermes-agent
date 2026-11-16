@@ -14,14 +14,16 @@ def test_spawn_tree_list_survives_non_dict_snapshot(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     d = srv._spawn_tree_session_dir("sess-x")
     (d / "bad.json").write_text('"not a snapshot"', encoding="utf-8")
-    good = d / "good.json"
-    good.write_text(json.dumps({"session_id": "sess-x", "label": "ok"}), encoding="utf-8")
+    saved = srv._methods["spawn_tree.save"](1, {
+        "session_id": "sess-x", "label": "ok", "subagents": [{"id": "child"}],
+    })
+    assert "error" not in saved, saved
 
     envelope = srv._methods["spawn_tree.list"](1, {"session_id": "sess-x"})
     assert "error" not in envelope, envelope
     entries = envelope["result"]["entries"]
     labels = {e["label"] for e in entries}
-    assert "ok" in labels and len(entries) == 2  # bad file degrades to a fallback entry
+    assert labels == {"ok"} and len(entries) == 1
 
 
 def test_spawn_tree_load_rejects_non_dict_snapshot(tmp_path, monkeypatch):

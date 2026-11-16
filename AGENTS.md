@@ -9,8 +9,7 @@ and every root-to-area chain at 30k, so it loads whole on 128k+ models: long for
 
 ## What Hermes Is
 
-Hermes is a personal AI agent that runs the same agent core across a CLI, a TUI,
-and an Electron desktop app. It
+Hermes is a personal AI agent that runs the same agent core across a CLI and a TUI. It
 learns across sessions (memory + skills), delegates to subagents, runs scheduled jobs, and
 drives a real terminal and browser. It is extended primarily through **plugins and skills**,
 not by growing the core.
@@ -151,8 +150,6 @@ Every former god file is a **facade** (public entry points + the names other pac
 | `plugins/`, `hermes_cli/plugins*.py` | `plugins/AGENTS.md` | plugin kinds, native compat contract, in-tree policy, boundary lint |
 | `plugin-catalog/` | `plugin-catalog/README.md` | catalog admission rules (mirrored in the developer guide; keep identical) |
 | `tui_gateway/`, `ui-tui/` | `tui_gateway/AGENTS.md` | process model, JSON-RPC transport, slash flow |
-| `web/`, `hermes_cli/web_routers/` | `web/AGENTS.md` | dashboard embeds the real TUI |
-| `apps/desktop/` | `apps/desktop/AGENTS.md`, `apps/desktop/src/AGENTS.md` | `serve` backend, slash palette, Bot Mode |
 | `skills/`, `optional-skills/`, `agent/curator*.py` | `skills/AGENTS.md` | frontmatter, authoring standards, curator |
 | `cron/` | `cron/AGENTS.md` | scheduler invariants and job fields |
 | `tests/` | `tests/AGENTS.md` | runner, placement, OS markers, `wine2e`, banned test shapes |

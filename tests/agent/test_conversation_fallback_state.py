@@ -50,7 +50,7 @@ def test_substantive_tool_only_turn_invalidates_older_housekeeping_fallback():
     housekeeping message instead of producing the report artifact).
 
     Test sequence:
-    1. Content + todo (housekeeping) → sets fallback, marks as all-housekeeping
+    1. Content + todo_list (housekeeping) → sets fallback, marks as all-housekeeping
     2. Empty content + web_search (substantive) → should CLEAR old fallback
     3. Empty content, no tool calls → should enter post-tool nudge, not use old fallback
     4. Content "Recovered after nudge." → should be returned as final response
@@ -66,8 +66,8 @@ def test_substantive_tool_only_turn_invalidates_older_housekeeping_fallback():
     - Step 4 returns the nudge response as the final answer
     """
     with (
-        patch("model_tools.get_tool_definitions", return_value=_tool_defs("todo", "web_search")),
-        patch("model_tools.check_toolset_requirements", return_value={}),
+        patch("model_tools.get_tool_definitions", return_value=_tool_defs("todo_list", "web_search")),
+        patch("tools.registry.registry.check_toolset_requirements", return_value={}),
         patch("agent.process_bootstrap.OpenAI"),
     ):
         agent = AIAgent(
@@ -82,14 +82,14 @@ def test_substantive_tool_only_turn_invalidates_older_housekeeping_fallback():
     agent._use_prompt_caching = False
     agent.compression_enabled = False
     agent.save_trajectories = False
-    agent.valid_tool_names = {"todo", "web_search"}
+    agent.valid_tool_names = {"todo_list", "web_search"}
     agent.client = MagicMock()
     agent.client.chat.completions.create.side_effect = [
         # Turn 1: Content + housekeeping tool
         _response(
             content="I'll begin the work.",
             finish_reason="tool_calls",
-            tool_calls=[_tool_call("todo", "todo1")],
+            tool_calls=[_tool_call("todo_list", "todo1")],
         ),
         # Turn 2: Empty content + substantive tool (should clear stale fallback)
         _response(
@@ -156,7 +156,7 @@ def test_bare_tool_marker_is_not_reused_as_final_response():
     """
     with (
         patch("model_tools.get_tool_definitions", return_value=_tool_defs("skill_manage")),
-        patch("model_tools.check_toolset_requirements", return_value={}),
+        patch("tools.registry.registry.check_toolset_requirements", return_value={}),
         patch("agent.process_bootstrap.OpenAI"),
     ):
         agent = AIAgent(

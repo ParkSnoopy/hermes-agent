@@ -83,12 +83,12 @@ _TURN_PROFILE: ContextVar = ContextVar('follow_profile_read', default=None)  # (
 # Creation label -> agent surface. ``tool`` (third-party integrations, ``hermes chat --source tool``) and
 # ``oneshot`` (finite ``chat -q`` / ``-z`` runs) run as the CLI but keep their own stored label, so human
 # pickers hide them (INTERNAL_LISTING_SOURCES).
-SURFACES = {'cli': 'cli', 'tui': 'tui', 'gui': 'desktop', 'acp': 'acp', 'tool': 'cli', 'oneshot': 'cli'}
+SURFACES = {'cli': 'cli', 'tui': 'tui', 'acp': 'acp', 'tool': 'cli', 'oneshot': 'cli'}
 # ``tool`` and ``oneshot`` stay stored under their own labels so pickers can hide them.
 # Creation labels of the owner's own chats: the only LOCAL routes that carry OpenAI Daybreak (agent.daybreak),
 # the approved account's own access (no third-party or downstream use). Not ``tool`` (third-party
 # integrations), ``acp`` (editor clients), or the ``bot_room`` / ``a2a`` policies hosted rooms and peers stage.
-DAYBREAK_LABELS = frozenset({'cli', 'tui', 'gui', 'oneshot'})
+DAYBREAK_LABELS = frozenset({'cli', 'tui', 'oneshot'})
 # Every other creation label is rewritten to ``source='local'`` on peer refresh.
 _KEEP_STORED_LABEL = frozenset({'tool', 'oneshot'})
 STORED_AS_LOCAL = frozenset(SURFACES) - _KEEP_STORED_LABEL
@@ -679,8 +679,6 @@ def _resolve_toolsets(params, config, source, safe_mode, coding_posture=False, b
                 # Picking a disabled server must not match nothing and fall through to every enabled one.
                 why = 'is disabled in config' if isinstance(configured[server], dict) else 'has no usable config entry'
                 _refuse('toolsets', f'MCP server {server!r} {why}')
-        if 'desktop_ui' in explicit and source != 'gui':
-            _refuse('toolsets', f'desktop_ui is only available on the Desktop, not on {source}')
         config.setdefault('platform_toolsets', {})['acp' if source == 'acp' else 'cli'] = explicit
     posture = None
     if explicit is None and coding_posture:
@@ -693,16 +691,7 @@ def _resolve_toolsets(params, config, source, safe_mode, coding_posture=False, b
         effective = {t for name in enabled for t in resolve_toolset(name)}
         if not requested <= effective:
             _refuse('toolsets', f"not available on this surface: {', '.join(sorted(requested - effective))}")
-    if explicit is None and source in {'tui', 'gui'}:
-        # Same surface toolsets as the native TUI factory, without its env inference.
-        # The fold-in lands after _get_platform_tools subtracted agent.disabled_toolsets, so
-        # subtract again or `disabled_toolsets: [project]` is a no-op here (#54433).
-        # desktop_ui is the client's own control surface, not a model toolset.
-        from agent.skill_utils import parse_config_string_list
-        from toolsets import CLIENT_SURFACE_TOOLSETS
-        disabled = set(parse_config_string_list((config.get('agent') or {}).get('disabled_toolsets')))
-        surface = set(CLIENT_SURFACE_TOOLSETS) if source == 'gui' else {'project'}
-        enabled |= surface - (disabled - {'desktop_ui'})
+
     if safe_mode:
         # Plugin toolsets are user customizations; the safe worker never imports them.
         from hermes_cli.tools_config import _get_plugin_toolset_keys
@@ -1031,10 +1020,8 @@ def _valid_client_env(value, kind: type = str):
 
 
 def policy_turn_toolsets(authority, policy, config, session_id):
-    """A local turn's toolsets: the policy's current set, plus ``onboarding`` for an onboarding chat
-    (``agent.onboarding_session.onboarding_chat_toolsets``)."""
-    from agent.onboarding_session import onboarding_chat_toolsets
-    return onboarding_chat_toolsets(list(policy.current_toolsets(config)), getattr(authority, 'db', None), session_id)
+    """A local turn's toolsets from its current policy."""
+    return list(policy.current_toolsets(config))
 
 
 def local_desktop_turn(runner, source, scope):

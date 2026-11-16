@@ -80,7 +80,7 @@ def _resolve_channel(name: str, repository: str):
 
 def resolve_source_target(channel: str, git_cmd=None, cwd=None, *, repository=None,
                           forward_only: bool = False) -> SourceTarget:
-    """Resolve a subscription: stable from GitHub releases, main from the git branch,
+    """Resolve a subscription: stable/canary from GitHub releases, main from the git branch,
     preview channels (e.g. ``pm-preview``) through their R2 records.
 
     ``forward_only`` (an unchosen default subscription) pins a checkout that already
@@ -146,8 +146,8 @@ def _resolve_source_target(channel: str, git_cmd=None, cwd=None, *, repository=N
 
     validate_name(channel)
     repository = repository or source_repository(git_cmd, cwd)
-    if channel == "stable":
-        return _resolve_stable(repository, git_cmd, cwd)
+    if channel in {"stable", "canary"}:
+        return _resolve_published(channel, repository, git_cmd, cwd)
     if channel == "main":
         # main IS the git branch. No R2 record is read: none was ever published, and a
         # network that answers it with 403 instead of 404 (regional WAFs) must not stop
@@ -178,27 +178,24 @@ def _resolve_source_target(channel: str, git_cmd=None, cwd=None, *, repository=N
                         version=request["sourceVersion"], build_id=request["buildId"])
 
 
-def _describe_release_failure(failure: BaseException) -> str:
+def _describe_release_failure(failure: BaseException, channel: str) -> str:
     """A transport failure names its cause (a rate limit is not "no release")."""
     if isinstance(failure, (urllib.error.URLError, TimeoutError)):
         from hermes_cli.github_api import describe_github_failure
 
         # The request that failed, not the configuration: a rejected token retries anonymously.
         return describe_github_failure(failure, authenticated=getattr(failure, "hermes_authenticated", False))
-    return f"No published stable release could be verified: {failure}"
+    return f"No published {channel} release could be verified: {failure}"
 
 
-def _resolve_stable(repository: str, git_cmd=None, cwd=None) -> SourceTarget:
-    """Stable IS the repository's latest published GitHub release: the tag a release
-    publishes (non-draft, non-prerelease, strict vX.Y.Z), verified against origin.
-    No R2 record or pointer is consulted; publishing the release is the only promotion.
-    """
+def _resolve_published(channel: str, repository: str, git_cmd=None, cwd=None) -> SourceTarget:
+    """Published GitHub releases own stable/canary source, verified against origin."""
     try:
-        tag, commit = _resolve_release("stable", git_cmd, cwd, repository=repository, pointer=False)
+        tag, commit = _resolve_release(channel, git_cmd, cwd, repository=repository, pointer=False)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        logger.warning("Could not resolve the stable source release: %s", exc)
-        raise ValueError(_describe_release_failure(exc)) from exc
-    return SourceTarget("stable", "stable", repository, commit=commit, version=str(tag).removeprefix("v"))
+        logger.warning("Could not resolve the %s source release: %s", channel, exc)
+        raise ValueError(_describe_release_failure(exc, channel)) from exc
+    return SourceTarget(channel, channel, repository, commit=commit, version=str(tag).removeprefix("v"))
 
 
 def _refuse_retirement_downgrade(request: dict, terminal: dict, git_cmd, cwd) -> None:
@@ -304,15 +301,18 @@ def _published_fallback(channel: str, base: str) -> dict:
     else:
         # GitHub lists newest releases first. Bound the scan; failure must
         # never turn into an arbitrary Git-tag update.
+        candidates = []
         for page in range(1, 11):
             entries = _json(f"{base}/releases?per_page=100&page={page}")
             if not isinstance(entries, list):
                 break
             for release in entries:
                 if _published(release, channel):
-                    return release
+                    candidates.append(release)
             if len(entries) < 100:
                 break
+        if candidates:
+            return max(candidates, key=lambda release: release["tag_name"].split("+canary.", 1)[1])
     raise ValueError(f"No published {channel} release")
 
 

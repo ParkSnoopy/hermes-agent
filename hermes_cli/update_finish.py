@@ -147,7 +147,7 @@ def main(context: Path, result: Path) -> int:
                     print(f"  ⚠ Could not record the owed source-update tail: {exc}")
                 owed: list[tuple[str, str]] = []
                 try:
-                    build_update_products(root, desktop=desktop)
+                    build_update_products(root)
                 except (Exception, SystemExit) as exc:  # health: allow BLE001 -- committed code: owed, not failed
                     reason = str(exc) or type(exc).__name__
                     update_receipt.record_followup("build", reason)

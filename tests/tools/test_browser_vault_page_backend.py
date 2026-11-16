@@ -81,3 +81,22 @@ def test_secret_failure_never_echoes_the_script(page):
     raw = browser_vault_tool.browser_vault_fill(meta.id)
     out = json.loads(raw)
     assert out["success"] is False and SECRET not in raw
+
+
+def test_registry_dispatch_fills_plugin_page_and_rejects_retired_target(page, monkeypatch):
+    from model_tools import handle_function_call
+    from tools import browser_vault_tool
+
+    monkeypatch.setattr(browser_vault_tool, "_bot_desktop_browser_session", lambda task_id: False)
+    monkeypatch.setattr(browser_vault_tool, "_fenced_page_op", lambda task_id, fn: fn())
+    fake, meta = page
+    raw = handle_function_call("browser_vault", {"action": "fill", "handle": meta.id}, task_id="task")
+    assert json.loads(raw)["success"] is True
+    assert SECRET not in raw
+
+    fake.calls.clear()
+    raw = handle_function_call("browser_vault", {
+        "action": "fill", "handle": meta.id, "target": "preview",
+    }, task_id="task")
+    assert json.loads(raw)["error_type"] == "invalid_target"
+    assert fake.calls == []

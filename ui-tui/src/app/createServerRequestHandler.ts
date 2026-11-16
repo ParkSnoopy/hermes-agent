@@ -34,10 +34,8 @@ const strList = (v: unknown): null | string[] =>
  * The Ink TUI's answer to the backend's server→client requests
  * (`tui_gateway/server_requests.py`). Each method opens its overlay card;
  * the card's answer path resolves the request through `serverRequestStore`.
- * Methods the terminal cannot answer (desktop GUI bridges: `preview.*`,
- * `window.read`, `tour`, `mcp.setup`, `terminal.read`) return `false` so the
- * channel answers `-32601` and the tool fails fast instead of waiting out its
- * deadline.
+ * Unhandled methods return `false` so the channel answers `-32601` instead of
+ * waiting out the request deadline.
  */
 export function createServerRequestHandler(ctx: ServerRequestHandlerContext): (request: ServerRequest) => boolean {
   const { focusedSessionId = () => getUiState().sid, ringPromptBell, setStatus } = ctx

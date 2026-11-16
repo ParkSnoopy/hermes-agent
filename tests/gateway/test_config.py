@@ -26,8 +26,26 @@ from gateway.config import (
 )
 
 
+@pytest.mark.parametrize("platform", [Platform.API_SERVER, Platform.WEBHOOK, Platform.MSGRAPH_WEBHOOK])
+def test_unregistered_retired_platform_is_not_connected(monkeypatch, platform):
+    monkeypatch.setattr("gateway.config._discovered_registry_entry", lambda _: None)
+    config = GatewayConfig(platforms={platform: PlatformConfig(enabled=True, token="saved-token")})
+    assert config.get_connected_platforms() == []
+
+
+def test_retired_listener_environment_does_not_enable_platforms(monkeypatch):
+    monkeypatch.setenv("API_SERVER_KEY", "valid-server-key-long-enough")
+    monkeypatch.setenv("WEBHOOK_ENABLED", "true")
+    monkeypatch.setenv("MSGRAPH_WEBHOOK_ENABLED", "true")
+    monkeypatch.setattr("gateway.config_env._configured_plugin_entries", lambda _: [])
+    monkeypatch.setattr("gateway.config_env._bundled_env_fallbacks", lambda *args, **kwargs: [])
+    config = GatewayConfig()
+    _apply_env_overrides(config)
+    assert not config.platforms
+
+
 @pytest.mark.parametrize("encoding", ["utf-8", "utf-8-sig"])
-def test_gateway_file_layers_preserve_unicode_and_fallback(tmp_path, monkeypatch, encoding):
+def test_gateway_yaml_preserves_unicode_and_ignores_legacy_file(tmp_path, monkeypatch, encoding):
     import json
 
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
@@ -38,16 +56,16 @@ def test_gateway_file_layers_preserve_unicode_and_fallback(tmp_path, monkeypatch
         "salut": {"type": "prompt", "prompt": "héritage 世界"},
     }}, ensure_ascii=False).encode(encoding))
     config = load_gateway_config()
-    assert config.reset_triggers == ["/départ"]
-    assert config.quick_commands["salut"]["prompt"] == "héritage 世界"
+    assert config.reset_triggers == ["/new", "/reset"]
+    assert config.quick_commands == {}
 
     yaml_path.write_bytes("quick_commands:\n  salut:\n    type: prompt\n    prompt: bonjour 世界\n".encode(encoding))
     config = load_gateway_config()
-    assert config.reset_triggers == ["/départ"]
+    assert config.reset_triggers == ["/new", "/reset"]
     assert config.quick_commands["salut"]["prompt"] == "bonjour 世界"
 
     yaml_path.write_bytes("quick_commands: [".encode(encoding))
-    assert load_gateway_config().quick_commands["salut"]["prompt"] == "héritage 世界"
+    assert load_gateway_config().quick_commands == {}
     legacy.write_bytes("{broken".encode(encoding))
     assert load_gateway_config().quick_commands == {}
 
@@ -1110,39 +1128,6 @@ class TestMultiplexProfilesConfig:
             "loader must respect top-level precedence when key is present"
         )
 
-
-class TestApiServerEnvOverride:
-    def test_env_key_does_not_reenable_explicitly_disabled_api_server(self):
-        """An explicit ``platforms.api_server.enabled: false`` must survive
-        _apply_env_overrides() even when API_SERVER_KEY is present in the env.
-
-        Regression: _apply_env_overrides() force-set api_server.enabled = True
-        whenever API_SERVER_KEY (or API_SERVER_ENABLED) was set. In multiplex
-        mode a secondary profile pins ``api_server.enabled: false`` so it shares
-        the default profile's listener instead of binding its own port, but it
-        still inherits the process-level API_SERVER_KEY. The unconditional
-        re-enable flipped it back on and tripped the MultiplexConfigError check.
-
-        The fix honors the explicit disable, flagged by ``_enabled_explicit`` in
-        the platform's extra (set when the config.yaml pins enabled).
-        """
-        config = GatewayConfig(
-            platforms={
-                Platform.API_SERVER: PlatformConfig(
-                    enabled=False,
-                    extra={"_enabled_explicit": True},
-                ),
-            },
-        )
-
-        api_server_key = "secret-key-at-least-16"
-        with patch.dict(os.environ, {"API_SERVER_KEY": api_server_key, "HERMES_HOME": os.environ["HERMES_HOME"]}, clear=True):
-            _apply_env_overrides(config)
-
-        # Explicit disable wins over the env-var presence.
-        assert config.platforms[Platform.API_SERVER].enabled is False
-        # The key is still wired through for the shared listener.
-        assert config.platforms[Platform.API_SERVER].extra.get("key") == api_server_key
 
 
 class TestWebhookEnvOverride:

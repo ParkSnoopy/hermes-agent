@@ -30,7 +30,7 @@ export interface QueueItem {
   controlMethod?: 'session.steer' | 'session.redirect'
   executionGeneration?: number
   preparedText?: string
-  legacyAttempted?: boolean
+  controlAttempted?: boolean
   settle?: (accepted: boolean) => void
 }
 
@@ -62,7 +62,7 @@ export function takeQueueItem(queue: QueueItem[], index: number, editedDisplay?:
   const {
     failed: _f,
     inFlight: _i,
-    legacyAttempted: _l,
+    controlAttempted: _l,
     preparedText: _p,
     settle: _s,
     submissionId: _id,

@@ -1158,7 +1158,6 @@ def _(rid, params: dict, session: dict) -> dict:
 @method("session.delete")
 def _(rid, params: dict) -> dict:
     """Delete a stored session + transcripts; refused while live here (FK trips on the agent's next flush)."""
-    from agent.onboarding_record import delete_chat
     from hermes_state_errors import SessionActiveWriteGuardError  # body runs on server.py globals
 
     if not (target := params.get("session_id", "")):
@@ -1174,8 +1173,8 @@ def _(rid, params: dict) -> dict:
             return _db_unavailable_error(rid, code=5036)
         try:
             home = Path(profile_home) if profile_home is not None else get_hermes_home()
-            deleted = delete_chat(db, target, lambda: db.delete_session(
-                target, sessions_dir=home / "sessions", exclude_active_write_guards=True))
+            deleted = db.delete_session(
+                target, sessions_dir=home / "sessions", exclude_active_write_guards=True)
         except SessionActiveWriteGuardError:
             return _err(rid, 4023, "cannot delete an active session")
         except Exception as e:
@@ -1319,11 +1318,16 @@ def _(rid, params: dict, session: dict) -> dict:
                 row_id = db.latest_message_row_id(row_session, role=newest_role)
                 if row_id is None:
                     return _err(rid, 4040, "no message to react to yet")
+            role = db.get_message_role(row_session, int(row_id))
+            if role is None:
+                return _err(rid, 4040, "message not found in this session")
             reactions = db.set_message_reaction(row_session, int(row_id), emoji, author=author)
         except Exception as e:
             return _err(rid, 5007, str(e))
     if reactions is None:
         return _err(rid, 4040, "message not found in this session")
+    _emit("message.reaction", str(params["session_id"]),
+          {"row_id": int(row_id), "reactions": reactions, "role": role})
     return _ok(rid, {"row_id": int(row_id), "reactions": reactions})
 
 
@@ -2166,22 +2170,6 @@ def _(rid, params: dict) -> dict:
     return _ok(rid, {"path": str(path), "session_id": session_id})
 
 
-def _legacy_spawn_tree_entry(p, session_dir_name: str) -> dict | None:
-    """Index-shaped entry for a pre-index snapshot file (None when unreadable)."""
-    try:
-        stat = p.stat()
-    except OSError:
-        return None
-    raw = {}
-    with contextlib.suppress(Exception):
-        raw = json.loads(p.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raw = {}
-    subagents = raw.get("subagents") or []
-    return {"path": str(p), "session_id": raw.get("session_id") or session_dir_name,
-            "finished_at": raw.get("finished_at") or stat.st_mtime, "started_at": raw.get("started_at"),
-            "label": raw.get("label") or "", "count": len(subagents) if isinstance(subagents, list) else 0}
-
 
 @method("spawn_tree.list")
 def _(rid, params: dict) -> dict:
@@ -2195,10 +2183,7 @@ def _(rid, params: dict) -> dict:
         if indexed := _read_spawn_tree_index(d):
             # Skip index entries whose snapshot file was manually deleted.
             entries.extend(e for e in indexed if (p := e.get("path")) and Path(p).exists())
-        else:  # Legacy (pre-index) sessions: full scan, once per session until the next save.
-            entries.extend(
-                entry for p in d.glob("*.json")
-                if p.name != _SPAWN_TREE_INDEX and (entry := _legacy_spawn_tree_entry(p, d.name)) is not None)
+
     entries.sort(key=lambda e: e.get("finished_at") or 0, reverse=True)
     return _ok(rid, {"entries": entries[:int(params.get("limit") or 50)]})
 

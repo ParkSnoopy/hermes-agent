@@ -7,10 +7,10 @@ import re
 import shlex
 import subprocess
 import tomllib
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 from pathlib import Path
 
-WORKFLOW = "desktop-bundled-release.yml"
+WORKFLOW = "termux-release.yml"
 
 
 def require_commit(value: str) -> str:
@@ -65,15 +65,14 @@ def _controller(env: dict[str, str], commit: str, *, run=output,
 
 
 def admit(env: dict[str, str], *, run=output, repo: Path | None = None) -> dict[str, str]:
-    from scripts.releases.bundle_env import decode
-
     commit = require_commit(env.get("BUILD_COMMIT", ""))
     if env.get("TAG") or env.get("RELEASE_PHASE") or env.get("UPLOAD_RELEASE", "false") != "false":
         raise ValueError("Commit builds cannot use tag, release-phase or upload_release")
     if env.get("TERMUX_UPGRADE_FROM_TAG"):
         raise ValueError("Commit builds do not run release-channel upgrade acceptance")
+    if env.get("BUNDLE_ENV_JSON"):
+        raise ValueError("Termux commit builds do not accept graphical bundle overrides")
     _controller(env, commit, run=run, repo=repo)
-    decode(env.get("BUNDLE_ENV_JSON", ""))
     return {"sha": commit, "channel": "commit",
             "payload-version": version_at(repo, commit, run=run)}
 
@@ -186,26 +185,19 @@ def resolve_revision(rev: str, remote: str, repo: Path) -> str:
     return commit
 
 
-def dispatch_command(commit: str, repository: str, branch: str,
-                     bundle_env: dict[str, str | None] | None = None) -> list[str]:
-    from scripts.releases.bundle_env import validate
-
+def dispatch_command(commit: str, repository: str, branch: str) -> list[str]:
     require_commit(commit)
     command = ["gh", "workflow", "run", WORKFLOW, "--ref", branch, "--repo", repository,
             "-f", f"build_commit={commit}", "-f", "tag=", "-f", "upload_release=false",
             "-f", "termux_upgrade_from_tag="]
-    if bundle_env:
-        command += ["-f", "bundle_env=" + json.dumps(validate(bundle_env), sort_keys=True)]
     return command
 
 
 def cmd_build_commit(args) -> None:
     from scripts import release
-    from scripts.releases import r2
-    from scripts.releases.bundle_env import parse_assignments
+    from scripts.releases import handoff, r2
 
     try:
-        bundle_env = parse_assignments(args.bundle_env, args.bundle_unset)
         remote = release.resolve_push_remote(args.remote)
         repository = release.remote_github_repo(remote)
         if not repository:
@@ -214,10 +206,10 @@ def cmd_build_commit(args) -> None:
         branch = release._default_branch(repository)
         if not branch:
             raise ValueError("could not resolve the repository default branch")
-        command = dispatch_command(commit, repository, branch, bundle_env)
-        page = r2.public_url_for(r2.public_base_url(), r2.commit_page_key_for(commit))
-        print(f"Building one-off bundle for commit {commit}")
-        print(f"Builds will be available at: {page}.")
+        command = dispatch_command(commit, repository, branch)
+        receipt = r2.public_url_for(r2.public_base_url(), r2.commit_key_for(commit, handoff.receipt_name("termux")))
+        print(f"Building one-off Termux package for commit {commit}")
+        print(f"Artifact receipt after the build succeeds: {receipt}")
         print(f"Workflow command, running from {repository}@{branch}")
         print(f"    {shlex.join(command)}")
         if not args.publish:
@@ -227,8 +219,8 @@ def cmd_build_commit(args) -> None:
         result = subprocess.run(command, cwd=release.REPO_ROOT, capture_output=True, text=True,  # windows-footgun: ok — encoding and replacement policy are on the next line.
                                 encoding="utf-8", errors="replace", check=True, timeout=60)
         print((result.stdout or "").strip() or f"Dispatched commit build {commit}. No release was created.")
-        print("Wait for that workflow to finish. It builds this commit and uploads the bundles.")
-        print(f"The builds page is {page}.")
+        print("Wait for that workflow to finish. It builds this commit and uploads the Termux package.")
+        print(f"Artifact receipt: {receipt}")
         print("This build does not publish a release and does not move a channel.")
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         stderr = ""
@@ -242,26 +234,13 @@ def cmd_build_commit(args) -> None:
 def main() -> None:
     import sys
 
-    if sys.argv[1:] not in (["admit"], ["receipt"]):
-        raise SystemExit("usage: python -m scripts.releases.commit_build {admit|receipt}")
+    if sys.argv[1:] != ["admit"]:
+        raise SystemExit("usage: python -m scripts.releases.commit_build admit")
     env = dict(os.environ)
     values = admit(env)
-    if sys.argv[1:] == ["admit"]:
-        with Path(env["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
-            stream.write("".join(f"{key}={value}\n" for key, value in values.items()))
-        print(json.dumps(values, sort_keys=True))
-        return
-
-    from scripts.releases.bundle_env import decode
-    from scripts.releases.stable import require_success
-
-    needs = json.loads(env.get("RELEASE_NEEDS", "{}"))
-    require_success(needs, list(needs))
-    result = publish_receipt(
-        "commit", env, version=values["payload-version"], commit=values["sha"],
-        details={"bundleEnv": decode(env.get("BUNDLE_ENV_JSON", ""))},
-    )
-    print(json.dumps(result, sort_keys=True))
+    with Path(env["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
+        stream.write("".join(f"{key}={value}\n" for key, value in values.items()))
+    print(json.dumps(values, sort_keys=True))
 
 
 if __name__ == "__main__":

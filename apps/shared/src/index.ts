@@ -1,5 +1,5 @@
 export { hasAnsi, sanitizeAnsiForRender, stripAnsi } from './ansi'
-export { backendScopeKey, backendScopePrefix, LOCAL_CONNECTION_ID, registryBackendScopeKey } from './backend-scope'
+
 export {
   BILLING_REFUSAL_POLICY,
   type BillingRecovery,
@@ -61,7 +61,7 @@ export {
   DATA_URL_READ_MAX_MAX_MB,
   DATA_URL_READ_MIN_MAX_MB
 } from './data-url-read-max'
-export { INSTALL_ORIGIN, PACKAGE_MARKER, PLUGIN_CATALOG_NAME_RE } from './desktop-plugin-files'
+
 export { type ExternalUrlTarget, externalUrlTarget } from './external-url'
 export { fileUrlToNativePath } from './file-url'
 export { compactNumber } from './format'
@@ -97,15 +97,7 @@ export {
   type ServerRequestParams,
   wireFrameText
 } from './json-rpc-channel'
-export {
-  APPROVAL_RESPOND_TIMEOUT_MS,
-  type ConnectionState,
-  type GatewayClientOptions,
-  GatewayEventHub,
-  isGatewayWebSocketUrl,
-  JsonRpcGatewayClient,
-  type WebSocketLike
-} from './json-rpc-gateway'
+
 export { modelSearchText } from './model-search-text'
 export {
   gaugeScope,
@@ -165,52 +157,6 @@ export {
   type ThemePresetName,
   type ThemePresetPalette
 } from './theme-presets'
-export {
-  backgroundMaterialFor,
-  clampIntensity,
-  DEFAULT_GLASS_MATERIAL,
-  DEFAULT_GLASS_SCOPE,
-  GLASS_MATERIALS,
-  GLASS_SCOPES,
-  glassActive,
-  type GlassMaterial,
-  glassMaterialForPicker,
-  glassMaterialsFor,
-  type GlassScope,
-  glassSupportedOn,
-  glassSurfaceKeep,
-  normalizeMaterial,
-  normalizeMode,
-  normalizeScope,
-  normalizeState,
-  TRANSLUCENCY_CURVE,
-  TRANSLUCENCY_MAX,
-  TRANSLUCENCY_MIN,
-  TRANSLUCENCY_OPACITY_FLOOR,
-  TRANSLUCENCY_STEP,
-  type TranslucencyMode,
-  type TranslucencyState,
-  translucencySupportedOn,
-  vibrancyFor,
-  windowOpacityFor,
-  WINDOWS_BACKGROUND_MATERIALS,
-  WINDOWS_GLASS_MIN_BUILD,
-  type WindowsBackgroundMaterial
-} from './translucency'
 
 export { type UpdateDebt, updateDebt, type UpdateDebtReceipt, type UpdateDebtStep } from './update-debt'
 export { mergeUsage, usageFromTick, type UsageTickPayload } from './usage-tick'
-export {
-  BROWSER_NATIVE_DIAL,
-  buildHermesWebSocketUrl,
-  type GatewayAuthMode,
-  GatewayReauthRequiredError,
-  type GatewayWsConnection,
-  type GatewayWsUrlResult,
-  type HermesWebSocketUrlOptions,
-  isGatewayReauthRequired,
-  normalizeBasePath,
-  resolveGatewayWsUrl,
-  type ResolveGatewayWsUrlDeps,
-  type WebSocketAuthParam
-} from './websocket-url'

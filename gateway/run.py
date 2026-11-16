@@ -1806,11 +1806,9 @@ async def _discover_gateway_mcp_tools(config: object) -> None:
 
 def _platform_has_bot_credential(platform: "Platform", platform_config: "PlatformConfig") -> bool:
     """Use loaded readiness metadata; deferred discovery belongs to the off-loop connect path."""
-    from gateway.config import GatewayConfig, _PLATFORM_CONNECTED_CHECKERS
+    from gateway.config import GatewayConfig
     from gateway.platform_registry import platform_registry
 
-    if platform in _PLATFORM_CONNECTED_CHECKERS:
-        return bool(GatewayConfig()._is_platform_connected(platform, platform_config))
     entry = next((entry for entry in platform_registry.loaded_entries() if entry.name == platform.value), None)
     # An unregistered plugin may still load on a later reconnect attempt.
     return entry is None or bool(GatewayConfig()._is_platform_connected(
@@ -2725,12 +2723,6 @@ def _platform_config_key(platform: Platform) -> str:
     return "cli" if platform == Platform.LOCAL else platform.value
 
 
-def _teams_pipeline_plugin_enabled() -> bool:
-    """Return True when the standalone Teams pipeline plugin is enabled."""
-    enabled = cfg_get(_load_gateway_config(), "plugins", "enabled", default=[])
-    return isinstance(enabled, list) and ("teams_pipeline" in enabled or "teams-pipeline" in enabled)
-
-
 def _gateway_config_home() -> Path:
     """Return the Hermes home that gateway config reads should use."""
     override = get_hermes_home_override()
@@ -3162,36 +3154,6 @@ def _command_origin_for_source(source: Any) -> Optional[dict]:
     return None
 
 
-def _builtin_adapter_import(module: str, adapter_name: str, requirement: str):
-    """Lazy-import ``(adapter_cls, requirements_ok)`` from ``gateway.platforms.<module>``."""
-    import importlib
-    mod = importlib.import_module(f"gateway.platforms.{module}")
-    return getattr(mod, adapter_name), getattr(mod, requirement)
-
-
-# platform -> (module, adapter class, requirements probe, warning on probe failure).
-_BUILTIN_ADAPTERS: dict[Platform, tuple[str, str, str, str]] = {
-    Platform.API_SERVER: ("api_server", "APIServerAdapter", "check_api_server_requirements",
-                          "API Server: aiohttp not installed"),
-    Platform.WEBHOOK: ("webhook", "WebhookAdapter", "check_webhook_requirements",
-                       "Webhook: aiohttp not installed"),
-    Platform.MSGRAPH_WEBHOOK: ("msgraph_webhook", "MSGraphWebhookAdapter", "check_msgraph_webhook_requirements",
-                               "MSGraph webhook: aiohttp not installed")}
-
-
-def _instantiate_builtin_adapter(platform: Platform, config: Any) -> Optional[BasePlatformAdapter]:
-    """Instantiate a core (non-plugin) adapter, or None when its requirements are unmet/unknown."""
-    spec = _BUILTIN_ADAPTERS.get(platform)
-    if spec is None:
-        return None
-    module, adapter_name, requirement, warning = spec
-    adapter_cls, requirements_ok = _builtin_adapter_import(module, adapter_name, requirement)
-    if not (requirements_ok() if callable(requirements_ok) else requirements_ok):
-        logger.warning(warning)
-        return None
-    return adapter_cls(config)
-
-
 from gateway.run_runtime_init import GatewayRuntimeInitMixin
 
 
@@ -3419,28 +3381,6 @@ class GatewayRunner(
 
         self._session_db_handle_cache.close_all(_close)
 
-    def _wire_teams_pipeline_runtime(self) -> None:
-        """Bind the Teams meeting pipeline runtime to Graph webhook ingress (no-op if adapter/plugin off)."""
-        if Platform.MSGRAPH_WEBHOOK not in self.adapters:
-            return
-        if not _teams_pipeline_plugin_enabled():
-            logger.debug("Teams pipeline plugin is disabled; skipping runtime wiring")
-            return
-        try:
-            from plugins.teams_pipeline.runtime import bind_gateway_runtime
-        except Exception as exc:
-            logger.warning("Teams pipeline runtime import failed: %s", exc)
-            return
-        try:
-            bound = bind_gateway_runtime(self)
-        except Exception as exc:
-            logger.warning("Teams pipeline runtime wiring failed: %s", exc)
-            return
-        if bound:
-            logger.info("Teams pipeline runtime bound to msgraph webhook ingress")
-        elif self._teams_pipeline_runtime_error:
-            logger.warning(
-                "Teams pipeline runtime unavailable: %s", self._teams_pipeline_runtime_error)
 
     def _warn_if_docker_media_delivery_is_risky(self) -> None:
         """Warn when Docker-backed gateways lack an explicit export mount: MEDIA delivery runs in the

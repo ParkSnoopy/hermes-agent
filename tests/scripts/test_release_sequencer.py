@@ -11,6 +11,8 @@ import subprocess
 import pytest
 from datetime import UTC
 
+from scripts.releases import lanes as lane_set
+
 
 def _claims(*rows):
     return [dict(version=version, state=state, autopublish=autopublish)
@@ -121,6 +123,7 @@ def test_the_pass_that_observes_a_failure_reruns_it_unless_burned(attempt, rerun
         # Completed this instant: the pass observing the failure event.
         "updated_at": datetime.now(UTC).isoformat(),
         "head_branch": "rc.1-v0.21.5", "head_sha": commit,
+        "display_title": "Stable release rc.1-v0.21.5",
     }
     discover_run = _discover_run(tags, workflow_runs=[failed])
     posted = []
@@ -219,8 +222,8 @@ def test_an_unpublished_claim_below_the_head_is_refused():
 def _claim_message(version, attempt, commit, *, autopublish=False,
                    epoch=1_790_000_000):
     return {"schema": 1, "version": version, "attempt": attempt, "commit": commit,
-            "autopublish": autopublish, "skipBundles": False, "skipTests": False,
-            "claimEpoch": epoch}
+            "autopublish": autopublish, "lanes": sorted(lane_set.select(with_=["termux"])),
+            "lanesRevision": lane_set.LANES_REVISION, "claimEpoch": epoch}
 
 
 def _final_message(version, attempt, commit, *, release_id, epoch=1_790_000_000):
@@ -339,7 +342,7 @@ def test_a_tenth_attempt_is_the_version_s_record_not_the_ninth():
             tags[f"abandoned-rc.{n}-v0.21.7"] = (f"{n:x}".rjust(40, "b"), commit, {})
     green = {"id": 77, "status": "completed", "conclusion": "success", "run_attempt": 1,
              "updated_at": "2026-10-11T01:00:00Z", "head_branch": "rc.10-v0.21.7",
-             "head_sha": tags["rc.10-v0.21.7"][1]}
+             "head_sha": tags["rc.10-v0.21.7"][1], "display_title": "Stable release rc.10-v0.21.7"}
     draft = {"id": 11, "tag_name": "rc.10-v0.21.7", "draft": True, "prerelease": False}
     records = discover("example/project", _discover_run(tags, releases=[draft], workflow_runs=[green]))
     assert [r["attempt"] for r in records] == list(range(1, 11))
@@ -393,8 +396,8 @@ def test_two_outstanding_attempts_are_refused_across_versions():
         discover("example/project", _discover_run(tags))
 
 
-def _sequencer_fixture(*versions, manifest_digest, docker_digest="sha256:" + "b" * 64,
-                       drafts_on_claim_tag=False, skip_bundles=False, final_tags=True, lanes=None):
+def _sequencer_fixture(*versions, manifest_digest, docker_digest: str | None = "sha256:" + "b" * 64,
+                       drafts_on_claim_tag=False, final_tags=True, lanes=None):
     """Two green claims with their final tags; releases start as drafts.
 
     final_tags=False is a fresh green claim: no receipt tag yet, the draft on
@@ -407,13 +410,13 @@ def _sequencer_fixture(*versions, manifest_digest, docker_digest="sha256:" + "b"
     for index, version in enumerate(versions, start=1):
         claim_tag, tag = f"rc.1-v{version}", f"v{version}"
         claim_object, final_object = str(index) * 40, str(index + 2) * 40
+        selected = lanes if lanes is not None else lane_set.select(with_=["termux"])
         claim = {
             "schema": 1, "version": version, "attempt": 1, "commit": commit,
-            "autopublish": False, "skipBundles": skip_bundles, "skipTests": False,
+            "autopublish": False, "lanes": sorted(selected),
+            "lanesRevision": lane_set.LANES_REVISION,
             "claimEpoch": 1_790_000_000 + index,
         }
-        if lanes is not None:
-            claim = {**{k: v for k, v in claim.items() if not k.startswith("skip")}, "lanes": sorted(lanes)}
         final = {
             "schema": 1, "version": version, "commit": commit,
             "autopublish": False, "claimEpoch": claim["claimEpoch"],
@@ -429,7 +432,7 @@ def _sequencer_fixture(*versions, manifest_digest, docker_digest="sha256:" + "b"
         else:
             workflow_runs.append({"id": 100 + index, "run_attempt": 1, "status": "completed",
                                   "conclusion": "success", "head_branch": claim_tag,
-                                  "head_sha": commit})
+                                  "head_sha": commit, "display_title": f"Stable release {claim_tag}"})
         releases.append({
             "id": index, "tag_name": claim_tag if drafts_on_claim_tag or not final_tags else tag,
             "draft": True, "prerelease": False, "published_at": None,
@@ -588,130 +591,6 @@ def test_a_fresh_flip_advances_the_head_with_the_receipt_it_just_wrote():
     assert releases[0]["tag_name"] == "v0.21.5" and releases[0]["draft"] is False
 
 
-def test_the_store_release_joins_the_pass_after_the_aliases_move(monkeypatch):
-    from scripts.releases import channel_releases, docker, sequencer, store
-
-    manifest = json.dumps({"files": [{"path": "Store-Product-win.msixbundle"}]}).encode()
-    manifest_digest = hashlib.sha256(manifest).hexdigest()
-    _tags, _releases, run = _sequencer_fixture(
-        "0.21.5", manifest_digest=manifest_digest, drafts_on_claim_tag=True)
-    events = []
-    head = ["0.21.4"]
-    monkeypatch.setattr(
-        channel_releases, "advance_stable",
-        lambda env, record, root: (head.append(record["version"]),
-                                   events.append(("feed", record["version"]))))
-    monkeypatch.setattr(
-        docker, "promote_stable",
-        lambda claim_tag, digest, release_tag: events.append(("aliases", claim_tag, release_tag)))
-    seen = []
-    monkeypatch.setattr(
-        store, "release_from_env",
-        lambda env, manifest: seen.append((env, manifest)) or events.append(("store",)))
-
-    steps = sequencer.reconcile(
-        {"GITHUB_REPOSITORY": "example/project", "MS_STORE_PRODUCT_ID": "9NTEST"},
-        run=run, read_head=lambda: head[-1], advance_head=None,
-        read_archive=lambda _key: manifest,
-    )
-
-    assert steps == [{"advance": "0.21.5"}]
-    assert events == [("feed", "0.21.5"), ("aliases", "rc.1-v0.21.5", "v0.21.5"), ("store",)]
-    # The Store releases the draft named by the receipt-bound archived manifest.
-    assert seen[0][0]["MS_STORE_PRODUCT_ID"] == "9NTEST"
-    assert seen[0][1] == json.loads(manifest)
-
-
-@pytest.mark.parametrize("recovery_head", ["0.21.5", "0.21.6"])
-def test_store_release_recovers_after_alias_movement_without_rewinding_channels(monkeypatch, recovery_head):
-    from scripts.releases import channel_releases, docker, sequencer, store
-    from tests.scripts.test_release_store import STORE_FILE, _Api
-
-    manifest = json.dumps({"files": [{"path": STORE_FILE}]}).encode()
-    _tags, _releases, run = _sequencer_fixture(
-        "0.21.5", manifest_digest=hashlib.sha256(manifest).hexdigest(), drafts_on_claim_tag=True)
-    head = ["0.21.4"]
-    events = []
-    api = _Api()
-    release_from_env = store.release_from_env
-    env = {"GITHUB_REPOSITORY": "example/project", "MS_STORE_PRODUCT_ID": "9NTEST",
-           "MS_STORE_TENANT_ID": "T", "MS_STORE_CLIENT_ID": "C", "MS_STORE_CLIENT_SECRET": "S"}
-
-    def advance(_env, record, _root):
-        head[0] = record["version"]
-        events.append("feed")
-
-    def interrupt_after_aliases(*_args):
-        events.append("aliases")
-        raise KeyboardInterrupt("cancelled after aliases moved")
-
-    def release_store(environment, candidate):
-        events.append("store")
-        return release_from_env(environment, candidate, run=api)
-
-    monkeypatch.setattr(channel_releases, "advance_stable", advance)
-    monkeypatch.setattr(docker, "promote_stable", interrupt_after_aliases)
-    monkeypatch.setattr(store, "release_from_env", release_store)
-    with pytest.raises(KeyboardInterrupt, match="after aliases moved"):
-        sequencer.reconcile(env, run=run, read_head=lambda: head[0], read_archive=lambda _key: manifest)
-    assert head[0] == "0.21.5" and events == ["feed", "aliases"]
-    assert api.mode == "Manual" and api.commits == 0
-
-    # Channel movement is already durable; retry only the receipt-bound Store work,
-    # even if another publication has since advanced the channels further.
-    head[0] = recovery_head
-    monkeypatch.setattr(channel_releases, "advance_stable",
-                        lambda *_args: pytest.fail("Store recovery moved the desktop head"))
-    monkeypatch.setattr(docker, "promote_stable",
-                        lambda *_args: pytest.fail("Store recovery moved the Docker aliases"))
-    assert sequencer.reconcile(
-        env, run=run, read_head=lambda: head[0], read_archive=lambda _key: manifest) == []
-    assert head[0] == recovery_head and events == ["feed", "aliases", "store"]
-    assert api.mode == "Immediate" and api.commits == 1
-    sequencer.reconcile(env, run=run, read_head=lambda: head[0], read_archive=lambda _key: manifest)
-    assert api.commits == 1
-
-
-@pytest.mark.parametrize("pending_is_latest", [True, False])
-def test_store_reconciliation_finds_the_newest_matching_published_submission(monkeypatch, pending_is_latest):
-    from scripts.releases import channel_releases, docker, sequencer, store
-    from tests.scripts.test_release_store import STORE_FILE, _Api
-
-    newest_file = "Store-HermesBundled-2026.7000.1.0-win.msixbundle"
-    manifests = {
-        f"releases/tag/rc.1-v{version}/release-candidates.json":
-            json.dumps({"files": [{"path": filename}]}).encode()
-        for version, filename in [("0.21.5", STORE_FILE), ("0.21.6", newest_file)]
-    }
-    tags, releases, run = _sequencer_fixture("0.21.5", "0.21.6", manifest_digest=None)
-    for version, raw in zip(("0.21.5", "0.21.6"), manifests.values()):
-        tags[f"v{version}"][2]["candidateManifestSha256"] = hashlib.sha256(raw).hexdigest()
-    for row in releases:
-        row.update(draft=False, published_at="2026-09-22T01:00:00Z")
-    api = _Api(files=[newest_file if pending_is_latest else STORE_FILE])
-    seen = []
-    release_from_env = store.release_from_env
-
-    def release_store(env, manifest):
-        result = release_from_env(env, manifest, run=api)
-        seen.append((store.store_bundle(manifest), result))
-        return result
-
-    monkeypatch.setattr(store, "release_from_env", release_store)
-    monkeypatch.setattr(channel_releases, "advance_stable",
-                        lambda *_args: pytest.fail("Store reconciliation moved the desktop head"))
-    monkeypatch.setattr(docker, "promote_stable",
-                        lambda *_args: pytest.fail("Store reconciliation moved the Docker aliases"))
-    env = {"GITHUB_REPOSITORY": "example/project", "MS_STORE_PRODUCT_ID": "9NTEST",
-           "MS_STORE_TENANT_ID": "T", "MS_STORE_CLIENT_ID": "C", "MS_STORE_CLIENT_SECRET": "S"}
-    assert sequencer.reconcile(
-        env, run=run, read_head=lambda: "0.21.6", read_archive=manifests.__getitem__) == []
-    # A newer public release may have failed its non-blocking Store upload;
-    # only a package mismatch permits trying an older public release.
-    assert seen == ([(newest_file, "immediate")] if pending_is_latest else
-                    [(newest_file, "superseded"), (STORE_FILE, "immediate")])
-    assert api.mode == "Immediate" and api.commits == 1
-
 
 def test_a_publish_that_died_before_the_retarget_is_repaired():
     from scripts.releases.sequencer import reconcile
@@ -740,12 +619,13 @@ def test_a_publish_that_died_before_the_retarget_is_repaired():
 
 
 def test_a_release_that_skipped_bundles_ships_only_its_tag_release_and_docker_aliases(monkeypatch):
-    """Its receipt binds no manifest; the R2 head and Store stay put; one pass finishes it."""
-    from scripts.releases import channel_releases, docker, sequencer, store
+    """Its receipt binds no manifest; the APT channel stays put."""
+    from scripts.releases import termux, docker, sequencer
 
     docker_digest = "sha256:" + "b" * 64
     _tags, releases, run = _sequencer_fixture(
-        "0.21.5", manifest_digest=None, docker_digest=docker_digest, skip_bundles=True)
+        "0.21.5", manifest_digest=None, docker_digest=docker_digest, final_tags=False,
+        lanes=lane_set.select(only=["docker"]))
     alias = [None]
     events = []
 
@@ -753,10 +633,9 @@ def test_a_release_that_skipped_bundles_ships_only_its_tag_release_and_docker_al
         events.append(("aliases", claim_tag, release_tag))
         alias[0] = digest
 
-    monkeypatch.setattr(channel_releases, "advance_stable",
-                        lambda *_args: pytest.fail("the protected R2 head moved"))
-    monkeypatch.setattr(store, "release_from_env", lambda *_a: pytest.fail("the Store was released"))
-    monkeypatch.setattr(channel_releases, "stable_head_version", lambda _env: "0.21.4")
+    monkeypatch.setattr(termux, "advance_stable",
+                        lambda *_args: pytest.fail("the APT channel moved"))
+    monkeypatch.setattr(termux, "stable_head_version", lambda _env: "0.21.4")
     monkeypatch.setattr(docker, "promote_stable", promote)
     monkeypatch.setattr(docker, "stable_alias_digest", lambda: alias[0])
     env = {"GITHUB_REPOSITORY": "example/project", "REQUESTED_VERSION": "0.21.5"}
@@ -775,45 +654,57 @@ def test_a_release_that_skipped_bundles_ships_only_its_tag_release_and_docker_al
     assert events == [("aliases", "rc.1-v0.21.5", "v0.21.5")]
 
 
-@pytest.mark.parametrize("lanes,docker,store_checked", [
-    # --only windows,docker: a partial desktop set. Only the aliases move; the channel stays.
-    (["windows", "docker"], True, True),
-    # --only windows: no channel moves at all, so the release is finished once public.
-    (["windows"], False, True),
-    # --only macos-arm64,docker: no Store, no channel.
-    (["macos-arm64", "docker"], True, False),
+@pytest.mark.parametrize("lanes,interrupted", [
+    (["termux", "docker"], False), (["termux", "docker"], True), (["termux"], False), ([], False),
 ])
-def test_a_partial_desktop_release_moves_only_what_it_built(monkeypatch, lanes, docker, store_checked):
-    from scripts.releases import channel_releases, docker as docker_module, sequencer, store
+def test_a_release_moves_only_the_channels_it_built(monkeypatch, lanes, interrupted):
+    from scripts.releases import termux, docker, sequencer
 
-    docker_digest = "sha256:" + "b" * 64 if docker else None
-    archived = json.dumps({"files": [{"path": "Store-Product-win.msixbundle"}]}).encode()
-    manifest = hashlib.sha256(archived).hexdigest()
+    docker_digest = "sha256:" + "b" * 64 if "docker" in lanes else None
+    archived = b"accepted candidate transport fixture"
+    manifest = hashlib.sha256(archived).hexdigest() if "termux" in lanes else None
     _tags, releases, run = _sequencer_fixture(
-        "0.21.5", manifest_digest=manifest, docker_digest=docker_digest, lanes=lanes)
+        "0.21.5", manifest_digest=manifest, docker_digest=docker_digest, lanes=lanes, final_tags=False)
     alias = [None]
+    apt_head = ["0.21.4"]
     events = []
 
     def promote(claim_tag, digest, release_tag):
+        assert "docker" in lanes and digest == docker_digest
         events.append(("aliases", claim_tag, release_tag))
         alias[0] = digest
+        if interrupted:
+            raise KeyboardInterrupt("cancelled after aliases moved")
 
-    monkeypatch.setattr(channel_releases, "advance_stable",
-                        lambda *_args: pytest.fail("a partial desktop set moved the protected head"))
-    monkeypatch.setattr(store, "release_from_env", lambda *_a: events.append(("store",)))
-    monkeypatch.setattr(channel_releases, "stable_head_version", lambda _env: "0.21.4")
-    monkeypatch.setattr(docker_module, "promote_stable", promote)
-    monkeypatch.setattr(docker_module, "stable_alias_digest", lambda: alias[0])
+    def advance_apt(env, record, root):
+        assert "termux" in lanes and record["candidate_manifest_sha256"] == manifest
+        events.append(("apt", record["tag"]))
+        apt_head[0] = record["version"]
+
+    def read_archive(key):
+        assert "termux" in lanes
+        assert key == "releases/tag/rc.1-v0.21.5/release-candidates.json"
+        return archived
+
+    monkeypatch.setattr(termux, "advance_stable", advance_apt)
+    monkeypatch.setattr(termux, "stable_head_version", lambda _env: apt_head[0])
+    monkeypatch.setattr(docker, "promote_stable", promote)
+    monkeypatch.setattr(docker, "stable_alias_digest", lambda: alias[0])
     env = {"GITHUB_REPOSITORY": "example/project", "REQUESTED_VERSION": "0.21.5"}
 
-    steps = sequencer.reconcile(env, run=run, read_archive=lambda _key: archived)
-
-    assert steps == [{"flip": "0.21.5"}, {"advance": "0.21.5"}]
-    assert events == ([("aliases", "rc.1-v0.21.5", "v0.21.5")] if docker else []) + \
-        ([("store",)] if store_checked else [])
+    if interrupted:
+        with pytest.raises(KeyboardInterrupt, match="after aliases moved"):
+            sequencer.reconcile(env, run=run, read_archive=read_archive)
+    else:
+        steps = sequencer.reconcile(env, run=run, read_archive=read_archive)
+        assert steps == [{"flip": "0.21.5"}, {"advance": "0.21.5"}]
+    expected = ([("apt", "v0.21.5")] if "termux" in lanes else []) + \
+        ([("aliases", "rc.1-v0.21.5", "v0.21.5")] if "docker" in lanes else [])
+    assert events == expected
     assert releases[0]["tag_name"] == "v0.21.5" and releases[0]["draft"] is False
     # Finished: the alias carries the receipt's digest, or the release moves no channel at all.
-    assert sequencer.reconcile(env, run=run, read_archive=lambda _key: archived) == []
+    assert sequencer.reconcile(env, run=run, read_archive=read_archive) == []
+    assert events == expected
 
 
 def test_the_sequencer_narrates_every_phase_on_stderr_and_keeps_stdout_json(capsys):

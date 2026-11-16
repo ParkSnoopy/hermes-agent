@@ -198,7 +198,7 @@ async def _target(authority, actor):
         target = authority.db.get_session(tip)
         if target is None:
             raise RuntimeStoreError('not_found')
-        from gateway.session_local_migration import resolve_local_target
+        from gateway.session_local_route import resolve_local_target
         from gateway.session_route_recovery import handed_off_ref
         # A Bot Chat handed off to a messaging lane stays the bot's chat there: delivery follows it.
         ref = lane = handed_off_ref(authority, target['id'])
@@ -220,7 +220,7 @@ def displaceable_bot_chat(authority, row, subject=None):
     unbound local history ``_kept_local_history`` does not keep for the delivering *subject*.
     Else None: a bound local chat and kept history are never moved."""
     from hermes_state_local import POLICY_PREFIX
-    from hermes_state_local_migration import LEGACY_PREFIX
+
 
     if str(row.get('chat_id') or '').startswith('local-'):
         return None  # every delivery asks: a bound local chat answers from its own row, with no read
@@ -236,13 +236,12 @@ def displaceable_bot_chat(authority, row, subject=None):
             return None
         chat_id = str(candidate.get('chat_id') or '')
         with db._read_ctx() as conn:
-            if conn.execute('SELECT 1 FROM state_meta WHERE key IN (?,?)',
-                            (POLICY_PREFIX + (chat_id or candidate['id']),
-                             LEGACY_PREFIX + (chat_id or candidate['id']))).fetchone():
+            if conn.execute('SELECT 1 FROM state_meta WHERE key=?',
+                            (POLICY_PREFIX + (chat_id or candidate['id']),)).fetchone():
                 return None
     # Only the tip is adopted (``_target``), so only the tip decides: a root the owner could adopt
     # above a tip nobody can would otherwise hold the title and refuse every delivery.
-    return None if _kept_local_history(db, tip, subject) else row['id']
+    return row['id']
 
 
 def release_superseded_bot_chat(db, store, route, session_id):
@@ -252,10 +251,10 @@ def release_superseded_bot_chat(db, store, route, session_id):
     stop naming it and the next click or delivery mints a fresh Bot Chat (#143286). Every route
     transition calls this, and so does boot (an older build's transition)."""
     from gateway.session_route_recovery import _messaging_platform
-    from hermes_state_local_migration import LEGACY_LOCAL_SOURCES
+    from agent.session_source import CLI_FAMILY_SOURCES
     root = (db.get_compression_lineage(session_id) or [session_id])[0]
     row = db.get_session(root)
-    if (row is None or row.get('title') != 'Bot Chat' or row.get('created_source') not in LEGACY_LOCAL_SOURCES
+    if (row is None or row.get('title') != 'Bot Chat' or row.get('created_source') not in CLI_FAMILY_SOURCES
             or _messaging_platform(row.get('source')) is None):
         return
     with store._lock:
@@ -272,38 +271,6 @@ def release_superseded_bot_chat_at_boot(db, store):
         tip = db.get_session(db.get_compression_tip(row['id']) or row['id']) or row
         release_superseded_bot_chat(db, store, tip.get('session_key'), row['id'])
 
-
-def _kept_local_history(db, row, subject=None):
-    """Whether an unbound row is local history the Bot Chat door must leave in place: a CLI, TUI
-    or Desktop row the delivering *subject* or the host owner adopts by the native open's own rule
-    (``validate_legacy_row``: unstamped, or stamped with one of that adopter's identities), or a
-    Desktop row a foreign login stamped with its label (#140183: kept even with a route column or
-    another profile's name). Any other local-source row (a route column left by a crash or
-    reconnect, another profile's stamp, a stamp neither adopter owns, or outside Desktop a foreign
-    label) is not: kept, it held the title and refused every delivery for good (#141243, #143715).
-    *subject* None: the row's own ``auth:v1`` or owner-label stamp is the adopter, as a peer DM's
-    turn enters the chat."""
-    from gateway.owner_identity import host_owner_subject, same_owner
-    from gateway.session_identity import parse_authenticated_subject
-    from hermes_state_local_migration import LEGACY_LOCAL_SOURCES, legacy_account_label, validate_legacy_row
-    if row.get('source') not in LEGACY_LOCAL_SOURCES:
-        return False
-    user_id = row.get('user_id')
-    owner = host_owner_subject()
-    if (user_id and not legacy_account_label(row) and not same_owner(user_id, owner)
-            and not (subject and same_owner(user_id, subject))
-            and parse_authenticated_subject(user_id) is None):
-        # A label neither adopter owns: Desktop keeps it (#140183); elsewhere no open adopts it.
-        return row.get('source') == 'desktop'
-    # A forwarded login (control socket) adopts its own stamp; the owner's history is never moved
-    # aside for a delivery that cannot adopt it.
-    for adopter in dict.fromkeys((user_id if subject is None else subject, owner)):
-        try:
-            validate_legacy_row(db, row, subject=adopter)
-        except RuntimeStoreError:
-            continue
-        return True
-    return False
 
 
 def _moved_aside_by_this_door(authority, holder, pinned):

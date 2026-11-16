@@ -139,18 +139,14 @@ def validate_deferred_call_args(name: str, args: dict[str, Any]) -> Optional[str
 def normalize_tool_call_entries(args: dict[str, Any]) -> tuple[list[dict[str, Any]], Optional[str]]:
     """Normalize ``tool_call`` arguments into a ``calls[]`` list of entries.
 
-    Accepts the advertised batch shape ``{"calls": [{"name", "arguments"}, ...]}``
-    and, tolerantly, the legacy single shape ``{"name": ..., "arguments": ...}``
-    (a single call is a batch of one). Each entry's ``arguments`` is coerced to
+    Accepts the batch shape ``{"calls": [{"name", "arguments"}, ...]}``.
+    Each entry's ``arguments`` is coerced to
     a dict (JSON strings parsed, ``None`` → ``{}``). Returns ``(entries, None)``
     or ``([], error_message)``.
     """
     raw_calls = args.get("calls")
     if raw_calls is None:
-        # Legacy single shape.
-        if not str(args.get("name") or "").strip():
-            return [], "tool_call requires 'calls' (an array of {name, arguments})"
-        raw_calls = [{"name": args.get("name"), "arguments": args.get("arguments")}]
+        return [], "tool_call requires 'calls' (an array of {name, arguments})"
     if isinstance(raw_calls, str):
         # Tolerate the model emitting the batch envelope as a JSON string —
         # mirror the per-entry `arguments` handling below (#114484).

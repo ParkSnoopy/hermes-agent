@@ -53,6 +53,104 @@ _JOB_HANDLE = None
 _LEDGER_LOCK = threading.Lock()
 
 
+def _pid_environ(pid: int) -> dict[str, str] | None:
+    with suppress(Exception):
+        import psutil
+        return dict(psutil.Process(pid).environ())
+    try:
+        raw = Path(f"/proc/{pid}/environ").read_bytes()
+    except OSError:
+        return None
+    env = {}
+    for part in raw.split(b"\x00"):
+        key, sep, value = part.partition(b"=")
+        if sep:
+            env[key.decode("utf-8", errors="replace")] = value.decode("utf-8", errors="replace")
+    return env
+
+
+def _pid_passwd_home(pid: int) -> str | None:
+    uid = None
+    with suppress(Exception):
+        import psutil
+        uid = psutil.Process(pid).uids().real
+    if uid is None:
+        with suppress(OSError):
+            uid = os.stat(f"/proc/{pid}").st_uid
+    if uid is not None:
+        with suppress(Exception):
+            import pwd
+            return pwd.getpwuid(uid).pw_dir or None
+    return None
+
+
+def _pid_cmdline(pid: int) -> list[str] | None:
+    with suppress(Exception):
+        import psutil
+        return psutil.Process(pid).cmdline() or None
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+        return [part.decode("utf-8", errors="replace") for part in raw.split(b"\x00") if part] or None
+    except OSError:
+        return None
+
+
+def _hermes_home_for_pid(pid: int, *, require_launch_identity: bool = False) -> str | None:
+    """Resolve a target home; destructive callers require pinned launch identity."""
+    env = _pid_environ(pid)
+    if env is None:
+        return None
+    from hermes_cli.profiles import get_active_profile, normalize_profile_name, profile_root_for_env_home
+
+    argv = _pid_cmdline(pid)
+    if require_launch_identity and not argv:
+        return None
+    argv = argv or []
+    profile = None
+    for i, token in enumerate(argv):
+        if token in ("--profile", "-p") and i + 1 < len(argv):
+            profile = str(argv[i + 1])
+            break
+        if token.startswith("--profile="):
+            profile = token.split("=", 1)[1]
+            break
+    env_home = env.get("HERMES_HOME", "").strip()
+    if require_launch_identity:
+        anchor = (env.get("LOCALAPPDATA") or env.get("USERPROFILE")) if sys.platform == "win32" else env.get("HOME")
+        if (env_home and not Path(env_home).is_absolute()) or (not env_home and (not anchor or not Path(anchor).is_absolute())):
+            return None
+    if profile is None and env_home and (
+        Path(env_home).parent.name == "profiles" or env.get("HERMES_UPDATE_POST_SWAP") == "1"
+    ):
+        return env_home
+    if sys.platform == "win32":
+        base = Path(env["LOCALAPPDATA"].strip()) if env.get("LOCALAPPDATA", "").strip() else Path(env.get("USERPROFILE") or Path.home()) / "AppData" / "Local"
+        default_home = base / "hermes"
+    else:
+        default_home = Path(env.get("HOME") or _pid_passwd_home(pid) or Path.home()) / ".hermes"
+    root = profile_root_for_env_home(env_home, default_home)
+    fixed = any(env.get(k) for k in ("HERMES_SUPERVISED_CHILD", "HERMES_S6_SUPERVISED_CHILD", "HERMES_GATEWAY_EXTERNAL_SUPERVISOR", "HERMES_GATEWAY_PROFILE_PIN"))
+    if profile is None and not fixed:
+        if require_launch_identity:
+            return None
+        profile = get_active_profile(root)
+    canon = normalize_profile_name(profile) if profile else "default"
+    return str(root) if canon == "default" else str(root / "profiles" / canon)
+
+
+def _normalized_home_for_compare(home: str) -> str:
+    try:
+        path = Path(home).resolve()
+    except (OSError, RuntimeError, ValueError):
+        path = Path(home)
+    return os.path.normcase(str(path))
+
+
+def _process_age_seconds(pid: int) -> float:
+    import psutil
+    return max(0.0, time.time() - psutil.Process(pid).create_time())
+
+
 def install_id(project_root: Optional[Path] = None) -> str:
     """Stable 12-hex identifier for THIS install (derived from its path)."""
     if project_root is None:
@@ -601,43 +699,15 @@ def _terminate_then_kill(pid: int, create_time: Optional[float], boot: Optional[
         return False
 
 
-def _reparented_orphan(pid: int) -> bool:
-    """Null-spawner owner with no live supervisor: reparented to init, old, lock-unclaimed.
-
-    Mirrors ``_reap_orphaned_desktop_local_serves``: operator-managed remote backends legitimately
-    sit at ppid 1 (systemd, an exited sshd), so ppid alone is never proof — the SSH-lock claim
-    and the 180 s lock-write grace exclude live-supervised backends. Windows: the ppid probe is
-    unavailable there, so this rung never fires (desktop tree-kill reaps instead).
-    """
-    try:
-        from hermes_cli.dashboard_procs import (
-            _REAP_MIN_AGE_SECONDS, _lock_owned_serve_pids, _process_ppid)
-        if _process_ppid(pid) not in (0, 1):
-            return False
-        if pid in (_lock_owned_serve_pids() or ()):
-            return False
-        import time as _time
-
-        import psutil
-        return max(0.0, _time.time() - psutil.Process(pid).create_time()) >= _REAP_MIN_AGE_SECONDS
-    except Exception:
-        return False  # unprovable → never touch
-
-
 def reap_orphaned_backend_owner(
     pid: int, create_time: Optional[float], *, kill_fn=None) -> Optional[int]:
     """Kill the conflicting host owner when the ledger PROVES it is a dead session's orphan.
 
     HELD_BY_OTHER rung for #121964: the owner PID is alive (re-parented to init), so
     ``record_is_stale()`` never fires and a fresh backend would loop observe-only against the
-    same orphan forever. Reaped only with a live ``serve``/``dashboard``/``gateway`` entry for
-    THIS install whose spawner is provably dead — or whose spawner was never recorded and which
-    is reparented to init, old, and claimed by no Desktop SSH lock. Live-spawned, lock-claimed,
-    young, interactive, self, or unprovable owners are never touched. Returns the reaped pid,
-    else ``None``; never raises.
-
-    # ponytail: a dead session's surviving backend.lock.json still shields its orphan (the lock
-    # has no session liveness); clearing stale locks is a Desktop-side lifecycle job, not this rung.
+    same orphan forever. Reap only a live ledger entry for THIS install whose spawner is provably dead.
+    Live-spawned, interactive, self, or unprovable owners are never touched. Returns the
+    reaped pid, else ``None``; never raises.
     """
     try:
         pid = int(pid)
@@ -657,8 +727,7 @@ def reap_orphaned_backend_owner(
         return None
     if entry is None:
         return None
-    if spawner_is_dead(entry) is not True and not (
-            entry.get("spawner_pid") is None and _reparented_orphan(pid)):
+    if spawner_is_dead(entry) is not True:
         return None  # live or unprovable spawner → never touch
     try:
         if kill_fn is not None:

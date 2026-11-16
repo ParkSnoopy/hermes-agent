@@ -511,7 +511,7 @@ def _build(builder, **overrides):
         patch("agent.prompt_builder.load_soul_md", return_value=""),
         patch("agent.prompt_builder.build_environment_hints", return_value=""),
         patch("agent.prompt_builder.build_context_files_prompt", return_value=_CONTEXT),
-        patch("model_tools.get_toolset_for_tool", return_value=None),
+        patch("tools.registry.registry.get_toolset_for_tool", return_value=None),
         patch("agent.prompt_builder.build_skills_system_prompt", return_value=_SKILLS),
     ):
         return builder(agent)

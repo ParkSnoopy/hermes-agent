@@ -30,7 +30,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'user-guide/cli',
         'user-guide/tui',
-        'user-guide/desktop',
+
         'user-guide/bot-mode',
         'user-guide/windows-native',
         'user-guide/windows-wsl-quickstart',
@@ -65,7 +65,7 @@ const sidebars: SidebarsConfig = {
         'user-guide/profiles',
         'user-guide/profile-distributions',
         'user-guide/multi-profile-gateways',
-        'user-guide/multi-connection-desktop',
+
         'user-guide/git-worktrees',
         'user-guide/docker',
         'user-guide/security',
@@ -145,9 +145,7 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'Management',
           items: [
-            'user-guide/features/web-dashboard',
-            'user-guide/features/extending-the-dashboard',
-            'user-guide/features/api-server',
+
             'user-guide/features/subscription-proxy',
           ],
         },
@@ -598,7 +596,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/optional/software-development/software-development-code-wiki',
                     'user-guide/skills/optional/software-development/software-development-grill-me',
                     'user-guide/skills/optional/software-development/software-development-hermes-agent-skill-authoring',
-                    'user-guide/skills/optional/software-development/software-development-inspecting-hermes-desktop-dom',
+
                     'user-guide/skills/optional/software-development/software-development-node-inspect-debugger',
                     'user-guide/skills/optional/software-development/software-development-pr-lens',
                     'user-guide/skills/optional/software-development/software-development-python-debugpy',
@@ -631,9 +629,8 @@ const sidebars: SidebarsConfig = {
       collapsed: true,
       items: [
         'user-guide/messaging/a2a',
-        'user-guide/messaging/teams-meetings',
-        'user-guide/messaging/msgraph-webhook',
-        'user-guide/messaging/webhooks',
+
+
       ],
     },
     {
@@ -736,7 +733,7 @@ const sidebars: SidebarsConfig = {
                 'developer-guide/observer-hooks',
                 'developer-guide/middleware',
                 'developer-guide/subagent-lifecycle-api',
-                'developer-guide/desktop-plugin-sdk',
+
                 'developer-guide/memory-provider-plugin',
                 'developer-guide/context-engine-plugin',
                 'developer-guide/secret-source-plugin',

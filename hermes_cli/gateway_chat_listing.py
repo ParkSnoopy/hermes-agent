@@ -22,7 +22,8 @@ def print_tool_listing(args) -> int:
     from agent.i18n import t
     enabled, disabled = _selection(args)
     if getattr(args, "list_tools", False):
-        from model_tools import get_tool_definitions, get_toolset_for_tool
+        from model_tools import get_tool_definitions
+        from tools.registry import registry
         # Pre-assembly list, as main's /tools: deferred tool_search tools are shown too.
         tools = get_tool_definitions(enabled_toolsets=enabled, disabled_toolsets=disabled, quiet_mode=True,
                                      skip_tool_search_assembly=True)
@@ -35,7 +36,7 @@ def print_tool_listing(args) -> int:
             desc = tool["function"].get("description", "").split("\n")[0]
             if ". " in desc:
                 desc = desc[:desc.index(". ") + 1]
-            grouped.setdefault(get_toolset_for_tool(name) or "unknown", []).append((name, desc))
+            grouped.setdefault(registry.get_toolset_for_tool(name) or "unknown", []).append((name, desc))
         print(t("cli.tools.header"))
         for toolset in sorted(grouped):
             print(f"\n  [{toolset}]")

@@ -16,10 +16,10 @@ logger = logging.getLogger("tools.terminal_tool")
 # only for servers/watchers; for bounded tasks the agent almost always wanted a
 # notification and forgot the flag, so nudge it (cheap false positive).
 _SILENT_BACKGROUND_HINT = (
-    'background=true without notify_on_complete=true means this process runs SILENTLY — you '
+    'background=true without notify=true means this process runs SILENTLY — you '
     'will not be told when it exits. If this is a bounded task (test suite, build, CI poller, '
-    'deploy, anything with a defined end), you almost certainly wanted notify_on_complete=true '
-    'so the system pings you on exit. Re-launch with notify_on_complete=true, or call '
+    'deploy, anything with a defined end), you almost certainly wanted notify=true '
+    'so the system pings you on exit. Re-launch with notify=true, or call '
     "process(action='poll') / process(action='wait') yourself to learn the outcome. Only "
     'ignore this hint for genuine long-lived processes that never exit (servers, watchers, '
     'daemons).'
@@ -54,7 +54,7 @@ _AUTO_BACKGROUND_NOTE = (
 )
 
 _ASYNC_UNSUPPORTED_NOTE = (
-    'notify_on_complete / watch_patterns are not available in this session — it cannot receive '
+    'notify is not available in this session — it cannot receive '
     'an async completion after the turn ends (a one-shot runner such as `hermes -z`, a /bg '
     'background task, a cron job, a Kanban worker, or a stateless HTTP endpoint). The process is running in the '
     "background; retrieve its result with process(action='poll') or process(action='wait')."

@@ -825,8 +825,7 @@ DEFAULT_CONFIG = {
         # `hermes --tui` auto-resumes the most recent human-facing session (like `hermes -c`).
         # HERMES_TUI_RESUME=<id> always wins.
         "tui_auto_resume_recent": False,
-        # Desktop reopens the last chat/page on cold start (also in Settings → Appearance).
-        "resume_last_session": True,
+
         # One-time TUI hint ("subagents working · /agents to watch live") on first delegation.
         "tui_agents_nudge": True,
         "bell_on_complete": False,
@@ -1024,7 +1023,7 @@ DEFAULT_CONFIG = {
             "secret": "",
             "session_ttl_seconds": 0,  # 0 → plugin default (12h)
         },
-        "session_token_auth": {"enabled": True},  # session_token plugin: a provisioned HERMES_DASHBOARD_SESSION_TOKEN (literal or file:<path>) authorizes the gated dashboard; enabled: false opts out
+
         # Drain-control token auth (dashboard_auth/drain plugin): the secret is NOT here (env
         # HERMES_DASHBOARD_DRAIN_SECRET); no-op unless >=256-bit, weak secrets rejected (fail-closed).
         "drain_auth": {"scope": "drain", "min_secret_chars": 43},
@@ -1037,6 +1036,10 @@ DEFAULT_CONFIG = {
         "public_url": "",
     },
 
+    "projects": {
+        # Filesystem discovery is opt-in by root; session-derived projects remain available.
+        "repo_scan": {"enabled": True, "roots": [], "exclude_paths": []},
+    },
     "privacy": {
         "redact_pii": False,  # hash user IDs and strip phone numbers from LLM context
     },
@@ -1987,18 +1990,7 @@ DEFAULT_CONFIG = {
         # Recency window in seconds; 600 covers a multi-tool turn. Bridged to
         # HERMES_MEDIA_TRUST_RECENT_SECONDS. Only consulted when strict is true.
         "trust_recent_files_seconds": 600,
-        "api_server": {  # OpenAI-compatible API server platform (gateway/platforms/api_server.py).
-            # Max concurrent agent runs. Requests to /v1/chat/completions, /v1/responses, and
-            # /v1/runs beyond this get HTTP 429 + Retry-After, bounding CPU/memory/LLM-quota
-            # exhaustion from a request flood. 0 = no cap.
-            "max_concurrent_runs": 10,
-            # Cap (chars) on each tool output and tool-call argument string in the stored
-            # /v1/responses conversation history used for previous_response_id chaining. The
-            # stored history is cumulative, so a few large tool outputs can make one
-            # response_store.db write several hundred KB. 0 = store tool outputs verbatim
-            # (default: the capped text is what the model is replayed on the next turn).
-            "history_tool_output_max_chars": 0,
-        },
+
     },
     # Generic gateway adapter streaming; individual adapters may not support edits.
     "streaming": {
@@ -2011,6 +2003,8 @@ DEFAULT_CONFIG = {
     # Automatic cleanup of ~/.hermes/state.db, which otherwise grows without bound and slows FTS5
     # inserts, /resume listing, and insights queries.
     "sessions": {
+        # Resume fresh crash-interrupted TUI turns, bounded against repeated crashes.
+        "auto_continue": {"enabled": True, "freshness_minutes": 15, "max_attempts": 2},
         # Prune ENDED sessions inactive for retention_days (activity = freshest of live activity /
         # latest message / creation) about once per min_interval_hours at CLI/gateway/cron startup.
         # Open, pinned, or mid-turn sessions are never deleted; stale automation sessions whose
@@ -2354,64 +2348,6 @@ DEFAULT_CONFIG = {
         # Extra allowed upstream hosts beyond the bundled major-provider defaults; wildcards
         # (`*.foo.com`) supported.
         "extra_allowed_hosts": [],
-    },
-    "desktop": {  # Hermes Desktop (Electron) launch options; only affect `hermes desktop`.
-        # CSS font-family for the app's chat and UI text (e.g. "OpenDyslexic"). Layered in front
-        # of the active theme's own sans stack so missing glyphs still fall through. Empty = the
-        # theme's face. The terminal pane is terminal.font_family.
-        "font_family": "",
-        # Git repo discovery for the Projects sidebar. Empty roots are a safe
-        # no-op; users must explicitly configure roots for filesystem scanning.
-        # Session-derived projects remain available.
-        "repo_scan_enabled": True,
-        "repo_scan_roots": [],
-        "repo_scan_exclude_paths": [],
-        # Extra Electron flags per launch, e.g. ["--ozone-platform=x11"] or GPU workarounds. List of
-        # strings; a single string is shell-split.
-        "electron_flags": [],
-        # V8 old-space ceiling (MB) for the renderer, applied as --js-flags=--max-old-space-size=N by
-        # the app itself (also for Start-menu / .desktop launches). 0 = Chromium's default limit.
-        # A ceiling turns a machine-wide freeze into a bounded renderer reload (#77311).
-        "renderer_max_old_space_mb": 0,
-        # Linux Ozone backend, bridged to ELECTRON_OZONE_PLATFORM_HINT (explicit env wins). auto =
-        # Chromium default; x11 = XWayland, for compositors that ignore always-on-top for Wayland
-        # clients (e.g. COSMIC) — also puts the HUD on the solid-window input path; wayland = force
-        # a native Wayland surface.
-        # See #84011.
-        "ozone_platform_hint": "auto",
-        # Bridged to HERMES_DESKTOP_DISABLE_GPU: auto = disable GPU only on remote displays
-        # (SSH/VNC/RDP); true = always software rendering (no-GPU VMs where the GPU path hangs);
-        # false = always keep GPU on.
-        "disable_gpu": "auto",
-        # Linux keychain for token storage (Chromium --password-store). auto = detect KWallet (KDE
-        # env) or any org.freedesktop.secrets provider via D-Bus;
-        # gnome-libsecret|kwallet|kwallet5|kwallet6|basic force one (basic = unencrypted). Bridged
-        # to HERMES_DESKTOP_PASSWORD_STORE; ignored off-Linux.
-        "password_store": "auto",
-        # Expose the renderer's accessibility tree to the OS (macOS/Windows) so dictation/IME tools
-        # that insert text via the accessibility APIs can reach the composer (#118271, #92607).
-        # False bridges to HERMES_DESKTOP_RENDERER_ACCESSIBILITY=0 and skips the tree (perf opt-out).
-        "renderer_accessibility": True,
-        # Linux: False preserves an existing custom XDG launcher entry; missing entries
-        # are still created. True keeps the generated entry current on each launch.
-        "manage_launcher_entry": True,
-        # macOS only: code-signing identity (login-keychain cert; self-signed works) to re-sign
-        # locally rebuilt apps so the Designated Requirement — and thus TCC grants — survives
-        # updates. Empty = default ad-hoc identifier-pinned signing.
-        "macos_signing_identity": "",
-        # Windows only: explicit ssh client for SSH connections, the -G config probe and SSH
-        # terminals, e.g. "C:\\Program Files\\Git\\usr\\bin\\ssh.exe" when the in-box OpenSSH is
-        # missing or broken. Empty = System32 OpenSSH, then Git for Windows' ssh.exe, then PATH.
-        # Read by the app before its first window; restart to apply. Ignored off-Windows.
-        "ssh_path": "",
-        # Auto-continue a turn killed by a crash: resuming re-submits the interrupted prompt if
-        # fresh; a stale one just shows the recovered partial transcript.
-        "auto_continue": {
-            "enabled": True,
-            # How recent the interruption must be to auto-continue (minutes).
-            "freshness_minutes": 15,
-            "max_attempts": 2,  # Crash-loop breaker: max automatic re-runs of one interrupted turn.
-        },
     },
 
     "nous": {

@@ -96,17 +96,6 @@ def _read_choice(prompt: str, timeout_seconds: int) -> str | None:
     return None if thread.is_alive() else result["choice"]
 
 
-def callback_accepts(callback, keyword: str) -> bool:
-    """True when *callback* takes ``keyword`` (or ``**kwargs``); approval callbacks predate ``title``
-    and a TypeError inside the callback would read as a deny."""
-    import inspect
-    try:
-        params = inspect.signature(callback).parameters
-    except (TypeError, ValueError):
-        return False
-    return keyword in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
-
-
 def _ask_human(command: str, description: str, timeout_seconds: int, allow_permanent: bool,
                approval_callback, allow_session: bool, smart_denied: bool, title: str | None = None) -> str:
     # Redact before any user-visible rendering; the original `command` still executes after approval. Same redactor as
@@ -119,11 +108,10 @@ def _ask_human(command: str, description: str, timeout_seconds: int, allow_perma
 
     if approval_callback is not None:
         try:
-            # Non-default scopes only: legacy callbacks lack the newer keywords.
             callback_kwargs = {"allow_permanent": allow_permanent,
                                **({"allow_session": False} if not allow_session else {}),
                                **({"smart_denied": True} if smart_denied else {}),
-                               **({"title": title} if title and callback_accepts(approval_callback, "title") else {})}
+                               "title": title}
             return approval_callback(display_command, display_description, **callback_kwargs)
         except Exception as e:
             logger.error("Approval callback failed: %s", e, exc_info=True)

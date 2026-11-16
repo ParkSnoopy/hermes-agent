@@ -7,7 +7,7 @@ silently replaced by the nested one. Both overwrite whatever legacy gateway.json
 """
 
 import contextlib
-import json
+
 import logging
 import os
 from pathlib import Path
@@ -18,20 +18,6 @@ from gateway.config import UNAUTHORIZED_DM_BEHAVIORS, Platform, PlatformConfig, 
 # Logger name parity with the origin module: records stay under "gateway.config".
 logger = logging.getLogger("gateway.config")
 
-
-def load_legacy_gateway_json(home: Path) -> Any:
-    """Legacy ``gateway.json`` base layer (config.yaml keys always win). Malformed → ``{}`` + warning."""
-    path = home / "gateway.json"
-    if not path.exists():
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8-sig") as f:
-            data = json.load(f) or {}
-        logger.info("Loaded legacy %s — consider moving settings to config.yaml", path)
-        return data
-    except Exception as e:
-        logger.warning("Failed to load %s: %s", path, e)
-        return {}
 
 
 # --- top-level key bridging ----------------------------------------------------

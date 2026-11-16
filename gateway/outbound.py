@@ -131,10 +131,9 @@ def _platform_enum(platform_name):
 def _resolve_platform_config(platform_name, config):
     """``(platform, pconfig, registry_entry, error)``. Plugin platforms must be registered;
     disabled/missing platforms error."""
-    from gateway.config import Platform
     from gateway.platform_registry import platform_registry
     entry = platform_registry.get(platform_name)
-    if entry is None and platform_name not in {Platform.API_SERVER.value, Platform.WEBHOOK.value, Platform.MSGRAPH_WEBHOOK.value}:
+    if entry is None:
         return None, None, None, unknown_platform_error(platform_name)
     platform, err = _platform_enum(platform_name)
     if err:
@@ -454,7 +453,7 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
     from gateway.platform_registry import platform_registry
     if not platform_registry.is_registered(platform_name):
         prepare_send_message_platforms()
-    if platform_name not in {"api_server", "webhook", "msgraph_webhook"} and not platform_registry.is_registered(platform_name):
+    if not platform_registry.is_registered(platform_name):
         return _error(unknown_platform_error(platform_name))
     media_files = media_files or []
     from gateway.platforms.base import BasePlatformAdapter

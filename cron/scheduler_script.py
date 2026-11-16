@@ -65,16 +65,7 @@ def _timeout_from_env_or_config(
 
 
 def _get_script_timeout() -> int:
-    """Resolve cron pre-run script timeout from module/env/config with a safe default."""
-    if _sched._SCRIPT_TIMEOUT != _sched._DEFAULT_SCRIPT_TIMEOUT:
-        try:
-            timeout = _positive_int(_sched._SCRIPT_TIMEOUT)
-            if timeout is not None:
-                return timeout
-        except Exception:
-            logger.warning(
-                "Invalid patched _SCRIPT_TIMEOUT=%r; using env/config/default",
-                _sched._SCRIPT_TIMEOUT)
+    """Resolve cron pre-run script timeout from env/config with a safe default."""
     resolved = _timeout_from_env_or_config(
         "HERMES_CRON_SCRIPT_TIMEOUT", "script_timeout_seconds", _positive_int,
         "cron script timeout",

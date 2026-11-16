@@ -101,7 +101,7 @@ def test_commit_build_cli_dispatches_only_the_resolved_remote_commit(fixture_rep
         result, calls = invoke('--build-commit', revision)
         assert result.returncode == 0, result.stderr
         assert tip in result.stdout
-        assert f'https://hermes-assets.nousresearch.com/releases/commit/{tip}/index.html' in result.stdout
+        assert f'https://hermes-assets.nousresearch.com/releases/commit/{tip}/handoff-termux.json' in result.stdout
         assert not any(call[1:3] == ['workflow', 'run'] for call in calls)
     result, calls = invoke('--build-commit', tip, '--publish')
     assert result.returncode == 0, result.stderr
@@ -118,7 +118,7 @@ def test_commit_build_cli_dispatches_only_the_resolved_remote_commit(fixture_rep
 def test_commit_build_dispatch_is_repository_independent(fixture_repo):
     repo, _, invoke = fixture_repo
     tip = git(repo, 'rev-parse', 'HEAD')
-    expected = ['gh', 'workflow', 'run', 'desktop-bundled-release.yml',
+    expected = ['gh', 'workflow', 'run', 'termux-release.yml',
                 '--ref', 'main', '--repo', 'fixture-owner/fixture-repo',
                 '-f', f'build_commit={tip}', '-f', 'tag=', '-f', 'upload_release=false',
                 '-f', 'termux_upgrade_from_tag=']
@@ -133,7 +133,7 @@ def test_commit_build_dispatch_is_repository_independent(fixture_repo):
                            extra={'PROBE_UPSTREAM_URL': 'https://github.com/NousResearch/hermes-agent.git'})
     assert result.returncode == 0, result.stderr
     dispatches = [call for call in calls if call[1:3] == ['workflow', 'run']]
-    assert dispatches == [['gh', 'workflow', 'run', 'desktop-bundled-release.yml',
+    assert dispatches == [['gh', 'workflow', 'run', 'termux-release.yml',
                            '--ref', 'main', '--repo', 'NousResearch/hermes-agent',
                            '-f', f'build_commit={tip}', '-f', 'tag=', '-f', 'upload_release=false',
                            '-f', 'termux_upgrade_from_tag=']]
@@ -144,37 +144,11 @@ def test_commit_build_dispatch_is_repository_independent(fixture_repo):
 # channels remain reachable via explicit --channel-request / CI allocation.
 
 
-def test_commit_bundle_environment_is_literal_and_validated(fixture_repo):
+@pytest.mark.parametrize('flag,value', [('bundle-env', 'HERMES_HOME=x'), ('bundle-unset', 'HERMES_HOME')])
+def test_commit_build_refuses_retired_graphical_overrides(fixture_repo, flag, value):
     repo, _, invoke = fixture_repo
     tip = git(repo, 'rev-parse', 'HEAD')
-    values = {'HERMES_PREVIEW_FULL_CONNECTORS': '1', 'HERMES_DATA_DIR_SUFFIX': 'magic-test',
-              'HERMES_DESKTOP_USER_DATA_DIR': '', 'HERMES_SHARED_AUTH_DIR': 'a=b "quote"\n$(not-a-command)'}
-    flags = [part for key, value in values.items() for part in ('--bundle-env', f'{key}={value}')]
-    result, calls = invoke('--build-commit', tip, '--publish', *flags)
-    assert result.returncode == 0, result.stderr
-    dispatch = next(call for call in calls if call[1:3] == ['workflow', 'run'])
-    assert json.loads(next(field.split('=', 1)[1] for field in dispatch if field.startswith('bundle_env='))) == values
-    for invalid in (['--bundle-env', 'MISSING'], ['--bundle-env', 'BAD-NAME=x'],
-                    ['--bundle-env', 'NODE_OPTIONS=--require=evil'], ['--bundle-env', 'HERMES_SKIP_INTRO=1'],
-                    ['--bundle-env', 'HERMES_GUEST_ONBOARDING=1'], ['--bundle-unset', 'PATH'],
-                    ['--bundle-env', 'HERMES_HOME=x', '--bundle-env', 'HERMES_HOME=y']):
-        result, calls = invoke('--build-commit', tip, '--publish', *invalid)
-        assert result.returncode != 0 and not calls
-    result, calls = invoke('--bundle-env', 'NAME=value')
-    assert result.returncode == 2 and not calls
-
-    result, calls = invoke('--build-commit', tip, '--publish', *flags,
-                           '--bundle-unset', 'HERMES_HOME')
-    assert result.returncode == 0, result.stderr
-    dispatch = next(call for call in calls if call[1:3] == ['workflow', 'run'])
-    assert json.loads(next(field.split('=', 1)[1] for field in dispatch if field.startswith('bundle_env='))) == {
-        **values, 'HERMES_HOME': None}
-    for invalid in (['--bundle-unset', 'BAD-NAME'],
-                    ['--bundle-env', 'HERMES_HOME=x', '--bundle-unset', 'HERMES_HOME'],
-                    ['--bundle-unset', 'HERMES_HOME', '--bundle-unset', 'HERMES_HOME']):
-        result, calls = invoke('--build-commit', tip, '--publish', *invalid)
-        assert result.returncode != 0 and not calls
-    result, calls = invoke('--bundle-unset', 'HERMES_HOME')
+    result, calls = invoke('--build-commit', tip, '--publish', '--' + flag, value)
     assert result.returncode == 2 and not calls
 
 def test_commit_build_requires_pushed_refs_and_github_origin(tmp_path, fixture_repo):
@@ -225,10 +199,9 @@ def test_workflow_admission_checks_trust_before_publishing_outputs(tmp_path, fix
     env = {'BUILD_COMMIT': tip, 'DEFAULT_BRANCH': 'main',
            'GITHUB_REPOSITORY': 'fixture-owner/fixture-repo', 'GITHUB_EVENT_NAME': 'workflow_dispatch',
            'GITHUB_REF': 'refs/heads/main',
-           'GITHUB_WORKFLOW_REF': 'fixture-owner/fixture-repo/.github/workflows/desktop-bundled-release.yml@refs/heads/main',
+           'GITHUB_WORKFLOW_REF': 'fixture-owner/fixture-repo/.github/workflows/termux-release.yml@refs/heads/main',
            'GITHUB_ACTOR': 'maintainer', 'GITHUB_TRIGGERING_ACTOR': 'maintainer',
-           'GITHUB_OUTPUT': str(output), 'UPLOAD_RELEASE': 'false',
-           'BUNDLE_ENV_JSON': '{"HERMES_PREVIEW_FULL_CONNECTORS":"1","HERMES_HOME":null}'}
+           'GITHUB_OUTPUT': str(output), 'UPLOAD_RELEASE': 'false'}
     result, calls = invoke('admit', extra=env)
     assert result.returncode == 0, result.stderr
     assert dict(line.split('=', 1) for line in output.read_text(encoding='utf-8').splitlines()) == {
@@ -239,7 +212,7 @@ def test_workflow_admission_checks_trust_before_publishing_outputs(tmp_path, fix
                        ('RELEASE_PHASE', 'candidate'), ('TERMUX_UPGRADE_FROM_TAG', 'v1.0.0'),
                        ('GITHUB_EVENT_NAME', 'workflow_call'), ('GITHUB_REF', 'refs/heads/other'),
                        ('GITHUB_WORKFLOW_REF', 'fixture-owner/fixture-repo/.github/workflows/other.yml@refs/heads/main'),
-                       ('PROBE_PERMISSION', 'read'), ('BUNDLE_ENV_JSON', '[]'),
+                       ('PROBE_PERMISSION', 'read'), ('BUNDLE_ENV_JSON', '{}'), ('BUNDLE_ENV_JSON', '[]'),
                        ('BUNDLE_ENV_JSON', '{"X":1}')]:
         result, _ = invoke('admit', extra={**env, key: value})
         assert result.returncode != 0

@@ -6,7 +6,7 @@
 #
 # Source filters (pythonSrc, per-package npm srcs) reduce rebuild scope so
 # that e.g. a .tsx change doesn't trigger a Python venv rebuild, and a .py
-# change doesn't trigger a TUI/Web/Desktop rebuild.  Each derivation gets a
+# change doesn't trigger a TUI rebuild.  Each derivation gets a
 # filtered src that only includes files it actually needs, while keeping
 # the repo-root directory layout intact for pnpmConfigHook workspace
 # resolution.
@@ -75,20 +75,24 @@ let
   # never duplicated.  Add a workspace to pnpm-workspace.yaml and the nix
   # build picks it up automatically.  Nix reads no YAML: this parses the
   # one shape the file uses (a top-level `packages:` key followed by
-  # `  - <dir>` / `  - <dir>/*` lines) and throws on anything else, so a
+  # `  - <dir>` / `  - <dir>/*` lines, with blank lines or comments) and throws on anything else, so a
   # reformatted list cannot silently drop a workspace.
   workspaceYamlLines = lib.splitString "\n" (builtins.readFile (repoRoot + "/pnpm-workspace.yaml"));
   workspacePatterns =
     let
       start = lib.lists.findFirstIndex (line: line == "packages:") (builtins.length workspaceYamlLines) workspaceYamlLines;
       block = lib.drop (start + 1) workspaceYamlLines;
-      count = lib.lists.findFirstIndex (line: !lib.hasPrefix "  - " line) (builtins.length block) block;
-      items = lib.take count block;
+      isIgnorable = line: builtins.match "[[:space:]]*(#.*)?" line != null;
+      count = lib.lists.findFirstIndex
+        (line: !isIgnorable line && !(lib.hasPrefix " " line) && !(lib.hasPrefix "-" line))
+        (builtins.length block) block;
+      section = lib.take count block;
+      items = builtins.filter (line: !isIgnorable line) section;
       next = builtins.head (lib.drop count block ++ [ "" ]);
       patterns = map (lib.removePrefix "  - ") items;
       supported = pattern: builtins.match "[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*(/\\*)?" pattern != null;
     in
-    if items == [ ] || lib.hasPrefix " " next || lib.hasPrefix "-" next || !(lib.all supported patterns) then
+    if items == [ ] || !(lib.all (line: lib.hasPrefix "  - " line) items) || lib.hasPrefix " " next || lib.hasPrefix "-" next || !(lib.all supported patterns) then
       throw "nix/lib.nix: pnpm-workspace.yaml `packages:` is no longer a block of unquoted `  - <dir>` or `  - <dir>/*` lines; update the parser"
     else
       patterns;
@@ -121,14 +125,14 @@ let
 
   # Top-level directory of each workspace member, deduplicated.  Used to
   # exclude JS/TS workspace trees from the Python source filter.  E.g.
-  # apps/desktop + apps/shared + ui-tui + web → [ "apps" "ui-tui" "web" ].
+  # apps/shared + ui-tui → [ "apps" "ui-tui" ].
   jsWorkspaceTopDirs = lib.unique (
     map (d: builtins.head (lib.splitString "/" d)) workspaceMemberDirs
   );
 
   # ── Source filters for reducing rebuild scope ──────────────────────
   # Changing a .tsx/.mjs file should NOT trigger a Python venv rebuild,
-  # and changing a .py file should NOT trigger a TUI/Web/Desktop rebuild.
+  # and changing a .py file should NOT trigger a TUI rebuild.
 
   # Python source: everything except JS/TS/docs/infra directories.
   pythonSrc = lib.cleanSourceWith {
@@ -281,11 +285,11 @@ let
   # its first entry is the package's own folder (→ packageJsonPath), and
   # all entries scope the filtered src.  Packages that import source from
   # another workspace member (workspace: deps) must list that member's dir
-  # too, e.g. apps/desktop depends on apps/shared.
+  # too, when one workspace imports another workspace's source.
   #
   # Usage:
   #   hermesNpmLib.buildPnpmPackage {
-  #     dirs = [ "apps/desktop" "apps/shared" ];
+  #     dirs = [ "ui-tui" "apps/shared" ];
   #     buildPhase = '' ... '';
   #     installPhase = '' ... '';
   #   }
@@ -370,7 +374,7 @@ in
     fi
     echo "$hash" > nix/pnpm-deps-hash
 
-    nix build .#tui .#web .#webapp .#desktop
+    nix build .#tui
     echo "Lockfile and pnpmDeps hash updated and all pnpm packages built."
   '';
 

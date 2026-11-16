@@ -519,27 +519,6 @@ class StreamingConfig:
         )
 
 
-def _has_usable_api_server_key(key: object) -> bool:
-    """True when API_SERVER_KEY is strong enough for the adapter to start (mirrors the
-    ``has_usable_secret(min_length=16)`` guard in ``gateway/platforms/api_server.py``)."""
-    if not key:
-        return False
-    try:
-        from hermes_cli.auth import has_usable_secret
-        return has_usable_secret(key, min_length=16)
-    except ImportError:
-        return len(str(key).strip()) >= 16
-
-
-# Core-only "sufficiently configured?" checks (no plugin entry). Plugin platforms declare theirs as
-# ``PlatformEntry.config_connected_fn`` (or rely on the generic ``token or api_key`` check).
-_PLATFORM_CONNECTED_CHECKERS: dict[Platform, Callable[[PlatformConfig], bool]] = {
-    Platform.API_SERVER: lambda cfg: _has_usable_api_server_key(cfg.extra.get("key") if cfg else None),
-    Platform.WEBHOOK: lambda cfg: True,
-    Platform.MSGRAPH_WEBHOOK: lambda cfg: bool(str(cfg.extra.get("client_state") or "").strip()),
-}
-
-
 def _discovered_registry_entry(platform: Platform):
     """Registry entry for *platform* after (idempotent) plugin discovery, so a directly-constructed
     config sees plugin platforms; None when absent or the registry is not initialised yet (early import).
@@ -647,9 +626,6 @@ class GatewayConfig:
 
     def _is_platform_connected(self, platform: Platform, config: PlatformConfig, *, registry_entry=None) -> bool:
         """Check readiness, reusing an already-loaded entry when discovery is not appropriate."""
-        checker = _PLATFORM_CONNECTED_CHECKERS.get(platform)
-        if checker is not None:
-            return bool(config.token or config.api_key) or checker(config)
         entry = registry_entry if registry_entry is not None else _discovered_registry_entry(platform)
         if entry is None:
             return False
@@ -799,16 +775,16 @@ class GatewayConfig:
 
 
 def load_gateway_config() -> GatewayConfig:
-    """Load gateway configuration. Priority: env > ~/.hermes/config.yaml > legacy gateway.json > defaults."""
+    """Load gateway configuration. Priority: env > config.yaml > defaults."""
     from gateway import config_loader
 
     _home = get_hermes_home()
-    gw_data = config_loader.load_legacy_gateway_json(_home)
+    gw_data = {}
     try:
         config_loader.load_yaml_layer(_home, gw_data)
     except Exception as e:
         logger.warning(
-            "Failed to process config.yaml — falling back to .env / gateway.json values. "
+            "Failed to process config.yaml — falling back to environment values. "
             "Check %s for syntax errors. Error: %s",
             _home / "config.yaml", e,
         )

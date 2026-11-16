@@ -29,3 +29,14 @@ def test_list_rooms_does_not_enter_a_write_transaction_or_prune(tmp_path, monkey
     rows = hosted_rooms.list_rooms(db)
 
     assert [row["room_id"] for row in rows] == ["room-1"]
+
+
+def test_new_room_store_does_not_import_another_store(tmp_path):
+    hosted_rooms.create_room(
+        tmp_path / "state.db",
+        room_id="old-room",
+        name="Old room",
+        members=[{"profile": "default", "handle": "hermes"}],
+        authority_gateway_id="gateway-a",
+    )
+    assert hosted_rooms.list_rooms(tmp_path / "shared-state.db") == []

@@ -206,8 +206,8 @@ def _claim_message(clone: Path) -> str:
         "attempt": 1,
         "commit": _git("rev-parse", "HEAD", cwd=clone),
         "autopublish": False,
-        "skipBundles": False,
-        "skipTests": False,
+        "lanes": ["docker"],
+        "lanesRevision": 2,
         "claimEpoch": 1_790_000_000,
     }, sort_keys=True, separators=(",", ":"))
 

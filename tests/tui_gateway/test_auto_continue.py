@@ -458,7 +458,7 @@ def test_config_widens_freshness_window(emits, schedule_env, marker_home, monkey
     monkeypatch.setattr(
         server,
         "_load_cfg",
-        lambda: {"desktop": {"auto_continue": {"freshness_minutes": 120}}},
+        lambda: {"sessions": {"auto_continue": {"freshness_minutes": 120}}},
     )
     monkeypatch.setattr(
         server, "time", types.SimpleNamespace(time=lambda: time.time() + 3600)
@@ -485,7 +485,7 @@ def test_disabled_by_config(schedule_env, marker_home, monkeypatch):
     monkeypatch.setattr(
         server,
         "_load_cfg",
-        lambda: {"desktop": {"auto_continue": {"enabled": False}}},
+        lambda: {"sessions": {"auto_continue": {"enabled": False}}},
     )
 
     result = server._maybe_schedule_auto_continue("sid", _session(), "session-key")

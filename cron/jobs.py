@@ -440,10 +440,10 @@ def _job_output_dir(job_id: str) -> Path:
     return _current_cron_store().output_dir / text
 
 
-def _normalize_skill_list(skill: Optional[str] = None, skills: Optional[Any] = None) -> list[str]:
-    """Normalize legacy/single-skill and multi-skill inputs into a unique ordered list."""
+def _normalize_skill_list(skills: Optional[Any] = None) -> list[str]:
+    """Normalize skill inputs into a unique ordered list."""
     if skills is None:
-        raw_items = [skill] if skill else []
+        raw_items = []
     elif isinstance(skills, str):
         raw_items = [skills]
     else:
@@ -457,11 +457,9 @@ def _normalize_skill_list(skill: Optional[str] = None, skills: Optional[Any] = N
 
 
 def _apply_skill_fields(job: dict[str, Any]) -> dict[str, Any]:
-    """Return a job dict with canonical `skills` and legacy `skill` fields aligned."""
+    """Return a job dict with canonical `skills`."""
     normalized = dict(job)
-    skills = _normalize_skill_list(normalized.get("skill"), normalized.get("skills"))
-    normalized["skills"] = skills
-    normalized["skill"] = skills[0] if skills else None
+    normalized["skills"] = _normalize_skill_list(normalized.get("skills"))
     return normalized
 
 
@@ -471,7 +469,7 @@ def _coerce_job_text(value: Any, fallback: str = "") -> str:
 
 
 # Fields whose presence in an update can turn a runnable job into an empty one.
-_PAYLOAD_FIELDS = frozenset({"prompt", "script", "skill", "skills", "no_agent"})
+_PAYLOAD_FIELDS = frozenset({"prompt", "script", "skills", "no_agent"})
 
 EMPTY_PAYLOAD_ERROR = (
     "Cron job has nothing to run: the prompt is blank and no script or "
@@ -484,9 +482,9 @@ def job_payload_is_empty(job: dict[str, Any]) -> bool:
     least one payload field is explicitly present. ``no_agent`` already requires a script."""
     if _coerce_job_text(job.get("prompt")).strip() or _coerce_job_text(job.get("script")).strip():
         return False
-    if _normalize_skill_list(job.get("skill"), job.get("skills")):
+    if _normalize_skill_list(job.get("skills")):
         return False
-    return any(k in job for k in ("prompt", "script", "skill", "skills"))
+    return any(k in job for k in ("prompt", "script", "skills"))
 
 
 def _schedule_display_for_job(job: dict[str, Any]) -> str:
@@ -1813,7 +1811,6 @@ def create_job(
     repeat: Optional[int] = None,
     deliver: Optional[str] = None,
     origin: Optional[dict[str, Any]] = None,
-    skill: Optional[str] = None,
     skills: Optional[list[str]] = None,
     model: Optional[str] = None,
     provider: Optional[str] = None,
@@ -1868,7 +1865,7 @@ def create_job(
 
     raw = locals()
     f = {key: norm(raw[key]) for key, norm in _CREATE_FIELD_NORMALIZERS.items()}
-    normalized_skills = _normalize_skill_list(skill, skills)
+    normalized_skills = _normalize_skill_list(skills)
     normalized_attach = attach_to_session if isinstance(attach_to_session, bool) else None
     normalized_reasoning_effort = _normalize_reasoning_effort(reasoning_effort)
 
@@ -1898,7 +1895,7 @@ def create_job(
         "name": name,
         "prompt": prompt_text,
         "skills": normalized_skills,
-        "skill": normalized_skills[0] if normalized_skills else None,
+
         "model": f["model"],
         "provider": f["provider"],
         "base_url": f["base_url"],
@@ -3395,7 +3392,7 @@ def referenced_skill_names() -> set[str]:
         cleaned
         for job in jobs
         if isinstance(job, dict)
-        for name in _normalize_skill_list(job.get("skill"), job.get("skills"))
+        for name in _normalize_skill_list(job.get("skills"))
         if (cleaned := _canonical_skill_ref(name))
     }
 
@@ -3405,8 +3402,8 @@ def rewrite_skill_refs(
 ) -> dict[str, Any]:
     """Rewrite cron job skill references after a curator consolidation pass (a job listing a
     consolidated/pruned skill would otherwise run without it). Consolidated names map to their
-    umbrella target without duplication, pruned names are dropped, ordering is preserved, and the
-    legacy ``skill`` field is realigned. Returns ``{"rewrites": [{job_id, job_name, before,
+    umbrella target without duplication, pruned names are dropped, and ordering is preserved.
+    Returns ``{"rewrites": [{job_id, job_name, before,
     after, mapped, dropped}, ...], "jobs_updated": N, "jobs_scanned": M}``. Load/save exceptions
     propagate."""
     consolidated = dict(consolidated or {})
@@ -3419,7 +3416,7 @@ def rewrite_skill_refs(
         jobs = load_jobs()
         rewrites: list[dict[str, Any]] = []
         for job in jobs:
-            skills_before = _normalize_skill_list(job.get("skill"), job.get("skills"))
+            skills_before = _normalize_skill_list(job.get("skills"))
             if not skills_before:
                 continue
             mapped: dict[str, str] = {}
@@ -3438,7 +3435,7 @@ def rewrite_skill_refs(
             if not mapped and not dropped:
                 continue
             job["skills"] = new_skills
-            job["skill"] = new_skills[0] if new_skills else None
+
             rewrites.append({
                 "job_id": job.get("id"),
                 "job_name": job.get("name") or job.get("id"),

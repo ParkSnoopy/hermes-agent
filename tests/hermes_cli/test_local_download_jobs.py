@@ -21,7 +21,7 @@ def test_rate_and_eta_report_only_an_honest_number():
     so a single sample, a window too short to divide by, and a stalled
     transfer must all report (None, None) rather than a guess.
     """
-    from hermes_cli.web_routers.local_models import _rate_and_eta
+    from hermes_cli.local_runtime.local_models import _rate_and_eta
 
     mib = 1 << 20
     assert _rate_and_eta(deque([(0.0, 0), (1.0, mib)]), mib, 3 * mib) == (float(mib), 2)

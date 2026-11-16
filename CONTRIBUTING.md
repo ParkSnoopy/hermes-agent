@@ -106,7 +106,7 @@ A well-built third-party-product plugin can clear automated review and still be 
 
 A standalone plugin reaches users through the [plugin catalog](https://hermes-agent.nousresearch.com/docs/plugins): a PR to this repo adding one `plugin-catalog/<name>.yaml` file that pins your repo at an exact commit. Read **[Submitting to the plugin catalog](https://hermes-agent.nousresearch.com/docs/developer-guide/plugins/catalog-submission)** before opening one. It covers what to check first (`hermes plugins validate --install-deps`), how review works, and every admission rule. The canonical rules live in [`plugin-catalog/README.md`](plugin-catalog/README.md); if you change them, change the mirrored block in the docs page in the same PR (a test keeps the two identical).
 
-The rules that most often send a submission back: the plugin must extend Hermes only through public hooks, `ctx.register_*` APIs and the Desktop SDK (no patching core code or Desktop markup at runtime), must not update itself, must declare the capabilities it registers, and must disclose risky behaviour.
+The rules that most often send a submission back: the plugin must extend Hermes only through public hooks and `ctx.register_*` APIs (no patching core code at runtime), must not update itself, must declare the capabilities it registers, and must disclose risky behaviour.
 
 ---
 
@@ -175,7 +175,7 @@ script or tool in this repository, so the commands below also work without
 | `just test <paths>` | `scripts/run_tests.sh <paths>`; refuses to start without a path, even with flags |
 | `just test-all` | the full Python suite |
 | `just js-install`, `just check-js`, `just test-js` | `pnpm install --frozen-lockfile`, `pnpm -r check`, `pnpm -r test` (after building `@hermes/ink`) |
-| `just desktop`, `just tui` | the desktop and TUI dev servers |
+| `just tui` | the TUI development entry point |
 | `just docs-install`, `just docs-build` | the website's `npm ci` and `build:fast` |
 | `just docs-generate`, `just docs-check` | regenerate the skill docs pages; then every docs check CI runs (committed pages match, links, diagrams) |
 | `just lock` | `scripts/relock.sh`: refreshes `uv.lock` after a `pyproject.toml` change, then re-syncs |
@@ -228,8 +228,8 @@ than copying production credentials into the checkout.
 
 ### JavaScript workspaces and website
 
-From the repository root, run `pnpm install --frozen-lockfile` (`just js-install`) for the desktop,
-TUI, dashboard, and shared JS workspaces. `pm/lock.json` pins pnpm
+From the repository root, run `pnpm install --frozen-lockfile` (`just js-install`) for the
+TUI and shared JS workspaces. `pm/lock.json` pins pnpm
 (`source ./activate`, or `. .\activate.ps1` in PowerShell, provides that exact
 version). An install that runs lifecycle scripts refuses any other pnpm, a direct or
 filtered `pnpm install` included: the root `preinstall` script requires the
@@ -261,7 +261,7 @@ when it or any non-optional dependency it pulls in declares `engines` the curren
 or npm does not satisfy, where it would only warn outside the checkout.
 
 Use a Node version accepted by the corresponding `package.json` engines.
-Native desktop dependencies can also require the platform build toolchain.
+
 
 Logos and icons are generated from `assets/nous-girl-*.svg` and
 `assets/backgrounds/`. `node scripts/generate-icons.mjs` (`just icons`) renders them with the
@@ -327,8 +327,7 @@ hermes-agent/
 │   ├── doctor.py                 # Diagnostics
 │   ├── skills_hub.py             # Skills Hub CLI + /skills slash command
 │   ├── skin_engine.py            # Skin/theme engine — data-driven CLI visual customization
-│   ├── web_server.py             # Dashboard server (facade + web_server_*.py siblings)
-│   └── web_routers/              # Dashboard FastAPI routers (one file per surface)
+
 │
 ├── tools/                    # Tool implementations (self-registering)
 │   ├── registry.py               # Central tool registry (schemas, handlers, dispatch)

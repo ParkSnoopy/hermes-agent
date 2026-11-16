@@ -41,12 +41,9 @@ def _prepend_context_block(prompt: str, heading: str, intro: str, body: str) -> 
 
 
 def _job_skill_names(job: dict) -> list[str]:
-    """Normalized skill names from ``skills`` (list or str) or the legacy singular ``skill``."""
-    skills = job.get("skills")
-    if skills is None:
-        legacy = job.get("skill")
-        skills = [legacy] if legacy else []
-    elif isinstance(skills, str):
+    """Normalized skill names from ``skills``."""
+    skills = job.get("skills") or []
+    if isinstance(skills, str):
         skills = [skills]
     return [str(name).strip() for name in skills if str(name).strip()]
 
@@ -96,11 +93,7 @@ def _archive_answer(archive: str) -> str | None:
     response length before whitespace normalization, so quoted frames inside the
     prompt or answer can never become boundaries and a truncated write is
     rejected. Archives without the heading (script-mode runs) stay whole-document.
-    For legacy unframed archives the LAST ``## Response`` occurrence is the
-    writer's boundary — the assembled prompt half can itself carry the literal
-    heading (a skill documenting its response format, an injected previous answer
-    quoting it), so an early split would re-inject the prompt noise this
-    extraction exists to drop.
+
     ``None`` marks "no usable answer" — a blank or silent response (any form the
     delivery lane itself suppresses) — so the caller falls through to an older
     archive instead of injecting prompt noise the job already has.
@@ -118,10 +111,10 @@ def _archive_answer(archive: str) -> str | None:
                 or not tail.endswith(_RESPONSE_TERMINATOR)):
             return None
         answer = tail[:-len(_RESPONSE_TERMINATOR)].strip()
-    elif "## Response" not in archive:
+    elif "## Response" not in archive and _PROMPT_HEADING not in archive:
         return archive.strip()
     else:
-        answer = archive.rpartition("## Response")[2].strip()
+        return None
     if not answer or _sched._is_cron_silence_response(answer):
         return None
     return answer

@@ -1282,6 +1282,31 @@ gateway in the middle of its drain. launchd caps its stop timeout at 60 s, so on
 is limited to what fits inside that.
 :::
 
+## Project Discovery and Interrupted Sessions
+
+Filesystem project discovery scans only explicitly configured roots.
+Empty roots do not trigger a home-directory scan, and session-derived projects remain available when filesystem discovery is disabled.
+
+```yaml
+projects:
+  repo_scan:
+    enabled: true
+    roots: []
+    exclude_paths: []
+```
+
+The TUI can continue a fresh crash-interrupted turn when its session is resumed.
+The freshness window is in minutes, and `max_attempts` bounds automatic retries after repeated crashes.
+Disabling this recovery leaves continuation to a manual message.
+
+```yaml
+sessions:
+  auto_continue:
+    enabled: true
+    freshness_minutes: 15
+    max_attempts: 2
+```
+
 ## Session Stall Watchdog
 
 The gateway runs a notify-only stall watchdog (`agent.session_stall_timeout`, default `300` seconds, `0` = disabled). When a busy session has a **pending inbound follow-up** and the agent's shared activity clock has been idle for at least this long, the gateway logs a WARNING and sends the user a one-shot notification:

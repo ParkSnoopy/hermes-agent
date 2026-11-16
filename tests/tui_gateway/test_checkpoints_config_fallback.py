@@ -28,13 +28,10 @@ class TestLoadCheckpointsEnabled:
     def test_honors_config_enabled_false(self):
         assert server._load_checkpoints_enabled({"checkpoints": {"enabled": False}}) is False
 
-    def test_legacy_bool_form(self):
-        """Legacy ``checkpoints: true`` (bare bool) still enables."""
-        assert server._load_checkpoints_enabled({"checkpoints": True}) is True
-        assert server._load_checkpoints_enabled({"checkpoints": False}) is False
-
-    def test_malformed_section_falls_back_to_default(self):
-        assert server._load_checkpoints_enabled({"checkpoints": "enabled"}) is False
+    @pytest.mark.parametrize("value", [True, False, "enabled"])
+    def test_rejects_non_mapping_section(self, value):
+        with pytest.raises(ValueError, match="checkpoints must be a mapping"):
+            server._load_checkpoints_enabled({"checkpoints": value})
 
     def test_none_cfg_falls_back(self):
         assert server._load_checkpoints_enabled(None) is False

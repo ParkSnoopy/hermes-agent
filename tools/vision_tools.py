@@ -400,23 +400,11 @@ def _build_scale_note(scale_info: Optional[dict], crop_offset: Optional[dict]) -
 
 
 def _import_pillow_for_resize():
-    """Return ``PIL.Image`` or None (Pillow is a lazy-installable soft dependency). ``prompt=False``:
-    a blocking input() deadlocks the CLI where prompt_toolkit owns stdin; the install is already
-    gated by security.allow_lazy_installs."""
+    """Return ``PIL.Image`` or None if the core dependency is unavailable."""
     try:
         from PIL import Image
     except ImportError:
-        try:
-            # pm-era wiring: never raise a blocking input() prompt mid-session. Under the
-            # interactive CLI prompt_toolkit owns stdin, so a bare input() deadlocks the
-            # terminal (#40490). The install is already gated by security.allow_lazy_installs,
-            # so reaching here is opt-in.
-            from pm import ensure_import
-
-            ensure_import("vision")
-            from PIL import Image
-        except Exception:
-            return None
+        return None
     return Image
 
 

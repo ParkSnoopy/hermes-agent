@@ -1813,7 +1813,6 @@ acp = [
 ]
 all = [
     { name = "agent-client-protocol" },
-    { name = "fastapi" },
     { name = "google-api-python-client" },
     { name = "google-auth" },
     { name = "google-auth-httplib2" },
@@ -1822,9 +1821,7 @@ all = [
     { name = "httpx2" },
     { name = "mcp" },
     { name = "pyasn1" },
-    { name = "python-multipart" },
     { name = "starlette" },
-    { name = "uvicorn" },
     { name = "uvloop", marker = "platform_python_implementation != 'PyPy' and sys_platform != 'android' and sys_platform != 'cygwin' and sys_platform != 'win32'" },
     { name = "youtube-transcript-api" },
 ]
@@ -1934,7 +1931,6 @@ termux = [
 ]
 termux-all = [
     { name = "agent-client-protocol" },
-    { name = "fastapi" },
     { name = "google-api-python-client" },
     { name = "google-auth" },
     { name = "google-auth-httplib2" },
@@ -1943,9 +1939,7 @@ termux-all = [
     { name = "httpx2" },
     { name = "mcp" },
     { name = "pyasn1" },
-    { name = "python-multipart" },
     { name = "starlette" },
-    { name = "uvicorn" },
 ]
 trace-upload = [
     { name = "huggingface-hub" },
@@ -1990,12 +1984,6 @@ wake-sherpa = [
     { name = "sherpa-onnx" },
     { name = "sherpa-onnx-core" },
 ]
-web = [
-    { name = "fastapi" },
-    { name = "python-multipart" },
-    { name = "starlette" },
-    { name = "uvicorn" },
-]
 youtube = [
     { name = "youtube-transcript-api" },
 ]
@@ -2037,7 +2025,6 @@ requires-dist = [
     { name = "exa-py", marker = "extra == 'exa'", specifier = "==2.26.0" },
     { name = "fal-client", marker = "extra == 'fal'", specifier = "==0.14.1" },
     { name = "fastapi", marker = "python_full_version >= '3.14'", specifier = ">=0.104.0,<1" },
-    { name = "fastapi", marker = "extra == 'web'", specifier = "==0.133.1" },
     { name = "faster-whisper", marker = "(platform_machine != 'x86_64' and sys_platform == 'darwin' and extra == 'stt-whisper') or (platform_machine != 'ARM64' and sys_platform == 'win32' and extra == 'stt-whisper') or (sys_platform != 'android' and sys_platform != 'darwin' and sys_platform != 'win32' and extra == 'stt-whisper')", specifier = "==1.2.1" },
     { name = "faster-whisper", marker = "(platform_machine != 'x86_64' and sys_platform == 'darwin' and extra == 'voice') or (platform_machine != 'ARM64' and sys_platform == 'win32' and extra == 'voice') or (sys_platform != 'android' and sys_platform != 'darwin' and sys_platform != 'win32' and extra == 'voice')", specifier = "==1.2.1" },
     { name = "fire", marker = "python_full_version >= '3.14'", specifier = "==0.7.1" },
@@ -2057,12 +2044,8 @@ requires-dist = [
     { name = "hermes-agent", extras = ["google"], marker = "extra == 'termux-all'" },
     { name = "hermes-agent", extras = ["mcp"], marker = "extra == 'all'" },
     { name = "hermes-agent", extras = ["mcp"], marker = "extra == 'termux'" },
-    { name = "hermes-agent", extras = ["pty"], marker = "extra == 'all'" },
-    { name = "hermes-agent", extras = ["pty"], marker = "extra == 'termux-all'" },
     { name = "hermes-agent", extras = ["termux"], marker = "extra == 'termux-all'" },
     { name = "hermes-agent", extras = ["uvloop"], marker = "extra == 'all'" },
-    { name = "hermes-agent", extras = ["web"], marker = "extra == 'all'" },
-    { name = "hermes-agent", extras = ["web"], marker = "extra == 'termux-all'" },
     { name = "hermes-agent", extras = ["youtube"], marker = "extra == 'all'" },
     { name = "httplib2", marker = "extra == 'google'", specifier = "==0.32.0" },
     { name = "httptools", marker = "python_full_version >= '3.14'", specifier = ">=0.6.3,<0.9" },
@@ -2115,7 +2098,6 @@ requires-dist = [
     { name = "python-docx", marker = "extra == 'documents'", specifier = "==1.2.0" },
     { name = "python-dotenv", marker = "python_full_version >= '3.14'", specifier = "==1.2.4" },
     { name = "python-multipart", marker = "python_full_version >= '3.14'", specifier = ">=0.0.9,<1" },
-    { name = "python-multipart", marker = "extra == 'web'", specifier = "==0.0.32" },
     { name = "python-pptx", marker = "extra == 'documents'", specifier = "==1.0.2" },
     { name = "pywin32", marker = "python_full_version >= '3.14' and sys_platform == 'win32'", specifier = ">=306,<312" },
     { name = "pywinpty", marker = "python_full_version >= '3.14' and sys_platform == 'win32'", specifier = ">=3.0.5,<4" },
@@ -2138,13 +2120,11 @@ requires-dist = [
     { name = "soundfile", marker = "(platform_machine != 'x86_64' and sys_platform == 'darwin' and extra == 'kittentts') or (platform_machine != 'ARM64' and sys_platform == 'win32' and extra == 'kittentts') or (sys_platform != 'android' and sys_platform != 'darwin' and sys_platform != 'win32' and extra == 'kittentts')", specifier = "==0.14.0" },
     { name = "starlette", marker = "extra == 'computer-use'", specifier = "==1.9.0" },
     { name = "starlette", marker = "extra == 'mcp'", specifier = "==1.9.0" },
-    { name = "starlette", marker = "extra == 'web'", specifier = "==1.9.0" },
     { name = "tomli-w", marker = "python_full_version >= '3.14'", specifier = "==1.2.0" },
     { name = "truststore", marker = "python_full_version >= '3.14'", specifier = "==0.10.5" },
     { name = "tzdata", marker = "python_full_version >= '3.14' and sys_platform == 'win32'", specifier = "==2025.3" },
     { name = "urllib3", marker = "python_full_version >= '3.14'", specifier = ">=2.8.0,<3" },
     { name = "uvicorn", marker = "python_full_version >= '3.14'", specifier = ">=0.31.0,<1" },
-    { name = "uvicorn", marker = "extra == 'web'", specifier = "==0.54.0" },
     { name = "uvloop", marker = "platform_python_implementation != 'PyPy' and sys_platform != 'android' and sys_platform != 'cygwin' and sys_platform != 'win32' and extra == 'uvloop'", specifier = ">=0.15.1,<0.24" },
     { name = "vercel", marker = "extra == 'vercel'", specifier = "==0.12.0" },
     { name = "watchfiles", marker = "python_full_version >= '3.14'", specifier = ">=0.20,<2" },
@@ -2156,7 +2136,7 @@ requires-dist = [
     { name = "winrt-windows-services-store", marker = "python_full_version >= '3.14' and sys_platform == 'win32'", specifier = ">=3.2.1,<4" },
     { name = "youtube-transcript-api", marker = "extra == 'youtube'", specifier = "==1.2.4" },
 ]
-provides-extras = ["uvloop", "anthropic", "exa", "firecrawl", "parallel-web", "ddgs", "fal", "edge-tts", "neutts", "kittentts", "piper", "modal", "daytona", "vercel", "google-meet", "cron", "keychain", "tts-premium", "voice", "wake", "stt-whisper", "audio-io", "silk", "wake-openwakeword", "wake-sherpa", "wake-porcupine", "doc-extract", "documents", "documents-pdf", "trace-upload", "vision", "pty", "mcp", "nemo-relay", "computer-use", "acp", "mistral", "otlp", "bedrock", "vertex", "azure-identity", "termux", "termux-all", "google", "youtube", "web", "all"]
+provides-extras = ["uvloop", "anthropic", "exa", "firecrawl", "parallel-web", "ddgs", "fal", "edge-tts", "neutts", "kittentts", "piper", "modal", "daytona", "vercel", "google-meet", "cron", "keychain", "tts-premium", "voice", "wake", "stt-whisper", "audio-io", "silk", "wake-openwakeword", "wake-sherpa", "wake-porcupine", "doc-extract", "documents", "documents-pdf", "trace-upload", "mcp", "computer-use", "acp", "mistral", "otlp", "bedrock", "vertex", "azure-identity", "termux", "termux-all", "google", "youtube", "all"]
 
 [package.metadata.requires-dev]
 dev = [

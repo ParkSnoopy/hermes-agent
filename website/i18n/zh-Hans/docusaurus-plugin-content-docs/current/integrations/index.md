@@ -71,18 +71,10 @@ Camofox 反检测浏览器以目录插件形式提供：`hermes plugins install 
 
 - **[IDE 集成（ACP）](../user-guide/features/acp.md)** — 在兼容 ACP 的编辑器（如 VS Code、Zed 和 JetBrains）中使用 Hermes Agent。Hermes 作为 ACP 服务器运行，在编辑器内渲染聊天消息、工具活动、文件差异和终端命令。
 
-## 程序化访问
-
-- **[API 服务器](../user-guide/features/api-server.md)** — 将 Hermes 暴露为兼容 OpenAI 的 HTTP 端点。任何支持 OpenAI 格式的前端——Open WebUI、LobeChat、LibreChat、NextChat、ChatBox——均可连接并将 Hermes 作为后端使用，享有其完整工具集。
-
 ## 记忆与个性化
 
 - **[内置记忆](../user-guide/features/memory.md)** — 通过 `MEMORY.md` 和 `USER.md` 文件实现持久化、精选记忆。Agent 维护有界的个人笔记和用户画像数据存储，跨会话保留。
 - **[记忆提供商](../user-guide/features/memory-providers.md)** — 接入外部记忆后端以实现更深度的个性化。支持八个提供商：Honcho（辩证推理）、OpenViking（分层检索）、Mem0（云端提取）、Hindsight（知识图谱）、Holographic（本地 SQLite）、RetainDB（混合搜索）、ByteRover（基于 CLI）和 Supermemory。
-
-## Webhooks 与会议
-
-- **[Teams Meetings](../user-guide/messaging/teams-meetings.md)**、**[Microsoft Graph Webhook](../user-guide/messaging/msgraph-webhook.md)**、**[Webhooks](../user-guide/messaging/webhooks.md)**
 
 代理间访问请参阅 [A2A](../user-guide/messaging/a2a.md)。
 

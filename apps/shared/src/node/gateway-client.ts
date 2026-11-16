@@ -54,10 +54,7 @@ export interface GatewayClientOptions {
   connect: ConnectGateway
   /** For a `connect` failure no retry can fix, the line to report; the client then stops retrying. */
   terminalConnectFailure?: (error: Error) => string | undefined
-  /** An explicit listener to dial instead of `connect` (Ink: `HERMES_TUI_GATEWAY_URL`); read per request. */
-  attachUrl?: () => null | string
-  /** A socket every event frame is mirrored to (Ink: `HERMES_TUI_SIDECAR_URL`). */
-  sidecarUrl?: () => null | string
+
   /** How long a dial may take to reach `gateway.ready` before `gateway.start_timeout` (default 15 s). */
   startupTimeoutMs?: number
   /** Default per-request deadline (default 120 s). */
@@ -128,9 +125,7 @@ export interface AttachHold { sid: string; frames: AnyGatewayEvent[] }
 export class GatewayClient extends EventEmitter {
   private ws: WebSocket | null = null
   private wsConnectPromise: Promise<void> | null = null
-  private sidecarWs: WebSocket | null = null
   private attachUrl: null | string = null
-  private sidecarUrl: null | string = null
   private logs = new CircularBuffer<string>(MAX_GATEWAY_LOG_LINES)
   // Request ids, pending map, timeouts, error mapping and the gateway.ping
   // heartbeat are shared with the desktop/web WebSocket client; this class
@@ -157,7 +152,7 @@ export class GatewayClient extends EventEmitter {
   private localStarted = false
   private localGeneration = 0
   private recoveryAttempts: number[] = []
-  isCanonical = false
+  readonly isCanonical = true
   private creationContract?: CreationContract
   private describedSkin?: Record<string, unknown>
   private runtimeCapabilities: string[] = []
@@ -210,12 +205,6 @@ export class GatewayClient extends EventEmitter {
    * `gateway.ready` itself after `runtime.describe`, so the listener's ready would be a
    * second one) while still negotiating the transport's heartbeat capability. */
   private publishWire(ev: AnyGatewayEvent) {
-    if (!this.isCanonical && ev.type === 'gateway.ready' && this.attachUrl !== null &&
-        (ev as { payload?: { session_authority?: boolean } }).payload?.session_authority === true) {
-      // An explicit HERMES_TUI_GATEWAY_URL endpoint whose session verbs belong to an authority:
-      // negotiate the canonical wire exactly like a local grant, keeping the listener's skin.
-      return this.adoptCanonicalAttach(ev as GatewayEvent<'gateway.ready'>)
-    }
 
     if (this.isCanonical && ev.type === 'gateway.ready') {
       if ((ev as GatewayEvent<'gateway.ready'>).payload?.heartbeat && this.ws?.readyState === WS_OPEN) {
@@ -245,23 +234,10 @@ export class GatewayClient extends EventEmitter {
     this.publish(ev)
   }
 
-  private adoptCanonicalAttach(ev: GatewayEvent<'gateway.ready'>) {
-    const ws = this.ws
-
-    this.isCanonical = true
-
-    if (ev.payload?.heartbeat && ws?.readyState === WS_OPEN) {
-      this.channel.startHeartbeat()
-    }
-
-    this.describeThenReady(ws, { skin: ev.payload?.skin })
-  }
 
   /** Canonical readiness is runtime.describe on this socket. A failed describe is a transport
    * failure (B2-21): drop the socket onto the backoff path, which redials and re-describes. */
   private describeThenReady(ws: WebSocket | null, payload: Record<string, unknown>) {
-    this.describeFlight = undefined
-    this.runtimeCapabilities = []
     void this.describeRuntime().then(() => {
       // The owner's resolved profile skin (`runtime.describe.skin`, main's `gateway.ready.skin`)
       // unless the listener's own ready already carried one.
@@ -269,14 +245,13 @@ export class GatewayClient extends EventEmitter {
 
       if (this.ws === ws) { this.publish({ type: 'gateway.ready', payload: ready } as unknown as AnyGatewayEvent) }
     }).catch(error => {
+      if (this.ws !== ws) { return }
       this.publish({ type: 'gateway.start_timeout', payload: {
         python: 'runtime.describe', cwd: '', stderr_tail: String(error)
       } })
 
-      if (this.ws === ws) {
-        this.closeGatewaySocket()
-        this.handleTransportExit(1, String(error))
-      }
+      this.closeGatewaySocket()
+      this.handleTransportExit(1, String(error))
     })
   }
 
@@ -310,15 +285,6 @@ export class GatewayClient extends EventEmitter {
     }
   }
 
-  private closeSidecarSocket() {
-    try {
-      this.sidecarWs?.close()
-    } catch {
-      // best effort
-    } finally {
-      this.sidecarWs = null
-    }
-  }
 
   private closeGatewaySocket() {
     // Null the active reference BEFORE invoking close(): real WebSocket
@@ -397,6 +363,10 @@ export class GatewayClient extends EventEmitter {
     // handlers (now identity-gated to ignore unrelated transports)
     // never settle the channel's pending RPCs, leaving callers hanging on promises
     // attached to a discarded child / socket.
+    this.describeFlight = undefined
+    this.creationContract = undefined
+    this.describedSkin = undefined
+    this.runtimeCapabilities = []
     this.channel.detach(new Error(this.text('libText.gateway.restarting')))
     this.ready = false
     // `subscribed` is NOT reset here: the renderer drain()s once on mount, so a
@@ -435,7 +405,6 @@ export class GatewayClient extends EventEmitter {
   private handleTransportExit(code: null | number, reason?: string) {
     this.clearReadyTimer()
     this.ready = false
-    this.closeSidecarSocket()
     this.lifecycle(`[lifecycle] transport exit code=${code ?? 'null'} reason=${reason ?? 'none'}`)
     this.channel.detach(
       new Error(reason || (code === null ? this.text('libText.gateway.exited') : this.text('libText.gateway.exitedWithCode', code)))
@@ -457,52 +426,6 @@ export class GatewayClient extends EventEmitter {
     }
   }
 
-  private connectSidecarMirror() {
-    this.closeSidecarSocket()
-
-    if (!this.sidecarUrl) {
-      return
-    }
-
-    const WebSocketCtor = this.webSocketCtor()
-
-    if (typeof WebSocketCtor === 'undefined') {
-      this.pushLog(`[sidecar] WebSocket unavailable; skipping mirror to ${redactUrl(this.sidecarUrl)}`)
-
-      return
-    }
-
-    try {
-      const ws = new WebSocketCtor(this.sidecarUrl)
-
-      this.sidecarWs = ws
-      ws.addEventListener('close', () => {
-        if (this.sidecarWs === ws) {
-          this.sidecarWs = null
-        }
-      })
-      ws.addEventListener('error', () => {
-        this.pushLog('[sidecar] mirror connection error')
-      })
-    } catch (err) {
-      this.pushLog(`[sidecar] failed to connect ${redactUrl(this.sidecarUrl)} (constructor error)`)
-      this.sidecarWs = null
-    }
-  }
-
-  private mirrorEventToSidecar(rawFrame: string) {
-    const ws = this.sidecarWs
-
-    if (!ws || ws.readyState !== WS_OPEN) {
-      return
-    }
-
-    try {
-      ws.send(rawFrame)
-    } catch {
-      // best effort
-    }
-  }
 
   /** B2-19: hold this session's canonical frames while its resume/activate is in flight. Fanout
    * frames can beat the reply; the caller applies the snapshot, then settleAttach replays only the
@@ -548,9 +471,6 @@ export class GatewayClient extends EventEmitter {
   }
 
   publishLocalEvent(ev: AnyGatewayEvent) {
-    const frame = JSON.stringify({ jsonrpc: '2.0', method: 'event', params: ev })
-
-    this.mirrorEventToSidecar(frame)
     this.publish(ev)
   }
 
@@ -569,9 +489,7 @@ export class GatewayClient extends EventEmitter {
       return
     }
 
-    if (frame.method === 'event') {
-      this.mirrorEventToSidecar(text)
-    }
+
   }
 
   private protocolError(what: string, text: string, emptyLabel: string) {
@@ -590,7 +508,6 @@ export class GatewayClient extends EventEmitter {
     this.bootstrapFlight = this.options.connect(start, recover).then(grant => {
       if (this.disposed || generation !== this.localGeneration) { return }
       this.attachUrl = grant.url
-      this.isCanonical = true
       // Main's /logs opened with the sidecar's spawn line; the shared owner's equivalent is the attach.
       this.lifecycle(`[lifecycle] attached shared gateway ${start ? 'start' : recover ? 'recover' : 'discover'} ` +
         `url=${redactUrl(grant.url)} profile=${grant.profile_id} instance=${grant.instance_id}`)
@@ -671,7 +588,6 @@ export class GatewayClient extends EventEmitter {
               resolve()
             }
 
-            this.connectSidecarMirror()
 
             // The canonical gateway has no ready frame (readiness is the discovery grant +
             // runtime.describe); the client-local ready carries the skin runtime.describe resolved.
@@ -765,25 +681,9 @@ export class GatewayClient extends EventEmitter {
     this.disposed = false
     this.clearReconnect()
 
-    const attachUrl = this.options.attachUrl?.() ?? null
-    const sidecarUrl = this.options.sidecarUrl?.() ?? null
-
-    this.attachUrl = attachUrl
-    this.sidecarUrl = sidecarUrl
     this.resetStartupState()
 
     this.closeGatewaySocket()
-    this.closeSidecarSocket()
-
-    if (attachUrl) {
-      // Each explicit connection negotiates its wire from the listener's ready frame.
-      this.isCanonical = false
-      this.creationContract = undefined
-      this.runtimeCapabilities = []
-      this.startAttachedGateway(attachUrl)
-
-      return
-    }
 
     this.startLocalGateway()
   }
@@ -871,7 +771,7 @@ export class GatewayClient extends EventEmitter {
     if (!this.ws || this.ws.readyState === WS_CLOSED || this.ws.readyState === WS_CLOSING) {
       this.start()
 
-      if (!this.options.attachUrl?.()) { await this.bootstrapFlight }
+      await this.bootstrapFlight
     }
 
     if (this.ws?.readyState === WS_CONNECTING) {
@@ -903,6 +803,7 @@ export class GatewayClient extends EventEmitter {
     if (!this.describeFlight) {
       const flight: Promise<void> = this.requestOverWebSocket<{ capabilities?: unknown; session_create: CreationContract; skin?: Record<string, unknown> | null }>('runtime.describe').then(
         description => {
+          if (this.describeFlight !== flight) { return }
           this.creationContract = description.session_create
           this.runtimeCapabilities = Array.isArray(description.capabilities)
             ? description.capabilities.filter((c): c is string => typeof c === 'string')
@@ -927,23 +828,6 @@ export class GatewayClient extends EventEmitter {
   }
 
   request<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {
-    const attachUrl = this.options.attachUrl?.() ?? null
-
-    if (attachUrl) {
-      if (this.attachUrl !== attachUrl) {
-        // The env var rotated at runtime — restart the transport so
-        // switching from spawned-gateway mode to attach mode also
-        // tears down the old Python child. Merely closing `this.ws`
-        // would leave a previously spawned gateway process alive.
-        this.channel.detach(new Error(this.text('libText.gateway.attachUrlChanged')))
-        this.start()
-      }
-
-      return this.isCanonical
-        ? this.requestCanonical<T>(method, params, timeoutMs)
-        : this.requestOverWebSocket<T>(method, params, timeoutMs)
-    }
-
     if (!this.bootstrapFlight) { this.start() }
 
     return this.bootstrapFlight!.then(() => {
@@ -1008,12 +892,15 @@ export class GatewayClient extends EventEmitter {
   kill(reason = 'requested') {
     this.disposed = true
     this.localGeneration++
+    this.describeFlight = undefined
+    this.creationContract = undefined
+    this.describedSkin = undefined
+    this.runtimeCapabilities = []
     this.clearReconnect()
     this.reconnectAttempts = 0
     this.channel.stopHeartbeat()
     this.lifecycle(`[lifecycle] GatewayClient.kill reason=${reason} (detach only)`)
     this.closeGatewaySocket()
-    this.closeSidecarSocket()
     this.clearReadyTimer()
     // The ws 'close' handler is identity-gated on `this.ws === ws`
     // and we just nulled `this.ws`, so it will short-circuit and

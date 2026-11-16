@@ -722,21 +722,6 @@ def _durable_ids(msg) -> set:
     return ids | ({("row", row_id)} if isinstance(row_id, int) and not isinstance(row_id, bool) else set())
 
 
-def _legacy_display_anchor(display: list[dict], memory: list[dict]) -> int:
-    """Align an identity-free model prefix without consuming later repeated turns."""
-    prefix = [(msg.get('role'), _coerce_message_text(msg.get('content'))) for msg in display]
-    cursor = 0
-    for index, msg in enumerate(memory):
-        if not isinstance(msg, dict):
-            continue
-        value = (msg.get('role'), _coerce_message_text(msg.get('content')))
-        if value not in prefix[cursor:]:
-            continue  # live-only row (persist override, injected note): never exhausts the display prefix
-        cursor = prefix.index(value, cursor) + 1  # verification candidates may be absent from the model projection
-        if cursor == len(prefix):
-            return index
-    return -1
-
 
 def _reconcile_display_with_live(db_display: list[dict], in_memory: list[dict]) -> list[dict]:
     """Merge the persisted DISPLAY lineage with the in-memory live history: ``db_display`` is verbatim and
@@ -745,7 +730,7 @@ def _reconcile_display_with_live(db_display: list[dict], in_memory: list[dict]) 
     append only the in-memory tail past the live copy of the last DB row — the verification answer survives a
     warm switch AND a not-yet-flushed live turn is kept. The anchor is the row's durable identity: matching on
     ``(role, text)`` picked the LAST equal text, so a repeated message ("ok" again) hid the unflushed turn.
-    Identity-free projections align their ordered prefix; conflicting durable IDs never match by text."""
+    Rows without matching durable identities never match by text."""
     if not db_display:
         return in_memory
     if not in_memory:
@@ -753,10 +738,7 @@ def _reconcile_display_with_live(db_display: list[dict], in_memory: list[dict]) 
 
     anchor_ids = _durable_ids(db_display[-1])
     last_shared = max((idx for idx, msg in enumerate(in_memory) if _durable_ids(msg) & anchor_ids), default=-1)
-    if last_shared == -1:
-        if anchor_ids and any(_durable_ids(msg) for msg in in_memory):
-            return db_display
-        last_shared = _legacy_display_anchor(db_display, in_memory)
+
     if last_shared == -1:
         return db_display  # DB tail not in memory (DB ahead, or diverged) — trust it over duplicating
     return list(db_display) + list(in_memory[last_shared + 1 :])

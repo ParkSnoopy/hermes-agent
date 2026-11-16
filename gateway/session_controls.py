@@ -157,8 +157,6 @@ class AuthorityConnection:
         self.actor = SessionActor(principal_subject(identity),
                                identity.get('profile_id', authority.profile_id),
                                capabilities, uuid.uuid4().hex)
-        from gateway.session_local_migration import bind_native_transport
-        bind_native_transport(authority, self.actor, identity)
         self.native_owner = identity.get('native_bootstrap') is True
         self.subscriptions = {}
         # session_id -> (epoch, sequence) the last reconnect replay answered; spent by the next resume.
@@ -281,8 +279,7 @@ class AuthorityConnection:
         handlers.update(connection_handlers(self))
         from gateway.session_control_actions import control
         handlers['session.control'] = partial(control, self)
-        from gateway.session_onboarding import handlers as onboarding_handlers
-        handlers.update(onboarding_handlers(self))
+
         from gateway.session_stored_reads import handlers as stored_read_handlers
         handlers.update(stored_read_handlers(self))
         return handlers
@@ -648,17 +645,15 @@ class AuthorityConnection:
                 resolved_id = self.authority.db.resolve_session_id(ref.session_id)
                 if resolved_id is not None:
                     ref = SessionRef(ref.profile_id, resolved_id)
-            from gateway.session_local_migration import adopts_client_history, resolve_local_target
+            from gateway.session_local_route import resolve_local_target
             from gateway.session_policy_refresh import refresh_settled
-            from hermes_state_local_migration import LEGACY_LOCAL_SOURCES
             # Another viewer's refresh mid-cleanup has committed a policy it has not published yet.
             await refresh_settled(self.authority, ref.session_id)
             row = self.authority.db.get_session(ref.session_id)
             # Canonical LOCAL compression/reset segments keep the receipt on their logical
             # owner, not on the physical transcript ID the history picker / Desktop supplies
             # after list_sessions projects the tip (#139306).
-            if row and (row['source'] in LEGACY_LOCAL_SOURCES | {Platform.LOCAL.value}
-                        or adopts_client_history(self.authority, self.actor, row)):
+            if row and row['source'] == Platform.LOCAL.value:
                 ref = resolve_local_target(self.authority, self.actor,
                     self.authority.db.get_compression_tip(ref.session_id) or ref.session_id)
             elif row:
@@ -993,7 +988,5 @@ class AuthorityConnection:
             from gateway.session_viewer_close import arm_detached_orphan_close
             for session_id in self.handed_back:
                 await arm_detached_orphan_close(self.authority, session_id)
-        from gateway.session_local_migration import unbind_native_transport
-        unbind_native_transport(self.authority, self.actor)
         self.subscriptions.clear()
         self.authority.events.pop(self.actor.transport_id, None)

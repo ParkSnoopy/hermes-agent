@@ -54,8 +54,7 @@ class TestRewriteSkillRefsConsolidation:
         assert report["jobs_updated"] == 1
         loaded = get_job(job["id"])
         assert loaded["skills"] == ["umbrella-skill"]
-        # Legacy ``skill`` field realigned
-        assert loaded["skill"] == "umbrella-skill"
+
 
     def test_multiple_skills_one_consolidated(self, cron_env):
         from cron.jobs import create_job, get_job, rewrite_skill_refs
@@ -126,7 +125,7 @@ class TestRewriteSkillRefsPruning:
         assert report["jobs_updated"] == 1
         loaded = get_job(job["id"])
         assert loaded["skills"] == ["keep"]
-        assert loaded["skill"] == "keep"
+
 
     def test_all_skills_pruned_leaves_empty_list(self, cron_env):
         from cron.jobs import create_job, get_job, rewrite_skill_refs
@@ -136,7 +135,7 @@ class TestRewriteSkillRefsPruning:
 
         loaded = get_job(job["id"])
         assert loaded["skills"] == []
-        assert loaded["skill"] is None
+
 
 
 class TestRewriteSkillRefsMixed:
@@ -199,23 +198,6 @@ class TestRewriteSkillRefsMultipleJobs:
         # Untouched jobs stay put
         assert get_job(j2["id"])["skills"] == ["untouched"]
         assert get_job(j3["id"])["skills"] == []
-
-    def test_legacy_skill_field_also_rewritten(self, cron_env):
-        """Old jobs may have the legacy single-skill ``skill`` field
-        set instead of ``skills``. Both paths should be rewritten."""
-        from cron.jobs import create_job, get_job, rewrite_skill_refs
-
-        # Create via the legacy ``skill`` argument
-        job = create_job(
-            prompt="",
-            schedule="every 1h",
-            skill="legacy",
-        )
-        rewrite_skill_refs(consolidated={"legacy": "umbrella"}, pruned=[])
-
-        loaded = get_job(job["id"])
-        assert loaded["skills"] == ["umbrella"]
-        assert loaded["skill"] == "umbrella"
 
 
 class TestRewriteSkillRefsPersistence:

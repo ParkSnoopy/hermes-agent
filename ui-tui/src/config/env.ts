@@ -39,19 +39,17 @@ export const STARTUP_WORKSPACE_CWD = (process.env.HERMES_TUI_CWD ?? '').trim()
 // Precedence (highest first):
 //
 // - HERMES_TUI_MOUSE_TRACKING (truthy/falsy) explicitly overrides everything.
-//   This is the "force a value" knob and intentionally beats the legacy
-//   kill-switch and the Termux default.
-// - HERMES_TUI_DISABLE_MOUSE=1 forces mouse off — the legacy kill switch.
+//   This is the "force a value" knob and beats the Termux default.
 // - On Termux the default is mouse off so touch selection isn't intercepted
 //   by terminal mouse protocols. Desktop defaults to 'all' to preserve prior
 //   behavior.
 const mouseTrackingOverride = parseToggle(process.env.HERMES_TUI_MOUSE_TRACKING)
-const mouseTrackingDisabledLegacy = truthy(process.env.HERMES_TUI_DISABLE_MOUSE)
+
 export const NATIVE_MODE = truthy(process.env.HERMES_TUI_NATIVE)
 
 const resolvedBootMouseEnabled = NATIVE_MODE
   ? false
-  : (mouseTrackingOverride ?? (TERMUX_TUI_MODE ? false : !mouseTrackingDisabledLegacy))
+  : (mouseTrackingOverride ?? !TERMUX_TUI_MODE)
 
 export const MOUSE_TRACKING: MouseTrackingMode = resolvedBootMouseEnabled ? 'all' : 'off'
 

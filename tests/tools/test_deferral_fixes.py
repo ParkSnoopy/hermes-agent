@@ -43,7 +43,7 @@ def _bridge_tc(underlying, arguments=None, call_id=None):
     """A tool_call bridge invocation as the model emits it."""
     return _tc(
         "tool_call",
-        json.dumps({"name": underlying, "arguments": arguments or {}}),
+        json.dumps({"calls": [{"name": underlying, "arguments": arguments or {}}]}),
         call_id=call_id,
     )
 

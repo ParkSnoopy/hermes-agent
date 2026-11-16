@@ -1,12 +1,10 @@
-"""CronScheduler provider interface (Axis B — the trigger). EXPERIMENTAL: shape MAY change until a
-second provider validates it; growth MUST be additive (optional method with a default), never a
-changed start() signature or new abstractmethod. Providers decide only *when* a job fires —
+"""CronScheduler provider interface (Axis B — the trigger).
+Providers decide only *when* a job fires —
 execution + delivery stay in cron.scheduler.run_job / _deliver_result; never reimplement them.
 """
 from __future__ import annotations
 
 import contextlib
-import inspect
 import logging
 import threading
 import time
@@ -95,16 +93,8 @@ def _existing_profile_homes(profile_homes: list) -> list:
 def routed_profile_fire(home=None) -> bool:
     """True when a fire runs for a profile OTHER than the process's own.
 
-    Derived from the fire's home itself (``home``, else the task's active ``get_hermes_home()``), never from
-    a marker one entry point sets: the desktop ticker (``_profile_cron_scope``), the dashboard's
-    manual Run now (``hermes_cli.web_server_cron._cron_store_scope``) and any other caller that
-    binds a HERMES_HOME override for a sibling profile all reach ``run_one_job`` the same way, and a
-    marker set only in the ticker left the manual path with the original cross-profile leak.
-
-    The desktop backend fires every local profile from one process without setting the
-    process-global multiplex flag, so every isolation keyed on ``is_multiplex_active()`` was inert
-    for those fires: a sibling profile's ``.env`` landed in the shared ``os.environ`` with
-    ``override=True`` and a scope miss read the launch profile's credentials (#107692).
+    Derived from the fire's home itself (``home``, else the task's active ``get_hermes_home()``),
+    so every caller binding a sibling profile receives the same isolation.
     ``cron.scheduler._install_fire_secret_scope`` turns this into multiplex semantics for exactly
     the span the profile's secret scope covers, and the restart-safe handoff marks the worker
     payload with it. The launch identity is ``get_routing_process_hermes_home()`` (gateway/AGENTS.md
@@ -175,10 +165,6 @@ class CronScheduler(ABC):
 
         return recover_interrupted_executions()
 
-    @property
-    def supports_force_fire(self) -> bool:
-        """Whether ``fire_due`` accepts ``force`` (signature-detected for older providers)."""
-        return provider_supports_force_fire(self)
 
     def fire_due(
         self, job_id: str, *, adapters: Any = None, loop: Any = None, force: bool = False,
@@ -240,41 +226,6 @@ class CronScheduler(ABC):
         """Converge the external registry toward jobs.json (desired state). Built-in: no-op."""
         return
 
-
-def provider_supports_force_fire(provider: Any) -> bool:
-    """Return whether a provider can safely receive ``fire_due(force=...)`` (signature-detected)."""
-    return provider_fire_due_accepts(provider, "force")
-
-
-def provider_fire_due_accepts(provider: Any, name: str) -> bool:
-    """Whether ``provider.fire_due`` takes keyword ``name`` (third-party providers may predate it)."""
-    try:
-        parameters = inspect.signature(provider.fire_due).parameters.values()
-    except (TypeError, ValueError):
-        return False
-    return any(
-        p.kind is inspect.Parameter.VAR_KEYWORD
-        or (
-            p.name == name
-            and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
-        )
-        for p in parameters
-    )
-
-
-def provider_supports_split_fire(provider: Any) -> bool:
-    """Whether a provider implements the two-phase fire contract. A legacy provider overriding only
-    ``fire_due`` must keep being driven through it — routing around the override would drop its
-    custom claim/re-arm/telemetry behavior."""
-    cls = type(provider)
-
-    def overrides(name: str) -> bool:
-        impl = getattr(cls, name, None)
-        return impl is not None and impl is not getattr(CronScheduler, name)
-
-    if overrides("claim_fire") or overrides("fire_claimed"):
-        return True
-    return not overrides("fire_due")
 
 
 def _misfire_grace_minutes() -> float:

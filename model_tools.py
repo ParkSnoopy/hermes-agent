@@ -24,7 +24,7 @@ from tools.registry import (
 from tools.registry import _MAX_TOOL_ERROR_CHARS as _TOOL_ERROR_MAX_LEN
 from toolsets import resolve_toolset, validate_toolset
 from tools.arg_coercion import coerce_tool_args
-from tools.todo_tool import TODO_LEGACY_ALIASES, TODO_SCHEMA
+
 
 logger = logging.getLogger(__name__)
 
@@ -157,26 +157,8 @@ except Exception as e:
     logger.debug("Plugin discovery failed: %s", e)
 
 
-# Backward-compat constants (built once after discovery)
-TOOL_TO_TOOLSET_MAP: dict[str, str] = registry.get_tool_to_toolset_map()
-
-TOOLSET_REQUIREMENTS: dict[str, dict] = registry.get_toolset_requirements()
-
 # Tool names from the last get_tool_definitions() call (execute_code sandbox fallback).
 _last_resolved_tool_names: list[str] = []
-
-
-# Legacy toolset names (old _tools-suffixed names -> tool name lists)
-_LEGACY_TOOLSET_MAP = {
-    "web_tools": ["web_search", "web_extract"],
-    "terminal_tools": ["terminal"],
-    "vision_tools": ["vision_analyze"],
-    "image_tools": ["image_generate"],
-    "skills_tools": ["skills_list", "skill_view", "skill_manage"],
-    "cronjob_tools": ["cronjob_manage"],
-    "file_tools": ["read_file", "write_file", "patch", "search_files"],
-    "tts_tools": ["text_to_speech"],
-}
 
 
 # --- get_tool_definitions (the main schema provider) --------------------------
@@ -309,9 +291,6 @@ def _apply_toolset_selection(tools: set, names: list[str], quiet_mode: bool, *, 
                     )
             else:
                 resolved = resolve_toolset(name)
-        elif name in _LEGACY_TOOLSET_MAP:
-            label = f"{verb} legacy toolset"
-            resolved = _LEGACY_TOOLSET_MAP[name]
         else:
             if not quiet_mode:
                 print(f"⚠️  Unknown toolset: {name}")
@@ -420,12 +399,8 @@ _VAULT_INPUT_TOOL_HINT = "the browser's input tool"
 def _rewrite_browser_vault(td: dict[str, Any], available: set) -> Optional[dict[str, Any]]:
     """Name the concrete input tool for typing the login identifier (`fill_input` inside browser_exec code).
     Resolved here because the two live in different toolsets."""
-    preview = "drive_preview" in available
     if "browser_exec" in available:
-        concrete = "`fill_input` inside browser_exec" + (
-            " (or drive_preview action=type on the in-app browser)" if preview else "")
-    elif preview:
-        concrete = "drive_preview action=type"
+        concrete = "`fill_input` inside browser_exec"
     else:
         return td
     fn = td["function"]
@@ -444,10 +419,7 @@ def _rewrite_input_tool_for_vault(td: dict[str, Any], available: set) -> Optiona
     if "browser_vault" not in available:
         return td
     fn = td["function"]
-    note = _VAULT_NO_PASSWORD_NOTE
-    if fn["name"] == "drive_preview":
-        note += " For this in-app page pass target=preview (the default when no managed browser page is open)."
-    return _fn_def({**fn, "description": fn.get("description", "") + note})
+    return _fn_def({**fn, "description": fn.get("description", "") + _VAULT_NO_PASSWORD_NOTE})
 
 
 def _compose_rewriters(*fns):
@@ -466,7 +438,6 @@ _DYNAMIC_SCHEMA_REWRITERS = {
     "browser_cdp": _rewrite_browser_cdp,
     "browser_exec": _compose_rewriters(_rewrite_browser_exec, _rewrite_browser_exec_vision, _rewrite_input_tool_for_vault),
     "browser_vault": _rewrite_browser_vault,
-    "drive_preview": _rewrite_input_tool_for_vault,
     "delegate_task": _rewrite_delegate_task,
 }
 
@@ -599,12 +570,6 @@ def _resolve_active_context_length() -> int:
 # Intercepted by the agent loop (need agent-level state); dispatch returns a stub error.
 _AGENT_LOOP_TOOLS = {"todo_list", "memory", "session_search", "delegate_task"}
 
-# Legacy tool-name aliases accepted at every dispatch seam (old sessions/saved
-# prompts keep working); schemas advertise only new names.
-_LEGACY_TOOL_ALIASES = {
-    **dict.fromkeys(TODO_LEGACY_ALIASES, TODO_SCHEMA["name"]), "cronjob": "cronjob_manage", "process": "process_manage",
-    "tour": "gui_tour", "tip": "show_tip",
-}
 _READ_SEARCH_TOOLS = {"read_file", "search_files"}
 
 
@@ -886,7 +851,7 @@ def handle_function_call(
     if not isinstance(function_args, dict):
         function_args = {}
     trace = list(tool_request_middleware_trace or [])
-    function_name = _LEGACY_TOOL_ALIASES.get(function_name, function_name)
+
     ids = _CallIds(task_id, session_id, tool_call_id, turn_id, api_request_id, conversation_id)
     start = time.monotonic()
 
@@ -960,30 +925,3 @@ def handle_function_call(
         logger.exception(error_msg)
         return _emit(tool_error(_sanitize_tool_error(error_msg)), duration_ms=_elapsed_ms(start),
                      status="error", error_type=type(e).__name__, error_message=str(e))
-
-
-# =============================================================================
-# Backward-compat wrapper functions (registry pass-throughs)
-# =============================================================================
-
-def get_all_tool_names() -> list[str]:
-    return registry.get_all_tool_names()
-
-
-def get_toolset_for_tool(tool_name: str) -> Optional[str]:
-    return registry.get_toolset_for_tool(tool_name)
-
-
-def get_available_toolsets() -> dict[str, dict]:
-    """Toolset availability info for UI display."""
-    return registry.get_available_toolsets()
-
-
-def check_toolset_requirements() -> dict[str, bool]:
-    """{toolset: available_bool} for every registered toolset."""
-    return registry.check_toolset_requirements()
-
-
-def check_tool_availability(quiet: bool = False) -> tuple[list[str], list[dict]]:
-    """(available_toolsets, unavailable_info)."""
-    return registry.check_tool_availability(quiet=quiet)

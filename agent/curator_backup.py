@@ -277,9 +277,9 @@ def _restore_cron_skill_links(snapshot_dir: Path) -> dict[str, Any]:
     if backup_jobs is None:
         return {**report, "error": "backed-up cron-jobs.json has no jobs list"}
 
-    # Backed-up skill state keyed by job id (legacy single + modern list field).
+    # Backed-up skill state keyed by job id.
     backup_by_id: dict[str, dict[str, Any]] = {
-        job["id"]: {"skills": job.get("skills"), "skill": job.get("skill"), "name": job.get("name") or job["id"]}
+        job["id"]: {"skills": job.get("skills"), "name": job.get("name") or job["id"]}
         for job in backup_jobs if isinstance(job, dict) and isinstance(job.get("id"), str) and job.get("id")
     }
     if not backup_by_id:
@@ -302,8 +302,8 @@ def _restore_cron_skill_links(snapshot_dir: Path) -> dict[str, Any]:
                 backup = backup_by_id.get(jid)
                 if backup is None:  # live job didn't exist at snapshot time
                     continue
-                cur = {"skills": live.get("skills"), "skill": live.get("skill")}
-                bkp = {"skills": backup.get("skills"), "skill": backup.get("skill")}
+                cur = {"skills": live.get("skills")}
+                bkp = {"skills": backup.get("skills")}
                 if cur == bkp:
                     report["unchanged"] += 1
                     continue

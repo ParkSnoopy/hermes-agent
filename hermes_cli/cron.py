@@ -17,12 +17,12 @@ if str(PROJECT_ROOT) not in sys.path:
 from hermes_cli.colors import Colors, color
 
 
-def _normalize_skills(single_skill=None, skills: Optional[Iterable[str]] = None) -> Optional[list[str]]:
-    """Deduped, stripped skill names; None when neither argument was given."""
-    if skills is None and single_skill is None:
+def _normalize_skills(skills: Optional[Iterable[str]] = None) -> Optional[list[str]]:
+    """Deduped, stripped skill names; None when no replacement was given."""
+    if skills is None:
         return None
     normalized: list[str] = []
-    for item in list(skills) if skills is not None else [single_skill]:
+    for item in skills:
         text = str(item or "").strip()
         if text and text not in normalized:
             normalized.append(text)
@@ -237,7 +237,7 @@ def _job_rows(job: dict[str, Any]) -> list[tuple[str, str]]:
     # the default rather than relying on the dict-default, which only applies to a missing key. A null value
     # would otherwise reach `", ".join(None)` and crash the whole listing (#32896).
     deliver = job.get("deliver") or ["local"]
-    skills = job.get("skills") or ([job["skill"]] if job.get("skill") else [])
+    skills = job.get("skills") or []
     monitor_source = job.get("monitor_script") or job.get("monitor_url")
     mon_state = job.get("monitor_state") or {}
     latest_execution = job.get("latest_execution") or {}
@@ -813,8 +813,7 @@ def cron_create(args):
     # surfaces as result["error"].
     result = _cron_api(
         action="create", schedule=args.schedule, prompt=args.prompt,
-        skill=getattr(args, "skill", None),
-        skills=_normalize_skills(getattr(args, "skill", None), getattr(args, "skills", None)),
+        skills=_normalize_skills(getattr(args, "skills", None)),
         no_agent=getattr(args, "no_agent", False) or None,
         **({"paused": args.paused, "paused_reason": getattr(args, "paused_reason", None)}
            if getattr(args, "paused", False) or getattr(args, "paused_reason", None) is not None else {}),
@@ -847,10 +846,10 @@ def cron_edit(args):
     if not job:
         print(color(f"Job not found: {args.job_id}", Colors.RED))
         return 1
-    existing_skills = list(job.get("skills") or ([job["skill"]] if job.get("skill") else []))
-    replacement_skills = _normalize_skills(getattr(args, "skill", None), getattr(args, "skills", None))
-    add_skills = _normalize_skills(None, getattr(args, "add_skills", None)) or []
-    remove_skills = set(_normalize_skills(None, getattr(args, "remove_skills", None)) or [])
+    existing_skills = list(job.get("skills") or [])
+    replacement_skills = _normalize_skills(getattr(args, "skills", None))
+    add_skills = _normalize_skills(getattr(args, "add_skills", None)) or []
+    remove_skills = set(_normalize_skills(getattr(args, "remove_skills", None)) or [])
 
     final_skills = None
     if getattr(args, "clear_skills", False):

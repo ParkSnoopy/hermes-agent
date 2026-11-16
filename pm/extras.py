@@ -50,16 +50,13 @@ ANCHORS: dict[str, str | tuple[str, ...]] = {
     "google-meet": ("playwright.sync_api", "websockets"),
     "youtube": "youtube_transcript_api",
     "acp": "acp",
-    "web": "fastapi",
+
     "doc-extract": "anydoc",
     "documents": ("docx", "openpyxl", "pptx", "reportlab", "pypdf"),
     "documents-pdf": ("pdfplumber", "pypdfium2"),
     "computer-use": "mcp",
     "trace-upload": "huggingface_hub",
-    # Pillow resize recovery for vision tools (the `vision` extra is a no-op
-    # back-compat alias — Pillow is core — but ensure_import("vision") must
-    # still resolve an anchor so availability checks work).
-    "vision": "PIL",
+
 }
 
 

@@ -1269,7 +1269,7 @@ class TestRunJobSkillBacked:
             "id": "skill-env-job",
             "name": "skill env test",
             "prompt": "Use the skill.",
-            "skill": "notion",
+            "skills": ["notion"],
         }
 
         fake_db = MagicMock()

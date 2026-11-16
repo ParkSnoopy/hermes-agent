@@ -583,7 +583,7 @@ def _scan_gateway_pids(
         hermes_home_assignments,
         command_line_names_hermes_home,
     )
-    from hermes_cli.dashboard_procs import _hermes_home_for_pid, _normalized_home_for_compare
+    from hermes_cli.process_identity import _hermes_home_for_pid, _normalized_home_for_compare
     from hermes_cli.gateway_migrate_guards import pid_is_other_users
     current_home_path = get_hermes_home().resolve()
     current_home = str(current_home_path)
@@ -1839,7 +1839,7 @@ def _reap_unsupervised_gateway_orphans(
     except Exception:
         return False
     if min_age_s > 0:
-        from hermes_cli.dashboard_procs import _process_age_seconds
+        from hermes_cli.process_identity import _process_age_seconds
 
         def _old_enough(pid: int) -> bool:
             try:  # an undeterminable age must never widen the reap
@@ -4001,48 +4001,6 @@ def _wait_for_gateway_exit(timeout: float = 10.0, force_after: float | None = 5.
     return True
 
 
-def _wait_for_tcp_port_free(host: str, port: int, *, timeout: float = 10.0) -> bool:
-    """Wait until nothing accepts TCP connections on host:port.
-
-    PID exit is not enough on macOS: api_server disables SO_REUSEADDR, so a restart that wins
-    the race logs EADDRINUSE and keeps running with no API. Connection-refused means the
-    listener is gone; a timed-out connect is a live listener with a slow accept queue.
-    """
-    def _port_free() -> bool:
-        try:
-            with socket.create_connection((host, port), timeout=0.2):
-                return False
-        except ConnectionRefusedError:
-            return True
-        except TimeoutError:
-            return False  # a slow accept queue is still a live listener
-        except OSError:
-            return True  # unresolvable/unreachable address: nothing to wait for; the bind retry covers it
-
-    return poll_until(_port_free, timeout, 0.1)
-
-
-def _wait_for_api_server_port_free(*, timeout: float = 10.0) -> bool:
-    """Wait for the configured api_server listen address to stop accepting.
-
-    Only when api_server is enabled: with the platform off, a foreign listener on the default
-    port is nobody's race and must not delay the restart."""
-    from gateway.config import Platform
-    from gateway.platforms.api_server import listen_address
-    pconfig = load_gateway_config().platforms.get(Platform.API_SERVER)
-    if pconfig is None or not pconfig.enabled:
-        return True
-    host, port = listen_address(pconfig.extra or {})
-    freed = _wait_for_tcp_port_free(host, port, timeout=timeout)
-    if not freed:
-        print(
-            f"⚠ {host}:{port} still accepting connections — "
-            "new api_server may fail to bind"
-        )
-    return freed
-
-
-
 # =============================================================================
 # Gateway Runner
 # =============================================================================
@@ -5287,7 +5245,6 @@ def _cmd_start(args):
             if killed:
                 print(f"✓ Killed {killed} stale gateway process(es) across all profiles")
                 _wait_for_gateway_exit(timeout=10.0, force_after=5.0)
-                _wait_for_api_server_port_free()
         if _service_mgmt_blocked():
             _no_backend_exit("start", "termux")
         backend = _service_backend()
@@ -5394,7 +5351,6 @@ def _restart_all_as_host(owner, system: bool, detach: bool = False, owe_online_n
         if total:
             print(f"✓ Stopped {total} gateway process(es) across all profiles")
     _wait_for_gateway_exit(timeout=10.0, force_after=5.0)
-    _wait_for_api_server_port_free()
     # Retract the stopped owner's rendezvous record. Leaving it made this very function a silent
     # no-op: the re-entered `gateway run` below read the corpse's record and ATTACHED to it.
     _discard_dead_host_record()
@@ -5506,7 +5462,6 @@ def _cmd_restart(args):
     if stop_profile_gateway():
         print("✓ Stopped gateway for this profile")
     _wait_for_gateway_exit(timeout=10.0, force_after=5.0)
-    _wait_for_api_server_port_free()
     _forget_host_gateway_probe()
     print("Starting gateway...")
     start_restart_replacement(args, force=force)

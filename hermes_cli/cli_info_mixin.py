@@ -181,12 +181,12 @@ class CLIInfoMixin:
 
                 def _refresh_banner_snapshot() -> None:
                     try:
-                        from model_tools import get_toolset_for_tool
+                        from tools.registry import registry
                         tools = get_tool_definitions(
                             enabled_toolsets=self.enabled_toolsets,
                             disabled_toolsets=self.disabled_toolsets, quiet_mode=True)
                         availability = compute_toolset_availability(self.enabled_toolsets)
-                        tmap = _toolset_map(tools, availability, get_toolset_for_tool)
+                        tmap = _toolset_map(tools, availability, registry.get_toolset_for_tool)
                         save_banner_snapshot(tools, self.enabled_toolsets, availability, tmap)
                     except Exception:
                         logger.debug("banner snapshot refresh failed", exc_info=True)
@@ -196,13 +196,13 @@ class CLIInfoMixin:
                 ).start()
             else:
                 # Cold path: compute live, then persist the snapshot for the next launch.
-                from model_tools import get_toolset_for_tool
+                from tools.registry import registry
                 tools = get_tool_definitions(enabled_toolsets=self.enabled_toolsets,
                                              disabled_toolsets=self.disabled_toolsets, quiet_mode=True)
                 availability = compute_toolset_availability(self.enabled_toolsets)
                 build_welcome_banner(tools=tools, availability=availability, **banner_kw)
                 try:
-                    tmap = _toolset_map(tools, availability, get_toolset_for_tool)
+                    tmap = _toolset_map(tools, availability, registry.get_toolset_for_tool)
                     save_banner_snapshot(tools, self.enabled_toolsets, availability, tmap)
                 except Exception:
                     logger.debug("banner snapshot save failed", exc_info=True)
@@ -426,12 +426,13 @@ class CLIInfoMixin:
             tools, get_toolset_for_tool = remote
         else:
             from cli import get_tool_definitions
-            from model_tools import get_toolset_for_tool
+            from tools.registry import registry
             # Pre-assembly list: /tools is a discovery surface, so it must show the full catalog
             # including tools deferred behind the tool_search bridge (users verify MCP installs here).
             tools = get_tool_definitions(enabled_toolsets=self.enabled_toolsets,
                                          disabled_toolsets=self.disabled_toolsets, quiet_mode=True,
                                          skip_tool_search_assembly=True)
+            get_toolset_for_tool = registry.get_toolset_for_tool
         if not tools:
             print(t("cli.tools.none_available"))
             return

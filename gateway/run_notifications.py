@@ -125,17 +125,6 @@ def _held_reason(source, platform: str, multiplexed: bool) -> str:
     return f"no live {platform} transport for profile {runtime!r}; the row stays pending until it connects"
 
 
-def _raw_process_event_session_id(evt: dict) -> str:
-    """Recognize API routes, not malformed structured or partial messaging routes."""
-    session_key = str(evt.get("session_key") or "").strip()
-    platform = str(evt.get("platform") or "").strip().lower()
-    if session_key.startswith("agent:") or platform not in {"", "api_server"}:
-        return ""
-    if not platform and any(evt.get(field) for field in ("chat_id", "chat_type", "thread_id")):
-        return ""
-    return str(evt.get("origin_session_id") or session_key or "").strip()
-
-
 def _local_completion_card(evt: dict) -> dict[str, str]:
     """The card of a local process notice: the async-result card the in-process TUI wrote for a
     completion or async delegation (a gateway-side ``/review`` reports as one), and a liveness tick's
@@ -682,10 +671,6 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         chat_type = str(evt.get("chat_type") or derived.get("chat_type") or "").strip().lower()
         chat_id = str(evt.get("chat_id") or derived.get("chat_id") or "").strip()
         if not platform_name or not chat_type or not chat_id:
-            # Raw API keys legitimately have no messaging source. Resolve persisted
-            # origins first, then leave this recognized route to the API dispatcher.
-            if _raw_process_event_session_id(evt):
-                return None
             logger.warning(
                 "Synthetic event source unresolvable: "
                 "session_key=%r platform=%r chat_type=%r chat_id=%r evt_type=%s",
@@ -797,68 +782,6 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                 return a
         return None
 
-    async def _self_post_api_server(self, adapter, synth_text: str, raw_sid: str, evt: dict) -> bool:
-        """Deliver to a non-push (api_server) session by raw session id.
-
-        Async-delegation completions are persisted as a durable delivery row — after the parent
-        turn's event.complete the CLIENT owns the next turn on this stateless surface, so never
-        self-post them as a new role=user prompt. Other watch events wake the session via self-post.
-        """
-        from gateway.wake import deliver_wake, persist_delegation_delivery
-        scope = contextlib.nullcontext()
-        if evt.get("type") == "async_delegation":
-            info = "Async delegation completion — persisting delivery row for api_server session %s (no wake turn)"
-            fail = "Async delegation delivery persist failed for session %s: %s"
-            deliver = lambda: persist_delegation_delivery(adapter, text=synth_text, session_id=raw_sid, evt=evt)
-        else:
-            info = "Watch pattern notification — waking api_server session %s via self-post"
-            fail = "Watch notification self-post wake failed for session %s: %s"
-            from agent.notification_presentation import diagnostic_process_event
-            try:
-                served = await asyncio.to_thread(self._served_api_server_wake_profile, evt, raw_sid)
-            except LookupError as e:
-                logger.warning(fail, raw_sid, e)
-                return False
-            if served:
-                # The wake runs in the OWNING profile's scope, in-process (see ``deliver_wake``):
-                # the raw event carries no profile, so a completion scope was never installed.
-                from gateway.run import _async_profile_runtime_scope
-                source = SessionSource(platform=Platform.API_SERVER, chat_id=raw_sid, profile=served)
-                scope = _async_profile_runtime_scope(self._resolve_profile_home_for_source(source))
-            deliver = lambda: deliver_wake(adapter, text=_mark_internal_notification(synth_text), session_id=raw_sid, profile=served,
-                notification_category="diagnostic" if diagnostic_process_event(evt) else "result")
-        try:
-            logger.info(info, raw_sid)
-            async with scope:
-                await deliver()
-            return True
-        except Exception as e:
-            logger.warning(fail, raw_sid, e)
-            return False
-
-    def _served_api_server_wake_profile(self, evt: dict, raw_sid: str) -> Optional[str]:
-        """The served (non-primary) profile whose own session store holds *raw_sid*, else ``None``
-        (the default profile's HTTP self-post). Blocking: reads served ``state.db`` files.
-
-        A served profile's ``api_server`` turn binds the RAW session id as its session key, so its
-        completion event names no profile: the only ownership proof is the served profile's own
-        store, exactly the rung the Kanban notifier applies. An event whose source DOES name a
-        served profile (structured key / persisted origin) must be owned by that profile or it
-        raises ``LookupError`` — never a wake in the default profile's store.
-        """
-        if not getattr(self.config, "multiplex_profiles", False):
-            return None
-        from gateway.run import _multiplex_profile_homes
-        from gateway.wake import session_owned_by_profile
-        primary = getattr(self, "_primary_profile_name", None) or "default"
-        hinted = str(getattr(self._build_process_event_source(evt), "profile", None) or "").strip()
-        if hinted and hinted != primary:
-            if session_owned_by_profile(self.config, hinted, raw_sid):
-                return hinted
-            raise LookupError(f"session is not in served profile {hinted!r}'s own store")
-        return next((name for name, _home in _multiplex_profile_homes(self.config)
-                     if name != primary and session_owned_by_profile(self.config, name, raw_sid)), None)
-
     def _resolve_injection_adapter(self, platform_name: str, source=None):
         """Adapter for a synthetic-event platform: transport resolver first, literal ``p.value`` scan as
         fallback for minimal runner stubs / exotic platform strings when the resolver can't run."""
@@ -909,17 +832,6 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         queued, evt = evt, await follow_detached_pin(self, evt)  # the drain reads its verdict off *queued*
         source = await asyncio.to_thread(self._build_process_event_source, evt)
         if not source:
-            # API-server sessions bind the RAW X-Hermes-Session-Id key, not a structured ``agent:...`` key.
-            raw_sid = _raw_process_event_session_id(evt)
-            if raw_sid:
-                adapter = self.adapters.get(Platform.API_SERVER)
-                if adapter is not None and not adapter_supports_push(adapter):
-                    return await self._self_post_api_server(adapter, synth_text, raw_sid, evt)
-                logger.debug(
-                    "Deferring watch notification for raw session %s: no api_server adapter to self-post through",
-                    raw_sid,
-                )
-                return False
             logger.warning(
                 "Dropping watch notification with no routing metadata for process %s",
                 evt.get("session_id", "unknown"),
@@ -927,17 +839,8 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
             return None
         platform_name = source.platform.value if hasattr(source.platform, "value") else str(source.platform)
         adapter = self._resolve_injection_adapter(platform_name, source)
-        if not adapter and platform_name == Platform.API_SERVER.value and getattr(source, "profile", None):
-            # A route-only served profile owns no adapter map; the shared listener wakes exactly the
-            # session that profile's store owns (proven in ``_self_post_api_server``), fail-closed.
-            adapter = self.adapters.get(Platform.API_SERVER)
-        if not adapter:
+        if not adapter or not adapter_supports_push(adapter):
             return False
-        if not adapter_supports_push(adapter):
-            # Non-push adapter (api_server): its chat_id IS the raw session id, so handle_message would
-            # key the wake under a build_session_key() that never matches — self-post instead.
-            raw_sid = str(evt.get("origin_session_id") or "").strip() or str(source.chat_id or "")
-            return await self._self_post_api_server(adapter, synth_text, raw_sid, evt)
         try:
             synth_text = _mark_internal_notification(synth_text)
             metadata = _watch_notification_metadata(evt, source)
@@ -1119,10 +1022,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
             platform = source.platform.value if hasattr(source.platform, "value") else str(source.platform)
             adapter = self._resolve_injection_adapter(platform, source)
         else:
-            raw_sid = _raw_process_event_session_id(evt)
-            adapter = self.adapters.get(Platform.API_SERVER) if raw_sid else None
-            if adapter is not None and adapter_supports_push(adapter):
-                return False
+            adapter = None
         warned = self.__dict__.setdefault("_completion_no_transport_warned", set())
         key = (getattr(source, "profile", None), platform) if source is not None else None
         if adapter is None:
@@ -1133,15 +1033,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                     source, platform, getattr(getattr(self, "config", None), "multiplex_profiles", False)))
             return False
         warned.discard(key)
-        if not adapter_supports_push(adapter):
-            ensure = getattr(adapter, "_ensure_session_db", None)
-            try:
-                if not callable(ensure) or await asyncio.to_thread(ensure) is None:
-                    return False
-            except Exception:
-                logger.debug("Async-completion delivery DB unavailable", exc_info=True)
-                return False
-        return True
+        return adapter_supports_push(adapter)
 
     async def _preflight_completion_delivery(self, evt: dict) -> _CompletionClaim:
         """Claim the durable row (async delegations) and verify the target before adapter acceptance.
@@ -1218,9 +1110,6 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         from hermes_constants import get_hermes_home_override
         source = self._build_process_event_source(evt)
         if source is None or not getattr(source, "profile", None):
-            raw_sid = _raw_process_event_session_id(evt)
-            if raw_sid and getattr(getattr(self, "config", None), "multiplex_profiles", False):
-                return self._served_api_server_event_scope(evt, raw_sid)
             # No routed profile: the launch profile's own completion. Bind ITS scope once the
             # process multiplexes — unscoped, a fail-closed ledger read raises on a legitimate
             # launch-profile event (no-op while single-profile).
@@ -1230,21 +1119,6 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         if get_hermes_home_override() == str(profile_home):
             return contextlib.nullcontext()  # already inside this profile's scope
         return _async_profile_runtime_scope(profile_home)
-
-    @contextlib.asynccontextmanager
-    async def _served_api_server_event_scope(self, evt: dict, raw_sid: str):
-        """Scope of the served profile whose own store holds a raw api_server session (its events name no
-        profile), else the launch profile's, as for any unrouted event."""
-        from gateway.run import _async_profile_runtime_scope
-        from tui_gateway.launch_profile_policy import async_launch_profile_scope_if_multiplexed
-        served = await asyncio.to_thread(self._served_api_server_wake_profile, evt, raw_sid)
-        if served:
-            source = SessionSource(platform=Platform.API_SERVER, chat_id=raw_sid, profile=served)
-            scope = _async_profile_runtime_scope(self._resolve_profile_home_for_source(source))
-        else:
-            scope = async_launch_profile_scope_if_multiplexed()
-        async with scope:
-            yield
 
     async def _deliver_completion_notification(
         self, synth_text: str, evt: dict, *, sibling_claims=(),

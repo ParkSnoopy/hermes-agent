@@ -64,12 +64,6 @@ def _find_room_store(room_id: str, profile: Optional[str]) -> Optional[Path]:
         return session_store
     if not probe_hosted_room(shared_store, room_id=room_id):
         return None
-    # A shared room the root gateway imported is fenced here and lives on in the ROOT home's state.db
-    # (only that gateway imports), whichever profile's view advertised the target.
-    from gateway.hosted_rooms_gateway_import import handed_room_ids
-    root_store = shared_store.with_name("state.db")
-    if room_id in handed_room_ids(shared_store) and _serves(root_store, room_id):
-        return root_store
     return shared_store
 
 

@@ -8,11 +8,29 @@ clear denial for models that respect tool errors plus a visible audit trail.
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from contextlib import suppress
 from typing import Optional
 
 from hermes_cli.home_data_layout import SECRET_CACHE_STORES
+
+
+_SENSITIVE_MANAGED_FILE_BASENAMES = frozenset({
+    "auth.json", "auth.lock", "credentials", "config.yaml", ".anthropic_oauth.json",
+    "google_token.json", "google_oauth_pending.json", "google_oauth.json",
+    "webhook_subscriptions.json",
+    *(PurePosixPath(store).name for store in SECRET_CACHE_STORES),
+    ".git-credentials",
+})
+_SENSITIVE_MANAGED_DIR_NAMES = frozenset({"mcp-tokens", "pairing"})
+
+
+def is_sensitive_file_path(path: Path) -> bool:
+    """Identify sensitive managed-file basenames or credential-tree components."""
+    name = path.name.lower()
+    return (name == ".env" or name.startswith(".env.") or name == ".envrc"
+            or name in _SENSITIVE_MANAGED_FILE_BASENAMES
+            or any(part.lower() in _SENSITIVE_MANAGED_DIR_NAMES for part in path.parts))
 
 
 def _constants_path(getter_name: str) -> Path:

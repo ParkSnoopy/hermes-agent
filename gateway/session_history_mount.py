@@ -32,9 +32,8 @@ def _reader(authority, actor, sid):
 def mount_history(authority, actor, sid):
     """Mount *sid* read-only for its owner; False when another loader owns it or the actor may not."""
     from hermes_state_local import API_BINDING_PREFIX
-    from hermes_state_local_migration import LEGACY_LOCAL_SOURCES
     row = authority.db.get_session(sid)
-    if (row['source'] in LEGACY_LOCAL_SOURCES | {'local'}
+    if (row['source'] in {'cli', 'tui', 'local'}
             or row.get('profile_name') not in (None, '', authority.db._own_profile_name() or 'default')
             or not _reader(authority, actor, sid)):
         return False

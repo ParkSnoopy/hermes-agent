@@ -36,10 +36,7 @@ def plant_surfaces(repo: Path, frontends: dict[str, Path]) -> None:
         destination = repo / "hermes_cli/tui_dist"
         _copy(tui / "dist", destination, replace=True)
         _copy(tui / "package.json", destination / "package.json")
-    if "web" in frontends:
-        _copy(frontends["web"], repo / "hermes_cli/web_dist", replace=True)
-    if "webapp" in frontends:
-        _copy(frontends["webapp"], repo / "apps/desktop/dist-webapp", replace=True)
+
 
 
 def write_metadata(project_path: Path, repo: Path) -> None:

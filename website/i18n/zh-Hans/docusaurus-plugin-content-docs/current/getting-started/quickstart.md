@@ -229,7 +229,7 @@ Agent 会代你执行终端命令并显示结果。
 
 ### 程序化访问
 
-程序化访问请参阅 [A2A](../user-guide/messaging/a2a.md) 和 [Webhooks](../user-guide/messaging/webhooks.md)。
+代理间访问请参阅 [A2A](../user-guide/messaging/a2a.md)。
 
 ### 自动化与工具
 

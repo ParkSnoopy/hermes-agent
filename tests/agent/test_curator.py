@@ -710,8 +710,7 @@ def test_cli_pin_refuses_bundled_skill(curator_env):
 # Curator was unified with the rest of the aux task system in Apr 2026 so
 # `hermes model` → auxiliary picker, the dashboard Models tab, and the full
 # per-task config (timeout, base_url, api_key, extra_body) all work for it.
-# Voscko report: curator.auxiliary.{provider,model} was advertised but never
-# read. Fix wires curator through auxiliary.curator with a legacy fallback.
+
 # ---------------------------------------------------------------------------
 
 
@@ -779,23 +778,6 @@ def test_review_runtime_ignores_auxiliary_credentials_when_using_main(curator_en
     assert binding.explicit_api_key is None
     assert binding.explicit_base_url is None
 
-
-def test_review_runtime_legacy_auxiliary_carry_credentials(curator_env):
-    curator = curator_env["curator"]
-    cfg = {
-        "model": {"provider": "openrouter", "default": "openai/gpt-5.5"},
-        "curator": {
-            "auxiliary": {
-                "provider": "custom",
-                "model": "m",
-                "api_key": "legacy-key",
-                "base_url": "http://legacy/v1",
-            },
-        },
-    }
-    binding = curator._resolve_review_runtime(cfg)
-    assert binding.explicit_api_key == "legacy-key"
-    assert binding.explicit_base_url == "http://legacy/v1"
 
 
 def test_review_model_auxiliary_curator_partial_override_falls_back(curator_env):

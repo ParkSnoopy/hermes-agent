@@ -778,10 +778,9 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
         change: retrying it re-warns forever at the backoff cap (#5196 fleet nodes). Shared by startup and
         the reconnect watcher so both classify the same platform the same way."""
         from gateway.platform_registry import platform_registry
-        from gateway.run import _BUILTIN_ADAPTERS, _platform_has_bot_credential
+        from gateway.run import _platform_has_bot_credential
         return (
-            platform not in _BUILTIN_ADAPTERS
-            and not platform_registry.is_registered(platform.value)
+            not platform_registry.is_registered(platform.value)
             and _platform_has_bot_credential(platform, platform_config)
         )
 
@@ -1069,7 +1068,7 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
             self._subscribe_plugin_rewire(get_plugin_manager(), profile_name, profile_home)
             # This profile's `hooks:` block: start() registered before any profile scope existed.
             self._register_config_hooks(
-                "shell-hook/webhook registration failed for profile '%s'", profile_name, level=logging.WARNING,
+                "shell-hook registration failed for profile '%s'", profile_name, level=logging.WARNING,
             )
             profile_cfg = load_gateway_config()
             violation = _own_policy_open_startup_violation(profile_cfg)
@@ -1661,8 +1660,7 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
             return self._create_adapter(platform, config)
 
     def _instantiate_adapter(self, platform: Platform, config: Any) -> Optional[BasePlatformAdapter]:
-        """Instantiate the adapter for a platform: plugin registry first, then built-ins."""
-        from gateway.run import _instantiate_builtin_adapter
+        """Instantiate the adapter for a registered plugin platform."""
         if hasattr(config, "extra") and isinstance(config.extra, dict):
             config.extra.setdefault("group_sessions_per_user", self.config.group_sessions_per_user)
             config.extra.setdefault(
@@ -1678,7 +1676,7 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
                         "(check dependencies and config)", platform.value,
                     )
                 return adapter
-        return _instantiate_builtin_adapter(platform, config)
+        return None
 
     def _make_adapter_auth_check(
         self, platform: Platform, profile_name: Optional[str] = None

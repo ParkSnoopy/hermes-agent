@@ -26,7 +26,7 @@ import hermes_state_holders
 import hermes_state_schema
 from hermes_state import SessionDB
 from hermes_state_common import FTS_REBUILD_DEFERRAL_KEY, FTS_STALE_KEY, LEGACY_FTS_SQL, LEGACY_FTS_TRIGRAM_SQL, SCHEMA_SQL, _FTS_TRIGGERS
-from hermes_state_dbfile import _concrete_state_db_holder_pids, _is_inactive_orphan_desktop_holder
+
 
 
 @pytest.fixture
@@ -86,53 +86,6 @@ def _base_fts_triggers(db_path):
 
 
 class TestRuntimeFtsRebuild:
-    def test_reap_candidates_exclude_uninspectable_holder_suspicions(
-        self, tmp_path
-    ):
-        db_path = tmp_path / "state.db"
-
-        assert _concrete_state_db_holder_pids(
-            db_path,
-            [
-                (222, "uninspectable holder: python -m hermes_cli.main serve --port 0"),
-                (-1, "open-file scan failed"),
-            ],
-        ) == []
-
-    def test_reap_candidates_deduplicate_multiple_proven_watched_fds(self, tmp_path):
-        db_path = tmp_path / "state.db"
-
-        assert _concrete_state_db_holder_pids(
-            db_path,
-            [
-                (222, str(db_path)),
-                (222, f"{db_path}-wal"),
-                (222, f"{db_path}-shm (deleted)"),
-            ],
-        ) == [222]
-
-    def test_inactive_orphan_reap_predicate_preserves_live_or_ambiguous_holders(self):
-        common = {
-            "ppid": 1,
-            "age_seconds": 120.0,
-            "min_age_seconds": 60.0,
-            "ephemeral_backend": True,
-            "connection_statuses": [],
-        }
-        assert _is_inactive_orphan_desktop_holder(**common)
-        assert not _is_inactive_orphan_desktop_holder(**{**common, "ppid": 42})
-        assert not _is_inactive_orphan_desktop_holder(
-            **{**common, "age_seconds": 10.0}
-        )
-        assert not _is_inactive_orphan_desktop_holder(
-            **{**common, "ephemeral_backend": False}
-        )
-        assert not _is_inactive_orphan_desktop_holder(
-            **{
-                **common,
-                "connection_statuses": ["ESTABLISHED"],
-            }
-        )
 
     @pytest.mark.parametrize(
         "argv",
@@ -679,7 +632,7 @@ class TestRuntimeFtsRebuild:
         finally:
             reopened.close()
 
-    def test_repeated_deferrals_reap_inactive_orphan_then_rebuild(
+    def test_repeated_deferrals_keep_foreign_holder_and_defer_rebuild(
         self, db, tmp_path, monkeypatch
     ):
         if not db._fts_enabled:
@@ -709,26 +662,18 @@ class TestRuntimeFtsRebuild:
         raw.close()
 
         holder_scans = iter(([(4242, str(db_path) + "-wal")], []))
-        reaped = []
         monkeypatch.setattr(
             SessionDB,
             "_foreign_state_db_holders",
             lambda self: next(holder_scans),
         )
-        monkeypatch.setattr(
-            SessionDB,
-            "_reap_inactive_orphan_desktop_holders",
-            lambda self, holders, *, min_age_seconds: reaped.extend(holders) or [4242],
-        )
         monkeypatch.setattr(hermes_state_schema.time, "time", lambda: 120.0)
 
         reopened = SessionDB(db_path=db_path)
         try:
-            assert reaped == [(4242, str(db_path) + "-wal")]
-            assert reopened._fts_stale is False
-            assert _meta_value(db_path, FTS_STALE_KEY) is None
-            assert _meta_value(db_path, FTS_REBUILD_DEFERRAL_KEY) is None
-            assert reopened.search_messages("before restart")
+            assert reopened._fts_stale is True
+            assert _meta_value(db_path, FTS_STALE_KEY) is not None
+            assert _meta_value(db_path, FTS_REBUILD_DEFERRAL_KEY) is not None
         finally:
             reopened.close()
 
@@ -754,9 +699,7 @@ class TestRuntimeFtsRebuild:
         monkeypatch.setattr(
             SessionDB, "_foreign_state_db_holders", lambda self: [(4242, str(db_path) + "-wal")],
         )
-        monkeypatch.setattr(
-            SessionDB, "_reap_inactive_orphan_desktop_holders", lambda self, holders, *, min_age_seconds: [],
-        )
+
         monkeypatch.setattr(
             hermes_state_schema, "_read_proc_argv", lambda pid: ["python", "-m", "hermes_cli.main", "serve"], raising=False,
         )

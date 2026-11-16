@@ -1395,7 +1395,7 @@ class TestLockedGuard:
     _MUTATIONS = (
         _PATCH,
         dict(action="patch", file_path="references/notes.md", old_string="Keep this.", new_string="Changed."),
-        dict(action="edit", content=VALID_SKILL_CONTENT_2),
+        dict(action="patch", content=VALID_SKILL_CONTENT_2),
         dict(action="write_file", file_path="references/new.md", file_content="# New\n"),
         dict(action="remove_file", file_path="references/notes.md"),
         dict(action="delete", absorbed_into="umbrella"),

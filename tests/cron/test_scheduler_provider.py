@@ -9,9 +9,7 @@ CronScheduler provider interface.
 
 No production code is exercised beyond the two ticker entry points:
   - gateway/run.py::_start_cron_ticker        (production gateway ticker)
-  - hermes_cli/web_server.py::_start_desktop_cron_ticker  (desktop fallback)
-
-Both call `cron.scheduler.tick(...)` on a loop and exit when their stop_event
+The ticker calls `cron.scheduler.tick(...)` on a loop and exits when its stop_event
 is set. We patch `cron.scheduler.tick` (both tickers import it locally as
 `cron_tick`, so the module-attribute patch is observed) and assert the loop
 drives it and stops promptly.
@@ -71,88 +69,11 @@ def test_ticker_calls_tick_at_least_once_then_stops():
     assert calls[0].get("sync") is False
 
 
-def test_desktop_ticker_calls_tick_then_stops():
-    """The desktop dashboard ticker loop calls cron.scheduler.tick and exits
-    once the stop_event is set. Desktop has no live adapters, so it ticks with
-    no adapters/loop."""
-    from hermes_cli.web_server import _start_desktop_cron_ticker
-
-    calls = []
-    stop = threading.Event()
-
-    def fake_tick(*args, **kwargs):
-        calls.append(kwargs)
-        return 0
-
-    with patch("cron.scheduler.tick", side_effect=fake_tick):
-        t = threading.Thread(
-            target=_start_desktop_cron_ticker,
-            args=(stop,),
-            kwargs={"interval": 0},
-            daemon=True,
-        )
-        t.start()
-        assert _wait_until(lambda: len(calls) >= 1), "desktop ticker never called tick()"
-        stop.set()
-        t.join(timeout=5)
-
-    assert not t.is_alive(), "desktop ticker did not exit after stop_event was set"
-    assert len(calls) >= 1, "desktop ticker never called tick()"
-    assert calls[0].get("sync") is False
-
 
 # ── Phase 1: CronScheduler ABC + InProcessCronScheduler ──────────────────────
 
 
 
-
-def test_abc_growth_stays_additive():
-    """The provider interface stays source-compatible with existing plugins.
-
-    ``start`` must be the only required implementation hook: future optional
-    behavior belongs in non-abstract default methods so custom plugins do not
-    break on import after an upgrade.
-    """
-    from cron.scheduler_provider import CronScheduler
-
-    abstract = set(getattr(CronScheduler, "__abstractmethods__", set()))
-    assert abstract == {"name", "start"}, (
-        f"CronScheduler abstractmethods changed to {abstract}; growth must be "
-        "additive (optional methods with defaults), not new abstract methods."
-    )
-
-
-def test_force_fire_capability_detects_legacy_override():
-    from cron.scheduler_provider import CronScheduler
-
-    class Current(CronScheduler):
-        @property
-        def name(self):
-            return "current"
-
-        def start(self, stop_event, **kw):
-            pass
-
-    class Legacy(Current):
-        def fire_due(  # type: ignore[invalid-method-override]
-            self, job_id, *, adapters=None, loop=None
-        ):
-            return True
-
-    class PositionalOnly(Current):
-        def fire_due(  # type: ignore[invalid-method-override]
-            self, job_id, force=False, /
-        ):
-            return True
-
-    class KeywordSink(Current):
-        def fire_due(self, job_id, **kwargs):
-            return True
-
-    assert Current().supports_force_fire is True
-    assert Legacy().supports_force_fire is False
-    assert PositionalOnly().supports_force_fire is False
-    assert KeywordSink().supports_force_fire is True
 
 
 def test_inprocess_provider_ticks_and_stops():

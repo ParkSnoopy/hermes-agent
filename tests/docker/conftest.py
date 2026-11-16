@@ -152,7 +152,7 @@ def wait_for_container_ready(
     cont-init script writes on every boot. That log entry fires AFTER
     stage2-hook.sh completes, so by the time it appears the full
     cont-init chain (UID remap, chown, config seeding, skills sync,
-    browser discovery, config migration) has run.
+    browser discovery) has run.
 
     Raises ``TimeoutError`` if the container never becomes ready — much
     better than a fixed ``time.sleep()`` that either wastes time on fast

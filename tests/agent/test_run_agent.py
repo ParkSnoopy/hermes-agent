@@ -66,7 +66,7 @@ def agent():
         patch(
             "model_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")
         ),
-        patch("model_tools.check_toolset_requirements", return_value={}),
+        patch("tools.registry.registry.check_toolset_requirements", return_value={}),
         patch("agent.process_bootstrap.OpenAI"),
     ):
         a = AIAgent(
@@ -194,7 +194,7 @@ def test_malformed_memory_config_still_builds_default_store():
             "model_tools.get_tool_definitions",
             return_value=_make_tool_defs("memory"),
         ),
-        patch("model_tools.check_toolset_requirements", return_value={}),
+        patch("tools.registry.registry.check_toolset_requirements", return_value={}),
         patch("agent.process_bootstrap.OpenAI"),
     ):
         agent = AIAgent(
@@ -221,7 +221,7 @@ def agent_with_memory_tool():
             "model_tools.get_tool_definitions",
             return_value=_make_tool_defs("web_search", "memory"),
         ),
-        patch("model_tools.check_toolset_requirements", return_value={}),
+        patch("tools.registry.registry.check_toolset_requirements", return_value={}),
         patch("agent.process_bootstrap.OpenAI"),
     ):
         a = AIAgent(
@@ -258,7 +258,7 @@ def test_aiagent_reuses_existing_errors_log_handler():
                 "model_tools.get_tool_definitions",
                 return_value=_make_tool_defs("web_search"),
             ),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
         ):
             AIAgent(
@@ -297,7 +297,7 @@ class TestProviderModelNormalization:
             patch(
                 "model_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")
             ),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
         ):
             agent = AIAgent(
@@ -524,7 +524,7 @@ class TestInit:
         """Anthropic base URLs should route to native Anthropic client."""
         with (
             patch("model_tools.get_tool_definitions", return_value=[]),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter._anthropic_sdk") as mock_anthropic,
         ):
             agent = AIAgent(
@@ -537,28 +537,15 @@ class TestInit:
             assert agent.api_mode == "anthropic_messages"
             mock_anthropic.Anthropic.assert_called_once()
 
-    def test_tool_delay_kwarg_is_deprecated_noop(self):
-        """tool_delay stays accepted for compatibility but warns and is ignored."""
-        with (
-            patch("model_tools.get_tool_definitions", return_value=[]),
-            patch("model_tools.check_toolset_requirements", return_value={}),
-            patch("agent.process_bootstrap.OpenAI"),
-        ):
-            with pytest.warns(DeprecationWarning, match="tool_delay"):
-                AIAgent(
-                    api_key="test-key-1234567890",
-                    base_url="https://openrouter.ai/api/v1",
-                    tool_delay=0,
-                    quiet_mode=True,
-                    skip_context_files=True,
-                    skip_memory=True,
-                )
+    def test_tool_delay_kwarg_is_rejected(self):
+        with pytest.raises(TypeError, match="tool_delay"):
+            AIAgent(tool_delay=0)
 
     def test_prompt_caching_claude_openrouter(self):
         """Claude model via OpenRouter should enable prompt caching."""
         with (
             patch("model_tools.get_tool_definitions", return_value=[]),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
         ):
             a = AIAgent(
@@ -575,7 +562,7 @@ class TestInit:
         """Non-Claude model should disable prompt caching."""
         with (
             patch("model_tools.get_tool_definitions", return_value=[]),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
         ):
             a = AIAgent(
@@ -593,7 +580,7 @@ class TestInit:
         """Native Anthropic provider should enable prompt caching."""
         with (
             patch("model_tools.get_tool_definitions", return_value=[]),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter._anthropic_sdk"),
         ):
             a = AIAgent(
@@ -610,7 +597,7 @@ class TestInit:
         """cache_ttl stays 5m when prompt_caching is absent from config."""
         with (
             patch("model_tools.get_tool_definitions", return_value=[]),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
             patch("hermes_cli.config.load_config", return_value={}), patch("hermes_cli.config.load_config_readonly", return_value={}),
         ):
@@ -632,7 +619,7 @@ class TestInit:
         """Falsy cache_ttl values should fully disable prompt caching."""
         with (
             patch("model_tools.get_tool_definitions", return_value=[]),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -660,7 +647,7 @@ class TestInit:
         (called during /model switch and fallback activation)."""
         with (
             patch("model_tools.get_tool_definitions", return_value=[]),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -691,7 +678,7 @@ class TestInit:
         """Explicit constructor max_tokens keeps programmatic callers stable."""
         with (
             patch("model_tools.get_tool_definitions", return_value=[]),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -717,7 +704,7 @@ class TestInit:
 
 class TestHydrateTodoStore:
     @staticmethod
-    def _assistant_todo_call(call_id="c1", name="todo", arguments="{}"):
+    def _assistant_todo_call(call_id="c1", name="todo_list", arguments="{}"):
         return {
             "role": "assistant",
             "content": None,
@@ -739,7 +726,7 @@ class TestHydrateTodoStore:
         ids=["direct", "bridged"],
     )
     def test_todo_list_name_hydrates(self, agent, name, arguments):
-        """Regression for #124960: the current name and its tool_call-bridged form pair like legacy ``todo``."""
+        """Current direct and bridged Todo calls both hydrate."""
         todos = [{"id": "t", "content": "Task", "status": "pending"}]
         history = [
             self._assistant_todo_call(name=name, arguments=arguments),
@@ -821,7 +808,7 @@ class TestBuildSystemPrompt:
     def test_can_use_soul_identity_even_when_context_files_are_skipped(self):
         with (
             patch("model_tools.get_tool_definitions", return_value=_make_tool_defs("terminal")),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
             patch("agent.prompt_builder.load_soul_md", return_value="SOUL IDENTITY"),
         ):
@@ -951,10 +938,10 @@ class TestBuildSystemPrompt:
         with (
             patch("model_tools.get_tool_definitions", return_value=tools),
             patch(
-                "model_tools.check_toolset_requirements",
+                "tools.registry.registry.check_toolset_requirements",
                 side_effect=AssertionError("should not re-check toolset requirements"),
             ),
-            patch("model_tools.get_toolset_for_tool", create=True, side_effect=toolset_map.get),
+            patch("tools.registry.registry.get_toolset_for_tool", side_effect=toolset_map.get),
             patch("agent.prompt_builder.build_skills_system_prompt", return_value="SKILLS_PROMPT") as mock_skills,
             patch("agent.process_bootstrap.OpenAI"),
         ):
@@ -982,7 +969,7 @@ class TestToolUseEnforcementConfig:
         from agent.prompt_builder import TOOL_USE_ENFORCEMENT_GUIDANCE
         with (
             patch("model_tools.get_tool_definitions", return_value=[]),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -1018,7 +1005,7 @@ class TestExecutionGuidanceConfig:
                 "model_tools.get_tool_definitions",
                 return_value=_make_tool_defs("terminal", "web_search"),
             ),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -1079,7 +1066,7 @@ class TestTaskCompletionGuidance:
                 "model_tools.get_tool_definitions",
                 return_value=_make_tool_defs("terminal", "web_search"),
             ),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -1116,7 +1103,7 @@ class TestTaskCompletionGuidance:
         from agent.prompt_builder import TASK_COMPLETION_GUIDANCE
         with (
             patch("model_tools.get_tool_definitions", return_value=[]),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -1151,7 +1138,7 @@ class TestEnvironmentProbeIntegration:
                 "model_tools.get_tool_definitions",
                 return_value=_make_tool_defs("terminal"),
             ),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.process_bootstrap.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -2178,15 +2165,7 @@ class TestAgentRuntimePostHookOwnershipSync:
         ("session_search", {"query": "needle"}),
         ("memory", {"action": "view", "target": "memory"}),
         ("clarify", {"questions": [{"question": "Continue?"}]}),
-        ("read_terminal", {}),
-        ("desktop_preview", {"action": "read"}),
-        ("drive_preview", {"action": "elements"}),
-        ("annotate_preview", {"action": "clear"}),
-        ("read_window_below", {}),
         ("manage_connections", {"action": "install", "connectors": [{"name": "linear", "mcp": True}]}),
-        ("setup_mcp", {"server": "linear", "action": "install"}),
-        ("manage_catalog", {"action": "search", "query": "blender"}),
-        ("gui_tour", {"action": "stop"}),
         ("delegate_task", {"goal": "Check the child path"}),
     )
 
@@ -2222,27 +2201,7 @@ class TestAgentRuntimePostHookOwnershipSync:
             "tools.clarify_tool.clarify_tool",
             lambda **kwargs: '{"ok":true}',
         )
-        monkeypatch.setattr(
-            "tools.read_terminal_tool.read_terminal_tool",
-            lambda **kwargs: '{"ok":true}',
-        )
-        monkeypatch.setattr(
-            "tools.read_preview_tool.read_preview_tool",
-            lambda **kwargs: '{"ok":true}',
-        )
-        monkeypatch.setattr(
-            "tools.drive_preview_tool.drive_preview_tool",
-            lambda **kwargs: '{"ok":true}',
-        )
-        monkeypatch.setattr(
-            "tools.annotate_preview_tool.annotate_preview_tool",
-            lambda **kwargs: '{"ok":true}',
-        )
-        monkeypatch.setattr(
-            "tools.read_window_tool.read_window_below_tool",
-            lambda **kwargs: '{"ok":true}',
-        )
-        # manage_connections / setup_mcp shim: no card on this fake agent, so the MCP leg runs the
+        # manage_connections: no card on this fake agent, so the MCP leg runs the
         # backend at once; pin the catalog and the backend so the run is hermetic.
         monkeypatch.setattr("tools.connectors.mcp._catalog_names", lambda: ["linear"])
         monkeypatch.setattr("tools.connectors.mcp._configured_names", list)
@@ -5694,7 +5653,7 @@ class TestAnthropicBaseUrlPassthrough:
     def test_custom_proxy_base_url_passed_through(self):
         with (
             patch("model_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client") as mock_build,
         ):
             mock_build.return_value = MagicMock()
@@ -5715,7 +5674,7 @@ class TestAnthropicCredentialRefresh:
     def test_try_refresh_anthropic_client_credentials_rebuilds_client(self):
         with (
             patch("model_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client") as mock_build,
         ):
             old_client = MagicMock()
@@ -5752,7 +5711,7 @@ class TestAnthropicCredentialRefresh:
     def test_anthropic_messages_create_preflights_refresh(self):
         with (
             patch("model_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client", return_value=MagicMock()),
         ):
             agent = AIAgent(
@@ -5782,7 +5741,7 @@ class TestAnthropicCredentialRefresh:
     def test_anthropic_messages_create_falls_back_when_stream_unavailable(self):
         with (
             patch("model_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-            patch("model_tools.check_toolset_requirements", return_value={}),
+            patch("tools.registry.registry.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client", return_value=MagicMock()),
         ):
             agent = AIAgent(

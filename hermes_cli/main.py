@@ -271,7 +271,6 @@ from hermes_cli.subcommands.logout import build_logout_parser
 from hermes_cli.subcommands.auth import build_auth_parser
 from hermes_cli.subcommands.status import build_status_parser
 from hermes_cli.subcommands.pause import build_pause_parser
-from hermes_cli.subcommands.webhook import build_webhook_parser
 from hermes_cli.subcommands.hooks import build_hooks_parser
 from hermes_cli.subcommands.doctor import build_doctor_parser
 from hermes_cli.subcommands.verify import build_verify_parser
@@ -286,9 +285,6 @@ from hermes_cli.subcommands.skin import build_skin_parser
 from hermes_cli.subcommands.console import build_console_parser
 from hermes_cli.subcommands.update import build_update_parser
 from hermes_cli.subcommands.uninstall import build_uninstall_parser
-from hermes_cli.subcommands.dashboard import build_dashboard_parser, build_serve_parser
-from hermes_cli.subcommands.webapp import build_webapp_parser
-from hermes_cli.subcommands.gui import build_gui_parser
 from hermes_cli.subcommands.logs import build_logs_parser
 from hermes_cli.subcommands.prompt_size import build_prompt_size_parser
 from hermes_cli.subcommands.memory import build_memory_parser
@@ -1740,8 +1736,6 @@ cmd_logout = _forward_command("cmd_logout", "hermes_cli.auth", "logout_command",
 cmd_auth = _forward_command("cmd_auth", "hermes_cli.auth_commands", "auth_command", doc='Manage pooled credentials.')
 cmd_status = _forward_command("cmd_status", "hermes_cli.status", "show_status", doc='Show status of all components.')
 cmd_cron = _forward_command("cmd_cron", "hermes_cli.cron", "cron_command", forward_return=True, doc='Cron job management.')
-cmd_webhook = _forward_command("cmd_webhook", "hermes_cli.webhook", "webhook_command", forward_return=True, doc='Webhook subscription management.')
-
 cmd_project = _forward_command("cmd_project", "hermes_cli.projects_cmd", "projects_command", forward_return=True, doc='Manage projects (named, multi-folder workspaces).')
 cmd_hooks = _forward_command("cmd_hooks", "hermes_cli.hooks", "hooks_command", doc='Shell-hook inspection and management.')
 cmd_doctor = _forward_command("cmd_doctor", "hermes_cli.doctor", "run_doctor", forward_return=True, doc='Check configuration and dependencies.')
@@ -1749,8 +1743,6 @@ cmd_dump = _forward_command("cmd_dump", "hermes_cli.dump", "run_dump", doc='Dump
 cmd_debug = _forward_command("cmd_debug", "hermes_cli.debug", "run_debug", doc='Debug tools (share report, etc.).')
 cmd_skin = _forward_command("cmd_skin", "hermes_cli.skin_cmd", "skin_command", doc='Skin management (list / use / set).')
 cmd_import = _forward_command("cmd_import", "hermes_cli.backup", "run_import", forward_return=True, doc='Restore a Hermes backup from a zip file.')
-cmd_dashboard_register = _forward_command("cmd_dashboard_register", "hermes_cli.dashboard_register", "cmd_dashboard_register", doc='Register a self-hosted dashboard OAuth client with Nous Portal.')
-cmd_webapp = _forward_command("cmd_webapp", "hermes_cli.webapp_launcher", "cmd_webapp", forward_return=True, doc='Open the browser-hosted Desktop the gateway serves.')
 cmd_prompt_size = _forward_command("cmd_prompt_size", "hermes_cli.prompt_size", "cmd_prompt_size", doc='Show a byte/char breakdown of the system prompt + tool schemas.')
 cmd_pairing = _forward_command("cmd_pairing", "hermes_cli.pairing", "pairing_command")
 cmd_plugins = _forward_command("cmd_plugins", "hermes_cli.plugins_cmd", "plugins_command")
@@ -2023,9 +2015,6 @@ _FROZEN_UPDATER_SURFACE: dict[str, tuple[str, ...]] = {
     "hermes_cli.update_cmd_maint": (
         "_purge_stale_hermes_modules", "_reload_updated_runtime_modules",
     ),
-    "hermes_cli.dashboard_procs": (
-        "_detect_concurrent_hermes_instances", "_kill_stale_dashboard_processes",
-    ),
 }
 _FROZEN_ATTR_SOURCES: dict[str, str] = {
     attr: module for module, attrs in _FROZEN_UPDATER_SURFACE.items() for attr in attrs
@@ -2111,17 +2100,9 @@ def cmd_version(args):
 
 
 def cmd_uninstall(args):
-    """Uninstall Hermes Agent (or just the Chat GUI with --gui).
-
-    ``--yes`` paths run from the desktop app's non-interactive cleanup scripts,
-    so the TTY gate applies only when we actually need to prompt.
-    """
-    # Machine-readable snapshot for the desktop uninstall UI; before any TTY gate.
-    if getattr(args, "gui_summary", False):
-        from hermes_cli.gui_uninstall import gui_install_summary
-
-        print(json.dumps(gui_install_summary()))
-        return
+    """Uninstall Hermes Agent or its data."""
+    if getattr(args, "gui", False) or getattr(args, "gui_summary", False):
+        raise SystemExit("Desktop uninstall is no longer supported.")
 
     if getattr(args, "data", False):
         if not getattr(args, "yes", False) and not getattr(args, "dry_run", False):
@@ -2131,13 +2112,6 @@ def cmd_uninstall(args):
         run_data_uninstall(args)
         return
 
-    if getattr(args, "gui", False):
-        if not getattr(args, "yes", False) and not getattr(args, "dry_run", False):
-            _require_tty("uninstall --gui")
-        from hermes_cli.uninstall import run_gui_uninstall
-
-        run_gui_uninstall(args)
-        return
 
     if not getattr(args, "yes", False) and not getattr(args, "dry_run", False):
         _require_tty("uninstall")
@@ -2818,14 +2792,12 @@ def _prepare_agent_startup(args) -> None:
     try:
         from hermes_cli.config import load_config
         from agent.shell_hooks import register_from_config
-        from agent.outbound_webhooks import register_from_config as register_outbound_webhooks
 
         _hooks_cfg = load_config()
         register_from_config(_hooks_cfg, accept_hooks=_accept_hooks, interactive=args.command in {None, "chat", "rl"})
         if _accept_hooks and args.command == "gateway":  # every session-open re-sync keeps honouring it
             from agent.shell_hooks import accept_for_process
             accept_for_process()
-        register_outbound_webhooks(_hooks_cfg)
     except Exception:
         logger.debug(
             "shell-hook registration failed at CLI startup",
@@ -2923,45 +2895,6 @@ def _promote_top_level_resume(args) -> None:
     """Top-level --resume/--continue with no subcommand is a chat shortcut."""
     if (args.resume or args.continue_last) and args.command is None:
         args.command = "chat"
-
-
-def _try_fast_serve_launch() -> bool:
-    """Dispatch an unambiguous built-in ``serve`` without the full CLI tree.
-
-    Desktop runs this on every cold start; building every other parser costs
-    thousands of filesystem-backed lookups on Windows. Unknown or global
-    arguments fall back to normal parsing so error reporting is unchanged.
-    """
-    if os.environ.get("HERMES_DISABLE_FAST_SERVE_LAUNCH") == "1":
-        return False
-
-    argv = sys.argv[1:]
-    if not argv or argv[0] != "serve" or "-h" in argv or "--help" in argv:
-        return False
-
-    # Container routing is top-level policy and must run before host dispatch.
-    try:
-        from hermes_cli.config import get_container_exec_info
-
-        if get_container_exec_info():
-            return False
-    except Exception:
-        return False
-
-    parser = build_serve_parser(
-        cmd_dashboard=cmd_dashboard,
-        add_help=False,
-        exit_on_error=False,
-    )
-    try:
-        args, unknown = parser.parse_known_args(argv[1:])
-    except (argparse.ArgumentError, ValueError):
-        return False
-    if unknown:
-        return False
-
-    cmd_dashboard(args)
-    return True
 
 
 def _try_fast_chat_launch() -> bool:
@@ -3209,7 +3142,6 @@ def _build_cli_parser():
     build_status_parser(subparsers, cmd_status=cmd_status)
     build_pause_parser(subparsers)
     build_cron_parser(subparsers, cmd_cron=cmd_cron)
-    build_webhook_parser(subparsers, cmd_webhook=cmd_webhook)
 
     from hermes_cli.subcommands.peer import build_peer_parser
     build_peer_parser(subparsers)
@@ -3260,12 +3192,6 @@ def _build_cli_parser():
     build_acp_parser(subparsers, cmd_acp=cmd_acp)
     build_profile_parser(subparsers, cmd_profile=cmd_profile)
     build_completion_parser(subparsers, cmd_completion=cmd_completion, parser=parser)
-    build_dashboard_parser(
-        subparsers, cmd_dashboard=cmd_dashboard, cmd_dashboard_register=cmd_dashboard_register)
-    build_webapp_parser(subparsers, cmd_webapp=cmd_webapp)
-    # "desktop" is canonical (Hermes-Setup.exe tells users to run it, so it
-    # must be the name --help shows); "gui" is a deprecated alias.
-    build_gui_parser(subparsers, cmd_gui=cmd_gui)
     build_logs_parser(subparsers, cmd_logs=cmd_logs)
     build_prompt_size_parser(subparsers, cmd_prompt_size=cmd_prompt_size)
     return parser, subparsers
@@ -3377,8 +3303,6 @@ def main():
     if _try_termux_fast_tui_launch():
         return
     if _try_termux_fast_cli_launch():
-        return
-    if _try_fast_serve_launch():
         return
     if _try_fast_chat_launch():
         return

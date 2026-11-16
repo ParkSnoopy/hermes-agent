@@ -1,8 +1,9 @@
 # GitHub Actions workflows
 
-This directory has 57 workflow files. Most of them are **reusable workflows**
-(`on: workflow_call`). They never start on their own; an entry-point workflow
-calls them. This README covers what starts each workflow, which jobs it skips
+This directory contains entry-point and **reusable workflows**.
+Reusable workflows (`on: workflow_call`) run when called by another workflow;
+some also have their own dispatch or event triggers.
+This README covers what starts each workflow, which jobs it skips
 and why, how to run it by hand, and how a regular CI run differs from a
 release run.
 
@@ -29,10 +30,8 @@ workflow wins. Fix this file in the same PR.
 pull_request / push main
  ├─ ci.yaml  (CI)  ── detect ──┬─ tests.yml ─────────────── (e2e jobs: release/dispatch only)
  │                             ├─ tests-os.yml ──────────── windows-install-update-e2e.yml
- │                             ├─ lint.yml, js-tests.yml, rust-tests.yml, catalog-tests.yml
+ │                             ├─ lint.yml, js-tests.yml, catalog-tests.yml
  │                             ├─ remote-backends.yml, bootstrap-installer.yml, docs-site-checks.yml
- │                             ├─ e2e-desktop-core.yml, e2e-desktop-update.yml (release/dispatch only)
- │                             ├─ e2e-desktop.yml (disabled: `if: false`)
  │                             ├─ repo-guards.yml (one job: every cheap guard as a lane-gated step)
  │                             └─ all-checks-pass  ← the ONLY required branch-protection check
  │                                                   (+ the CI timing report steps)
@@ -43,15 +42,14 @@ pull_request / push main
 workflow_run CI started  → ci-review-comment.yml (live PR comment)
 PR labeled run-e2e       → label-rerun.yml (reruns CI, Docker, Nix)
 
-schedule daily 06:41 UTC → canary-release.yml → (release.py dispatches) desktop-bundled-release.yml
-                                                                         └─ desktop-bundle-smoke.yml
+schedule daily 06:41 UTC → canary-release.yml → (release.py dispatches) termux-release.yml
+                                                                         └─ APT checks → GitHub prerelease
 
 release.py release       → stable-release.yml ─┬─ ci.yaml (release: true, strict gate)
  (pushes rc.N-vX.Y.Z,                          ├─ docker.yml (release-phase test → publish)
   dispatches on main)                          ├─ nix.yml, pm-bundle.yml, termux-verify.yml
                                                ├─ windows-venv-e2e.yml, install-e2e.yml
-                                               ├─ desktop-bundled-release.yml (candidate / publish)
-                                               └─ install-e2e-{windows,macos}-run.yml (signed upgrade)
+                                               └─ termux-release.yml (candidate / publish)
 Stable Release completed (failed) → stable-release-publication.yml (rerun failed jobs / publish)
 ```
 
@@ -64,8 +62,8 @@ Stable Release completed (failed) → stable-release-publication.yml (rerun fail
 | Kind | What starts it | Files |
 |---|---|---|
 | Entry point | `pull_request`, `push`, `schedule`, `workflow_run`, `workflow_dispatch`, `release` | `ci.yaml`, `docker.yml`, `nix.yml`, `canary-release.yml`, `stable-release.yml`, and the others under the headings below |
-| Reusable only | Another workflow's `uses: ./.github/workflows/<file>` | Most `ci.yaml` children (`tests.yml`, `lint.yml`, …), `desktop-bundle-smoke.yml` (also dispatchable), `install-e2e-run.yml`, `install-e2e-{windows,macos}-run.yml` |
-| Both | Its own triggers **and** a caller | `nix.yml`, `docker.yml`, `pm-bundle.yml`, `termux-verify.yml`, `windows-venv-e2e.yml`, `windows-install-update-e2e.yml`, `install-e2e.yml`, `desktop-bundled-release.yml`, `ci.yaml`, `archive-inputs.yml` |
+| Reusable only | Another workflow's `uses: ./.github/workflows/<file>` | Most `ci.yaml` children (`tests.yml`, `lint.yml`, …), `install-e2e-run.yml`, `install-e2e-{windows,macos}-run.yml` |
+| Both | Its own triggers **and** a caller | `nix.yml`, `docker.yml`, `pm-bundle.yml`, `termux-release.yml`, `termux-verify.yml`, `windows-venv-e2e.yml`, `windows-install-update-e2e.yml`, `install-e2e.yml`, `ci.yaml`, `archive-inputs.yml` |
 
 A reusable workflow does not show up as its own run in the Actions tab. Its
 jobs appear inside the caller's run, under the caller's job name (for example
@@ -356,12 +354,12 @@ branch protection.
 
 There are three release paths, and none of them starts from a tag push:
 
-| | Canary | Stable | One-off / channel build |
+| | Canary | Stable | One-off Termux build |
 |---|---|---|---|
-| Entry | `canary-release.yml` (daily cron or dispatch) | `python scripts/release.py release …` → dispatches `stable-release.yml` | `python scripts/release.py --build-commit REV [--channel NAME] --publish` → dispatches `desktop-bundled-release.yml` |
-| Identity | `v<stable>+canary.<UTC>` tag, separate `hermes-canary` app | `rc.<N>-vX.Y.Z` attempt ref, then a `vX.Y.Z` receipt at publish | commit: `hermes-<sha7>` app; channel: `Hermes NAME` or stable branding |
-| Tests | native smokes of each bundle | full CI (strict) + Docker + Nix + PM bundle + install/update E2E + signed upgrade acceptance, per the claim's lanes | native smokes |
-| Publishes | canary feeds, canary GitHub prerelease | Docker versioned tag → `stable`/`latest`, R2 stable feeds, App Installer, Store, APT, GitHub release | commit/channel pages under R2; never a feed or Store |
+| Entry | `canary-release.yml` (daily cron or dispatch) → `termux-release.yml` | `python scripts/release.py release …` → `stable-release.yml` | `python scripts/release.py --build-commit REV --publish` → `termux-release.yml` |
+| Identity | `v<stable>+canary.<UTC>` annotated tag | `rc.<N>-vX.Y.Z` attempt ref, then a `vX.Y.Z` receipt at publish | exact pushed commit |
+| Tests | Termux payload and public APT checks | source CI + Docker + Nix + PM bundle + install/update acceptance, per the claim's lanes | Termux payload build |
+| Publishes | canary APT repository, then the exact GitHub prerelease | selected Docker aliases and Termux APT artifacts, GitHub release | Termux handoffs under R2; no channel movement or release |
 
 Long-form reference: `website/docs/developer-guide/stable-releases.md`.
 
@@ -374,28 +372,29 @@ Long-form reference: `website/docs/developer-guide/stable-releases.md`.
   the default branch (it would tag unmerged code). `prune` skips when `tag`
   was skipped or cancelled.
 - **No new commits:** `release.py --canary` resumes an unpublished canary
-  until its protected head is live, or does nothing.
+  until its GitHub prerelease is public, or does nothing.
 - **Flow:** `tag` runs `release.py --canary --publish`, which pushes the tag,
-  drafts the prerelease, and **dispatches `desktop-bundled-release.yml`**
+  drafts the prerelease, and **dispatches `termux-release.yml`**
   (a separate run). `prune` deletes canaries older than 14 days (GitHub, plus
   R2 when secrets are present).
+- **Publication:** only successful Termux payload and public APT checks can
+  publish the exact admitted prerelease. Source subscribers read GitHub
+  prereleases ordered by the UTC tag stamp, without graphical package manifests.
 - **Manual:** `gh workflow run canary-release.yml` (on `main`).
-- A queued dispatch that a newer one superseded ends as `cancelled`. Only
-  `failure` signals a canary failure.
 
 ### Stable releases
 
 `stable-release.yml`, **Stable Release** (run name `Stable release <tag>`)
 
 - **Runs:** `workflow_dispatch` only, from the default branch, with
-  `tag=<rc.N-vX.Y.Z>` (the annotated claim ref) and an optional
-  `baseline-manifest`. Use `scripts/release.py` instead of dispatching by
+  `tag=<rc.N-vX.Y.Z>` (the annotated claim ref).
+  Use `scripts/release.py` instead of dispatching by
   hand. It derives the version, pushes the claim atomically, creates the
   draft, and dispatches:
 
   ```sh
   python scripts/release.py release --commit "$(git rev-parse origin/main)" --bump patch --remote origin
-  python scripts/release.py release … --only windows,docker      # lane subset
+  python scripts/release.py release … --only docker             # lane subset
   python scripts/release.py release … --with termux --without install-e2e
   python scripts/release.py publish --version X.Y.Z --remote origin
   python scripts/release.py abandon --version X.Y.Z --remote origin
@@ -421,15 +420,11 @@ Long-form reference: `website/docs/developer-guide/stable-releases.md`.
   | `termux` (off), `termux-checks` (on, only with `termux`) | `candidates-termux`, `termux-checks` |
   | `windows-live` (on) | `windows-live` → `windows-venv-e2e.yml` |
   | `install-e2e` (on) | `install-e2e` → `install-e2e.yml` (route `all`) |
-  | `windows` (on), `windows-store` (on) | `candidates-win32-{x64,arm64,bundle}`, Store submission |
-  | `macos-arm64` (on) | `candidates-darwin-arm64` |
-  | `smoke` (on) | native smokes inside the candidate calls |
-  | `upgrade` (on) | `transitions-*` and `windows-packaged` / `macos-packaged-*` (signed OLD→NEW). Also skipped when no published baseline exists. |
-  | `bootstrap-version` (on) | `bootstrap-version` |
+
 
 - **Order:** every gate and candidate starts right after `admit`. CI does not
   block the signed builds. `acceptance` is the single join that blocks
-  publication. Then `publish-docker` and `publish-bundles` (desktop workflow,
+  publication. Then `publish-docker` and `publish-bundles` (Termux workflow,
   `release-phase: publish`), `publication`, and finally `complete`
   ("Stable release is green").
 - **Concurrency:** group `stable-release`, queued, shared with publication.
@@ -448,41 +443,21 @@ Long-form reference: `website/docs/developer-guide/stable-releases.md`.
   (this is what `release.py publish` does). It is idempotent, so you can run
   it again after a partial failure.
 
-### Desktop bundles: `desktop-bundled-release.yml`
+### Termux packages: `termux-release.yml`
 
-**Desktop Bundled Release.** This is the native build, sign, stage and publish
-pipeline for darwin-arm64, win32-x64/arm64 (+ universal bundle and Store
-bundle), and Termux. There is no Intel macOS (darwin-x64) build. The linux-x64/arm64 groups are **disabled** (dummy jobs).
+The retained aarch64 payload contains the CLI and TUI. Admission pins the exact
+source commit before the payload job checks it out.
 
-| Mode | How it starts | Key inputs | Publishes |
+| Mode | How it starts | Key inputs | Publication |
 |---|---|---|---|
-| Canary tag | dispatched by `release.py --canary` from `canary-release.yml` | `tag=v…+canary.…`, `upload_release=true` | canary Windows/macOS feeds, Termux .deb, builds table, canary release |
-| Stable candidate | `workflow_call` from `stable-release.yml` | `release-phase=candidate`, `jobs=<one group>`, `skip-tests` / `skip-signed` / `skip-store` / `windows-smokes-with-bundle` from lanes | stages to `releases/tag/<attempt>/` only, plus receipts |
-| Stable publish | `workflow_call` (`publish-bundles`) | `release-phase=publish`, `manifest-sha256` | verifies candidate files; `stable-store` submits the Store bundle |
-| Commit build | `release.py --build-commit SHA --publish` (default branch, maintainer) | `build_commit=<40-hex>`, `bundle_env` | `releases/commit/<sha>/` page; no feeds |
-| Preview channel | `release.py --channel NAME --build-commit … --publish` | `channel`, `branding` | channel head CAS after every smoke passes |
-| Disposable namespace (tests) | manual dispatch | `disposable_channel`, `build_commit`, `disposable_receivers` | allocation only, no native build |
+| Canary | dispatch from `release.py --canary` | annotated `tag`, `upload_release=true` | verified canary APT repository, then GitHub prerelease |
+| Stable candidate | `workflow_call` from `stable-release.yml` | `release-phase=candidate`, claim tag and object | immutable attempt-scoped handoff and package metadata |
+| Stable publication | `workflow_call` from `publish-bundles` | `release-phase=publish`, accepted manifest digest | verify accepted artifacts without rebuilding; the stable sequencer promotes APT |
+| One-off commit | default-branch maintainer dispatch | exact `build_commit`, `upload_release=false` | commit-scoped Termux handoff, no release or channel movement |
 
-Inside one run:
-
-- Per-arch `*-release` vs `*-commit` build jobs are chosen by `validate`'s
-  outputs. The matching `… result` job collapses them.
-- `smoke-*` call **`desktop-bundle-smoke.yml`**. It needs a staged SHA and
-  skips after a failed `validate`.
-- `publish-win32-updater` / `publish-darwin-updater` require
-  `upload_release=true` and no `build_commit`/`channel`.
-- `stage-receipt-*` run only for `release-phase=candidate`. `stable-*` jobs
-  run only for `release-phase=publish`.
-- `builds-table` runs only for a plain uploading tag build (canary).
-  `commit-builds-summary` runs only for commit builds.
-
-Re-smoke an already staged artifact without rebuilding:
-
-```sh
-gh workflow run desktop-bundle-smoke.yml --ref <test-branch> \
-  -f platform=win32 -f arch=x64 -f format=msix -f sha=<built commit> \
-  -f commit-build=true -f public-base=https://hermes-assets.nousresearch.com/
-```
+`phase-result` requires admission and the selected payload/publication job.
+Canaries additionally require `canary-publish`; a failed, missing or skipped
+selected job fails the aggregate gate.
 
 ### Install & update E2E family
 
@@ -504,7 +479,6 @@ gh workflow run install-e2e-red.yml -f run-id=<id> -f dry-run=false
 
 | Workflow | Triggers | Notes |
 |---|---|---|
-| `bootstrap-installer-build.yml`, **Bootstrap installer build** | `workflow_dispatch` (`ref`, `pin_branch`, `pin_commit`) | Signed Hermes-Setup.exe (Azure Trusted Signing) and notarized Hermes-Setup.dmg. Uploaded as run artifacts only, never published. No caches. |
 | `live-providers.yml`, **Live provider canaries** | `push: tags v*`; `workflow_dispatch` (`filter`) | Live calls to real provider APIs, upstream only. Each case skips when its `LIVE_*_API_KEY` secret is missing. Tags pushed by `GITHUB_TOKEN` do not start it, and stable attempt refs (`rc.*`) do not match `v*`. In practice it runs on dispatch or on a `v*` tag a person pushes. `gh workflow run live-providers.yml -f filter='openrouter-anthropic'` |
 | `sandbox-image.yml` | see [standalone](#standalone-pr--main-checks) | Publishes `:desktop` on `release: published` or dispatch. |
 | `deploy-site.yml` | see [post-merge](#post-merge-automation-on-main) | The Vercel deploy runs on `release: published` or dispatch. |
@@ -520,7 +494,6 @@ matching branch, or dispatch:
 |---|---|---|---|
 | `windows-venv-e2e.yml`, venv-holder live E2E | `wine2e/**` | no | stable (`windows-live` lane) |
 | `windows-install-update-e2e.yml`, install.ps1 + `hermes update` | `wine2e-install/**` | yes (`strict_acceptance`) | `tests-os.yml` (`e2e_upgrade` lane) |
-| `windows-desktop-attach-e2e.yml`, Desktop attach to a running gateway | `wine2e-desktop/**` | yes | none |
 
 ```sh
 gh workflow run windows-install-update-e2e.yml --ref <branch> -f strict_acceptance=upd-txn
@@ -535,21 +508,15 @@ gh workflow run windows-install-update-e2e.yml --ref <branch> -f strict_acceptan
 | File | Name | Triggers | Called by |
 |---|---|---|---|
 | `archive-inputs.yml` | Archive pinned PM inputs | main (paths), dispatch, call | none |
-| `bootstrap-installer-build.yml` | Bootstrap installer build | dispatch | none |
 | `bootstrap-installer.yml` | Bootstrap installer | R | ci |
 | `canary-release.yml` | Canary Release | cron daily 06:41, dispatch | none |
 | `catalog-tests.yml` | Catalog tests | R | ci |
 | `ci-review-comment.yml` | CI review comment | workflow_run(CI in_progress) | none |
 | `ci.yaml` | CI | PR, main, dispatch, call | stable |
 | `deploy-site.yml` | Deploy Site | main (paths), release published, dispatch | skills-index (dispatch) |
-| `desktop-bundled-release.yml` | Desktop Bundled Release | dispatch, call | stable; canary/release.py (dispatch) |
-| `desktop-bundle-smoke.yml` | Desktop bundle smoke | dispatch, call | desktop-bundled-release |
 | `docker.yml` | Docker Build, Test, and Publish | PR, main, call | stable |
 | `docs-search-monitor.yml` | Docs Search Monitor | cron 6 h, workflow_run(Deploy Site), dispatch | none |
 | `docs-site-checks.yml` | Docs Site Checks | R | ci |
-| `e2e-desktop-core.yml` | E2E Desktop core | R | ci |
-| `e2e-desktop-update.yml` | E2E Desktop update | R | ci |
-| `e2e-desktop.yml` | E2E Desktop | R | ci (disabled) |
 | `install-e2e-macos-run.yml` | install-e2e macos leg | R | install-e2e, stable |
 | `install-e2e-red.yml` | Install & Update E2E red tracker | workflow_run(Install & Update E2E), dispatch | none |
 | `install-e2e-run.yml` | Install & Update E2E (reusable) | R | install-e2e, macos leg |
@@ -566,17 +533,16 @@ gh workflow run windows-install-update-e2e.yml --ref <branch> -f strict_acceptan
 | `pm-bundle.yml` | PM Bundle | PR (paths), dispatch, call | stable |
 | `remote-backends.yml` | Remote terminal backends | R | ci |
 | `repo-guards.yml` | Repository guards | R | ci |
-| `rust-tests.yml` | Rust tests | R | ci |
 | `sandbox-image.yml` | Sandbox desktop image | PR (paths), release published, dispatch | none |
 | `skills-index-freshness.yml` | Skills Index Freshness Check | cron 4 h, dispatch | none |
 | `skills-index.yml` | Build Skills Index | cron 06:00/18:00, main (paths), dispatch | none |
 | `stable-release-publication.yml` | Stable Release Publication | workflow_run(Stable Release completed), dispatch | none |
 | `stable-release.yml` | Stable Release | dispatch | release.py |
+| `termux-release.yml` | Termux Release | dispatch, call | stable; canary/release.py (dispatch) |
 | `termux-verify.yml` | Termux verification | PR/main (paths), dispatch, call | stable |
 | `tests-os.yml` | OS-specific tests | R | ci |
 | `tests.yml` | Tests | R | ci |
 | `windows-bundle-sdk.yml` | Windows bundle SDK | PR (paths), dispatch | none |
-| `windows-desktop-attach-e2e.yml` | Windows Desktop attach E2E | push `wine2e-desktop/**`, dispatch | none |
 | `windows-install-update-e2e.yml` | Windows install + update E2E | push `wine2e-install/**`, dispatch, call | tests-os |
 | `windows-venv-e2e.yml` | Windows venv-holder live E2E | push `wine2e/**`, call | stable |
 
@@ -587,12 +553,6 @@ gh workflow run windows-install-update-e2e.yml --ref <branch> -f strict_acceptan
 These match the YAML today and are listed so nobody mistakes them for live
 coverage:
 
-- **`e2e-desktop.yml`** is wired into `ci.yaml` with a bare `if: false`
-  (deferred as flaky). Keep it a bare `false`. An expression form once made
-  GitHub's parser reject the whole of `ci.yaml`.
-- **Linux desktop bundles** (`build-linux-x64/arm64` in
-  `desktop-bundled-release.yml`) and the Linux targets of `pm-bundle.yml` are
-  disabled.
 - **`install-e2e-red.yml`** updates its issue automatically only when the
   watched run came from a `schedule` event, and `install-e2e.yml` has no
   schedule. Today only a manual dispatch does anything.

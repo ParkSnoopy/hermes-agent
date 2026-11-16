@@ -15,7 +15,7 @@ from hermes_constants import get_hermes_home
 def test_fleet_completion_preserves_runtime_verdict_and_restart_obligation(
     update_complete, state, monkeypatch,
 ):
-    refreshed, migrated = [], []
+    refreshed = []
     snapshot = [{"profile": "default", "pid": 1234, "state": state}] if state else []
     restart = update_cmd_fleet._GatewayRestartOutcome(
         incomplete=False, phase_errors=[], pre_restart_gateway_pids=[1234],
@@ -29,9 +29,13 @@ def test_fleet_completion_preserves_runtime_verdict_and_restart_obligation(
         lambda **kwargs: refreshed.append(kwargs),
     )
     monkeypatch.setattr(update_receipt, "_code_identity", lambda **kwargs: {})
+    monkeypatch.setattr(fleet_verify, "_named_gateways_still_owed", lambda: False)
     monkeypatch.setattr(
-        "hermes_cli.gateway_migrate.maybe_auto_migrate_after_update", lambda: migrated.append(True),
+        "hermes_cli.update_cmd_stale_survivors.signal_stale_fleet_survivors",
+        lambda *args: [],
     )
+    migrations = []
+    monkeypatch.setattr("hermes_cli.gateway_migrate.maybe_auto_migrate_after_update", lambda: migrations.append(True))
 
     def collect(outcome, rows_expected):
         assert outcome is restart
@@ -41,7 +45,7 @@ def test_fleet_completion_preserves_runtime_verdict_and_restart_obligation(
     monkeypatch.setattr(fleet_verify, "_collect_fleet_snapshot", collect)
     update_cmd_fleet._write_fleet_restart_pending_marker()
     assert update_cmd_fleet._fleet_restart_obligation_armed()
-    healthy = update_complete and state == "current"
+
     with update_receipt.update_receipt_scope():
         update_receipt.begin_update_receipt()
         # Contract C3: neither verdict fails the committed update any more (was SystemExit(1)).
@@ -58,5 +62,5 @@ def test_fleet_completion_preserves_runtime_verdict_and_restart_obligation(
     # The two verdicts stay independent: only the fleet keeps the restart obligation armed.
     assert restart.incomplete is (state != "current")
     assert update_cmd_fleet._fleet_restart_obligation_armed() is (state != "current")
-    assert migrated == ([True] if healthy else [])
+    assert migrations == []
     assert refreshed == [{"already_restarted_units": {"hermes-gateway"}}]

@@ -116,14 +116,11 @@ class HostedControls:
         """Refuse Retry while any home could still run this generation. A turn from before attempt
         homes were recorded may run at an older home of its profile, which must first answer that
         it holds nothing; then the home the Stop is asked at must be idle (unless it is gone)."""
-        from gateway.session_hosted_member_homes import moved_attempt_gone, unsettled_legacy_homes
+        from gateway.session_hosted_member_homes import moved_attempt_gone
         task, binding = self._control_task(room_id, member_id, task_id, execution_generation)
         if task['status'] != 'deferred':
             return  # refused under the lock
-        held = unsettled_legacy_homes(self, room_id, task)
-        if held:
-            raise RuntimeStoreError('session_busy', field='home', detail=(
-                f'an older home of this profile may still run this turn: {held[0]}'))
+
         if moved_attempt_gone(self, room_id, task):
             return
         rpc, profile = self._resolve_member_transport(binding, task), task['payload']['target_profile']

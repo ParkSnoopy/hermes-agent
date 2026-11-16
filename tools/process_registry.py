@@ -2111,7 +2111,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
             " notify_on_complete is set: you will be notified on exit — do more work instead of waiting again."
             if session.notify_on_complete else
             " Poll again later or use terminal(background=true, "
-            "notify_on_complete=true) next time for automatic notification.")
+            "notify=true) next time for automatic notification.")
         result["timeout_note"] = f"{timeout_note}. {base_note}" if timeout_note else base_note
         return result
 

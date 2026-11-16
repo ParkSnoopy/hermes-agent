@@ -1016,14 +1016,14 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
             # Runs on a daemon thread on the snapshot fast path: keep the imports to modules the
             # registry walk already loaded plus the pure notices module (a heavy import here races
             # importlib's module locks against the main thread).
-            from model_tools import check_tool_availability
+            from tools.registry import registry
             from hermes_cli.tool_availability_notices import (
                 current_terminal_backend, filter_to_enabled_toolsets, tool_availability_warning_lines,
             )
             from tools.terminal_tool import terminal_backend_unavailable_reason
             from toolsets import resolve_toolset
 
-            _, unavailable = check_tool_availability()
+            _, unavailable = registry.check_tool_availability()
             # Only toolsets this CLI session actually has. The selection is usually a composite bundle
             # (``hermes-cli``), so expand it to tool names before matching — a raw name comparison
             # matched nothing on a default install and silently dropped the terminal notice.
@@ -1597,18 +1597,6 @@ def _build_cli_from_args(model, toolsets, provider, reasoning, api_key, base_url
     return cli
 
 
-def _run_legacy_gateway():
-    """Legacy `cli.py --gateway` entry: arm the startup watchdog (before importing the gateway graph), then run it."""
-    import asyncio
-    from hermes_cli.resource_limits import apply_malloc_arena_max
-    apply_malloc_arena_max()  # before the watchdog thread: glibc latches its arena limit
-    with suppress(Exception):
-        from hermes_startup_watchdog import arm_startup_watchdog
-        arm_startup_watchdog()
-    from gateway.run import start_gateway
-    print(_t("cli.gateway.starting"))
-    asyncio.run(start_gateway())
-
 
 def _start_worktree_setup(list_tools, list_toolsets, worktree, w):
     """Start isolated-worktree creation (+ tool prewarm) in the background.
@@ -1685,7 +1673,7 @@ def main(
     compact: bool = False,
     list_tools: bool = False,
     list_toolsets: bool = False,
-    gateway: bool = False,
+
     resume: str | None = None,
     worktree: bool = False,
     w: bool = False,
@@ -1740,9 +1728,6 @@ def main(
 
     os.environ["HERMES_INTERACTIVE"] = "1"  # terminal_tool: interactive sudo prompts with timeout
 
-    if gateway:
-        _run_legacy_gateway()
-        return
 
     if not (list_tools or list_toolsets):
         from hermes_cli.process_identity import register_self

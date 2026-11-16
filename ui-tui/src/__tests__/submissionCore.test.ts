@@ -79,17 +79,14 @@ describe('submissionCore.submitPrompt — synchronous busy (queue-race fix)', ()
     expect(calls).not.toContain('input.detect_drop')
   })
 
-  it('after detect_drop resolves (no file), it issues prompt.submit', async () => {
-    const { calls, gw, resolveDrop } = makeDeferredGateway()
+  it('submits ordinary text directly to the native owner', async () => {
+    const { calls, gw } = makeDeferredGateway()
 
     submitPrompt('hi there', makeDeps(gw))
-    expect(calls).toEqual(['input.detect_drop'])
-
-    resolveDrop({ matched: false })
     await Promise.resolve()
     await Promise.resolve()
 
-    expect(calls).toContain('prompt.submit')
+    expect(calls).toEqual(['prompt.submit'])
   })
 })
 
@@ -133,7 +130,7 @@ describe('submissionCore.submitPrompt — literal submissions (startup -q querie
   })
 })
 
-it('keeps the submit destination across preprocessing and never mutates the newly focused session', async () => {
+it('keeps the submit destination and never mutates the newly focused session', async () => {
   resetUiState()
   patchUiState({ sid: 'original' })
   const { gw, resolveDrop } = makeDeferredGateway()
@@ -147,7 +144,7 @@ it('keeps the submit destination across preprocessing and never mutates the newl
     'prompt.submit',
     expect.objectContaining({ session_id: 'original', text: 'private' })
   )
-  expect(deps.appendMessage).not.toHaveBeenCalled()
+  expect(deps.appendMessage).toHaveBeenCalledTimes(1)
   expect(getUiState()).toMatchObject({ sid: 'other', busy: false, status: 'other ready' })
 })
 
@@ -186,7 +183,7 @@ it('retains a queued submission on ambiguous response and retries the exact iden
   }
 })
 
-it('preserves legacy isolated submission after explicit unsupported admission without repeating preprocessing', async () => {
+it('retains a refused admission without sending an identityless retry', async () => {
   resetUiState()
   patchUiState({ sid: 'owner' })
   const settle = vi.fn()
@@ -194,16 +191,14 @@ it('preserves legacy isolated submission after explicit unsupported admission wi
   let reject!: (error: unknown) => void
 
   const request = vi.fn().mockReturnValueOnce(new Promise((_, fail) => { reject = fail }))
-    .mockResolvedValueOnce({ status: 'queued' })
 
   const deps = makeDeps({ request } as unknown as GatewayClient)
   submitPrompt(item.text, deps, true, undefined, { skipDetectDrop: true, queueItem: item })
   patchUiState({ sid: 'other', busy: false, status: 'other ready' })
   reject(Object.assign(new Error('unsupported'), { code: 4094 }))
-  await vi.waitFor(() => expect(settle).toHaveBeenLastCalledWith(true))
+  await vi.waitFor(() => expect(settle).toHaveBeenLastCalledWith(false))
   expect(request.mock.calls.map(call => call[1])).toEqual([
-    { session_id: 'owner', text: 'private', submission_id: 'unsupported-id', queued: true },
-    { session_id: 'owner', text: 'private', queued: true }
+    { session_id: 'owner', text: 'private', submission_id: 'unsupported-id', queued: true }
   ])
   expect(deps.appendMessage).toHaveBeenCalledTimes(1)
   expect(getUiState()).toMatchObject({ sid: 'other', busy: false, status: 'other ready' })

@@ -1380,8 +1380,7 @@ def drain_delivery_queue(adapters, loop) -> int:
 
 
 _DEFAULT_SCRIPT_TIMEOUT = 3600  # seconds (1 hour)
-# Backward-compatible module override used by tests and emergency monkeypatches.
-_SCRIPT_TIMEOUT = _DEFAULT_SCRIPT_TIMEOUT
+
 _RUN_CLAIM_HEARTBEAT_SECONDS = 60.0
 _FIRE_CLAIM_HEARTBEAT_GRACE_SECONDS = _RUN_CLAIM_HEARTBEAT_SECONDS * 3
 # Pause before re-sampling a fire-claim heartbeat miss; a genuinely re-owned claim misses twice.

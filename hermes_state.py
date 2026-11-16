@@ -55,7 +55,7 @@ from hermes_state_fts import SessionFtsSetupMixin
 from hermes_state_portability import SessionPortabilityMixin
 
 from hermes_state_profile_repair import SessionProfileRepairMixin
-from hermes_state_schema import SessionSchemaMixin
+from hermes_state_schema import SessionSchemaMixin, require_current_schema
 import hermes_state_holders as _state_holders
 import hermes_state_lockguard as _lockguard
 from hermes_state_lockowners import log_write_lock_holders
@@ -681,6 +681,12 @@ class SessionDB(
         malformed sqlite_master), generation stamp."""
         # Never materialize a deleted/archived named profile's home: a multiplexer or Desktop backend
         # still holding the profile's route would otherwise re-scaffold it on the next turn (#94590).
+        if self.db_path.exists() and not has_invalid_sqlite_header_preopen(self.db_path):
+            conn = self._connect_read_only(timeout=_READ_BUSY_TIMEOUT_S)
+            try:
+                require_current_schema(conn)
+            finally:
+                self._close_connection_quietly(conn)
         mkdir_under_hermes_home(self.db_path.parent)
         try:
             # Serialize zero-byte check, quarantine, connect and schema commit so concurrent
@@ -739,6 +745,7 @@ class SessionDB(
                 self._conn = conn = self._connect_read_only(timeout=_READ_BUSY_TIMEOUT_S)
                 try:
                     apply_database_pragmas(conn, db_label="state.db")
+                    require_current_schema(conn)
                     cursor = conn.cursor()
                     self._fts_enabled = self._fts_table_probe(cursor, "messages_fts") is True
                     if self._fts_enabled:

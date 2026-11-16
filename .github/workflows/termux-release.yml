@@ -1,0 +1,588 @@
+name: Termux Release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      claim-tag:
+        required: true
+        type: string
+      claim-object:
+        required: true
+        type: string
+      release-phase:
+        required: true
+        type: string
+      manifest-sha256:
+        default: ''
+        type: string
+      build_commit:
+        default: ''
+        type: string
+      upload_release:
+        default: false
+        type: boolean
+      termux_upgrade_from_tag:
+        default: ''
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Annotated canary tag; leave empty for a commit build
+        default: ''
+        type: string
+      build_commit:
+        description: Exact pushed commit for a build without publication
+        default: ''
+        type: string
+      upload_release:
+        description: Publish the canary APT repository
+        default: true
+        type: boolean
+      termux_upgrade_from_tag:
+        description: Published stable package to verify an upgrade from
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  packages: write
+
+concurrency:
+  group: termux-release-${{ inputs.release-phase || 'canary' }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate:
+    name: Admit the Termux Build
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: release-signing
+    # GitHub requires write access to read a draft release during admission.
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      sha: ${{ steps.admission.outputs.sha }}
+      tag-object: ${{ steps.admission.outputs.tag-object }}
+      archive-tag: ${{ steps.archive.outputs.archive-tag }}
+    steps:
+      - name: useblacksmith/checkout@v1 - Check Out the Controller
+        uses: useblacksmith/checkout@v1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          filter: blob:none
+          fetch-tags: true
+      - name: ./.github/actions/setup-pm - Set Up the Locked Toolchain
+        uses: ./.github/actions/setup-pm
+        with:
+          cache-python: false
+      - name: bash - Validate Build Identity and Publication Scope
+        id: admission
+        env:
+          TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_CLAIM_TAG: ${{ inputs.claim-tag }}
+          RELEASE_CLAIM_OBJECT: ${{ inputs.claim-object }}
+          BUILD_COMMIT: ${{ inputs.build_commit }}
+          RELEASE_PHASE: ${{ inputs.release-phase }}
+          UPLOAD_RELEASE: ${{ inputs.upload_release }}
+          TERMUX_UPGRADE_FROM_TAG: ${{ inputs.termux_upgrade_from_tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$BUILD_COMMIT" != "" ]; then
+            python -m scripts.releases.commit_build admit
+            exit 0
+          fi
+          case "$RELEASE_PHASE" in
+            candidate|publish)
+              python -m scripts.releases.stable verify
+              exit 0
+              ;;
+            '') ;;
+            *) echo 'Unknown release phase' >&2; exit 1 ;;
+          esac
+          python -m scripts.releases.termux admit-canary
+      - name: bash - Bind the Immutable Archive Reference
+        id: archive
+        env:
+          CLAIM_TAG: ${{ inputs.claim-tag }}
+          TAG: ${{ inputs.tag }}
+        run: printf 'archive-tag=%s\n' "${CLAIM_TAG:-$TAG}" >> "$GITHUB_OUTPUT"
+      - name: bash - Archive Pinned Build Inputs
+        if: inputs.release-phase != 'publish'
+        env:
+          CLOUDFLARE_R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_R2_ACCOUNT_ID }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_BUCKET }}
+        run: python -m scripts.ci.archive_inputs
+
+  termux-deb:
+    name: Build + publish the termux .deb (aarch64)
+    needs: [validate]
+    if: inputs.release-phase != 'publish' && (inputs.upload_release || inputs.release-phase == 'candidate' || inputs.build_commit != '')
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    environment: release-signing
+    timeout-minutes: 90
+    env:
+      HERMES_PAYLOAD_TAG: ${{ inputs.tag }}
+      # Archive ref for the termux handoff: attempt ref for stable phases.
+      HERMES_ARCHIVE_TAG: ${{ needs.validate.outputs.archive-tag }}
+      HERMES_BUILD_COMMIT: ${{ inputs.build_commit != '' && needs.validate.outputs.sha || '' }}
+      # Tag builds consume the already admitted identity without a second draft lookup.
+      HERMES_RELEASE_COMMIT: ${{ inputs.build_commit == '' && needs.validate.outputs.sha || '' }}
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_R2_ACCOUNT_ID }}
+      CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+      CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+      CLOUDFLARE_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_BUCKET }}
+      CLOUDFLARE_R2_PUBLIC_URL: ${{ vars.CLOUDFLARE_R2_PUBLIC_URL }}
+    steps:
+      # Use the admitted commit, not a tag that can move after validation.
+      - name: useblacksmith/checkout@v1 - Check Out the Admitted Commit
+        uses: useblacksmith/checkout@v1
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+          # Commit builds only rev-parse HEAD; tag builds verify ancestry.
+          fetch-depth: ${{ inputs.build_commit != '' && 1 || 0 }}
+          filter: blob:none
+          fetch-tags: ${{ inputs.build_commit == '' }}
+
+      - name: ./.github/actions/setup-pm - Set Up the Locked Build Toolchain
+        id: pm
+        uses: ./.github/actions/setup-pm
+        with:
+          toolchain: python
+          # scripts/termux/build.py installs and builds the TUI on this host with pnpm.
+          packages: pnpm
+          archive-inputs: true
+          cache-python: false
+
+      - name: bash - Derive the Channel from the Tag
+        id: channel
+        if: inputs.build_commit == ''
+        shell: bash
+        # Single source of truth: deb_version.py --channel uses the same
+        # _TAG_RE as the Debian version derivation, so the channel and the
+        # .deb version can never disagree about the tag's shape.
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          echo "channel=$(python3 scripts/termux/deb_version.py --channel "$TAG")" >> "$GITHUB_OUTPUT"
+
+      - name: bash - Read the Termux-docker Digest Pin
+        id: pins
+        shell: bash
+        # The digest is pinned in pm/lock.json (the termux-docker package)
+        # beside every other third-party pin; the build scripts re-read it
+        # themselves. This step surfaces the effective pin in the run log
+        # and fails fast if the lock row is missing.
+        run: |
+          echo "digest=$(python3 -c 'import sys; sys.path.insert(0, "."); from pm.lock import termux_docker_digest; print(termux_docker_digest())')" >> "$GITHUB_OUTPUT"
+
+      - name: actions/cache/restore@v6 - Restore the CPython + Node + Uv Payload Builds
+        # Restore/save are split: the save runs right after staging (with
+        # `always()`), so a later phase's failure cannot throw away 20+
+        # minutes of builds. The exact key is content-only on pm/lock.json +
+        # the stagers, so it is stable across dispatches; the restore-keys
+        # prefix rescues the previous pin's builds when the lock moved.
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            termux-build/payload/python
+            termux-build/payload/node
+            termux-build/payload/uv
+            termux-build/payload/npm
+            termux-build/payload/ffmpeg
+            termux-build/payload/ripgrep
+            termux-build/payload/runtime-libs
+          key: termux-payload-${{ hashFiles('pm/lock.json', 'scripts/termux/build_cpython.sh', 'scripts/termux/build_node.sh', 'scripts/termux/build_uv.sh', 'scripts/termux/runtime_libs.json', 'scripts/termux/stage_runtime_libs.py') }}
+          restore-keys: |
+            termux-payload-
+
+      - name: bash - Preserve and Retrieve Pinned Inputs
+        shell: bash
+        run: python -m scripts.ci.archive_inputs --target linux-arm64-bionic --payload termux-build/payload --store "$HERMES_RUNTIME_DIR"
+
+      - name: bash - Build CPython into the Payload
+        shell: bash
+        run: bash scripts/termux/build_cpython.sh termux-build/payload
+
+      - name: bash - Build Node into the Payload
+        shell: bash
+        run: bash scripts/termux/build_node.sh termux-build/payload
+
+      - name: bash - Stage the Runtime Libs into the Payload
+        shell: bash
+        # The payload interpreters' runtime libs (python's C-extension deps,
+        # node's, uv's zstd) ship INSIDE the sealed deb: the device's termux
+        # tree may have none of them installed. Pin table derived from the
+        # suppliers' own Depends metadata (see runtime_libs.json).
+        run: python3 scripts/termux/stage_runtime_libs.py termux-build/payload
+
+      - name: bash - Stage Uv into the Payload
+        shell: bash
+        # The wheelhouse resolver + runtime lazy-install tool: pm stages
+        # the bionic uv .deb beside python/node (no PATH install; the
+        # payload environment composition exposes it).
+        run: bash scripts/termux/build_uv.sh termux-build/payload
+
+      - name: bash - Stage the Remaining CLI Runtime Tools
+        shell: bash
+        run: |
+          for tool in npm ffmpeg ripgrep; do
+            bash scripts/termux/termux_pkg_build.sh "$tool" "$tool" termux-build/payload
+          done
+
+      - name: actions/cache/save@v6 - Save the Payload Builds
+        # Save regardless of the wheelhouse/deb phases' outcome: the staged
+        # tool payload is only stale when the lock or a stager changes, and
+        # losing it to a downstream failure re-pays the full stage cost.
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            termux-build/payload/python
+            termux-build/payload/node
+            termux-build/payload/uv
+            termux-build/payload/npm
+            termux-build/payload/ffmpeg
+            termux-build/payload/ripgrep
+            termux-build/payload/runtime-libs
+          key: termux-payload-${{ hashFiles('pm/lock.json', 'scripts/termux/build_cpython.sh', 'scripts/termux/build_node.sh', 'scripts/termux/build_uv.sh', 'scripts/termux/runtime_libs.json', 'scripts/termux/stage_runtime_libs.py') }}
+
+      - name: bash - Ensure the Derived Builder Image (toolchain Pre-baked)
+        id: builder_image
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+        # The pinned base and Dockerfile select the pre-baked toolchain.
+        # Recipe changes must not reuse an image built without those tools.
+        run: |
+          mkdir -p termux-build
+          # The builder script prints progress (build logs, smoke output)
+          # plus the image ref on the LAST line -- command substitution
+          # would swallow all of it into one $GITHUB_OUTPUT value.
+          bash scripts/termux/build_builder_image.sh | tee termux-build/.builder-image.log
+          img="$(tail -n1 termux-build/.builder-image.log)"
+          echo "builder image: $img"
+          echo "image=$img" >> "$GITHUB_OUTPUT"
+
+      - name: actions/cache/restore@v6 - Restore the Wheelhouse
+        # Reuse manufactured wheels only when the complete input identity
+        # and wheel hashes pass admission. A prefix hit alone is not proof.
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            termux-build/payload/wheelhouse
+            termux-build/payload/index.json
+            termux-build/payload/SHA256SUMS
+            termux-build/payload/.work/resolved.txt
+            termux-build/payload/.work/build_set.txt
+          key: termux-wheelhouse-${{ hashFiles('uv.lock', 'pyproject.toml', 'pm/lock.json', 'scripts/termux/runtime_libs.json', 'scripts/termux/build_config.sh', 'scripts/termux/build_wheels.py', 'scripts/termux/termux_build.sh', 'scripts/termux/retag_wheel.py', 'scripts/termux/python_linkage.py', 'scripts/termux/wheelhouse_cache.py', 'scripts/termux/build_environment.py', 'pm/environment.py', 'pm/build_operations.py', 'pm/operations.py', 'pm/pyproject.toml', 'pm/uv.lock', 'scripts/termux/termux-builder.Dockerfile') }}
+          restore-keys: |
+            termux-wheelhouse-
+
+      - name: bash - Build the Wheelhouse
+        shell: bash
+        env:
+          TERMUX_BUILDER_IMAGE: ${{ steps.builder_image.outputs.image }}
+        # termux_build.sh lands wheelhouse/ + index.json + SHA256SUMS in the
+        # payload root, where build_deb.sh's --no-index pip install finds it.
+        run: |
+          if [ "${HERMES_RELEASE_COMMIT:-}" != "" ]; then
+            bash scripts/termux/termux_build.sh \
+              --repo . \
+              --tag "$HERMES_PAYLOAD_TAG" \
+              --release-commit "$HERMES_RELEASE_COMMIT" \
+              --out termux-build/payload
+          elif [ "$HERMES_BUILD_COMMIT" != "" ]; then
+            # The checkout is the admitted commit. No release tag is required.
+            bash scripts/termux/termux_build.sh \
+              --repo . \
+              --commit "$HERMES_BUILD_COMMIT" \
+              --out termux-build/payload
+          else
+            bash scripts/termux/termux_build.sh \
+              --repo . \
+              --tag "$HERMES_PAYLOAD_TAG" \
+              --out termux-build/payload
+          fi
+
+      - name: actions/cache/save@v6 - Save the Wheelhouse
+        # Only proven wheels enter the cache. Saving before deb assembly
+        # preserves them if a later packaging step fails.
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            termux-build/payload/wheelhouse
+            termux-build/payload/index.json
+            termux-build/payload/SHA256SUMS
+            termux-build/payload/.work/resolved.txt
+            termux-build/payload/.work/build_set.txt
+          key: termux-wheelhouse-${{ hashFiles('uv.lock', 'pyproject.toml', 'pm/lock.json', 'scripts/termux/runtime_libs.json', 'scripts/termux/build_config.sh', 'scripts/termux/build_wheels.py', 'scripts/termux/termux_build.sh', 'scripts/termux/retag_wheel.py', 'scripts/termux/python_linkage.py', 'scripts/termux/wheelhouse_cache.py', 'scripts/termux/build_environment.py', 'pm/environment.py', 'pm/build_operations.py', 'pm/operations.py', 'pm/pyproject.toml', 'pm/uv.lock', 'scripts/termux/termux-builder.Dockerfile') }}
+
+      - name: bash - Assemble the .deb
+        shell: bash
+        env:
+          TERMUX_BUILDER_IMAGE: ${{ steps.builder_image.outputs.image }}
+        # The driver prepares locked TUI dependencies and builds the shared
+        # TUI product before handing the staged bionic payload to build_deb.sh.
+        # Native dependency staging stays above; .deb validation still runs
+        # in a fresh pinned container with no opt-out.
+        run: |
+          if [ "${HERMES_RELEASE_COMMIT:-}" != "" ]; then
+            python3 scripts/termux/build.py \
+              --repo . \
+              --tag "$HERMES_PAYLOAD_TAG" \
+              --release-commit "$HERMES_RELEASE_COMMIT" \
+              --payload termux-build/payload \
+              --out termux-build/deb
+          elif [ "$HERMES_BUILD_COMMIT" != "" ]; then
+            python3 scripts/termux/build.py \
+              --repo . \
+              --commit "$HERMES_BUILD_COMMIT" \
+              --payload termux-build/payload \
+              --out termux-build/deb
+          else
+            python3 scripts/termux/build.py \
+              --repo . \
+              --tag "$HERMES_PAYLOAD_TAG" \
+              --payload termux-build/payload \
+              --out termux-build/deb
+          fi
+
+      - name: bash - Retrieve the Previous Published Termux Package from R2
+        if: inputs.termux_upgrade_from_tag != ''
+        env:
+          PREVIOUS_TAG: ${{ inputs.termux_upgrade_from_tag }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          from scripts.releases.handoff import fetch
+          from scripts.releases.semver import is_valid_version
+          from scripts.releases.stable import release_line_contains
+          tag = os.environ['PREVIOUS_TAG']
+          if not tag.startswith('v') or not is_valid_version(tag[1:]):
+              raise ValueError('Invalid previous release tag')
+          release = json.loads(subprocess.check_output([
+              'gh', 'release', 'view', tag, '--repo', os.environ['GITHUB_REPOSITORY'],
+              '--json', 'tagName,isDraft'], text=True))
+          if release['tagName'] != tag or release['isDraft']:
+              raise ValueError('Previous package must come from a published release')
+          commit = subprocess.check_output(['git', 'rev-parse', '--verify', f'refs/tags/{tag}^{{commit}}'], text=True).strip()
+          if not subprocess.check_output(release_line_contains(commit, 'origin'), text=True).strip():
+              raise ValueError('Previous package must come from main or a release/* branch')
+          fetch(tag, commit, ['termux'], Path('termux-build/previous'), ['deb/*.deb'])
+          PY
+
+      - name: bash - Stage the Commit-build Deb to R2
+        if: inputs.build_commit != ''
+        shell: bash
+        run: |
+          python -m scripts.releases.handoff stage --commit-build "$HERMES_BUILD_COMMIT" \
+            --name termux --root termux-build --include 'deb/*.deb'
+
+      - name: bash - Write the APT Signing Key
+        if: inputs.build_commit == ''
+        shell: bash
+        env:
+          TERMUX_APT_GPG_KEY: ${{ secrets.TERMUX_APT_GPG_KEY }}
+        run: |
+          if [ "$TERMUX_APT_GPG_KEY" = "" ]; then
+            echo "::error::TERMUX_APT_GPG_KEY secret not set — the APT repo would stage unsigned"
+            exit 1
+          fi
+          printf '%s\n' "$TERMUX_APT_GPG_KEY" > "$RUNNER_TEMP/termux-apt-gpg.asc"
+
+      - name: bash - Stage the APT Repo and Publish to R2
+        if: inputs.build_commit == ''
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+          PREVIOUS_TAG: ${{ inputs.termux_upgrade_from_tag }}
+          RELEASE_PHASE: ${{ inputs.release-phase }}
+          RELEASE_CLAIM_TAG: ${{ inputs.claim-tag }}
+          RELEASE_COMMIT: ${{ needs.validate.outputs.sha }}
+          # Passphrase-protected signing keys only; unset for bare keys.
+          TERMUX_APT_GPG_PASSPHRASE: ${{ secrets.TERMUX_APT_GPG_PASSPHRASE }}
+        run: |
+          # stage_apt_repo.py builds dists/<suite>/ + pool/ under --out and
+          # signs Release/InRelease with the key file. Exit 3 (unsigned
+          # Release) must fail the run.
+          # The candidate phase keys the pool by the attempt ref: the pool
+          # upload is immutable with a one-year cache header, so a recut of
+          # the same version must never reuse a pool key.
+          stage_args=(--pool termux-build/deb --out termux-build/apt --suite "hermes-$CHANNEL")
+          if [ "$RELEASE_PHASE" = candidate ]; then
+            stage_args+=(--pool-subdir "$RELEASE_CLAIM_TAG")
+          fi
+          python3 scripts/termux/stage_apt_repo.py "${stage_args[@]}" \
+            --gpg-key-file "$RUNNER_TEMP/termux-apt-gpg.asc"
+
+          debs=(termux-build/deb/*.deb)
+          test "${#debs[@]}" -eq 1
+          version=$(dpkg-deb --field "${debs[0]}" Version)
+          digest=$(python3 -c 'from pm.lock import termux_docker_digest; print(termux_docker_digest())')
+          docker run --rm --platform linux/arm64 --user 1000:1000 --network none \
+            -v "$PWD/termux-build/apt:/apt:ro" \
+            -v "$PWD/scripts/termux/check_apt.sh:/tmp/check-apt.sh:ro" \
+            -v "$PWD/scripts/termux/validate_installed.py:/tmp/validate_installed.py:ro" \
+            "termux/termux-docker@$digest" bash /tmp/check-apt.sh "hermes-$CHANNEL" "$version"
+          if [ "$PREVIOUS_TAG" != "" ]; then
+            previous=(termux-build/previous/deb/*.deb)
+            test "${#previous[@]}" -eq 1
+            docker run --rm --platform linux/arm64 --user 1000:1000 --network none \
+              -v "$PWD/termux-build/apt:/apt:ro" \
+              -v "$PWD/${previous[0]}:/previous.deb:ro" \
+              -v "$PWD/scripts/termux/check_apt.sh:/tmp/check-apt.sh:ro" \
+              -v "$PWD/scripts/termux/validate_installed.py:/tmp/validate_installed.py:ro" \
+              "termux/termux-docker@$digest" bash /tmp/check-apt.sh "hermes-$CHANNEL" "$version"
+          fi
+
+          args=(--include 'deb/*.deb' --include 'apt/**/*')
+          if [ "$RELEASE_PHASE" = candidate ]; then
+            python -m scripts.bundles.release_artifacts record --platform termux --arch aarch64 \
+              --root termux-build --tag "$HERMES_PAYLOAD_TAG" --commit "$RELEASE_COMMIT" \
+              --out termux-build/metadata-termux-aarch64.json
+            args+=(--include 'metadata-*.json')
+          fi
+          python -m scripts.releases.handoff stage --tag "${HERMES_ARCHIVE_TAG:-$HERMES_PAYLOAD_TAG}" --commit "$RELEASE_COMMIT" \
+            --name termux --root termux-build "${args[@]}"
+          if [ "$RELEASE_PHASE" = candidate ]; then exit 0; fi
+          # --key-is-full is MANDATORY on every feed-dir upload: without it
+          # scripts.releases.r2 re-prefixes the key into the tag archive
+          # (releases/tag/<tag>/) and the APT feed never lands at
+          # releases/termux/<channel>/.
+          shopt -s globstar nullglob
+          # cd into the staged repo for the glob, but resolve the r2 client
+          # absolutely first -- after the cd, scripts/ is no longer in the
+          # cwd and a bare `python -m scripts.releases.r2` would ENOENT.
+          export PYTHONPATH="$GITHUB_WORKSPACE"
+          cd termux-build/apt
+          files=(pool/**/*.deb "dists/hermes-$CHANNEL"/main/binary-aarch64/by-hash/*/* key.asc
+                 "dists/hermes-$CHANNEL/main/binary-aarch64/Packages"
+                 "dists/hermes-$CHANNEL/main/binary-aarch64/Packages.gz"
+                 "dists/hermes-$CHANNEL/Release"
+                 "dists/hermes-$CHANNEL/Release.gpg"
+                 "dists/hermes-$CHANNEL/InRelease")
+          # APT reads InRelease first. Publish it only after every referenced
+          # index and package has been uploaded and read back successfully.
+          for f in "${files[@]}"; do
+            test -f "$f"
+            python3 -m scripts.releases.r2 put \
+              --tag "$HERMES_PAYLOAD_TAG" \
+              --key "releases/termux/$CHANNEL/$f" \
+              --file "$f" \
+              --key-is-full
+          done
+
+          # Verify the public CDN path, not only the object-store origin.
+          public_repo="${CLOUDFLARE_R2_PUBLIC_URL%/}/releases/termux/$CHANNEL"
+          curl --fail --silent --show-error "$public_repo/key.asc" -o "$RUNNER_TEMP/termux-public-key.asc"
+          cmp key.asc "$RUNNER_TEMP/termux-public-key.asc"
+          docker run --rm --platform linux/arm64 --user 1000:1000 \
+            -v "$PWD:/apt:ro" \
+            -v "$GITHUB_WORKSPACE/scripts/termux/check_apt.sh:/tmp/check-apt.sh:ro" \
+            -v "$GITHUB_WORKSPACE/scripts/termux/validate_installed.py:/tmp/validate_installed.py:ro" \
+            "termux/termux-docker@$digest" bash /tmp/check-apt.sh "hermes-$CHANNEL" "$version" "$public_repo"
+
+
+  stable-publish:
+    name: Verify Published Termux Artifacts
+    needs: validate
+    if: inputs.release-phase == 'publish'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: release-signing
+    timeout-minutes: 90
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_CLAIM_TAG: ${{ inputs.claim-tag }}
+      RELEASE_CLAIM_OBJECT: ${{ inputs.claim-object }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.sha }}
+      HERMES_ARCHIVE_TAG: ${{ needs.validate.outputs.archive-tag }}
+      CANDIDATE_MANIFEST_SHA256: ${{ inputs.manifest-sha256 }}
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_R2_ACCOUNT_ID }}
+      CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+      CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+      CLOUDFLARE_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_BUCKET }}
+      CLOUDFLARE_R2_PUBLIC_URL: ${{ vars.CLOUDFLARE_R2_PUBLIC_URL }}
+    steps:
+      - name: useblacksmith/checkout@v1 - Check Out the Admitted Commit
+        uses: useblacksmith/checkout@v1
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+      - name: ./.github/actions/setup-pm - Set Up the Locked Toolchain
+        uses: ./.github/actions/setup-pm
+        with:
+          cache-python: false
+      - name: bash - Verify Candidate Publication Without Rebuilding
+        run: python -m scripts.bundles.release_artifacts publish --root verified
+
+  canary-publish:
+    name: Publish the Verified Canary Prerelease
+    needs: [validate, termux-deb]
+    if: inputs.release-phase == '' && inputs.build_commit == '' && inputs.upload_release
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: write
+      actions: read
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.sha }}
+      RELEASE_TAG_OBJECT: ${{ needs.validate.outputs.tag-object }}
+      RELEASE_NEEDS: ${{ toJSON(needs) }}
+      UPLOAD_RELEASE: ${{ inputs.upload_release }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: useblacksmith/checkout@v1 - Check Out the Controller
+        uses: useblacksmith/checkout@v1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+      - name: ./.github/actions/setup-pm - Set Up the Locked Toolchain
+        uses: ./.github/actions/setup-pm
+        with:
+          cache-python: false
+      - name: bash - Publish and Read Back the Exact Canary
+        run: python -m scripts.releases.termux publish-canary
+
+  phase-result:
+    name: Require the Selected Termux Phase
+    if: always()
+    needs: [validate, termux-deb, stable-publish, canary-publish]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: bash - Require Successful Admission and Payload Work
+        env:
+          PHASE: ${{ inputs.release-phase }}
+          CANARY: ${{ inputs.release-phase == '' && inputs.build_commit == '' && inputs.upload_release }}
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          selected = 'stable-publish' if os.environ['PHASE'] == 'publish' else 'termux-deb'
+          required = ['validate', selected]
+          if os.environ['CANARY'] == 'true':
+              required.append('canary-publish')
+          failed = [name for name in required
+                    if results.get(name, {}).get('result') != 'success']
+          if failed:
+              raise SystemExit('Required Termux jobs did not succeed: ' + ', '.join(failed))
+          PY

@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 import pm
 from hermes_cli.local_runtime import binaries
-from hermes_cli.web_routers import local_models as lm
+from hermes_cli.local_runtime import local_models as lm
 from pm import paths
 from pm.lock import Facts, Lockfile
 

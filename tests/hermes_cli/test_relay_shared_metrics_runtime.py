@@ -2360,10 +2360,10 @@ def test_tool_category_comes_from_runtime_registry_metadata(
     direct_runtime,
     monkeypatch,
 ):
-    import model_tools
+    from tools.registry import registry
 
     monkeypatch.setattr(
-        model_tools,
+        registry,
         "get_toolset_for_tool",
         lambda name: "terminal" if name == "runtime_only_tool" else None,
     )

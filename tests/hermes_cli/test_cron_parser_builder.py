@@ -33,6 +33,21 @@ def test_cron_edit_no_agent_tristate():
     assert parser.parse_args(["cron", "edit", "j"]).no_agent is None
 
 
+def test_cron_repeated_skill_flags_use_the_current_list_field():
+    parser = _build()
+    created = parser.parse_args([
+        "cron", "create", "every 1h", "report",
+        "--skill", "maps", "--skill", "arxiv",
+    ])
+    assert created.skills == ["maps", "arxiv"]
+    edited = parser.parse_args([
+        "cron", "edit", "j", "--add-skill", "maps", "--remove-skill", "arxiv",
+    ])
+    assert edited.skills is None
+    assert edited.add_skills == ["maps"]
+    assert edited.remove_skills == ["arxiv"]
+
+
 def test_cron_accept_hooks_flag_on_run_and_tick():
     parser = _build()
     # --accept-hooks is suppressed-default; present only when passed.

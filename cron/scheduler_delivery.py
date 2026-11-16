@@ -23,11 +23,6 @@ from typing import Any, List, Optional
 logger = logging.getLogger("cron.scheduler")
 
 
-# Validates user-supplied delivery platform names, preventing env-var enumeration via crafted names.
-# Plugin platforms are known through ``PlatformEntry.cron_deliver_env_var``; these rows have none:
-# ``webhook`` is core-only and ``wecom_callback`` (a ``wecom`` plugin sibling) delivers only to its
-# config.yaml ``home_channel``.
-_KNOWN_DELIVERY_PLATFORMS = frozenset({"webhook"})
 
 # Gateway platforms whose adapter declares ``supports_async_delivery = False`` (request/response
 # only, ``send()`` is a stub) — a cron report can never reach them, so they are never a
@@ -39,7 +34,7 @@ _NON_PUSH_ORIGIN_PLATFORMS = frozenset({"api_server"})
 # ``cron_deliver_env_var``. Other plugin platforms follow by name (a fresh process loads deferred
 # entries in name order, so this is the order they had when they trailed a static table).
 _HOME_TARGET_PRIORITY = ()
-_LEGACY_HOME_TARGET_ENV_VARS = {}
+
 
 
 def _resolve_origin(job: dict) -> Optional[dict]:
@@ -230,9 +225,9 @@ def _plugin_cron_env_var(platform_name: str) -> str:
 
 
 def _is_known_delivery_platform(platform_name: str) -> bool:
-    """Valid cron delivery platform: built-in, or plugin with a ``cron_deliver_env_var``."""
+    """Valid cron delivery platform: plugin with a ``cron_deliver_env_var``."""
     name = platform_name.lower()
-    return name in _KNOWN_DELIVERY_PLATFORMS or bool(_plugin_cron_env_var(name))
+    return bool(_plugin_cron_env_var(name))
 
 
 def _resolve_home_env_var(platform_name: str) -> str:
@@ -252,7 +247,7 @@ def _get_config_home_channel(platform_name: str):
 
 
 def _home_env_lookup(env_var: str, suffix: str = "", *, strip: bool = False) -> str:
-    """Value of ``<env_var><suffix>``, falling back to the legacy name (same suffix) when unset.
+    """Value of ``<env_var><suffix>``.
     Reads via ``get_secret``, not ``os.getenv``: in a multiplex gateway the tick runs with the
     job-owning profile's secret scope (run_one_job sets it), so this resolves the OWNING profile's
     value, not the host environ. ``os.getenv`` only if the scope module is missing."""
@@ -265,11 +260,7 @@ def _home_env_lookup(env_var: str, suffix: str = "", *, strip: bool = False) -> 
         value = (get_secret(name, "") or "") if get_secret is not None else os.getenv(name, "")
         return value.strip() if strip else value
 
-    value = read(env_var + suffix)
-    legacy = _LEGACY_HOME_TARGET_ENV_VARS.get(env_var)
-    if not value and legacy:
-        value = read(legacy + suffix)
-    return value
+    return read(env_var + suffix)
 
 
 def _env_home_target_chat_id(platform_name: str) -> str:
@@ -287,7 +278,7 @@ def _env_home_target_chat_id(platform_name: str) -> str:
 
 
 def _get_home_target_chat_id(platform_name: str) -> str:
-    """Home target chat id: env var (first, so operator overrides win) → legacy env var →
+    """Home target chat id: env var (first, so operator overrides win) →
     config.yaml ``home_channel``."""
     value = _env_home_target_chat_id(platform_name)
     if value:
@@ -488,8 +479,7 @@ def _deliver_to_bot_chat(job: dict, content: str, profile: str, *,
     ``suppressed`` — a durable disposition, never a send — and flagged on the job); anything
     else is an explicit unverified status string so Optional[str] callers cannot misreport
     admission as delivery. ``profile`` is ``""`` for the job's own profile. There is no
-    second-writer fallback: a target whose authority is not ready gets the payload parked under
-    the same delivery id (``cron.bot_chat_legacy.defer``) and admitted by a later tick.
+    second-writer fallback when the target authority is not ready.
     """
     import hashlib
     import json
@@ -532,13 +522,7 @@ def _deliver_to_bot_chat(job: dict, content: str, profile: str, *,
             job["_notification_all_targets_suppressed"] = True
             return None
         if receipt is None:
-            try:
-                owner = find_canonical_live_owner(home)
-            except ValueError:  # the target's gateway is down or starting: not a disposition
-                from cron.bot_chat_legacy import defer
-                defer(key, job, content, home, for_failure=for_failure)
-                job.setdefault("_bot_chat_delivery_receipts", {})[target] = {"status": "queued", "delivery_id": key}
-                return f"{target} queued (receipt {key}): target profile not running; admitted once it is"
+            owner = find_canonical_live_owner(home)
             if owner is None:
                 return f"bot-chat delivery to profile '{profile_label}' unverified: no canonical Bot Chat"
             # A failure notice rides as ``diagnostic`` so the target's reply stays muted.
@@ -1256,7 +1240,7 @@ def _prepare_target_delivery(
     if not platform_registry.is_registered(platform_name):
         from gateway.outbound import prepare_send_message_platforms
         prepare_send_message_platforms()
-    if platform_name not in {"api_server", "webhook", "msgraph_webhook"} and not platform_registry.is_registered(platform_name):
+    if not platform_registry.is_registered(platform_name):
         _note_target_error(job, f"unknown or unregistered platform '{platform_name}'", delivery_errors)
         return None
     chat_id = target["chat_id"]

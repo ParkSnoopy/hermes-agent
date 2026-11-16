@@ -5,11 +5,10 @@ import time
 
 import pytest
 
-from gateway.config import GatewayConfig, Platform, PlatformConfig
+from gateway.config import GatewayConfig
 from gateway.platforms.event import MessageEvent
 from gateway.run import GatewayRunner
 from gateway.session import SessionSource, build_session_key
-from hermes_state import SessionDB
 from tests.gateway.test_native_admission_named_refusal import make_test_transport
 from tools import async_delegation as delegation
 
@@ -96,31 +95,14 @@ async def test_completion_ack_requires_admission_and_replay_never_repeats(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_unavailable_raw_route_is_quiet_without_hiding_invalid_routes(tmp_path, caplog):
+async def test_unavailable_raw_route_keeps_completion_pending(tmp_path, caplog):
     runner = GatewayRunner(GatewayConfig())
     runner.adapters = {}
     evt = pending("opaque-client-session", "raw-admission")
     caplog.set_level(logging.WARNING, logger="gateway.run")
     for _ in range(3):
         assert await runner._deliver_async_delegation_group([evt]) is False
-    assert not caplog.records
     row = delegation.get_durable_delegation(evt["delegation_id"])
     assert (row["delivery_state"], row["delivery_attempts"]) == ("pending", 0)
     assert await runner._inject_watch_notification("watch", {"type": "watch_match", "session_key": "agent:broken"}) is None
     assert any("unresolvable" in record.message for record in caplog.records)
-    # API recovery writes only the delivery row, never starts a model turn.
-    from gateway.platforms.api_server import APIServerAdapter
-    api = APIServerAdapter(PlatformConfig())
-    db = SessionDB(tmp_path / "api.db")
-    db.create_session(evt["session_key"], "api_server")
-    api._ensure_session_db = lambda: db
-    runner.adapters = {Platform.API_SERVER: api}
-    try:
-        caplog.clear()
-        assert await runner._deliver_async_delegation_group([evt]) is True
-        assert await runner._deliver_async_delegation_group([evt]) is None
-        rows = db.get_messages(evt["session_key"])
-        assert len(rows) == 1 and rows[0]["display_kind"] == "async_delegation_complete"
-        assert not api._background_tasks and not caplog.records
-    finally:
-        db.close()

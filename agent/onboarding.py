@@ -1,12 +1,8 @@
-"""Contextual first-touch onboarding hints, and the entry points of desktop first-run onboarding.
+"""Contextual first-touch onboarding hints.
 
 Each hint is shown once per install the *first* time a user hits a behavior
 fork, tracked in ``config.yaml`` under ``onboarding.seen.<flag>``. Kept tiny and
 dependency-free so both the CLI and gateway can import it.
-
-First-run onboarding (one chat in the default profile, driven by ``setup_beat``) lives in the
-siblings: ``onboarding_flow`` (beats and the run record, pure), ``onboarding_text`` (the words),
-``onboarding_facts`` (the safe facts) and ``onboarding_record`` (where the run is stored).
 """
 
 from __future__ import annotations
@@ -14,8 +10,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any, Mapping, Optional
-
-from agent.onboarding_record import observe_tool_result
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +236,6 @@ __all__ = [
     "first_contact_turn_note",
     "is_seen",
     "mark_seen",
-    "observe_tool_result",
     "openclaw_residue_hint_cli",
     "profile_build_directive",
     "profile_build_mode",
