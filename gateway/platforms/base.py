@@ -878,136 +878,6 @@ def _path_is_within(path: Path, root: Path) -> bool:
     return False
 
 
-def _tenv(name: str, default: str = "") -> str:
-    """Scope-aware TERMINAL_* read: the per-turn scope carries the ACTIVE profile's settings while
-    os.getenv reads whatever a prior turn pinned into the process env. Only ImportError falls
-    back — a refusal scope must raise rather than rebuild another profile's policy from the env."""
-    try:
-        from tools.terminal_scope import terminal_env
-    except ImportError:
-        return os.getenv(name, default)
-    return terminal_env(name, default)
-
-
-def _parse_docker_volume_mounts() -> list[tuple[Path, Path]]:
-    """Parse ``TERMINAL_DOCKER_VOLUMES`` (JSON list of ``host:container[:mode]``) into
-    ``(host_path, container_path)``; named volumes / non-absolute hosts can't resolve here."""
-    raw = _tenv("TERMINAL_DOCKER_VOLUMES", "").strip()
-    try:
-        import json as _json
-        parsed = _json.loads(raw) if raw else []
-    except Exception:
-        return []
-    mounts: list[tuple[Path, Path]] = []
-    for entry in parsed if isinstance(parsed, list) else ():
-        spec = entry.strip() if isinstance(entry, str) else ""
-        # First ':/' past any Windows drive colon (``C:/data:/workspace``) splits host from container.
-        sep = spec.find(":/", 2 if re.match(r"[A-Za-z]:[/\\]", spec) else 0)
-        if sep <= 0:
-            continue
-        container_raw = spec[sep + 1:].split(":", 1)[0]  # starts with /
-        # Skip named volumes (no absolute/drive host path).
-        host_expanded = os.path.expanduser(spec[:sep])
-        if not (host_expanded.startswith("/") or (len(host_expanded) > 1 and host_expanded[1] == ":")):
-            continue
-        if (host_path := _resolve_path(Path(host_expanded))) is not None:  # container_raw is POSIX on any OS
-            mounts.append((host_path, Path(container_raw)))
-    return mounts
-
-
-_TRUTHY = {"1", "true", "yes", "on"}
-
-
-def _docker_env_active() -> bool:
-    return _tenv("TERMINAL_ENV", "").strip().lower() == "docker"
-
-
-def _docker_persistent_active() -> bool:
-    """Docker backend with persistent containers (the default) enabled."""
-    return _docker_env_active() and _tenv("TERMINAL_CONTAINER_PERSISTENT", "true").strip().lower() in _TRUTHY
-
-
-def _cache_dir_container_mounts() -> list[tuple[Path, Path]]:
-    """(host, container) pairs for the auto-mounted Hermes cache dirs (``/root/.hermes/...`` in
-    MEDIA tags); longer prefixes than the ``/root`` home mount, so longest-prefix match wins."""
-    if not _docker_env_active():
-        return []
-    try:
-        from tools.credential_files import get_cache_directory_mounts
-        return [(Path(m["host_path"]), Path(m["container_path"])) for m in get_cache_directory_mounts()]
-    except Exception:
-        return []
-
-
-def _warn_unresolved_docker_media(candidate: Path, session_key: str, reason: str, quiet: bool = False) -> None:
-    """Name WHY a container-absolute MEDIA path failed translation (otherwise the only signal is
-    the generic "Skipping unsafe MEDIA directive path" line). Docker-only; host rejections and ``quiet``
-    callers (fs routes, which also see ordinary host paths) stay silent.
-
-    See #93950.
-    """
-    if quiet or not _docker_env_active():
-        return
-    logger.warning("Docker MEDIA path %s did not resolve to a host sandbox file (%s%s); "
-                   "the producing container's sandbox directory may not exist yet or "
-                   "was pruned", _log_safe_path(str(candidate)), reason,
-                   f", session_key={session_key}" if session_key else "")
-
-
-def _translate_docker_container_media_path(
-    candidate: Path, session_key: str = "", workspace_key: str = "", *, quiet: bool = False, workspace_cwd: str = "",
-) -> Optional[Path]:
-    """Container-absolute path -> host path via longest-prefix match over ``docker_volumes``, the
-    auto-mounted cache dirs (``/root/.hermes/...``), persistent ``/workspace`` and ``/root``.
-
-    ``workspace_key`` is the 16-hex digest of one session's host cwd ``workspace_cwd`` (its cwd
-    mount). It selects that session's ``<base>:ws:<digest>`` sandbox and is empty for MEDIA delivery.
-    """
-    if not candidate.as_posix().startswith("/"):  # POSIX even on Windows gateways (not is_absolute)
-        return None
-    # In-process gateways (Desktop, `hermes serve`) may not have bridged terminal.* config into
-    # TERMINAL_* env yet; the bridge is idempotent.
-    with contextlib.suppress(Exception):
-        from tools.terminal_tool import _ensure_terminal_env_bridged
-        _ensure_terminal_env_bridged()
-    from gateway.platforms.docker_media_paths import (
-        _default_docker_workspace_host_roots, _docker_persistent_sandbox_roots,
-    )
-    mounts = [*_parse_docker_volume_mounts(), *_cache_dir_container_mounts()]
-    mounted = {c.as_posix() for _, c in mounts}
-    # Synthetic /workspace mounts: this session's workspace sandbox, then the
-    # shared profile layout, then the legacy per-session dir.
-    if "/workspace" not in mounted:
-        mounts.extend(
-            (root, Path("/workspace"))
-            for root in _default_docker_workspace_host_roots(session_key, workspace_key, workspace_cwd))
-    # Synthetic /root mounts catch stray home writes (/root/out.png; cache mounts are longer
-    # prefixes). /root/.hermes/* that missed a cache mount is the container's credential surface —
-    # translating it via the home mount would dodge the host denylist.
-    if "/root" not in mounted and not candidate.as_posix().startswith("/root/.hermes"):
-        mounts.extend(
-            (root, Path("/root"))
-            for root in _docker_persistent_sandbox_roots(session_key, "home", workspace_key))
-    if not mounts:
-        _warn_unresolved_docker_media(candidate, session_key, "no sandbox mounts resolved", quiet)
-        return None
-    # Longest container-prefix match; equal-length prefixes are tried in insertion order.
-    candidate_posix = candidate.as_posix()
-    matched = [(host_root, container_root, len(prefix)) for host_root, container_root in mounts
-               for prefix in (container_root.as_posix().rstrip("/") or "/",)
-               if candidate_posix == prefix or candidate_posix.startswith(prefix + "/")]
-    if not matched:
-        _warn_unresolved_docker_media(candidate, session_key, "no mounted prefix matches", quiet)
-        return None
-    for host_root, container_root, _score in sorted(matched, key=lambda m: -m[2]):
-        translated = _resolve_path(host_root / candidate.relative_to(container_root), strict=True)
-        if translated is not None and (
-                translated == host_root or _path_is_within(translated, host_root)):
-            return translated
-    _warn_unresolved_docker_media(candidate, session_key, "host file missing from sandbox", quiet)
-    return None
-
-
 def validate_media_delivery_path(path: str, session_key: str = "") -> Optional[str]:
     """Safe absolute file path for native media delivery, else None. Default: any existing
     regular file outside the credential / system denylist (symmetric with inbound). Strict
@@ -1024,10 +894,7 @@ def validate_media_delivery_path(path: str, session_key: str = "") -> Optional[s
         return None
     if not expanded.is_absolute():
         return None
-    # Docker agents emit MEDIA:/workspace/... — map container paths to host paths first.
-    resolved = _translate_docker_container_media_path(expanded, session_key=session_key)
-    if resolved is None:
-        resolved = _resolve_path(expanded, strict=True)
+    resolved = _resolve_path(expanded, strict=True)
     if resolved is None or not resolved.is_file():
         return None
     # Cache / operator allowlist is trusted unconditionally, regardless of mode.
@@ -1060,14 +927,11 @@ def _log_safe_path(path: str) -> str:
 def _validated_delivery_path(raw_path, session_key: str, label: str,
                              dropped: Optional[list[dict]] = None) -> Optional[str]:
     """``validate_media_delivery_path`` plus the shared "Skipping unsafe ..." warning. A path the
-    host cannot see is retried against the active remote sandbox (ssh/modal/...; #466). When
+    cannot see is rejected. When
     ``dropped`` is a list, a rejected path is appended as ``{"path", "reason"}`` so the caller can
     report the drop instead of booking a delivery that never happened (#115908)."""
     raw = str(raw_path)
     safe_path = validate_media_delivery_path(raw, session_key=session_key)
-    if not safe_path:
-        from gateway.media_fetch import fetch_remote_media
-        safe_path = fetch_remote_media(raw)
     if not safe_path:
         # Say WHY: a path that does not exist on the host is the common case (a model hallucinated or
         # a sandbox path failed to translate) and is not a security rejection.
@@ -1405,11 +1269,8 @@ class CachedMedia:
     display_name: str         # human-readable name for transcript notes
 
     def context_note(self) -> str:
-        """One-line transcript annotation pointing the agent at the file (sandbox-translated at
-        render time, never baked into ``path``: ``event.media_urls`` must hold one coordinate
-        system so the routed turn can re-home and translate every entry alike, #101134)."""
-        from tools.credential_files import to_agent_visible_cache_path
-        return f"[{self.kind} '{self.display_name}' saved at: {to_agent_visible_cache_path(self.path)}]"
+        """One-line transcript annotation with the local cache path."""
+        return f"[{self.kind} '{self.display_name}' saved at: {self.path}]"
 
 
 # MIME -> extension reverse lookup; FIRST match across image, video, document tables wins

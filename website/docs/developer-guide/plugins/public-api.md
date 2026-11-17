@@ -35,7 +35,6 @@ with a name allows that one name only.
 | `agent.secret_scope` | whole module | developer-guide / plugins docs |
 | `agent.secret_sources.base` | whole module | developer-guide / plugins docs |
 | `agent.subagent_lifecycle` | whole module | developer-guide / plugins docs |
-| `agent.terminal_env_provider` | whole module | developer-guide / plugins docs |
 | `agent.transports` | whole module | developer-guide / plugins docs |
 | `agent.transports.chat_completions` | whole module | developer-guide / plugins docs |
 | `agent.video_gen_provider` | whole module | developer-guide / plugins docs |

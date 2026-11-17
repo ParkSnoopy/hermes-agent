@@ -38,7 +38,6 @@ def test_status_policy(job, result, expected, release):
     ("python", ("tests", "tests-os")),
     ("e2e", ("tests", "tests-os")),
     ("e2e_upgrade", ("tests", "tests-os")),
-    ("remote_backends", ("remote-backends",)),
     ("catalog", ("catalog-tests",)),
     ("bootstrap", ("bootstrap-installer",)),
 ])

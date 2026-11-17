@@ -173,7 +173,7 @@ The easiest way to set values correctly is through the CLI:
 
 ```bash
 hermes config set model anthropic/claude-opus-4.6
-hermes config set terminal.backend docker
+hermes config set terminal.backend local
 hermes config set OPENROUTER_API_KEY sk-or-...
 ```
 
@@ -268,16 +268,9 @@ For agent-to-agent access, see [A2A](../user-guide/messaging/a2a.md).
 - `hermes skills` — browse and install reusable workflows
 - Cron — only after your bot or CLI setup is stable
 
-### Sandboxed terminal
+### Local terminal
 
-For safety, run the agent in a Docker container or on a remote server:
-
-```bash
-hermes config set terminal.backend docker    # Docker isolation
-hermes config set terminal.backend ssh       # Remote server
-```
-
-For Docker sandboxes, you can also enable the **egress credential-injection proxy** so the sandbox never sees your real API keys — only opaque proxy tokens that work exclusively from behind a local TLS-intercepting daemon. See [Egress proxy](../user-guide/egress/iron-proxy.md). Setup is `hermes egress setup && hermes egress start`; `hermes setup terminal` also points Docker users at it. SSH and Singularity are not wired yet.
+Terminal commands run locally as the Hermes process user, with that user’s filesystem permissions. They are not isolated by Hermes. Explicit nonlocal terminal selectors are refused; remove or correct old configuration before running. Running Hermes itself on a remote server or in a container is a separate deployment choice.
 
 ### Voice mode
 

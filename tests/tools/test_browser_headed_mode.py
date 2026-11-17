@@ -132,10 +132,9 @@ class TestHeadedLaunch:
     def test_auto_started_screen_is_up_before_the_profile_is_chosen(self, monkeypatch):
         """browser.headed + bot_desktop.auto_start on a headless host: the first local launch brings the screen
         up and then uses the Bot Desktop profile (the dock Browser's cookie jar), not a throwaway one."""
-        from tools.bot_desktop import browser as bd_browser, placement, runtime
+        from tools.bot_desktop import browser as bd_browser, runtime
         screen = {}
         monkeypatch.setattr(bs_cloud, "is_headed_mode", lambda: True)
-        monkeypatch.setattr(runtime, "tool_placement", lambda: placement.GATEWAY)
         monkeypatch.setattr(runtime, "published_env", lambda: dict(screen))
         monkeypatch.setattr(runtime, "ensure_started_for_tool", lambda: screen.update(DISPLAY=":99"))
         monkeypatch.setattr(bd_browser, "profile_dir", lambda: "/bot-desktop/browser-profile")

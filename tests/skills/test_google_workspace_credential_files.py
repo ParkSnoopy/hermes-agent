@@ -1,15 +1,8 @@
-"""Regression test: google-workspace SKILL.md must declare required_credential_files.
-
-PR #9931 accidentally removed the required_credential_files header, which broke
-credential file mounting in Docker/Modal remote backends (#16452). This test
-prevents the regression from silently reappearing.
-"""
+"""Google Workspace declares credentials checked against the local profile home."""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from unittest.mock import patch
 
 
 SKILL_MD = (
@@ -29,32 +22,19 @@ def _parse_frontmatter(content: str) -> dict:
 
 class TestGoogleWorkspaceCredentialFiles:
 
-    def test_entries_are_registered_when_files_exist(self, tmp_path):
+    def test_entries_are_available_when_files_exist(self, tmp_path, monkeypatch):
         hermes_home = tmp_path / ".hermes"
         hermes_home.mkdir()
         (hermes_home / "google_token.json").write_text("{}")
         (hermes_home / "google_client_secret.json").write_text("{}")
 
-        from tools.credential_files import (
-            clear_credential_files,
-            get_credential_file_mounts,
-            register_credential_files,
-        )
+        from tools.skills_tool import _missing_skill_credential_files
 
-        clear_credential_files()
-        try:
-            content = SKILL_MD.read_text(encoding="utf-8")
-            fm = _parse_frontmatter(content)
-            entries = fm.get("required_credential_files", [])
-
-            with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}):
-                missing = register_credential_files(entries)
-
-            assert missing == [], f"Unexpected missing files: {missing}"
-            mounts = get_credential_file_mounts()
-            container_paths = {m["container_path"] for m in mounts}
-            assert "/root/.hermes/google_token.json" in container_paths
-            assert "/root/.hermes/google_client_secret.json" in container_paths
-        finally:
-            clear_credential_files()
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        content = SKILL_MD.read_text(encoding="utf-8")
+        entries = _parse_frontmatter(content).get("required_credential_files", [])
+        assert {entry["path"] for entry in entries} == _EXPECTED_PATHS
+        assert _missing_skill_credential_files(entries) == []
+        (hermes_home / "google_token.json").unlink()
+        assert _missing_skill_credential_files(entries) == ["google_token.json"]
 

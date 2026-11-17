@@ -647,34 +647,16 @@ WSL_ENVIRONMENT_HINT = (
 
 # Backends that run commands (and every file tool) in a separate container / remote host: host OS/$HOME/cwd
 # would mislead, so the agent only sees the machine it can touch.
-_REMOTE_TERMINAL_BACKENDS = frozenset({"docker", "ssh", "vercel_sandbox"})
 
 # Used when the live probe fails: only what the backend choice implies — never an invented cwd/user/$HOME.
-_BACKEND_FALLBACK_DESCRIPTIONS: dict[str, str] = {
-    "docker": "a Docker container (Linux)",
-    "vercel_sandbox": "a Vercel sandbox (Linux)",
-    "ssh": "a remote host reached over SSH (likely Linux)",
-}
 
 # Per-process probe cache keyed by (home key, env_type, cwd_hint) so a mid-process backend switch
 # rebuilds; the home key because the probe runs against the profile's own terminal.* backend
 # (docker image / ssh host) and one multiplexed process serves several profiles.
-_BACKEND_PROBE_CACHE: dict[tuple[str, str, str], str] = {}
 
 
-def _plugin_backend_attr(backend: str, attr: str, default=None):
-    """*attr* of a plugin-registered terminal backend, fail-soft (unknown backend / raising plugin -> *default*)."""
-    try:
-        from agent.terminal_env_registry import provider_flag
-        return provider_flag(backend, attr, default)
-    except Exception:
-        return default
 
 
-def _plugin_backend_is_remote(backend: str) -> bool:
-    """Whether a plugin-registered terminal backend runs commands remotely (unknown names are local)."""
-    return bool(backend and backend != "local" and backend not in _REMOTE_TERMINAL_BACKENDS
-                and _plugin_backend_attr(backend, "is_remote", False))
 
 
 def _windows_marketing_version() -> str:
@@ -722,83 +704,18 @@ def _tenv_read(name: str, default: str = "") -> str:
     return terminal_env(name, default)
 
 
-_BACKEND_IMAGE_KEYS = {b: f"{b}_image" for b in ("docker",)}
 # (config key, default) pairs forwarded to _create_environment's container_config.
 # Single-line POSIX probe; `2>/dev/null` keeps a missing binary from polluting output.
 # OS/kernel only: the sandbox's user, $HOME and cwd are user-identifying and nothing consumes
 # them — the model can `whoami && pwd` when a task actually needs them.
-_BACKEND_PROBE_CMD = (
-    "printf 'os=%s\\nkernel=%s\\n' \"$(uname -s 2>/dev/null || echo unknown)\" "
-    "\"$(uname -r 2>/dev/null || echo unknown)\""
-)
 
 
-def _run_backend_probe(env_type: str, terminal_tool) -> str:
-    """Execute the probe command inside a freshly built backend; "" when it yields nothing."""
-    from tools.terminal_tool_backends import _container_config_from_config, _create_environment, _ssh_config_from_config
-    from tools.terminal_tool_lifecycle import _cleanup_env
-
-    config = terminal_tool._get_env_config()
-    # Same container_config shaper as the live terminal path: a private copy of the key table here
-    # drifted (no docker_network) and gave the probe a bridge-networked container under lockdown.
-    env = _create_environment(
-        env_type=env_type, image=config.get(_BACKEND_IMAGE_KEYS[env_type], "") if env_type in _BACKEND_IMAGE_KEYS else "", cwd=config.get("cwd", ""),
-        timeout=config.get("timeout", 180),
-        ssh_config=_ssh_config_from_config(config) if env_type == "ssh" else None,
-        container_config=(_container_config_from_config(config)
-                          if terminal_tool._is_container_backend(env_type) else None),
-        task_id="prompt-backend-probe", host_cwd=config.get("host_cwd"),
-        # Only ssh honors this: an isolated ControlMaster socket and no remote dir setup / file sync /
-        # snapshot. A normal SSHEnvironment would upload the whole ~/.hermes tree just to run `uname`,
-        # and its later __del__ would sync_back() and close the master shared with the agent's own env.
-        probe_only=True,
-    )
-    try:
-        result = env.execute(_BACKEND_PROBE_CMD, timeout=4)
-    finally:
-        # One-shot `uname`; without teardown the backend leaves a second idle sandbox
-        # (task_id="prompt-backend-probe") running for the whole process next to the agent's own.
-        try:
-            _cleanup_env(env, force_remove=True)
-        except Exception:
-            logger.debug("Backend probe cleanup failed", exc_info=True)
-    if result.get("returncode") != 0:
-        logger.debug("Backend probe returned non-zero: %r", result)
-        return ""
-    return (result.get("output") or "").strip()
 
 
-def _format_backend_probe(output: str) -> str:
-    """Render the probe's key=value lines as an indented summary ("" if nothing usable)."""
-    parsed = {k.strip(): v.strip() for k, _, v in (line.partition("=") for line in output.splitlines() if "=" in line)}
-    known = lambda key: parsed.get(key) if parsed.get(key) != "unknown" else None
-    os_line = " ".join(x for x in (known("os"), known("kernel")) if x)
-    return f"  OS: {os_line}" if os_line else ""
 
 
-def _probe_remote_backend(env_type: str) -> str | None:
-    """Describe the active non-local backend via a live probe; None if it failed (cached, failures included)."""
-    from hermes_constants import hermes_home_key
-    cache_key = (hermes_home_key(), env_type, _tenv_read("TERMINAL_CWD", ""))
-    formatted = _BACKEND_PROBE_CACHE.get(cache_key)
-    if formatted is None:
-        formatted = ""
-        try:
-            from tools import terminal_tool  # heavy; only needed for non-local backends
-        except Exception as e:
-            logger.debug("Backend probe unavailable (import failed): %s", e)
-        else:
-            try:
-                formatted = _format_backend_probe(_run_backend_probe(env_type, terminal_tool))
-            except Exception as e:
-                logger.debug("Backend probe failed: %s", e)
-        _BACKEND_PROBE_CACHE[cache_key] = formatted
-    return formatted or None
 
 
-def _clear_backend_probe_cache() -> None:
-    """Test helper — drop the backend probe cache so monkeypatched backends take effect."""
-    _BACKEND_PROBE_CACHE.clear()
 
 
 def _local_host_hints() -> list[str]:
@@ -869,28 +786,6 @@ def _bot_screen_hint() -> str:
         return ""
 
 
-def _remote_backend_hint(backend: str) -> str:
-    """Backend-only block for remote/sandbox backends (host info deliberately suppressed)."""
-    lead = (f"Terminal backend: {backend}. Your `terminal`, `read_file`, `write_file`, `patch`, and "
-            f"`search_files` tools all operate inside ")
-    probe = _probe_remote_backend(backend)
-    if probe:
-        return lead + (
-            f"this {backend} environment — NOT on the machine where Hermes itself is running. The host OS, "
-            f"home, and cwd of the Hermes process are irrelevant; only the following backend state matters:\n{probe}\n"
-            f"  The sandbox's current user, $HOME, and working directory are not listed here; if you need them, "
-            f"probe directly with a terminal call like `whoami && pwd`."
-        )
-    description = (
-        _BACKEND_FALLBACK_DESCRIPTIONS.get(backend)
-        or _plugin_backend_attr(backend, "env_description")
-        or f"a {backend} environment (likely Linux)"
-    )
-    return lead + (
-        f"{description} — NOT on the machine where Hermes itself runs. The backend probe didn't respond at "
-        f"prompt-build time, so the sandbox's OS, current user, $HOME, and working directory are unknown from here. "
-        f"If you need them, probe directly with a terminal call like `uname -a && whoami && pwd`."
-    )
 
 
 def _config_readonly(what: str) -> dict:
@@ -911,16 +806,10 @@ def _embedder_environment_hint() -> str:
 
 
 def build_environment_hints() -> str:
-    """Execution-environment block: local backends get host OS/home/cwd; remote/sandbox
-    backends get ONLY the backend's own state (the agent's tools cannot touch the host).
-    WSL and embedder hints are appended."""
-    backend = (_tenv_read("TERMINAL_ENV") or "local").strip().lower()
-    is_remote_backend = backend in _REMOTE_TERMINAL_BACKENDS or _plugin_backend_is_remote(backend)
-    hints = [_remote_backend_hint(backend)] if is_remote_backend else _local_host_hints()
-    # A host-placed Bot Screen is only reachable from a local backend (a sandboxed terminal cannot
-    # open windows on the gateway host), and a sandbox-placed one is the sandbox probe's business.
-    if not is_remote_backend:
-        hints.append(_bot_screen_hint())
+    """Describe the local execution host without starting another environment."""
+    from tools.terminal_tool_config import require_local_environment
+    require_local_environment(_tenv_read("TERMINAL_ENV", "local"))
+    hints = [*_local_host_hints(), _bot_screen_hint()]
     hints += [WSL_ENVIRONMENT_HINT] if is_wsl() else []
     return "\n\n".join(h for h in (*hints, _embedder_environment_hint()) if h)
 

@@ -129,8 +129,7 @@ checkout's own toolchain are skipped the same way whenever the terminal's
 current directory is untrusted: `npx tsc` (it runs
 the repository's `node_modules/.bin/tsc`, or installs from the
 registry its `.npmrc` names) and `rustfmt --check` (rustup honours the
-repository's `rust-toolchain.toml`). Sandboxed backends (Docker, SSH,
-…) are unchanged.
+repository's `rust-toolchain.toml`).
 
 Diagnostics that need the project's dependencies (for example
 unresolved-import warnings) may be less precise until you trust the

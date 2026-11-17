@@ -1069,11 +1069,6 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
         title = '(^_^) Configuration'
         width = 50
         pad = width - len(title)
-        _unset = 'not set'
-        ssh_target = (
-            f"{os.getenv('TERMINAL_SSH_USER', _unset)}@{os.getenv('TERMINAL_SSH_HOST', _unset)}"
-            f":{os.getenv('TERMINAL_SSH_PORT', '22')}"
-        ) if terminal_env == "ssh" else None
         # Align each section by its longest label.
         sections = (
             ('Model', (
@@ -1082,7 +1077,6 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
                 ('API Key:', api_key_display))),
             ('Terminal', (
                 ('Environment:', terminal_env),
-                *((('SSH Target:', ssh_target),) if ssh_target else ()),
                 ('Working Dir:', terminal_cwd),
                 ('Timeout:', f"{terminal_timeout}s"),
             )),

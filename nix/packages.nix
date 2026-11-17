@@ -68,7 +68,6 @@
 
           "parallel-web"
           "tts-premium"
-          "vercel"
           "voice"
         ];
       };

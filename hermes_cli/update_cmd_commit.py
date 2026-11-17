@@ -81,8 +81,6 @@ POST_MOVE_MODULES = (
     "agent.delegation_context",
     "agent.provider_base",
     "agent.provider_registry",
-    "agent.terminal_env_provider",
-    "agent.terminal_env_registry",
     "gateway.config_loader",
     "gateway.platform_registry",
     "gateway.runtime_ownership",

@@ -158,7 +158,7 @@ The distillation synthesizes structure — frameworks, definitions, decision
 rules, anti-patterns — and never reproduces passages of the source text.
 
 Because the live agent does the sourcing, `/learn` works the same in the CLI,
-the messaging gateway, the TUI, and the dashboard — and on any terminal backend
+the messaging gateway, the TUI, and the dashboard — and with local terminal execution
 (local, Docker, remote), since there is no separate ingestion engine. In the
 **dashboard**, the Skills page has a **Learn a skill** button that opens a panel
 with a directory field, a URL field, and an open-ended text box; it composes a

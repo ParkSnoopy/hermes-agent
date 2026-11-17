@@ -13,6 +13,27 @@ from hermes_cli.web_routers import display
 from tools.bot_desktop import lease
 
 
+@pytest.mark.parametrize("available", [True, False])
+def test_open_rfb_uses_only_requested_profile_socket(tmp_path, monkeypatch, available):
+    from unittest.mock import AsyncMock
+
+    home = tmp_path / "profile"
+    sock = home / "bot-desktop" / "rfb.sock"
+    if available:
+        sock.parent.mkdir(parents=True)
+        sock.touch()
+    endpoints = (object(), object())
+    connect = AsyncMock(return_value=endpoints)
+    monkeypatch.setattr(asyncio, "open_unix_connection", connect)
+    if available:
+        assert asyncio.run(display._open_rfb(home)) == endpoints
+        connect.assert_awaited_once_with(str(sock))
+    else:
+        with pytest.raises(OSError, match="rfb.sock missing"):
+            asyncio.run(display._open_rfb(home))
+        connect.assert_not_awaited()
+
+
 class _Ws:
     """Just enough of a Starlette WebSocket: one disconnect message with the given close code."""
 

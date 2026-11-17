@@ -362,10 +362,9 @@ def clear_session(session_key: str) -> None:
             entry.cancelled = "the session ended before the prompt was answered"
             entry.event.set()
     _release_permission_mode_dependents(session_key)
-    # Session-persistent code kernels (local and remote) share this owner key and die at the same boundary so a
+    # Session-persistent code kernels share this owner key and die at the same boundary so a
     # finished conversation cannot leak a live interpreter.
-    for module, shutdown in (("tools.code_kernel", "shutdown_kernels_for_owner"),
-                             ("tools.code_kernel_remote", "shutdown_remote_kernels_for_owner")):
+    for module, shutdown in (("tools.code_kernel", "shutdown_kernels_for_owner"),):
         try:
             getattr(importlib.import_module(module), shutdown)(session_key)
         except Exception:
@@ -1159,23 +1158,6 @@ def _run_approval_gate(
     )
 
 
-def _should_skip_container_guards(env_type: str, has_host_access: bool = False) -> bool:
-    """True when the backend is isolated enough to skip dangerous-command prompts. Docker is the
-    exception once host paths are bind-mounted: ``rm -rf /workspace`` then reaches host files."""
-    if env_type == "docker":
-        return not has_host_access
-    if env_type in ("vercel_sandbox",):
-        return True
-    # Plugin backends declare the same classification through the provider ABI (#94400);
-    # fail-soft to False so an unknown or raising backend — or a raising registry
-    # lookup — keeps the guards on rather than propagating out of the approval predicate.
-    try:
-        from agent.terminal_env_registry import provider_flag
-        return bool(provider_flag(env_type, "skip_container_guards", False))
-    except Exception:
-        return False
-
-
 def _user_deny_block(command: str) -> dict | None:
     """The operator's ``approvals.deny`` rules are documented as never bypassable — not by yolo,
     not by mode=off, and not by an isolated container either: they express intent about what the
@@ -1214,13 +1196,9 @@ def _floor_block(command: str, *, sudo_guard: bool = False) -> dict | None:
 
 
 def check_dangerous_command(command: str, env_type: str,
-                            approval_callback=None,
-                            has_host_access: bool = False) -> dict:
-    """Detect a dangerous command and handle approval (pattern layer only). ``has_host_access``:
-    a Docker sandbox that bind-mounts host paths must not skip approval.
+                            approval_callback=None) -> dict:
+    """Detect a dangerous command and handle approval (pattern layer only).
     Returns ``{"approved": True/False, "message": str or None, ...}``."""
-    if _should_skip_container_guards(env_type, has_host_access=has_host_access):
-        return _user_deny_block(command) or _approved()
     blocked = _floor_block(command)
     if blocked is not None:
         return blocked
@@ -1275,20 +1253,16 @@ def request_tool_approval(tool_name: str, reason: str, *, rule_key: str = "", ap
 # --- Combined pre-exec guard (floors + dangerous command detection) ------------------------------------------------
 
 def check_all_command_guards(command: str, env_type: str,
-                             approval_callback=None,
-                             has_host_access: bool = False) -> dict:
+                             approval_callback=None) -> dict:
     """Run all pre-exec security checks and return a single approval decision. Plugins that
-    want to veto or escalate a command do it from ``pre_tool_call``.
-    ``has_host_access``: a Docker sandbox with bind-mounted host paths takes the normal flow."""
-    if _should_skip_container_guards(env_type, has_host_access=has_host_access):
-        return _user_deny_block(command) or _approved()
+    want to veto or escalate a command do it from ``pre_tool_call``."""
 
     blocked = _floor_block(command, sudo_guard=True)
     if blocked is not None:
         return blocked
 
     from agent.terminal_approval_batch import consume_prepared_guard
-    prepared = consume_prepared_guard(command, env_type, has_host_access)
+    prepared = consume_prepared_guard(command, env_type)
     if prepared is not None:
         return prepared
 
@@ -1343,7 +1317,7 @@ def _is_local_viewer_turn() -> bool:
             and _gateway_notify_cb(get_current_session_key()) is not None)
 
 
-def check_execute_code_guard(code: str, env_type: str, has_host_access: bool = False) -> dict:
+def check_execute_code_guard(code: str, env_type: str) -> dict:
     """Approve an execute_code script before its child process is spawned.
 
     The script can call ``subprocess``/``os.system``/``ctypes`` directly, none of which pass
@@ -1361,11 +1335,13 @@ def check_execute_code_guard(code: str, env_type: str, has_host_access: bool = F
     pattern_key = "execute_code"
     description = _EXECUTE_CODE_DESCRIPTION
 
-    # Isolated backends already sandbox the child. vercel_sandbox has no host-bind concept so it stays always-skipped.
-    if env_type == "vercel_sandbox":
-        return _approved()
-    if _should_skip_container_guards(env_type, has_host_access=has_host_access):
-        return _approved()
+    from tools.terminal_tool_config import require_local_environment
+    try:
+        require_local_environment(env_type)
+    except ValueError as exc:
+        return _denied(str(exc), pattern_key=pattern_key, description=description,
+                       outcome="blocked", noun="code")
+
     approval_mode = approval_context._get_approval_mode()
     if _yolo_active() or approval_mode == "off":
         return _approved()

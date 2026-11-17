@@ -39,10 +39,10 @@ export const userMessagesEn = {
     rpc: {
       /** `{0}` = the session's terminal backend (docker, ssh, ...). shell.exec runs on the gateway host. */
       shellBackendRefused: (backend: string) =>
-        `!commands run on the gateway host, but this session's terminal backend is ${backend}, so the command was not run. Ask the agent to run it instead; the agent's terminal runs inside ${backend}.`,
+        `!commands run on the gateway host, but this session's terminal backend is ${backend}, so the command was not run. Set terminal.backend to local before running commands.`,
       /** shellBackendRefused when the gateway did not name the backend (older gateways). */
       shellBackendRefusedUnnamed:
-        "!commands run on the gateway host, but this session's terminal backend isn't local, so the command was not run. Ask the agent to run it instead.",
+        "!commands run on the gateway host, but this session's terminal backend isn't local, so the command was not run. Set terminal.backend to local before running commands.",
       /** `{0}` = the JSON-RPC method name the backend does not serve. Not a version claim. */
       methodUnavailable: (method: string) => `This Hermes backend does not provide ${method}, so that was not done.`,
       versionSkew:

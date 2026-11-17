@@ -938,18 +938,14 @@ class CheckpointManager:
         self._checkpointed_dirs.clear()
 
     def unsupported_backend_reason(self, task_id: str = "default") -> Optional[str]:
-        """Explain why host checkpoints are off limits for a container-backed session.
-
-        Classifies the task's backend at call time (nothing is remembered), so /rollback is
-        refused before the first mutation and follows a backend change within the session."""
-        from tools.file_tools_paths import container_backend_for_task
-        backend = container_backend_for_task(task_id)
-        if backend is None:
-            return None
-        return (
-            f"Checkpoints are not taken for terminal.backend={backend}: "
-            "file paths belong to the container, not this host."
-        )
+        """Refuse checkpoint operations for unsupported terminal selections."""
+        from tools.file_tools_paths import _terminal_env_type_for_task
+        from tools.terminal_scope import TerminalPolicyUnavailable
+        try:
+            _terminal_env_type_for_task(task_id)
+        except (ValueError, TerminalPolicyUnavailable) as exc:
+            return str(exc)
+        return None
 
     # ------------------------------------------------------------------
     # Public API

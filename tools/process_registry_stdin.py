@@ -40,10 +40,10 @@ def stdin_unavailable_error(session) -> str:
     """Error for process_manage write/submit on a session without a stdin pipe or PTY.
 
     A local pipe-mode spawn connects stdin to /dev/null by design, so only a PTY relaunch can take
-    input, and only where ``spawn_local`` can give one; a non-local backend has no live stdin."""
+    input, and only where ``spawn_local`` can give one."""
     if session.process is None:
-        return ("Process stdin not available: it runs on a non-local terminal backend (or was recovered "
-                f"after a restart), which has no live stdin. {_NON_INTERACTIVE}")
+        return ("Process stdin not available: it was recovered after a restart and has no live stdin. "
+                f"{_NON_INTERACTIVE}")
     if reason := _no_pty_reason(session):
         return f"This process has no stdin: {reason}. Relaunching with pty=true would not help. {_NON_INTERACTIVE}"
     return ("This process was started without stdin (terminal background=true without pty=true). "

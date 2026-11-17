@@ -1,17 +1,15 @@
 """Tests for video_analyze tool in tools/vision_tools.py."""
 
 import asyncio
-import base64
 import json
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from tools.vision_tools import (
     _detect_video_mime_type,
-    _video_to_base64_data_url,
     _handle_video_analyze,
+    _video_to_base64_data_url,
     video_analyze_tool,
 )
 
@@ -91,9 +89,10 @@ class TestVideoAnalyzeTool:
         return asyncio.get_event_loop().run_until_complete(coro)
 
     def test_local_file_success(self, tmp_path, monkeypatch):
-        """Analyze a local video file — happy path."""
+        """Analyze a relative video path from the task's workspace."""
         video = tmp_path / "demo.mp4"
         video.write_bytes(b"\x00" * 1024)
+        monkeypatch.setattr("tools.terminal_tool.get_session_cwd", lambda task: str(tmp_path))
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -101,7 +100,7 @@ class TestVideoAnalyzeTool:
 
         with patch("tools.vision_tools.async_call_llm", new_callable=AsyncMock, return_value=mock_response):
             with patch("tools.vision_tools.extract_content_or_reasoning", return_value="A short video showing a demo."):
-                result = self._run(video_analyze_tool(str(video), "What is this?"))
+                result = self._run(video_analyze_tool(video.name, "What is this?", task_id="video-task"))
 
         data = json.loads(result)
         assert data["success"] is True
@@ -171,59 +170,36 @@ class TestVideoAnalyzeTool:
         # provider uses its full output budget (max-tokens-knob policy).
         assert "max_tokens" not in captured_kwargs
 
-    def test_non_local_backend_reads_video_from_terminal_backend(self, tmp_path, monkeypatch):
-        """Non-local terminal backends must not read local host video paths.
-
-        The read routes through the shared media resolver
-        (tools.image_source, ``permitted=("video",)``) which exec-reads the
-        bytes inside the sandbox — so the analyzed video is the container's
-        file, never the host's.
-        """
+    @pytest.mark.parametrize("backend", ["docker", "ssh", "vercel_sandbox", "plugin"])
+    def test_retired_backend_refuses_local_video(self, tmp_path, monkeypatch, backend):
+        """A retired selection must not read or upload a host video."""
         host_video = tmp_path / "clip.mp4"
         host_video.write_bytes(b"HOST-VIDEO")
-        remote_bytes = b"REMOTE-SANDBOX-VIDEO"
-        remote_b64 = base64.b64encode(remote_bytes).decode("ascii")
-        monkeypatch.setenv("TERMINAL_ENV", "docker")
+        monkeypatch.setenv("TERMINAL_ENV", backend)
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
-
-        import tools.image_source as isrc
-        import tools.terminal_tool as tt
-
-        env_lookups = []
-
-        def fake_get_active(task_id):
-            env_lookups.append(task_id)
-            return SimpleNamespace(
-                execute=lambda cmd, **kw: {"returncode": 0, "output": remote_b64}
-            )
-
-        monkeypatch.setattr(tt, "ensure_task_env", lambda *a, **k: None)
-        monkeypatch.setattr(isrc, "_get_active_env", fake_get_active)
-
-        captured_kwargs = {}
-
-        async def capture_llm(**kwargs):
-            captured_kwargs.update(kwargs)
-            mock_response = MagicMock()
-            mock_response.choices = [MagicMock()]
-            mock_response.choices[0].message.content = "sandbox video"
-            return mock_response
-
         with (
-            patch("tools.vision_tools.async_call_llm", side_effect=capture_llm),
-            patch("tools.vision_tools.extract_content_or_reasoning", return_value="sandbox video"),
+            patch("tools.vision_tools.async_call_llm", new_callable=AsyncMock) as llm,
+            patch("tools.vision_tools._video_to_base64_data_url") as encode,
         ):
             result = self._run(
                 video_analyze_tool(str(host_video), "Describe this", task_id="task-123")
             )
 
         data = json.loads(result)
-        assert data["success"] is True
-        assert env_lookups == ["task-123"]
-        video_url = captured_kwargs["messages"][0]["content"][1]["video_url"]["url"]
-        uploaded_bytes = base64.b64decode(video_url.split(",", 1)[1])
-        assert uploaded_bytes == remote_bytes
-        assert uploaded_bytes != host_video.read_bytes()
+        assert data["success"] is False
+        assert "Only 'local'" in data["error"]
+        encode.assert_not_called()
+        llm.assert_not_awaited()
+
+    def test_nt_namespace_is_refused_before_resolution(self, monkeypatch):
+        from tools.vision_tools import _materialize_video
+
+        def resolve(*args):
+            pytest.fail("namespace path was resolved")
+
+        monkeypatch.setattr("tools.file_tools_paths._resolve_path_for_task", resolve)
+        with pytest.raises(ValueError, match="NT/device namespace"):
+            self._run(_materialize_video("\\??\\UNC\\example.invalid\\video.mp4", "task", []))
 
 # ---------------------------------------------------------------------------
 # Toolset registration

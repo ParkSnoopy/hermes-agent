@@ -509,24 +509,18 @@ def _composer_paste_roots() -> list[Path]:
 
 
 def _agent_staged_path(path: Path) -> bool:
-    """True when *path* sits in a Hermes dir the gateway stages for the agent.
-
-    Those are the ``_CACHE_DIRS`` roots — ``attachments/`` (file drops),
-    ``images/`` (image uploads), ``cache/*`` (platform downloads) and now
-    ``composer-pastes/`` (large text pastes) — the gateway's OWN payload, never
-    a workspace escape, and they live outside the workspace by construction: on
-    a remote execution backend (ssh and friends) the workspace root is a path
-    on THAT host (#110174), so the workspace check below rejected every staged
-    attachment there. The bytes are staged to (or already live on) the gateway
-    either way, so the ref still expands — text inlines; binaries point at the
-    backend-visible path via ``to_agent_visible_cache_path``.
-    """
-    try:
-        from tools.credential_files import get_cache_directory_mounts
-        return any(_is_under(path, Path(entry["host_path"]).expanduser().resolve())
-                   for entry in get_cache_directory_mounts())
-    except Exception:
-        return False
+    """Allow only the active profile's locally staged media roots."""
+    from hermes_constants import get_hermes_dir
+    roots = (
+        ("cache/documents", "document_cache"), ("cache/images", "image_cache"),
+        ("cache/audio", "audio_cache"), ("cache/videos", "video_cache"),
+        ("cache/screenshots", "browser_screenshots"), ("cache/web", "web_cache"),
+        ("cache/delegation", "delegation_cache"), ("cache/spillover", "cache/spillover"),
+        ("cache/generated", "cache/generated"), ("images", "images"),
+        ("attachments", "attachments"), ("composer-pastes", "composer-pastes"),
+    )
+    return any(_is_under(path, get_hermes_dir(new, old).expanduser().resolve())
+               for new, old in roots)
 
 
 def _resolve_path(cwd: Path, target: str, *, allowed_root: Path | None = None) -> Path:
@@ -653,20 +647,6 @@ def _iter_visible_entries(path: Path, cwd: Path, limit: int) -> list[Path]:
     return output
 
 
-def _agent_visible_path(path: Path) -> str:
-    # Under a container backend the host path dangles inside the sandbox: translate staged
-    # files to their auto-mounted cache path; fall back to the host path (local backend /
-    # translation failure). Run the idempotent TERMINAL_ENV bridge first so in-process
-    # gateways that never bridged terminal.* config still see the active backend.
-    try:
-        from tools.terminal_tool import _ensure_terminal_env_bridged
-        _ensure_terminal_env_bridged()
-        from tools.credential_files import to_agent_visible_cache_path
-        return to_agent_visible_cache_path(str(path))
-    except Exception:
-        return str(path)
-
-
 def _on_disk_reference_block(ref: ContextReference, path: Path, descriptor: str, reason: str, guidance: str) -> str:
     """Shared 📎 shape: the file was not inlined, but it IS on disk where the agent's
     tools run — hand the model the path and a nudge instead of a dead-end warning."""
@@ -676,7 +656,7 @@ def _on_disk_reference_block(ref: ContextReference, path: Path, descriptor: str,
         size = "unknown size"
     return (
         f"📎 {ref.raw} ({descriptor}, {size}) — {reason} "
-        f"It is available on disk at `{_agent_visible_path(path)}`. {guidance}"
+        f"It is available on disk at `{path}`. {guidance}"
     )
 
 

@@ -1,4 +1,4 @@
-"""#103551: remote backend, FIFO, and quadratic-time hazards of the rewrite hint
+"""#103551: FIFO and quadratic-time hazards of the rewrite hint
 
 Independent-review probe (written by the /review subagent for tracking issue #103563, adapted here).
 It reproduced a defect in the first version of the PR; the fixed head must pass it. Paths are taken
@@ -23,17 +23,16 @@ with tempfile.TemporaryDirectory(dir=root) as d:
  new=old.replace('750 arbitrary','750 edited')
  start=time.monotonic();r=json.loads(f.write_file_tool(str(p),new,task_id='review'))
  print('live-write',round(time.monotonic()-start,3),r,p.read_text(encoding='utf-8')==new,flush=True)
- class RemoteOps:
+ class LocalOps:
   env=object()
   def write_file(self,path,content):
    self.written=(path,content)
    return WriteResult(bytes_written=len(content),verified=True)
- ops=RemoteOps()
+ ops=LocalOps()
  p.write_text(old, encoding='utf-8')
  with patch.object(f,'_get_file_ops',return_value=ops):
-  print('remote_backend_is_host',f._file_ops_uses_host_paths(ops))
-  r=json.loads(f.write_file_tool(str(p),new,task_id='remote-review'))
- print('remote_empty_target_hint_from_host',r.get('hint'), 'host_unchanged',p.read_text(encoding='utf-8')==old,flush=True)
+  r=json.loads(f.write_file_tool(str(p),new,task_id='local-review'))
+ print('stubbed_write_hint',r.get('hint'), 'host_unchanged',p.read_text(encoding='utf-8')==old,flush=True)
  fifo=pathlib.Path(d)/'pipe.txt';os.mkfifo(fifo)
  alarms=[]
  def alarm(sig,frame):

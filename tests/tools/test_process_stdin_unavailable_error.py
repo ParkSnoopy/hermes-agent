@@ -43,13 +43,13 @@ def test_no_pty_advice_where_a_pty_cannot_be_had(registry, monkeypatch, tmp_path
     assert "pty=true would not help" in stdin_mod.stdin_unavailable_error(session)
 
 
-def test_non_local_session_keeps_the_backend_explanation():
+def test_recovered_session_explains_stdin_unavailable():
     from types import SimpleNamespace
 
     from tools.process_registry_stdin import stdin_unavailable_error
 
     error = stdin_unavailable_error(SimpleNamespace(process=None, output_log=""))
-    assert "non-local terminal backend" in error and "pty=true" not in error
+    assert "recovered after a restart" in error and "pty=true" not in error
 
 
 @pytest.mark.platforms("posix")

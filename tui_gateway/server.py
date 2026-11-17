@@ -1520,15 +1520,9 @@ def _hydrate_session_cwd(sid: str, key: str, session_db, profile_home: str | Non
         if db is not None:
             row = db.get_session(key) if hasattr(db, "get_session") else None
             if row and _resumable_stored_cwd(row.get("cwd"), profile_home):
-                # An ssh or sandbox session's stored cwd is its workspace: explicit, so the remote terminal uses it
-                # instead of the backend default (an unpicked launch dir is never persisted for them). Host backends
-                # keep main's semantics (resolved outside the sessions lock: I/O).
-                remote = not _host_cwd_is_terminal_cwd(profile_home)
                 with _sessions_lock:
                     if sid in _sessions:
                         _sessions[sid]["cwd"] = row["cwd"]
-                        if remote:
-                            _sessions[sid]["explicit_cwd"] = True
                 # Lazy desktop rows already carry their explicitly chosen cwd, so they never reach the fresh-cwd
                 # branch below. Claim a generation before probing to keep an older probe from overwriting a later
                 # workspace move; complete rows do not need another probe on every resume.
@@ -1541,7 +1535,7 @@ def _hydrate_session_cwd(sid: str, key: str, session_db, profile_home: str | Non
                         logger.debug("failed to enrich resumed session git metadata", exc_info=True)
             elif (not (row and row.get("cwd")) or _is_other_profiles_cwd(row["cwd"], profile_home)) and hasattr(
                 db, "update_session_cwd"
-            ) and not _is_remote_launch_cwd(_sessions.get(sid)):
+            ):
                 # A stored cwd that was set aside (Hermes's own host tree) stays as stored: only an empty row is filled,
                 # or a named profile's row holding another profile's dir (#87584), repaired to this session's own.
                 try:

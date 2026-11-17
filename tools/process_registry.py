@@ -1,7 +1,7 @@
 """Process Registry -- in-memory registry for background processes spawned via
 terminal(background=true): rolling 200KB output buffer, poll/log/wait/kill, JSON
 checkpoint for crash recovery, session-scoped tracking for gateway reset protection.
-Nothing runs on the host unless TERMINAL_ENV=local; other backends run in their sandbox.
+Background processes run on the local host.
 """
 
 import codecs
@@ -10,11 +10,9 @@ import json
 import logging
 import os
 import platform
-import shlex
 import signal
 import stat
 import subprocess
-import tempfile
 import threading
 import time
 import uuid
@@ -39,7 +37,6 @@ from tools.process_registry_output_log import ProcessOutputLogMixin, open_output
 from tools.process_registry_ownership import ProcessOwnershipMixin
 from tools.process_registry_termination import ProcessTerminationMixin
 from tools.process_registry_results import load_completed_results, save_completed_result
-from tools.process_registry_env_log import log_delta_command
 from tools.process_registry_wsl import _is_wsl_launcher_command
 
 logger = logging.getLogger(__name__)
@@ -544,14 +541,12 @@ class ProcessSession:
     """A tracked background process with output buffering."""
     id: str                                     # "proc_xxxxxxxxxxxx"
     command: str
-    task_id: str = ""                           # Task/sandbox isolation key (CONTAINER key,
-                                                # may be collapsed by _resolve_container_task_id)
+    task_id: str = ""                           # Resolved task/session ownership key
     owner_task_id: str = ""                     # RAW spawning task id ("sa-..."); ownership
                                                 # checks must use this, not task_id
     session_key: str = ""                       # Gateway session key (reset protection)
     pid: Optional[int] = None
     process: Optional[subprocess.Popen] = None  # Popen handle (local only)
-    env_ref: Any = None                         # Environment object (sandbox spawns)
     cwd: Optional[str] = None
     started_at: float = 0.0                     # time.time() of spawn
     host_start_time: Optional[int] = None       # kernel start ticks (/proc/<pid>/stat f22) — PID-reuse guard
@@ -563,7 +558,7 @@ class ProcessSession:
     output_buffer: str = ""                     # Rolling tail (last max_output_chars)
     max_output_chars: int = MAX_OUTPUT_CHARS
     detached: bool = False                      # Recovered from checkpoint (no pipe)
-    pid_scope: str = "host"                     # "host" for local/PTY PIDs, "sandbox" for env-local PIDs
+    pid_scope: str = "host"                     # Host PID, retained for safe checkpoint recovery
     systemd_unit: str = ""                      # transient scope unit name when spawned under systemd-run
     wsl_chain: bool = False                     # spawned via wsl[.exe]: the host PID is the short-lived
                                                 # launcher; Linux-side workers outlive it (#120546)
@@ -1096,19 +1091,6 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
             wsl_chain=_is_wsl_launcher_command(command),
             started_at=time.time(), **extra)
 
-    @staticmethod
-    def _env_temp_dir(env: Any) -> str:
-        """Return the writable sandbox temp dir for env-backed background tasks."""
-        get_temp_dir = getattr(env, "get_temp_dir", None)
-        if callable(get_temp_dir):
-            try:
-                temp_dir = get_temp_dir()
-                if isinstance(temp_dir, str) and temp_dir.startswith("/"):
-                    return temp_dir.rstrip("/") or "/"
-            except Exception as exc:
-                logger.debug("Could not resolve environment temp dir: %s", exc)
-        return tempfile.gettempdir()
-
     def _scope_argv(self, session: ProcessSession, safe_command: str, unit_suffix: str, label: str) -> list[str]:
         """Login-shell argv for *safe_command* (parity with LocalEnvironment: rc files
         sourced, user tools on PATH), wrapped in a transient systemd scope when we are
@@ -1180,7 +1162,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
         self, command: str, cwd: str | None = None, task_id: str = "", session_key: str = "",
         env_vars: dict | None = None, use_pty: bool = False, owner_task_id: str = "",
         persist_on_release: bool = False, restore_login_path: bool = False) -> ProcessSession:
-        """Spawn a background process locally (TERMINAL_ENV=local; other backends: spawn_via_env()).
+        """Spawn a background process locally.
         ``use_pty`` asks ptyprocess/pywinpty for a pseudo-terminal; on failure: pipe + ``pty_fallback``.
         ``persist_on_release``: no agent kill sweeps (#41225); ``restore_login_path``: re-add reset PATH dirs (#56634)."""
         # Bash runs ``A && B &`` as a subshell holding our stdout pipe open while a server B lives;
@@ -1266,36 +1248,6 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
             # The caller resumes its foreground wait: give it back its group, still covered.
             self._return_handoff_group(session, proc, handed_pgid)
             raise
-        return session
-
-    def spawn_via_env(
-        self, env: Any, command: str, cwd: str | None = None, task_id: str = "", session_key: str = "",
-        timeout: int = 10, owner_task_id: str = "", persist_on_release: bool = False) -> ProcessSession:
-        """Spawn a background process inside a non-local backend's sandbox.
-        The command is wrapped to capture its in-sandbox PID and redirect output to a
-        log file that later execute() calls poll. No live pipe or stdin, but it runs in
-        the correct sandbox context. ``persist_on_release`` keeps the process out of
-        agent-lifecycle kill sweeps (#41225)."""
-        session = self._new_session(command, task_id, owner_task_id, session_key, cwd, env_ref=env, pid_scope="sandbox",
-                                    persist_on_release=persist_on_release)
-        temp_dir = self._env_temp_dir(env)
-        log_path, pid_path, exit_path = (f"{temp_dir}/hermes_bg_{session.id}.{ext}" for ext in ("log", "pid", "exit"))
-        q = shlex.quote
-        bg_command = (
-            f"mkdir -p {q(temp_dir)} && "
-            f"( nohup bash -lc {q(command)} > {q(log_path)} 2>&1; "
-            f"rc=$?; printf '%s\\n' \"$rc\" > {q(exit_path)} ) & "
-            f"echo $! > {q(pid_path)} && cat {q(pid_path)}")
-        result = env.execute(bg_command, cwd=cwd or "", timeout=timeout, rewrite_compound_background=False)
-        output = result.get("output", "").strip()
-        session.pid = next((int(ln) for ln in map(str.strip, output.splitlines()) if ln.isdigit()), None)
-        # No PID from the wrapper (no bash in the image, sandbox gone, broken redirect): the
-        # command never started, so raise like a failed Popen instead of returning a session.
-        if session.pid is None:
-            raise RuntimeError(f"launch wrapper exited {result.get('returncode')} without a PID: "
-                               f"{output or '(no output)'}")
-        self._track_started(
-            session, self._env_poller_loop, f"proc-poller-{session.id}", (env, log_path, pid_path, exit_path))
         return session
 
     # ----- Reader / Poller Threads -----
@@ -1412,68 +1364,6 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
                 return
             logger.warning("%s wait failed; recording known exit status: %s", label, e)
         self._finish_exited(session, exit_code())
-
-    _log_delta_command = staticmethod(log_delta_command)
-
-    def _env_poller_loop(self, session: ProcessSession, env: Any, log_path: str, pid_path: str, exit_path: str):
-        """Background thread: poll a sandbox log file for non-local backends."""
-        q = shlex.quote
-        # Byte offset already read from the log (bytes, not chars: the shell counts bytes).
-        prev_output_bytes = 0
-        while not session.exited:
-            time.sleep(2)
-            try:
-                # Read only the bytes written since the last poll.
-                raw = env.execute(self._log_delta_command(q(log_path), prev_output_bytes),
-                                  timeout=10).get("output", "")
-                header, _, delta = raw.partition("\n")
-                try:
-                    size_str, offset_str = header.split()
-                    new_size = int(size_str)
-                    used_offset = int(offset_str)
-                except ValueError:
-                    # No usable header (command failed, shell missing a tool): skip this
-                    # poll rather than act on a half-read value.
-                    new_size = None
-                    used_offset = None
-                    delta = ""
-                if new_size is not None:
-                    if used_offset < prev_output_bytes:
-                        # Log rotated/truncated: what we hold no longer lines up. Restart.
-                        with session._lock:
-                            if session.exited:
-                                return
-                            session.output_buffer = ""
-                    prev_output_bytes = new_size
-                if delta:
-                    # A kill that landed after this fetch already published its output
-                    # snapshot: leave the output as the kill reported it (as the PTY reader does).
-                    with session._lock:
-                        if session.exited:
-                            return
-                        session.output_buffer += delta
-                        if len(session.output_buffer) > session.max_output_chars:
-                            session.output_buffer = session.output_buffer[-session.max_output_chars:]
-                    self._check_watch_patterns(session, delta)
-                    self._emit_output(session, delta)
-
-                check = env.execute(
-                    f"kill -0 \"$(cat {q(pid_path)} 2>/dev/null)\" 2>/dev/null; echo $?", timeout=5)
-                check_output = check.get("output", "").strip()
-                if check_output and check_output.splitlines()[-1].strip() != "0":
-                    # Exited -- read the exit code captured by the wrapper shell.
-                    exit_str = env.execute(f"cat {q(exit_path)} 2>/dev/null", timeout=5).get("output", "").strip()
-                    try:
-                        exit_code = int(exit_str.splitlines()[-1].strip())
-                    except (ValueError, IndexError):
-                        exit_code = -1
-                    self._finish_exited(session, exit_code)
-                    return
-            except Exception:
-                # Environment might be gone (sandbox reaped, etc.). A kill that already
-                # settled the session keeps its result.
-                self._finish_exited(session, -1, reason="lost", source="backend_lost")
-                return
 
     def _pty_reader_loop(self, session: ProcessSession):
         """Background thread: read output from a PTY process."""
@@ -1857,7 +1747,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
             # Subagent-owned process notifications are suppressed by default — the
             # child's delegation result is the deliverable. Judge ownership on
             # owner_task_id (RAW spawning id; task_id is the container key, collapsed
-            # by _resolve_container_task_id). Dropped, NOT requeued: children never
+            # by _resolve_task_id). Dropped, NOT requeued: children never
             # drain, so a requeue would pin the event forever. 'async_delegation'
             # is the result itself and is NEVER suppressed.
             _evt_task_id = str(evt.get("owner_task_id") or evt.get("task_id") or "")
@@ -2229,7 +2119,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
         return stopped
 
     def _signal_kill(self, session: ProcessSession, session_id: str, consume_output: bool) -> Optional[dict]:
-        """Deliver the kill via PTY, local Popen tree, sandbox exec or recovered host
+        """Deliver the kill via PTY, local Popen tree or recovered host
         PID. Returns a final result dict when the kill cannot proceed (recycled/dead
         recovered PID, or no runtime handle), else None."""
         if session._pty:
@@ -2242,8 +2132,6 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
             # Tree kill: on Windows Popen.terminate() only kills the shell wrapper and
             # leaves Git Bash descendants behind.
             self._terminate_host_pid(session.process.pid, session.host_start_time)
-        elif session.env_ref and session.pid:
-            session.env_ref.execute(f"kill {session.pid} 2>/dev/null", timeout=5)
         elif session.detached and session.pid_scope == "host" and session.pid:
             # Same fate as poll/list: a gone or reused PID means our process is
             # gone — never tree-kill the stranger — but a live PID with an
@@ -2623,10 +2511,10 @@ def transform_process_output(output: str, *, command: str, returncode: Optional[
     results and the completion/heartbeat/watch notifications — so a plugin that rewrites terminal
     output sees the same command output whether it ran in the foreground or not (#70760).
     Same helper as the foreground path; callers redact AFTER it, never before, so a replacement
-    the plugin returns is still masked. ``returncode`` is None while the process is running and
-    ``env_type`` is not recorded per process, so it is passed empty."""
+    the plugin returns is still masked. ``returncode`` is None while the process is running.
+    All tracked processes run locally."""
     from tools.terminal_tool_result import _apply_output_transform_hook
-    return _apply_output_transform_hook(command, output, returncode, task_id or "", "")
+    return _apply_output_transform_hook(command, output, returncode, task_id or "", "local")
 
 
 def _redact_process_result(result: dict) -> dict:
@@ -2688,7 +2576,7 @@ def _handoff_process(session_id: str, args: dict, task_id: Optional[str]) -> dic
     tree: the caller must be a registered child and must own the process; anything else is an error, never a silent
     no-op, so a PID mentioned in prose can't masquerade as a transfer."""
     from tools.delegate_tool_registry import _active_subagents, _active_subagents_lock
-    from tools.terminal_tool import _resolve_container_task_id
+    from tools.terminal_tool import _resolve_task_id
     with _active_subagents_lock:
         record = _active_subagents.get(str(task_id or ""))
     child = record.get("agent") if record else None
@@ -2709,7 +2597,7 @@ def _handoff_process(session_id: str, args: dict, task_id: Optional[str]) -> dic
         return {"error": "handoff requires `data`: one sentence saying what the process is for and what the parent should do with its result."}
     session = process_registry.transfer_ownership(
         session_id, from_owner=str(task_id or ""), to_owner=parent_owner,
-        to_task_id=_resolve_container_task_id(parent_owner),
+        to_task_id=_resolve_task_id(parent_owner),
         to_session_key=str(getattr(parent, "session_id", "") or ""), note=note)
     if session is None:
         return {"error": f"cannot hand off {session_id}: not a running process you own (already exited? read its result "

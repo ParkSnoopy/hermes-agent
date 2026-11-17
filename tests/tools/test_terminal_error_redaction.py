@@ -15,8 +15,6 @@ def _minimal_terminal_config(cwd="/tmp"):
         "env_type": "local",
         "cwd": cwd,
         "timeout": 1,
-        "host_cwd": None,
-        "docker_image": "",
     }
 
 
@@ -26,7 +24,7 @@ def _patch_common(monkeypatch, env):
     monkeypatch.setattr(terminal_tool, "_task_env_overrides", {})
     monkeypatch.setattr(terminal_tool, "_get_env_config", lambda: _minimal_terminal_config())
     monkeypatch.setattr(terminal_tool, "_start_cleanup_thread", lambda: None)
-    monkeypatch.setattr(terminal_tool, "_resolve_container_task_id", lambda value: value or "default")
+    monkeypatch.setattr(terminal_tool, "_resolve_task_id", lambda value: value or "default")
     monkeypatch.setattr(
         terminal_tool,
         "_check_all_guards",

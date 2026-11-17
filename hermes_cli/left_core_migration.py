@@ -271,34 +271,6 @@ def langfuse_in_use(home: Path, *, process_env: bool = False) -> bool:
     return _bundled_plugin_selected(home, "langfuse")
 
 
-def singularity_in_use(home: Path, *, process_env: bool = False) -> bool:
-    """What made core run its Singularity backend for *home*: ``terminal.backend`` (or the legacy
-    ``terminal.env_type``) set to ``singularity`` in its config (managed overlay applied, as the bridge
-    reads it), else ``TERMINAL_ENV=singularity`` from its dotenv layers as ``load_hermes_dotenv`` resolves
-    them (the home's ``.env``, then the administrator-managed ``.env`` with override, ``${VAR}``
-    references expanded: :func:`~hermes_cli.env_loader.resolve_home_dotenv`). config.yaml wins over
-    both, as in the bridge. *process_env* (startup) also counts a ``TERMINAL_ENV`` the process received
-    from its environment (systemd unit, Docker, shell export), for the launch home only: ``TERMINAL_*``
-    is process-global (``get_secret`` never scopes it), so for any other served home it is the launch
-    profile's backend, not this one's."""
-    from gateway import config_loader
-    try:
-        terminal = config_loader.read_yaml_layers(home).get("terminal")
-    except Exception:  # malformed config.yaml: the bridge reads nothing from it either
-        logger.debug("left-core: unreadable config for %s", home, exc_info=True)
-        terminal = None
-    terminal = terminal if isinstance(terminal, dict) else {}
-    configured = str(terminal.get("backend") or terminal.get("env_type") or "").strip()
-    if not configured:
-        from hermes_cli.env_loader import resolve_home_dotenv
-        configured = resolve_home_dotenv(home).get("TERMINAL_ENV", "").strip()
-    if not configured and process_env:
-        from hermes_constants import get_routing_process_hermes_home, hermes_home_key
-        if hermes_home_key(home) == hermes_home_key(get_routing_process_hermes_home()):
-            configured = os.environ.get("TERMINAL_ENV", "").strip()
-    return configured.lower() == "singularity"
-
-
 def agent_imports_in_use(home: Path, *, process_env: bool = False) -> bool:
     """*home* registered a ``hermes import-agent`` source for ``--sync`` (its ``import-sync.json``,
     which scheduled syncs read). A one-shot import leaves no other trace, and installing the plugin
@@ -537,8 +509,6 @@ class LeftCoreFeature:
     # Other names that bundled plugin was listed under (its manifest ``name:``, ``yuanbao-platform``): the
     # same alias as *plugin_key*, so core's old disable keeps holding for the catalog plugin.
     plugin_names: tuple[str, ...] = ()
-    # ``terminal.backend`` value the plugin registers: unknown-backend errors name the install command.
-    terminal_backend: str = ""
     # Config schema version that shipped without the feature, for a row whose conversion changes what a
     # home runs (``replaces_toolsets``): only a home from before it ran the core feature, so the row fires
     # only while the home's config is below it or when that version's config step found the feature in
@@ -602,12 +572,6 @@ LEFT_CORE: tuple[LeftCoreFeature, ...] = (
         toolsets=("camofox",), off_platforms=("webhook",), replaces_toolsets=("browser",), left_at=52,
     ),
     LeftCoreFeature(
-        plugin="singularity", label="Singularity/Apptainer terminal backend", in_use=singularity_in_use,
-        unchanged="terminal.backend: singularity, terminal.singularity_image (TERMINAL_SINGULARITY_IMAGE) "
-                  "and the container_* limits are unchanged",
-        terminal_backend="singularity",
-    ),
-    LeftCoreFeature(
         plugin="agent-importers", label="`hermes import-agent`", in_use=agent_imports_in_use,
         unchanged="`hermes import-agent`, its flags and your import-sync.json sync sources are unchanged",
         command="import-agent", old_cli=("claw",),
@@ -637,13 +601,6 @@ def platform_install_hint(platform: str) -> str:
     """For an unknown platform name that left core: the sentence that names its install command for
     the active home, else ``""``. Appended to "unknown platform" errors (``send_message``)."""
     feature = next((f for f in LEFT_CORE if f.platform and f.platform == platform), None)
-    return f". {_install_sentence(feature)}" if feature else ""
-
-
-def terminal_backend_install_hint(backend: str) -> str:
-    """For a ``terminal.backend`` value that left core: the sentence that names its install command for
-    the active home, else ``""``. Appended to "unknown terminal backend" errors."""
-    feature = next((f for f in LEFT_CORE if f.terminal_backend and f.terminal_backend == backend), None)
     return f". {_install_sentence(feature)}" if feature else ""
 
 

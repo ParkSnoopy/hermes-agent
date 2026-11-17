@@ -1474,15 +1474,14 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         original name when known (``MessageEvent.media_filenames``), else parsed from the native
         cache filename ``<id>_<id>_<original>``. A relay temp file (``relay_media_<random>``)
         carries no name, so it is labelled unknown rather than shown as the random basename.
-        The path is translated to the in-container mount under a Docker backend."""
-        from tools.credential_files import to_agent_visible_cache_path
+        The path names the local cache file."""
         basename = os.path.basename(path)
         name = clean_attachment_filename(original_name)
 
         if not name:
             parts = basename.split("_", 2)
             name = parts[2] if len(parts) >= 3 else basename
-        return re.sub(r'[^\w.\- ]', '_', name), to_agent_visible_cache_path(path)
+        return re.sub(r'[^\w.\- ]', '_', name), path
 
     @staticmethod
     def _inbound_original_names(event: MessageEvent) -> dict[str, str]:

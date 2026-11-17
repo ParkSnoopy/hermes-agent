@@ -86,7 +86,6 @@ jobs:
       npm_lock: ${{ steps.gate-lanes.outputs.npm_lock }}
       bootstrap: ${{ steps.gate-lanes.outputs.bootstrap }}
 
-      remote_backends: ${{ steps.gate-lanes.outputs.remote_backends }}
       catalog: ${{ steps.gate-lanes.outputs.catalog }}
       docker_meta: ${{ steps.gate-lanes.outputs.docker_meta }}
       e2e: ${{ steps.gate-lanes.outputs.e2e }}
@@ -210,17 +209,6 @@ jobs:
     with:
       commit: ${{ inputs.commit }}
 
-  remote-backends:
-    name: Remote terminal backends
-    needs: detect
-    # The SSH and Docker terminal backends against a real sshd container and the
-    # runner's Docker daemon. Only PRs that touch the backends / terminal tool /
-    # their real tests start it (and every push to main); it runs in parallel with
-    # the other lanes and is required whenever detect selects it.
-    if: needs.detect.outputs.remote_backends == 'true'
-    uses: ./.github/workflows/remote-backends.yml
-    with:
-      commit: ${{ inputs.commit }}
 
   docs-site:
     name: Docs Site
@@ -284,7 +272,6 @@ jobs:
       - js-tests
       - bootstrap-installer
 
-      - remote-backends
       - catalog-tests
 
       - docs-site

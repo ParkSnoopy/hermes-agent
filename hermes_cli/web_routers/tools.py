@@ -13,10 +13,9 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 
 from hermes_cli.web_deps import late
-from hermes_cli.web_server_profiles import _plugin_terminal_backend_rows
 from starlette.concurrency import run_in_threadpool
 from hermes_cli.web_models import (
-    TerminalBackendSelect, ToolsetEnvUpdate, ToolsetModelSelect, ToolsetPostSetup,
+    ToolsetEnvUpdate, ToolsetModelSelect, ToolsetPostSetup,
     ToolsetProviderSelect, ToolsetToggle)
 from hermes_cli.web_routers._common import (
     _CONFIG_MUTATION_LOCK, _profile_cli_args, _profile_scope, _spawn_hermes_action,
@@ -26,98 +25,6 @@ router = APIRouter()
 
 load_config = late("load_config", "hermes_cli.config")
 save_config = late("save_config", "hermes_cli.config")
-
-
-def _env_value(name: str) -> str:
-    """``get_env_value`` that never raises (empty string on any failure)."""
-    try:
-        from hermes_cli.config import get_env_value
-
-        return get_env_value(name) or ""
-    except Exception:
-        return ""
-
-
-def _terminal_cfg_value(terminal_cfg: dict, key: str, env_var: str) -> str:
-    """Read a terminal.* setting from config.yaml, falling back to its env var."""
-    value = terminal_cfg.get(key)
-    if value is not None and str(value).strip():
-        return str(value).strip()
-    return _env_value(env_var).strip()
-
-
-def _terminal_backend_rows() -> list[dict[str, str]]:
-    """Built-in picker rows plus plugin-registered backends, computed per request
-    so a plugin installed after server start still shows up."""
-    from hermes_cli.web_server_profiles import _TERMINAL_BACKENDS
-    return [*_TERMINAL_BACKENDS, *_plugin_terminal_backend_rows()]
-
-
-def _probe_docker_backend(_cfg) -> tuple:
-    """Health-check the docker terminal backend the same way the agent resolves it.
-
-    ``find_docker()`` honors ``HERMES_DOCKER_BINARY``, then ``docker`` / ``podman``
-    on PATH. The probe uses ``version`` (not ``info --format {{.ServerVersion}}``)
-    because Podman has no ServerVersion field and the agent already probes with
-    ``version``.
-    """
-    from tools.environments.docker import docker_runtime_name, docker_runtime_start_hint, find_docker
-    from tools.environments.remote_common import run_capture
-
-    docker_exe = find_docker()
-    if not docker_exe:
-        return (
-            "needs_setup",
-            "Docker CLI not found — install Docker Desktop, docker-ce, or Podman.",
-        )
-    runtime = docker_runtime_name(docker_exe)
-    try:
-        if run_capture([docker_exe, "version"], timeout=2).returncode == 0:
-            return ("ready", "")
-        return ("needs_setup", f"{runtime} not reachable — {docker_runtime_start_hint(docker_exe)}.")
-    except subprocess.TimeoutExpired:
-        return ("needs_setup", f"{runtime} not responding (timed out).")
-    except Exception as exc:
-        return ("unavailable", f"{runtime} probe failed: {exc}")
-
-
-def _probe_ssh_backend(terminal_cfg: dict) -> tuple:
-    host = _terminal_cfg_value(terminal_cfg, "ssh_host", "TERMINAL_SSH_HOST")
-    user = _terminal_cfg_value(terminal_cfg, "ssh_user", "TERMINAL_SSH_USER")
-    missing = [k for k, v in (("terminal.ssh_host", host), ("terminal.ssh_user", user)) if not v]
-    if missing:
-        return (
-            "needs_setup",
-            f"Set {' and '.join(missing)} in config.yaml (or the matching TERMINAL_SSH_* env vars).",
-        )
-    return ("ready", f"{user}@{host}")
-
-
-_BACKEND_PROBES = {
-    "local": lambda _cfg: ("ready", ""),
-    "docker": _probe_docker_backend,
-    "ssh": _probe_ssh_backend,
-
-}
-
-
-def _probe_terminal_backend(name: str, terminal_cfg: dict) -> tuple:
-    """Return ``(status, detail)`` for one backend. Never raises."""
-    try:
-        probe = _BACKEND_PROBES.get(name)
-        if probe is not None:
-            return probe(terminal_cfg)
-        try:
-            from agent.terminal_env_registry import get_provider
-
-            provider = get_provider(name)
-            if provider is not None:
-                return provider.probe()
-        except Exception:
-            pass
-        return ("unavailable", f"Unknown backend: {name}")
-    except Exception as exc:  # pragma: no cover — belt-and-braces guard
-        return ("unavailable", f"Probe failed: {exc}")
 
 
 # Toolsets whose backends carry a selectable model catalog, mapped to the
@@ -617,57 +524,6 @@ async def run_toolset_post_setup(
         log_msg="Failed to spawn tools post-setup", prefix="Failed to run post-setup")
     result["key"] = body.key
     return result
-
-
-@router.get("/api/tools/terminal/backends")
-async def get_terminal_backends(profile: Optional[str] = None):
-    """Terminal backend rows with health probes: ``status`` is ``ready`` /
-    ``needs_setup`` / ``unavailable``; a probe failure is a status, never an
-    error response."""
-    def _read():
-        with _profile_scope(profile):
-            config = load_config()
-            terminal_cfg = config.get("terminal")
-            if not isinstance(terminal_cfg, dict):
-                terminal_cfg = {}
-            rows = _terminal_backend_rows()
-            active = str(terminal_cfg.get("backend") or "local").strip().lower()
-            if active not in {row["name"] for row in rows}:
-                active = "local"
-
-            backends = []
-            for row in rows:
-                status, detail = _probe_terminal_backend(row["name"], terminal_cfg)
-                backends.append({
-                    "name": row["name"], "label": row["label"], "description": row["description"],
-                    "active": row["name"] == active, "status": status, "detail": detail})
-        return {"active": active, "backends": backends}
-
-    return await asyncio.to_thread(_read)
-
-
-@router.put("/api/tools/terminal/backend")
-async def select_terminal_backend(
-    body: TerminalBackendSelect, profile: Optional[str] = None):
-    """Persist ``terminal.backend``.  A backend that still needs setup is
-    allowed — the picker shows guidance instead of blocking, like the CLI.
-    Validated inside the target profile's scope, like the GET: plugin backends
-    are registered per profile."""
-    backend = (body.backend or "").strip().lower()
-
-    def _run():
-        with config_write_scope(body.profile or profile):
-            valid_names = {row["name"] for row in _terminal_backend_rows()}
-            if backend not in valid_names:
-                raise _bad_request(
-                    f"Unknown terminal backend: {body.backend!r}. "
-                    f"Use one of: {', '.join(sorted(valid_names))}")
-            config = load_config()
-            _dict_section(config, "terminal")["backend"] = backend
-            save_config(config)
-
-    await asyncio.to_thread(_run)
-    return {"ok": True, "backend": backend}
 
 
 @router.get("/api/tools/computer-use/status")

@@ -38,10 +38,6 @@ Lanes:
   set of tests reads, so a one-entry PR need not run 23k tests on three OSes.
   ``plugin-catalog/README.md`` is not entry data (a docs page mirrors it), and
   any other file in the diff brings the full Python suite back.
-* ``remote_backends`` — the SSH and Docker terminal backends against a real
-  sshd container and the runner's Docker daemon (remote-backends.yml). Every
-  other test of those backends is mocked, so a change to the backends, the
-  terminal tool, or the real-backend tests runs it on the PR.
 
 ``docker``, ``nix`` and the E2E lanes take most of the larger-runner minutes.
 An ordinary product change does not start them on a pull request. Every push
@@ -142,19 +138,6 @@ _BOOTSTRAP_FILES = {
     "scripts/gen-bootstrap-pins.py", "scripts/verify-bootstrap-version-stamp.py",
     "tests/scripts/test_fresh_source_install.py", "pyproject.toml", "uv.lock",
 }
-
-# The real SSH/Docker backend lane: the backends, the terminal tool that drives
-# them, the tests it runs, the sshd it starts, and the runner's env allowlist
-# that carries the sshd/image coordinates into each pytest process.
-_REMOTE_BACKEND_PATHS = (
-    "tools/environments/",
-    "tools/terminal_tool",
-    "tests/tools/test_ssh_environment.py",
-    "tests/tools/test_docker_backend_real.py",
-    "scripts/ci/start_test_sshd.sh",
-    "scripts/ci/test_sshd_container_setup.sh",
-    "scripts/run_tests.sh",
-)
 
 # The slow lanes and the paths that start each one on a pull request. A path
 # belongs here when the lane is the only CI that exercises it for real: the
@@ -488,7 +471,6 @@ def classify(files: list[str], run_e2e: bool = False) -> dict[str, bool]:
         "uv_lock": any(f in ("pyproject.toml", "uv.lock") for f in files),
         "npm_lock": npm_lock,
         "bootstrap": any(f.startswith(_BOOTSTRAP_PATHS) or f in _BOOTSTRAP_FILES for f in files),
-        "remote_backends": any(f.startswith(_REMOTE_BACKEND_PATHS) for f in files),
         "catalog": catalog,
         **{lane: run_e2e or on for lane, on in _slow_lanes(files).items()},
     }
@@ -503,7 +485,6 @@ def classify(files: list[str], run_e2e: bool = False) -> dict[str, bool]:
         ret["uv_lock"] = True
         ret["npm_lock"] = True
         ret["bootstrap"] = True
-        ret["remote_backends"] = True
         ret["catalog"] = True
         ret.update(dict.fromkeys(_slow_lanes([]), True))
     return ret

@@ -20,7 +20,7 @@ For the full webhook platform reference (all config options, delivery types, dyn
 :::
 
 :::warning Prompt injection risk
-Webhook payloads contain attacker-controlled data — PR titles, commit messages, and descriptions can contain malicious instructions. When your webhook endpoint is exposed to the internet, run the gateway in a sandboxed environment (Docker, SSH backend). See the [security section](#security-notes) below.
+Webhook payloads contain attacker-controlled data — PR titles, commit messages, and descriptions can contain malicious instructions. When your webhook endpoint is exposed to the internet, consider running Hermes itself on a separately administered host or VM with appropriately restricted permissions. See the [security section](#security-notes) below.
 :::
 
 ---

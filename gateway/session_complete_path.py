@@ -34,6 +34,6 @@ async def complete_path(connection, ref, params):
     def listing():
         from gateway.run import _profile_runtime_scope
         with _profile_runtime_scope(Path(authority.profile_id)):
-            return server._path_completion_items(word, policy.cwd, None, True)
+            return server._path_completion_items(word, policy.cwd)
 
     return {'items': await asyncio.to_thread(listing)}

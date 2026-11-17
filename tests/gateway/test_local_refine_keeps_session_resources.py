@@ -29,10 +29,9 @@ async def test_cold_refine_keeps_the_sessions_terminal(tmp_path, monkeypatch):
     assert first['returncode'] == 0, first
     before = env.execute('printf %s "$INDEPENDENT_REFINE_SENTINEL"')['output']
     assert 'kept' in before, before
-    # Per-task isolation uses the session id (as nonpersistent Docker also does),
-    # unlike ordinary local environments whose key is session:<route>.
+    # The local shell key stays attached to the session id.
     terminal_tool.register_task_env_overrides(sid, {'env_type': 'local'})
-    key = terminal_tool._resolve_container_task_id(sid)
+    key = terminal_tool._resolve_task_id(sid)
     assert key == sid, key
     terminal_tool._active_environments[key] = env
     source = SimpleNamespace(chat_id=sid)

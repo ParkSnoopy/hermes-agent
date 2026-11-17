@@ -15,7 +15,7 @@ HADOLINT_IMAGE=ghcr.io/hadolint/hadolint:v2.12.0-debian@sha256:27173fe25e0624484
 run_hadolint() {
     docker run --rm --network none -v "$PWD:/repo:ro" -w /repo "$HADOLINT_IMAGE" \
         hadolint --config .hadolint.yaml --failure-threshold warning \
-        Dockerfile docker/sandbox-desktop.Dockerfile
+        Dockerfile
 }
 
 run_shellcheck() {

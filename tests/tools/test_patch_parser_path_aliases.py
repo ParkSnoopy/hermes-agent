@@ -10,7 +10,7 @@ from tools.patch_parser import apply_v4a_operations, parse_v4a_patch
 
 
 class _AliasingFileOps:
-    """A non-host backend: relative paths resolve against ``cwd`` like a remote shell would."""
+    """File operations with paths relative to the task's cwd."""
 
     def __init__(self, files):
         self.files, self.env = dict(files), SimpleNamespace(cwd="/work")
@@ -71,7 +71,7 @@ def test_dotdot_through_a_symlinked_dir_is_a_different_file(tmp_path):
     (tmp_path / "real/deep").mkdir()
     (tmp_path / "sub/link").symlink_to(tmp_path / "real/deep")
     env = LocalEnvironment(cwd=str(tmp_path), timeout=30, persistent=False)
-    env.uses_host_filesystem = False  # the lexical overlay path, as on a remote backend
+
     try:
         result = ShellFileOperations(env, cwd=str(tmp_path)).patch_v4a(
             "*** Begin Patch\n" + _update("sub/f.txt", "foo", "X")
@@ -83,14 +83,12 @@ def test_dotdot_through_a_symlinked_dir_is_a_different_file(tmp_path):
 
 
 @contextlib.contextmanager
-def _non_host_file_ops(cwd, **env_attrs):
-    """Real ShellFileOperations on a LocalEnvironment taking the remote backends' lexical path."""
+def _local_file_ops(cwd):
+    """Real ShellFileOperations on the local task's workspace."""
     from tools.environments.local import LocalEnvironment
     from tools.file_operations import ShellFileOperations
     env = LocalEnvironment(cwd=str(cwd), timeout=30, persistent=False)
-    env.uses_host_filesystem = False
-    for name, value in env_attrs.items():
-        setattr(env, name, value)
+
     try:
         yield ShellFileOperations(env, cwd=str(cwd))
     finally:
@@ -101,7 +99,7 @@ def _non_host_file_ops(cwd, **env_attrs):
 @pytest.mark.parametrize("dir_spelling", ["a.txt/", "a.txt/.", "a.txt/.//"])
 def test_a_trailing_slash_needs_a_directory_so_never_aliases_the_file(tmp_path, dir_spelling):
     (tmp_path / "a.txt").write_text("before\n")
-    with _non_host_file_ops(tmp_path) as fo:
+    with _local_file_ops(tmp_path) as fo:
         result = fo.patch_v4a("*** Begin Patch\n" + _update("a.txt", "before", "first")
                               + _update(dir_spelling, "first", "second") + "*** End Patch\n")
     assert result.success is False
@@ -110,27 +108,15 @@ def test_a_trailing_slash_needs_a_directory_so_never_aliases_the_file(tmp_path, 
 
 
 @pytest.mark.platforms("posix")
-def test_host_path_under_a_workspace_mount_aliases_the_container_path(tmp_path):
-    """Docker's workspace mount: ``_expand_path`` rewrites ``<host_cwd>/a.txt`` to ``<mount>/a.txt``."""
-    ws, host = tmp_path / "ws", tmp_path / "hostproj"
-    ws.mkdir()
-    host.mkdir()
-    (ws / "a.txt").write_text("before\n")
-    with _non_host_file_ops(ws, host_cwd=str(host), host_cwd_mount=str(ws)) as fo:
-        result = fo.patch_v4a("*** Begin Patch\n" + _update(f"{host}/a.txt", "before", "first")
-                              + _update("a.txt", "before", "second") + "*** End Patch\n")
-    assert result.success is False
-    assert "no files were modified" in result.error
-    assert (ws / "a.txt").read_text() == "before\n"
-
-
-@pytest.mark.platforms("posix")
-def test_tilde_is_the_backend_home_not_a_dir_under_cwd(tmp_path):
+def test_tilde_is_the_backend_home_not_a_dir_under_cwd(tmp_path, monkeypatch):
     """``~/x.txt`` is the backend's $HOME/x.txt; ``./~/x.txt`` is a directory named ``~`` under cwd: two files."""
     work = tmp_path / "work"
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
     (work / "~").mkdir(parents=True)
     (work / "~" / "x.txt").write_text("foo\n")
-    with _non_host_file_ops(work) as fo:
+    with _local_file_ops(work) as fo:
         home = Path(fo.env.execute("echo $HOME")["output"].strip())  # whatever HOME the backend runs with
         target = home / f"hermes-alias-probe-{tmp_path.name}.txt"
         target.write_text("foo\n")

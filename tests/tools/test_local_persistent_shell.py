@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from tools.terminal_tool import _get_env_config, _resolve_container_task_id, terminal_tool
+from tools.terminal_tool import _get_env_config, _resolve_task_id, terminal_tool
 from tools.terminal_tool_lifecycle import cleanup_vm
 
 
@@ -30,7 +30,7 @@ def test_local_persistent_controls_exports_but_cwd_always_carries(monkeypatch, t
         assert run("echo ${HERMES_LP_EXPORT:-none} ${HERMES_LP_PLAIN:-none}") == f"{exported} none"
         assert run("pwd -P") == str((tmp_path / "sub").resolve())
     finally:
-        cleanup_vm(_resolve_container_task_id(task_id))
+        cleanup_vm(_resolve_task_id(task_id))
 
 
 def test_local_persistent_defaults_on_and_reaches_the_environment(monkeypatch, tmp_path):
@@ -40,8 +40,7 @@ def test_local_persistent_defaults_on_and_reaches_the_environment(monkeypatch, t
     config = _get_env_config()
     assert config["local_persistent"] is True
     for value, task in ((config["local_persistent"], "default"), (False, "off")):
-        env = _create_configured_env({**config, "local_persistent": value}, "local", image="", cwd=str(tmp_path),
-                                     timeout=30, task_id=f"local-persist-config-{task}", host_cwd=None)
+        env = _create_configured_env({**config, "local_persistent": value}, "local", cwd=str(tmp_path), timeout=30)
         try:
             assert env._persist_env is value
         finally:
@@ -72,4 +71,4 @@ def test_profile_functions_survive_only_with_persistence_off(monkeypatch, tmp_pa
         assert run(probe) == "fn:yes"
         assert run(probe) == later
     finally:
-        cleanup_vm(_resolve_container_task_id(task_id))
+        cleanup_vm(_resolve_task_id(task_id))

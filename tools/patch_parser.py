@@ -151,14 +151,13 @@ def _hint_ambiguity(content: str, hint: str, tail: str = "") -> tuple[int, str]:
 def _overlay_key(path: str, file_ops: Any) -> str:
     """One validation-overlay key per backend file, however the patch spells it.
 
-    Lexical only (the parser cannot resolve paths on a remote backend): ``x``, ``./x``,
+    Lexical keys preserve filesystem resolution semantics: ``x``, ``./x``,
     ``a//x`` and ``<cwd>/x`` share a key, so a second op on an alias validates against the
     first op's simulated result instead of the stale on-disk file. Never merge two real files:
     on POSIX ``..`` is kept, because the kernel resolves it AFTER following symlinks
     (``sub/link/../f`` is ``real/f`` when ``link`` points into ``real/``); Windows collapses
     ``..`` lexically and is case-insensitive, so only a Windows backend gets ntpath folding.
-    Keys the path the backend opens: the backend's own ``_expand_path`` (``~`` -> its HOME, a
-    host path under a docker workspace mount -> the container path) runs first. A trailing
+    Keys the path the local shell opens: ``_expand_path`` expands ``~`` first. A trailing
     ``/`` or ``/.`` needs a directory, so it keeps a marker and never shares the file's key.
     """
     env = getattr(file_ops, "env", None)
@@ -178,8 +177,7 @@ def _overlay_key(path: str, file_ops: Any) -> str:
 
 
 def _backend_is_windows(env: Any, cwd: str) -> bool:
-    """A local env on a Windows host, or a backend whose cwd is a drive path. Remote
-    sandboxes (docker, ssh, modal ...) are POSIX shells even when Hermes runs on Windows."""
+    """A local Windows environment or a cwd using Windows drive syntax."""
     from tools.environments.local import _IS_WINDOWS
     return bool(_IS_WINDOWS and getattr(env, "is_local", False)) or bool(
         re.match(r"^[A-Za-z]:[\\/]", cwd))

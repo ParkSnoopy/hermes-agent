@@ -28,8 +28,7 @@ def two_homes(tmp_path, monkeypatch):
     for name, home in (("a", a), ("b", b)):
         (home / f"cred_{name}.txt").write_text("x", encoding="utf-8")
         (home / "config.yaml").write_text(yaml.safe_dump({
-            "terminal": {"backend": "local" if name == "a" else "docker",
-                         "credential_files": [f"cred_{name}.txt"]},
+            "terminal": {"backend": "local"},
             "command_allowlist": [f"{name}-only-cmd *"],
             "security": {"redact_secrets": name == "b"},
             "browser": {"engine": "chrome" if name == "a" else "lightpanda", "headed": name == "b"},
@@ -58,8 +57,7 @@ def test_routed_local_profile_cwd_matches_standalone_gateway(tmp_path, two_homes
     assert build_profile_terminal_scope(a)["TERMINAL_CWD"] == str(tmp_path)
     with install_and_reset_profile_terminal_scope(a):
         assert resolve_agent_cwd() == tmp_path
-    # Non-local backends stay unset (sandbox default), exactly like gateway/run.py's placeholder rule.
-    assert "TERMINAL_CWD" not in build_profile_terminal_scope(two_homes[1])
+    assert build_profile_terminal_scope(two_homes[1])["TERMINAL_CWD"] == str(tmp_path)
 
 
 def test_launch_artifact_context_cwd_follows_routed_profile(two_homes, tmp_path):
@@ -84,30 +82,11 @@ def test_launch_artifact_context_cwd_follows_routed_profile(two_homes, tmp_path)
         reset_session_cwd(token)
 
 
-def test_terminal_backend_consumers_read_the_routed_scope(two_homes):
-    """Every ``TERMINAL_ENV`` reader that shapes a turn (image-source locality, credential-file path
-    translation, image-gen cache base, skill readiness) resolves the ROUTED profile's backend."""
-    from gateway.run import _profile_runtime_scope
-    from tools import credential_files, image_generation_tool, image_source
-
+def test_skill_credential_checks_use_routed_profile(two_homes):
+    from tools.skills_tool import _missing_skill_credential_files
     a, b = two_homes
-
-    def observe():
-        return (
-            image_source._is_local_terminal_backend(),
-            image_generation_tool._agent_cache_base_for_env(None),
-            credential_files.to_agent_visible_cache_path("/host/.hermes/x.png", "/root/.hermes"),
-            sorted(Path(m["host_path"]).name for m in credential_files.get_credential_file_mounts()),
-        )
-
-    with _profile_runtime_scope(a):
-        assert observe() == (True, None, "/host/.hermes/x.png", ["cred_a.txt"])
-    with _profile_runtime_scope(b):
-        local, cache_base, translated, mounts = observe()
-    assert local is False
-    assert cache_base == "/root/.hermes"
-    assert translated != "/host/.hermes/x.png" or mounts == ["cred_b.txt"]
-    assert mounts == ["cred_b.txt"]
+    assert _under(a, lambda: _missing_skill_credential_files(["cred_a.txt", "cred_b.txt"])) == ["cred_b.txt"]
+    assert _under(b, lambda: _missing_skill_credential_files(["cred_a.txt", "cred_b.txt"])) == ["cred_a.txt"]
 
 
 def test_permanent_allowlist_is_per_profile(two_homes):

@@ -1162,7 +1162,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           nixSettings = pkgs.writeText "nix-settings.json" (builtins.toJSON {
             model = "test/nix-model";
             toolsets = ["nix-toolset"];
-            terminal = { backend = "docker"; timeout = 999; };
+            terminal = { backend = "local"; timeout = 999; };
             mcp_servers = {
               nix-server = { command = "echo"; args = ["nix"]; };
             };
@@ -1320,7 +1320,7 @@ json.dump(load_config(), sys.stdout, default=str)
           install -m 0644 ${fixtureF} "$F_HOME/config.yaml"
           F_CONFIG=$(merge_and_load "$F_HOME")
 
-          echo "$F_CONFIG" | jq -e '.terminal.backend == "docker"' > /dev/null \
+          echo "$F_CONFIG" | jq -e '.terminal.backend == "local"' > /dev/null \
             || fail "F: Nix terminal.backend did not override"
           echo "$F_CONFIG" | jq -e '.terminal.timeout == 999' > /dev/null \
             || fail "F: Nix terminal.timeout did not override"

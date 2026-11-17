@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.bot_desktop import browser, placement, runtime
+from tools.bot_desktop import browser, runtime
 
 
 def _browser_config(monkeypatch, home: Path, **browser_cfg) -> None:
@@ -34,7 +34,6 @@ def _agent_launch(monkeypatch, display: str = ":37") -> dict:
     monkeypatch.setattr(browser_session_lifecycle, "start_cleanup_thread", lambda: None)
     monkeypatch.setattr(browser_session_cdp, "get_cdp_override", lambda: "")
     monkeypatch.setattr(browser_session_cloud, "get_cloud_provider", lambda: None)
-    monkeypatch.setattr("tools.bot_desktop.runtime.tool_placement", lambda: placement.GATEWAY)  # host browser
     monkeypatch.setattr("tools.browser_session_real_profile.real_profile_cdp", lambda: (None, None))
     monkeypatch.setattr("tools.browser_lightpanda.using_lightpanda_engine", lambda: False)
     monkeypatch.setattr(runtime, "published_env", lambda: {"DISPLAY": display})
@@ -342,7 +341,6 @@ def test_headed_chromium_spawn_asks_the_screen_to_start_but_the_env_builder_neve
     monkeypatch.setattr(browser_session_lifecycle, "start_cleanup_thread", lambda: None)
     monkeypatch.setattr(browser_session_cdp, "get_cdp_override", lambda: "")
     monkeypatch.setattr(browser_session_cloud, "get_cloud_provider", lambda: None)
-    monkeypatch.setattr("tools.bot_desktop.runtime.tool_placement", lambda: placement.GATEWAY)  # host browser
     monkeypatch.setattr("tools.browser_session_real_profile.real_profile_cdp", lambda: (None, None))
     monkeypatch.setattr(browser_session_cloud, "get_browser_engine", lambda: engine)
     monkeypatch.setattr(browser_launcher, "launch_chromium", lambda key, **kw: (

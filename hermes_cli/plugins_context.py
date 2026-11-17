@@ -763,10 +763,6 @@ class PluginContext(PluginCapabilityCtxMixin):
         return register_scoped_provider(self, "register_browser_provider", provider)
 
     @scoped_provider_registrar
-    def register_terminal_environment_provider(self, provider):
-        return register_scoped_provider(self, "register_terminal_environment_provider", provider)
-
-    @scoped_provider_registrar
     def register_secret_source(self, source):
         return register_scoped_provider(self, "register_secret_source", source)
 

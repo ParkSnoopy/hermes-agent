@@ -1,6 +1,6 @@
 """Tests for hermes_cli.doctor."""
 
-import importlib.util
+
 import os
 import subprocess
 import sys
@@ -286,31 +286,6 @@ class TestDoctorEnvFileEncoding:
             doctor_mod.run_doctor(Namespace(fix=False))
 
 
-
-def test_doctor_reports_vercel_backend_diagnostics(monkeypatch, tmp_path):
-    monkeypatch.setenv("TERMINAL_ENV", "vercel_sandbox")
-    monkeypatch.setenv("TERMINAL_VERCEL_RUNTIME", "python3.13")
-    monkeypatch.setenv("TERMINAL_CONTAINER_DISK", "2048")
-    monkeypatch.setenv("VERCEL_TOKEN", "super-secret-value")
-    monkeypatch.delenv("VERCEL_PROJECT_ID", raising=False)
-    monkeypatch.setenv("VERCEL_TEAM_ID", "team")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "vercel" else None)
-
-    fake_model_tools = types.SimpleNamespace(
-        check_tool_availability=lambda *a, **kw: ([], []),
-        TOOLSET_REQUIREMENTS={},
-    )
-    monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
-    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
-    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
-
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        doctor_mod.run_doctor(Namespace(fix=False))
-
-    out = buf.getvalue()
-    assert "VERCEL_PROJECT_ID" in out  # names the missing auth var
-    assert "super-secret-value" not in out  # never echoes the token value
 
 
 # ── Memory provider section (doctor should only check the *active* provider) ──
@@ -1537,22 +1512,6 @@ def test_run_doctor_warns_when_lightpanda_binary_missing(monkeypatch, tmp_path):
     monkeypatch.setattr("tools.browser_lightpanda.find_lightpanda_binary", lambda: None)
     out = helper._run_doctor_and_capture(monkeypatch, tmp_path)
     assert "Lightpanda selected but binary not found" in out
-
-
-def test_docker_daemon_probe_uses_version_not_info(monkeypatch):
-    """`docker info` needs the /info endpoint, which socket proxies commonly block, so doctor reported
-    "daemon not running" against a working DOCKER_HOST (#72927). `docker version` (/version) is what the
-    backend itself probes with."""
-    from hermes_cli import doctor_tools
-
-    calls: list = []
-    monkeypatch.setattr(doctor_tools, "find_docker", lambda: "/usr/bin/docker")
-    monkeypatch.setattr(doctor_tools, "_run_ok", lambda cmd, timeout, **kw: calls.append(cmd) or True)
-    monkeypatch.setattr(doctor_tools, "_require", lambda *a, **k: None)
-
-    doctor_tools._check_docker_backend("docker", False, [])
-
-    assert calls == [["/usr/bin/docker", "version"]]
 
 
 def test_doctor_reports_auxiliary_blocks_that_do_not_resolve(tmp_path, monkeypatch):

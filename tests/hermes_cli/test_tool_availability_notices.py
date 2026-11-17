@@ -1,6 +1,12 @@
 """Invariants for the CLI startup 'some tools disabled' notice (tools-runtime-01 / -02)."""
 
-from hermes_cli.tool_availability_notices import filter_to_enabled_toolsets, tool_availability_warning_lines
+from hermes_cli.tool_availability_notices import (
+    current_terminal_backend, filter_to_enabled_toolsets, tool_availability_warning_lines)
+
+
+def test_notice_reports_rejected_selector(monkeypatch):
+    monkeypatch.setenv("TERMINAL_ENV", "docker")
+    assert current_terminal_backend() == "docker"
 
 _TERMINAL = {"name": "terminal", "env_vars": [], "tools": ["terminal", "process_manage"]}
 _WEB = {"name": "web", "env_vars": ["EXA_API_KEY", "TAVILY_API_KEY"], "tools": ["web_search"]}
@@ -15,7 +21,7 @@ def test_terminal_line_names_backend_reason_and_fix_commands():
     assert "Terminal tool disabled" in text
     assert "'docker'" in text
     assert "Docker daemon is not running" in text
-    assert "hermes doctor" in text and "hermes setup terminal" in text
+    assert "terminal.backend" in text and "local" in text
     assert "TERMINAL_ENV" not in text
 
 

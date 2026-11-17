@@ -5,9 +5,9 @@ Covers the canonical fix for issues #4146, #27303, #30882, #33057:
   1. tools.thread_context.propagate_context_to_thread — propagates the agent
      turn's ContextVars AND thread-local approval/sudo callbacks into worker
      threads, and clears the callbacks on teardown.
-  2. Local and remote file-RPC carry the cell's authority in real processes.
+  2. Local file-RPC carries the cell's authority in real processes.
   3. tools.approval.check_execute_code_guard — the entry-point guard decision
-     matrix (isolated backends, yolo/off, cron-deny, headless-local,
+     matrix (retired backend refusal, yolo/off, cron-deny, headless-local,
      gateway approve/deny/timeout/missing-notify, smart mode).
   4. tools.code_execution_env._scrub_child_env — broad HERMES_ prefix dropped,
      operational allowlist kept, DSN/WEBHOOK blocked, passthrough precedence.
@@ -88,13 +88,11 @@ def test_helper_clears_callbacks_on_teardown():
 
 
 @pytest.mark.platforms("posix")
-@pytest.mark.parametrize("transport", ["local", "remote-file"])
-def test_rpc_carries_authority_to_real_dispatch(child_env, monkeypatch, transport):
-    import time
+def test_rpc_carries_authority_to_real_dispatch(child_env, monkeypatch):
     import model_tools
-    from tests.tools._child_env_fixtures import RunToCompletionEnv, run_code
+    from tests.tools._child_env_fixtures import run_code
     from tools import terminal_tool
-    from tools.code_execution_tool import _run_remote_per_call
+
 
     witness = child_env / "authority.txt"
 
@@ -115,15 +113,7 @@ def test_rpc_carries_authority_to_real_dispatch(child_env, monkeypatch, transpor
             token = marker.set(turn)
             terminal_tool.set_approval_callback(callback)
             try:
-                if transport == "local":
-                    result = run_code(code, reset=(turn == "first"))
-                else:
-                    raw = json.loads(_run_remote_per_call(
-                        RunToCompletionEnv(child_env), "ssh", code, "authority-test",
-                        frozenset({"read_file"}), timeout=30, max_tool_calls=2, exec_start=time.monotonic()))
-                    assert raw["status"] == "success", raw
-                    assert raw["tool_calls_made"] == 1
-                    result = json.loads(raw["output"])
+                result = run_code(code, reset=(turn == "first"))
                 assert "content" in result, result
                 assert f"real RPC payload {turn}" in result["content"]
                 assert seen[-1] == (turn, callback)
@@ -198,9 +188,12 @@ def _register_capturing_resolver(session_key: str, result):
     return seen
 
 
-def test_guard_isolated_backend_approved():
-    # Container backends already sandbox the child — no-op approve.
-    assert A.check_execute_code_guard("import os", "docker")["approved"] is True
+@pytest.mark.parametrize("backend", ["docker", "ssh", "modal", "daytona", "vercel_sandbox", "plugin"])
+def test_guard_retired_backend_refused(backend):
+    result = A.check_execute_code_guard("import os", backend)
+    assert result["approved"] is False
+    assert "Only 'local'" in result["message"]
+    assert result["outcome"] == "blocked"
 
 
 def test_guard_headless_local_approved(monkeypatch):

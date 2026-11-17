@@ -842,7 +842,7 @@ def _spawn_delivery(command: str, label: str, *, dm_file: Optional[str] = None, 
         from tools.terminal_tool import terminal_tool
 
         raw = terminal_tool(command, background=True, notify_on_complete=wake != "none", task_id=task_id,
-                            workdir=str(Path(__file__).resolve().parent.parent), _host_local=True,
+                            workdir=str(Path(__file__).resolve().parent.parent),
                             _completion_output_chars=completion_chars)
         try:
             parsed = json.loads(raw)

@@ -3992,9 +3992,8 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
                         "[%s] API server is network-accessible (%s) AND the "
                         "terminal backend is 'local' (unsandboxed). Agent work "
                         "dispatched through this endpoint runs as the host user "
-                        "with full terminal/file access. Strongly consider a "
-                        "sandboxed backend (terminal.backend: docker) and "
-                        "firewalling this port to trusted networks only.",
+                        "with full terminal/file access. Firewall this port to "
+                        "trusted networks only.",
                         self.name, self._host)
 
             # Plugin-registered native handlers, wired before AppRunner.setup() freezes the router.

@@ -179,15 +179,9 @@ Messaging sessions persist until an explicit `/new` or `/reset`. Context compres
 
 ## Security
 
-### Use Docker for Untrusted Code
+### Use caution with untrusted code
 
-When working with untrusted repositories or running unfamiliar code, use Docker as your terminal backend. Set `TERMINAL_ENV=docker` in your `.env`. Destructive commands inside a container can't harm your host system.
-
-```bash
-# In your .env:
-TERMINAL_ENV=docker
-TERMINAL_DOCKER_IMAGE=hermes-sandbox:latest
-```
+Terminal commands run locally as the Hermes process user, with that user’s filesystem permissions. They are not isolated by Hermes. Explicit nonlocal terminal selectors are refused; remove or correct old configuration before running. Running Hermes itself on a remote server or in a container is a separate deployment choice.
 
 ### Avoid Windows Encoding Pitfalls
 
@@ -215,10 +209,6 @@ When the agent triggers a dangerous command approval (`rm -rf`, `DROP TABLE`, et
 ### Command Approval Is Your Safety Net
 
 Hermes checks every command against a curated list of dangerous patterns before execution. This includes recursive deletes, SQL drops, piping curl to shell, and more. Don't disable this in production — it exists for good reasons.
-
-:::warning
-When running in a container backend (Docker, Vercel Sandbox, or a container plugin such as Singularity), dangerous command checks are **skipped** because the container is the security boundary. Make sure your container images are properly locked down.
-:::
 
 ### Use Allowlists for Messaging Bots
 

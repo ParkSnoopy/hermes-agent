@@ -7,7 +7,6 @@ an unreadable .env blocks turns only while nothing pins the backend.
 
 import builtins
 import io
-import json
 import os
 from pathlib import Path
 
@@ -56,53 +55,31 @@ def _deny_reads(monkeypatch, path: Path) -> None:
     monkeypatch.setattr(builtins, "open", guarded_open)
 
 
-def test_managed_backend_beats_profile_config(tmp_path, managed):
-    _write_managed(managed, "terminal:\n  backend: busybox\n")
-    home = _profile(tmp_path, config_yaml="terminal:\n  backend: local\n  timeout: 77\n")
-
+def test_managed_local_settings_override_and_merge_profile(tmp_path, managed):
+    _write_managed(managed, "terminal:\n  backend: local\n  timeout: 42\n")
+    home = _profile(tmp_path, config_yaml="terminal:\n  backend: local\n  timeout: 77\n  local_persistent: false\n")
     scope = build_profile_terminal_scope(home)
-
-    assert scope["TERMINAL_ENV"] == "busybox"
-    assert scope["TERMINAL_TIMEOUT"] == "77"
-
-
-def test_managed_mapping_merges_with_the_profile_mapping(tmp_path, managed):
-    _write_managed(managed, "terminal:\n  docker_env:\n    A: managed\n")
-    home = _profile(tmp_path, config_yaml="terminal:\n  docker_env:\n    A: profile\n    B: keep\n")
-
-    scope = build_profile_terminal_scope(home)
-
-    assert json.loads(scope["TERMINAL_DOCKER_ENV"]) == {"A": "managed", "B": "keep"}
-
-
-def test_managed_docker_image_pins_the_image(tmp_path, managed):
-    _write_managed(managed, "terminal:\n  docker_image: lab/image:1\n")
-    home = _profile(tmp_path)
-
-    scope = build_profile_terminal_scope(home)
-
-    assert scope["TERMINAL_DOCKER_IMAGE"] == "lab/image:1"
-    assert scope["TERMINAL_DOCKER_IMAGE_PINNED"] == "1"
+    assert scope["TERMINAL_ENV"] == "local"
+    assert scope["TERMINAL_TIMEOUT"] == "42"
+    assert scope["TERMINAL_LOCAL_PERSISTENT"].lower() == "false"
 
 
 def test_null_managed_values_pin_nothing(tmp_path, managed):
-    _write_managed(managed, "terminal:\n  backend:\n  docker_image:\n")
-    home = _profile(tmp_path, config_yaml="terminal:\n  backend: docker\n")
-
+    _write_managed(managed, "terminal:\n  backend:\n  timeout:\n")
+    home = _profile(tmp_path, config_yaml="terminal:\n  backend: local\n  timeout: 77\n")
     scope = build_profile_terminal_scope(home)
-
-    assert scope["TERMINAL_ENV"] == "docker"
-    assert scope["TERMINAL_DOCKER_IMAGE_PINNED"] == "0"
+    assert scope["TERMINAL_ENV"] == "local"
+    assert scope["TERMINAL_TIMEOUT"] == "77"
 
 
 def test_unreadable_env_reads_as_empty_under_a_pinned_backend(tmp_path, managed, monkeypatch):
-    _write_managed(managed, "terminal:\n  backend: busybox\n")
-    home = _profile(tmp_path, dotenv="TERMINAL_ENV=docker\nTERMINAL_TIMEOUT=999\n")
+    _write_managed(managed, "terminal:\n  backend: local\n")
+    home = _profile(tmp_path, dotenv="TERMINAL_ENV=local\nTERMINAL_TIMEOUT=999\n")
     _deny_reads(monkeypatch, home / ".env")
 
     scope = build_profile_terminal_scope(home, env_overlay={"TERMINAL_TIMEOUT": "42"})
 
-    assert scope["TERMINAL_ENV"] == "busybox"
+    assert scope["TERMINAL_ENV"] == "local"
     assert scope["TERMINAL_TIMEOUT"] == "42"
 
 
@@ -116,7 +93,7 @@ def test_unreadable_env_reads_as_empty_under_a_pinned_backend(tmp_path, managed,
 def test_unreadable_env_fails_closed_without_a_pinned_backend(tmp_path, managed, monkeypatch, managed_yaml):
     if managed_yaml is not None:
         _write_managed(managed, managed_yaml)
-    home = _profile(tmp_path, config_yaml="terminal:\n  backend: local\n", dotenv="TERMINAL_ENV=docker\n")
+    home = _profile(tmp_path, config_yaml="terminal:\n  backend: local\n", dotenv="TERMINAL_ENV=local\n")
     _deny_reads(monkeypatch, home / ".env")
 
     with pytest.raises(TerminalPolicyUnavailable):

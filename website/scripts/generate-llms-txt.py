@@ -62,7 +62,7 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str | None]]]] = [
         ("user-guide/sessions", "Sessions", None),
         ("user-guide/profiles", "Profiles", None),
         ("user-guide/git-worktrees", "Git Worktrees", None),
-        ("user-guide/docker", "Docker Backend", None),
+        ("user-guide/docker", "Running Hermes in Docker", None),
         ("user-guide/security", "Security", None),
         ("user-guide/checkpoints-and-rollback", "Checkpoints & Rollback", None),
     ]),
@@ -288,8 +288,8 @@ def emit_llms_index() -> str:
     lines.append(
         "> The self-improving AI agent built by Nous Research. A terminal-native "
         "autonomous coding and task agent with persistent memory, agent-created skills, "
-        "with CLI, TUI and Desktop interfaces. Runs on local, Docker, SSH, Vercel Sandbox or plugin "
-        "backends. Works with Nous Portal, OpenRouter, OpenAI, Anthropic, Google, or any "
+        "with CLI, TUI and Desktop interfaces. Commands run locally where Hermes runs. "
+        "Works with Nous Portal, OpenRouter, OpenAI, Anthropic, Google, or any "
         "OpenAI-compatible endpoint."
     )
     lines.append("")

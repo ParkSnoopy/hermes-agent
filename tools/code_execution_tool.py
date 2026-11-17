@@ -3,35 +3,21 @@
 
 The LLM writes a Python script that calls Hermes tools via RPC, collapsing
 multi-step tool chains into one inference turn; only the script's stdout returns
-to the LLM. Local backend: a persistent per-conversation session kernel
-(tools/code_kernel.py) over a Unix socket (loopback TCP on Windows). Remote
-backends: a remote session kernel (tools/code_kernel_remote.py) falling open to a
-per-call script ship, tool calls as request files polled via env.execute()
-(needs Python 3 on the backend). Siblings: tools/code_execution_env.py (env
+to the LLM. A persistent per-conversation session kernel
+(tools/code_kernel.py) uses a Unix socket (loopback TCP on Windows).
+Siblings: tools/code_execution_env.py (env
 scrubbing, interpreter/cwd), tools/code_execution_rpc.py (RPC servers).
 """
 
 import json
 import logging
-import os
 import re
-import secrets
-import shlex
 import subprocess
-import tempfile
-import threading
-import time
-import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
-from tools.thread_context import propagate_context_to_thread
 from tools.registry import registry, tool_error
 
-from hermes_time import get_timezone_name
 from tools.code_execution_env import _resolve_child_cwd, _resolve_child_python
-from tools.code_execution_rpc import (
-    _execute_checked, _private_dirs_cmd, _remote_write, _rpc_poll_loop, tool_errors_since,
-)
 from tools.tool_output_truncate import head_tail_split, truncation_notice
 
 logger = logging.getLogger(__name__)
@@ -83,7 +69,7 @@ def _truncate_stdout_text(stdout_text: str) -> tuple[str, dict[str, Any]]:
 def _spill_full_stdout(stdout_text: str) -> Optional[str]:
     """Write full stdout to cache/exec; return its path (None on failure — best-effort,
     the truncated inline output is still returned). Keyed by content digest so identical
-    reruns coalesce; the dir rides the cache/web remote bind-mount list (credential_files)."""
+    reruns coalesce."""
     try:
         import hashlib
         from hermes_constants import get_hermes_dir
@@ -100,20 +86,6 @@ def _spill_full_stdout(stdout_text: str) -> Optional[str]:
     except Exception as exc:
         logger.debug("Failed to spill execute_code stdout: %s", exc)
         return None
-
-
-def check_sandbox_requirements() -> bool:
-    """check_fn: available unless the vercel_sandbox backend fails its own checks."""
-    if not SANDBOX_AVAILABLE:
-        return False
-    try:
-        from tools.terminal_tool import _get_env_config
-        from tools.terminal_tool_backends import _check_vercel_sandbox_requirements
-        config = _get_env_config()
-    except Exception:
-        logger.debug("Could not resolve terminal config for execute_code availability", exc_info=True)
-        return False
-    return config.get("env_type") != "vercel_sandbox" or _check_vercel_sandbox_requirements(config)
 
 
 # ---- hermes_tools.py code generator ----
@@ -191,11 +163,10 @@ def _sandbox_failure_hint(stderr_text: str, enabled_tools=None) -> Optional[str]
     return None
 
 
-def generate_hermes_tools_module(enabled_tools: list[str],
-                                 transport: str = "uds") -> str:
+def generate_hermes_tools_module(enabled_tools: list[str]) -> str:
     """Source of the hermes_tools.py stub module for SANDBOX_ALLOWED_TOOLS ∩ *enabled_tools*.
-    ``transport``: ``"uds"`` (local socket client) or ``"file"`` (file RPC, remote backends)."""
-    header = _FILE_TRANSPORT_HEADER if transport == "file" else _UDS_TRANSPORT_HEADER
+    The client connects to the local authenticated socket."""
+    header = _UDS_TRANSPORT_HEADER
     return header + "\n".join(
         f"def {name}({sig}):\n    {doc}\n    return _call({name!r}, {args_expr})\n"
         for name, (sig, doc, args_expr) in sorted(_TOOL_STUBS.items()) if name in set(enabled_tools)
@@ -330,201 +301,12 @@ def _call(tool_name, args):
 
 '''
 
-# ---- File-based transport (remote backends) -------------------------------
-
-_FILE_TRANSPORT_HEADER = '''\
-"""Auto-generated Hermes tools RPC stubs (file-based transport)."""
-import json, os, shlex, tempfile, threading, time
-
-_RPC_DIR = os.environ.get("HERMES_RPC_DIR") or os.path.join(tempfile.gettempdir(), "hermes_rpc")
-_seq = 0
-# `_seq += 1` is not atomic (read-modify-write), so concurrent _call()
-# invocations from multiple threads could allocate the same sequence number
-# and clobber each other's request files. Guard seq allocation with a lock.
-_seq_lock = threading.Lock()
-''' + _COMMON_HELPERS + '''\
-
-def _call(tool_name, args):
-    """Send a tool call request via file-based RPC and wait for response."""
-    global _seq
-    with _seq_lock:
-        _seq += 1
-        seq = _seq
-    seq_str = f"{seq:06d}"
-    req_file = os.path.join(_RPC_DIR, f"req_{seq_str}")
-    res_file = os.path.join(_RPC_DIR, f"res_{seq_str}")
-
-    # Write request atomically (write to .tmp, then rename).
-    # encoding="utf-8" is critical: on Windows-hosted remote backends
-    # (or any non-UTF-8 locale) the default open() mode would mangle
-    # non-ASCII chars in tool args when encoding them as JSON.
-    tmp = req_file + ".tmp"
-    # The request carries the RPC token and tool args: owner-only even under a
-    # permissive process umask.
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump({
-            "tool": tool_name,
-            "args": args,
-            "seq": seq,
-            "token": os.environ.get("HERMES_RPC_TOKEN", ""),
-        }, f)
-    os.rename(tmp, req_file)
-
-    # Wait for response with adaptive polling
-    deadline = time.monotonic() + 300  # 5-minute timeout per tool call
-    poll_interval = 0.05  # Start at 50ms
-    while not os.path.exists(res_file):
-        if time.monotonic() > deadline:
-            raise RuntimeError(f"RPC timeout: no response for {tool_name} after 300s")
-        time.sleep(poll_interval)
-        poll_interval = min(poll_interval * 1.2, 0.25)  # Back off to 250ms
-
-    with open(res_file, encoding="utf-8") as f:
-        raw = f.read()
-
-    # Clean up response file
-    try:
-        os.unlink(res_file)
-    except OSError:
-        pass
-
-    result = json.loads(raw)
-    if isinstance(result, str):
-        try:
-            return json.loads(result)
-        except (json.JSONDecodeError, TypeError):
-            return result
-    return result
-
-'''
-
-
-# ---- Remote execution support (file-based RPC via terminal backend) ----
-
-def _get_or_create_env(task_id: str):
-    """``(env, env_type)`` — the environment the terminal/file tools share for *task_id*, created on
-    first use (same double-checked per-task lock pattern as file_tools._get_file_ops)."""
-    from tools.terminal_tool_backends import (_container_config_from_config, _create_environment,
-                                              _local_config_from_config, _ssh_config_from_config)
-    from tools.terminal_tool import (
-        _active_environments, _env_lock, _get_env_config, _last_activity,
-        _start_cleanup_thread, _creation_locks, _creation_locks_lock, _task_env_overrides,
-        _resolve_container_task_id, _resolve_task_host_cwd, _is_container_backend, _select_image,
-    )
-    effective_task_id = _resolve_container_task_id(task_id)
-    def _cached():
-        with _env_lock:
-            env = _active_environments.get(effective_task_id)
-            if env is not None:
-                _last_activity[effective_task_id] = time.time()
-        return env
-    env = _cached()
-    if env is not None:
-        return env, _get_env_config()["env_type"]
-    with _creation_locks_lock:
-        task_lock = _creation_locks.setdefault(effective_task_id, threading.Lock())
-    with task_lock:
-        env = _cached()
-        if env is not None:
-            return env, _get_env_config()["env_type"]
-        config = _get_env_config()
-        env_type = config["env_type"]
-        overrides = _task_env_overrides.get(effective_task_id, {})
-        container_config = None
-        if _is_container_backend(env_type):
-            # Shared shaper: execute_code's own key subset dropped docker_extra_args / docker_forward_env /
-            # docker_env, so a sandbox created from this path lost the operator's configured settings.
-            container_config = _container_config_from_config(config)
-        logger.info("Creating new %s environment for execute_code task %s...",
-                     env_type, effective_task_id[:8])
-        env = _create_environment(
-            env_type=env_type, image=_select_image(env_type, overrides, config),
-            cwd=overrides.get("cwd") or config["cwd"], timeout=config["timeout"],
-            ssh_config=_ssh_config_from_config(config) if env_type == "ssh" else None,
-            container_config=container_config,
-            local_config=_local_config_from_config(config) if env_type == "local" else None,
-            task_id=effective_task_id, host_cwd=_resolve_task_host_cwd(config, task_id),
-        )
-        with _env_lock:
-            _active_environments[effective_task_id] = env
-            _last_activity[effective_task_id] = time.time()
-        _start_cleanup_thread()
-        logger.info("%s environment ready for execute_code task %s",
-                     env_type, effective_task_id[:8])
-        return env, env_type
-
-
-def _ship_file_to_remote(env, remote_path: str, content: str, *, atomic: bool = False) -> None:
-    """Write *content* owner-only to *remote_path*; the payload rides
-    ``stdin_data``, never an ``echo`` argv (see _remote_write). Raises on write
-    failure: the caller ships secrets and code into dirs it believes are locked
-    down, so a silent failure would run the next step against a missing or
-    half-written file."""
-    _remote_write(env, remote_path, content, atomic=atomic, check=True)
-
-
-def _ship_env_file_and_launch(env, remote_dir: str, env_name: str, launch: str, *,
-                              rpc_dir: str, rpc_token: str, **extra_env: str) -> str:
-    """Ship the sandbox env (RPC dir + token, PYTHONDONTWRITEBYTECODE, the routed
-    profile's TZ, plus *extra_env*) as KEY=value lines to ``remote_dir/env_name``
-    and return the complete command that sources it inside a subshell and runs
-    *launch* there.
-
-    The subshell is load-bearing: every env.execute() runs inside the backend's
-    session wrapper, which re-dumps ``export -p`` into the shared session
-    snapshot after each command. A plain ``set -a; . file`` in the outer shell
-    would export HERMES_RPC_TOKEN/PYTHONPATH/TZ into that snapshot and re-export
-    them into every later command on the backend (the #71296 snapshot-leak
-    class). The token also stays off the remote shell's argv, which co-tenant
-    users can read via ps for the command's lifetime."""
-    env_map = {"HERMES_RPC_DIR": rpc_dir, "HERMES_RPC_TOKEN": rpc_token,
-               "PYTHONDONTWRITEBYTECODE": "1", **extra_env}
-    tz = get_timezone_name()  # routed profile's timezone, not the bridged default's
-    if tz:
-        env_map["TZ"] = tz
-    lines = "".join(f"{k}={shlex.quote(v)}\n" for k, v in env_map.items())
-    _ship_file_to_remote(env, f"{remote_dir}/{env_name}", lines)
-    return (f"cd {shlex.quote(remote_dir)} && "
-            f"( set -a && . ./{env_name} && set +a && {launch} )")
-
-
-def _env_temp_dir(env: Any) -> str:
-    """Return a writable temp dir for env-backed execute_code sandboxes."""
-    temp_dir = None
-    get_temp_dir = getattr(env, "get_temp_dir", None)
-    if callable(get_temp_dir):
-        try:
-            temp_dir = get_temp_dir()
-        except Exception as exc:
-            logger.debug("Could not resolve execute_code env temp dir: %s", exc)
-    for candidate in (temp_dir, tempfile.gettempdir()):
-        if isinstance(candidate, str) and candidate.startswith("/"):
-            return candidate.rstrip("/") or "/"
-    return tempfile.gettempdir()
-
-
 def _format_interrupted_output(stdout_text: str) -> str:
     """Append an interruption marker without guessing who caused it."""
     from tools.interrupt import get_interrupt_reason
     reason = get_interrupt_reason()
     marker = f"[execution interrupted — {reason}]" if reason else "[execution interrupted]"
     return f"{stdout_text}\n{marker}" if stdout_text else marker
-
-
-def _clean_output(stdout_text: str) -> tuple[str, dict[str, Any]]:
-    """Shared output pipeline: byte-cap (with spill), ANSI strip, secret redaction. code_file=True:
-    output often echoes source/config — skip ENV/JSON/f-string false positives, still mask credentials."""
-    from tools.ansi_strip import strip_ansi
-    from agent.redact import redact_sensitive_text
-    stdout_text, metadata = _truncate_stdout_text(stdout_text)
-    return redact_sensitive_text(strip_ansi(stdout_text), code_file=True), metadata
-
-
-def _with_timeout_notice(stdout_text: str, timeout_msg: str) -> str:
-    """Timeout message goes in the output too — an empty result makes models answer as if
-    nothing happened, and the gateway drops empty replies."""
-    return stdout_text + f"\n\n⏰ {timeout_msg}" if stdout_text else f"⏰ {timeout_msg}"
 
 
 def _error_result(error: str, *, tool_calls_made: int = 0, duration: float = 0,
@@ -535,170 +317,9 @@ def _error_result(error: str, *, tool_calls_made: int = 0, duration: float = 0,
     return json.dumps(body, ensure_ascii=False)
 
 
-def _remote_failure(exc: BaseException, exec_start: float, tool_calls_made: int) -> str:
-    duration = round(time.monotonic() - exec_start, 2)
-    logger.error("execute_code remote failed after %ss with %d tool calls: %s: %s",
-                 duration, tool_calls_made, type(exc).__name__, exc, exc_info=True)
-    return _error_result(str(exc), tool_calls_made=tool_calls_made, duration=duration)
-
-
-_REMOTE_EXIT_STATUS = {124: "timeout", 130: "interrupted"}
-
-
-def _remote_result(status: str, raw_stdout: str, exec_start: float, fields: dict[str, Any],
-                   kernel: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    """Common remote reply shape: status, cleaned output, *fields*, duration, optional kernel
-    info, then truncation metadata (key order is part of the result contract)."""
-    stdout_text, stdout_metadata = _clean_output(raw_stdout)
-    result: dict[str, Any] = {"status": status, "output": stdout_text, **fields,
-                              "duration_seconds": round(time.monotonic() - exec_start, 2)}
-    if kernel is not None:
-        result["kernel"] = kernel
-    result.update(stdout_metadata)
-    return result
-
-
-def _apply_timeout(result: dict[str, Any], timeout_msg: str) -> None:
-    result["error"] = timeout_msg
-    result["output"] = _with_timeout_notice(result["output"], timeout_msg)
-
-
-def _finish_remote_kernel_result(kernel_result: dict[str, Any], *,
-                                 timeout: int, exec_start: float) -> str:
-    """Post-process a remote-kernel cell result into the tool's JSON reply. Timeout messaging
-    mirrors the local kernel contract (kernel killed, state lost, next call fresh)."""
-    stdout_text = kernel_result.get("stdout", "") or ""
-    stderr_text = kernel_result.get("stderr", "") or ""
-    traceback_text = kernel_result.get("traceback", "") or ""
-    if stderr_text or traceback_text:
-        # Same joining shape as the local kernel: stderr and traceback ride in
-        # the output under one marker so the model sees the failure inline.
-        stdout_text = stdout_text + "\n--- stderr ---\n" + stderr_text + traceback_text
-    result = _remote_result(kernel_result.get("status", "error"), stdout_text, exec_start,
-                            {"tool_calls_made": kernel_result.get("tool_calls_made", 0)},
-                            kernel=kernel_result.get("kernel", {"remote": True}))
-    if kernel_result.get("tool_errors"):
-        result["tool_errors"] = kernel_result["tool_errors"]
-    if result["status"] == "timeout":
-        _apply_timeout(result, f"Cell timed out after {timeout}s; the remote session kernel was "
-                               "killed and its state was lost. The next call starts fresh.")
-    elif result["status"] == "error" and kernel_result.get("error"):
-        result["error"] = kernel_result["error"]
-    return json.dumps(result, ensure_ascii=False)
-
-
 def _sandbox_tools_for(enabled_tools: Optional[list[str]]) -> frozenset:
     """Enabled ∩ SANDBOX_ALLOWED_TOOLS, or every sandbox tool when the intersection is empty."""
     return frozenset(SANDBOX_ALLOWED_TOOLS & set(enabled_tools or ())) or SANDBOX_ALLOWED_TOOLS
-
-
-def _run_remote_per_call(env, env_type: str, code: str, effective_task_id: str,
-                         sandbox_tools: frozenset, *, timeout: int, max_tool_calls: int,
-                         exec_start: float) -> str:
-    """Per-call script ship: stage hermes_tools.py + script.py in a fresh remote sandbox dir,
-    serve file-RPC from a polling thread, run, clean up."""
-    sandbox_dir = f"{_env_temp_dir(env)}/hermes_exec_{uuid.uuid4().hex[:12]}"
-    quoted_sandbox_dir = shlex.quote(sandbox_dir)
-    tool_call_counter, tool_call_log, stop_event, rpc_thread = [0], [], threading.Event(), None
-    try:
-        # Private dirs: the sandbox lives under a shared temp dir and carries the
-        # RPC token (in req files) and tool results. Fail closed on setup
-        # failure rather than ship secrets into a dir that stayed permissive.
-        _execute_checked(env, _private_dirs_cmd(sandbox_dir, f"{sandbox_dir}/rpc"),
-                         "remote sandbox setup", timeout=10)
-        rpc_token = secrets.token_urlsafe(32)
-        _ship_file_to_remote(env, f"{sandbox_dir}/hermes_tools.py",
-                             generate_hermes_tools_module(list(sandbox_tools), transport="file"))
-        _ship_file_to_remote(env, f"{sandbox_dir}/script.py", code)
-        # Wrapped so the thread inherits the turn's approval context + callbacks
-        # (tools.thread_context) — else sandbox RPC tool calls lose approval routing.
-        # See #30882.
-        rpc_thread = threading.Thread(
-            target=propagate_context_to_thread(_rpc_poll_loop), daemon=True,
-            args=(env, f"{sandbox_dir}/rpc", effective_task_id, tool_call_log, tool_call_counter,
-                  max_tool_calls, sandbox_tools, stop_event, rpc_token))
-        rpc_thread.start()
-        # The token travels in a sourced env file, never in argv. No umask on
-        # the launch command: the 700 dirs + explicit 0600 writes cover Hermes'
-        # files, and user code keeps the remote's default file modes.
-        launch_cmd = _ship_env_file_and_launch(
-            env, sandbox_dir, "sandbox.env", "exec python3 script.py",
-            rpc_dir=f"{sandbox_dir}/rpc", rpc_token=rpc_token)
-        logger.info("Executing code on %s backend (task %s)...", env_type, effective_task_id[:8])
-        script_result = env.execute(launch_cmd, timeout=timeout)
-        stdout_text = script_result.get("output", "") or ""
-        exit_code = script_result.get("returncode", -1)
-        # Backend exit codes: 124 = timeout wrapper, 130 = SIGINT.
-        status = _REMOTE_EXIT_STATUS.get(exit_code, "success")
-    except Exception as exc:
-        return _remote_failure(exc, exec_start, tool_call_counter[0])
-    finally:
-        stop_event.set()
-        if rpc_thread is not None:
-            rpc_thread.join(timeout=5)
-        try:
-            env.execute(f"rm -rf {quoted_sandbox_dir}", cwd="/", timeout=15)
-        except Exception:
-            logger.debug("Failed to clean up remote sandbox %s", sandbox_dir)
-    result = _remote_result(status, stdout_text, exec_start,
-                            {"exit_code": exit_code, "tool_calls_made": tool_call_counter[0]})
-    tool_errors = tool_errors_since(tool_call_log)
-    if tool_errors:
-        result["tool_errors"] = tool_errors
-    if status == "timeout":
-        _apply_timeout(result, f"Script timed out after {timeout}s and was killed.")
-        logger.warning("execute_code (remote) timed out after %ss (limit %ss) with %d tool calls",
-                       result["duration_seconds"], timeout, tool_call_counter[0])
-    elif status == "interrupted":
-        result["output"] = _format_interrupted_output(result["output"])
-    elif exit_code != 0:
-        result["status"] = "error"
-        result["error"] = f"Script exited with code {exit_code}"
-    return json.dumps(result, ensure_ascii=False)
-
-
-def _execute_remote(code: str, task_id: Optional[str], enabled_tools: Optional[list[str]],
-                    reset: bool = False) -> str:
-    """Run code on the remote terminal backend: the owner's persistent remote session kernel
-    (tools/code_kernel_remote.py) first, else the per-call script ship — the fail-open route when
-    a kernel cannot be spawned and the only route for hosts that cannot sustain a background process."""
-    from tools.terminal_tool import _resolve_container_task_id
-    from tools.terminal_tool_lifecycle import _call_in_flight
-    _cfg = _load_config()
-    timeout, max_tool_calls = _cfg.get("timeout", DEFAULT_TIMEOUT), _cfg.get("max_tool_calls", DEFAULT_MAX_TOOL_CALLS)
-    sandbox_tools, effective_task_id = _sandbox_tools_for(enabled_tools), task_id or "default"
-    env, env_type = _get_or_create_env(effective_task_id)
-    with _call_in_flight(_resolve_container_task_id(effective_task_id)):
-        exec_start = time.monotonic()
-        try:
-            py_check = env.execute("command -v python3 >/dev/null 2>&1 && echo OK", cwd="/", timeout=15)
-            if "OK" not in py_check.get("output", ""):
-                return _error_result(f"Python 3 is not available in the {env_type} terminal "
-                                     "environment. Install Python to use execute_code with remote backends.")
-            # Session-kernel path: one persistent kernel per owner on the
-            # run-to-completion transport. Spawn failure falls OPEN to the per-call
-            # path below so a degraded remote host never blocks execution.
-            try:
-                # --- Session-kernel path (hermes-agent#96873) ------------------- Same always-on model as
-                # local: one persistent kernel per owner, rebuilt on the run-to-completion transport (detached
-                # runner + file cell protocol).
-                from tools.code_kernel_remote import execute_in_remote_kernel
-                kernel_result = execute_in_remote_kernel(
-                    code, env=env, env_type=env_type, task_env_id=effective_task_id,
-                    sandbox_tools=frozenset(sandbox_tools), timeout=timeout,
-                    max_tool_calls=max_tool_calls, reset=bool(reset),
-                    idle_exit=int(_cfg.get("kernel_idle_timeout", 1800)),
-                )
-            except Exception:
-                logger.warning("remote session-kernel path failed; falling back to per-call", exc_info=True)
-                kernel_result = None
-            if kernel_result is not None:
-                return _finish_remote_kernel_result(kernel_result, timeout=timeout, exec_start=exec_start)
-            logger.info("remote session kernel unavailable on %s; using per-call path", env_type)
-        except Exception as exc:
-            return _remote_failure(exc, exec_start, 0)
-        return _run_remote_per_call(env, env_type, code, effective_task_id, sandbox_tools,
-                                    timeout=timeout, max_tool_calls=max_tool_calls, exec_start=exec_start)
 
 
 # ---- Main entry point ----
@@ -710,7 +331,7 @@ def execute_code(
     enabled_tools: Optional[list[str]] = None,
     reset: bool = False,
 ) -> str:
-    """Run Python in the session's persistent kernel (local) or on the remote terminal backend,
+    """Run Python in the session's persistent local kernel,
     with RPC access to a subset of Hermes tools; returns the JSON result string. "Sandbox" means
     the security envelope (env scrubbing, tool whitelist + call budget, output redaction), not an
     isolation jail: default `project` mode runs in the session's cwd with the project venv.
@@ -730,6 +351,9 @@ def execute_code(
     if not code or not code.strip():
         return tool_error("No code provided. execute_code requires a non-empty 'code' "
                           "parameter containing Python source. To run shell commands, use terminal(command=...) instead.")
+    from tools.terminal_tool import _get_env_config
+    from tools.terminal_tool_config import require_local_environment
+    env_type = require_local_environment(_get_env_config()["env_type"])
     # Hard-block gateway-lifecycle commands (mirrors the terminal_tool guard — otherwise
     # `os.system("launchctl bootout ...")` here bypasses it and SIGTERMs the gateway mid-task).
     # Gated on PID-file ownership, not the inherited env marker.
@@ -766,15 +390,11 @@ def execute_code(
                 "it could complete (SIGTERM propagates to child processes). "
                 "Run the lifecycle command from a shell outside the gateway."
             )
-    from tools.terminal_tool import _get_env_config, _docker_has_host_access
-    _env_config = _get_env_config()
-    env_type = _env_config["env_type"]
     # Arbitrary Python never passes through terminal()/DANGEROUS_PATTERNS, so guard the whole
-    # script before either dispatch path spawns it — in this (tool-executor) thread, which holds
-    # the session context. A Docker sandbox with host bind mounts gets no container fast-path.
+    # script before spawning it — in this (tool-executor) thread, which holds the session context.
     # See #30882.
     from tools.approval import check_execute_code_guard
-    _guard = check_execute_code_guard(code, env_type, has_host_access=_docker_has_host_access(_env_config))
+    _guard = check_execute_code_guard(code, env_type)
     if not _guard.get("approved", False):
         return _error_result(_guard.get("message") or "execute_code blocked by approval guard.",
                              user_summary=_guard.get("user_summary"))
@@ -783,8 +403,6 @@ def execute_code(
     if _guard.get("user_approved"):
         from tools.interrupt import clear_current_thread_interrupt
         clear_current_thread_interrupt()
-    if env_type != "local":
-        return _execute_remote(code, task_id, enabled_tools, reset=bool(reset))
     from tools.interrupt import is_interrupted as _is_interrupted
     # Session kernels are always on locally (one interpreter per conversation); the guards above
     # already ran for this cell, and the kernel path shares env builder, RPC server and redaction.
@@ -903,8 +521,6 @@ def build_execute_code_schema(enabled_sandbox_tools: set | None = None,
             "Hermes's own python (the common case — stdlib plus Hermes's "
             "deps; check `import x` before relying on project packages)."
         )
-    # Remote hosts that fail open to per-call are not worth schema words; the result's
-    # `kernel` field tells the truth per call.
     # Session kernels are always on (kernel_mode retired in #96787): persistence is part of the tool's one
     # description, not a bolt-on paragraph behind a dead conditional.
     description = (
@@ -966,6 +582,6 @@ def _execute_code_handler(args: dict, **kwargs) -> str:
 
 registry.register(
     name="execute_code", toolset="code_execution", schema=EXECUTE_CODE_SCHEMA,
-    handler=_execute_code_handler, check_fn=check_sandbox_requirements, emoji="🐍",
+    handler=_execute_code_handler, check_fn=lambda: True, emoji="🐍",
     max_result_size_chars=100_000,
 )

@@ -204,8 +204,6 @@ code_execution:
   max_session_kernels: 4      # kernels kept alive at once; oldest is evicted past this
 ```
 
-**Remote backends** (Docker, SSH) run a remote session kernel with the same contract. If the kernel cannot be spawned on the backend, Hermes falls back to running each call as a standalone script and says so in the result.
-
 **Large output.** Stdout over 50 KB is shown head-and-tail inline, and the full text is saved under `~/.hermes/cache/exec/` with the path included in the result, so the agent can page through it with `read_file` instead of re-running the script.
 
 ## How Tool Calls Work Inside Scripts
@@ -329,4 +327,4 @@ Hermes always writes the script and the auto-generated `hermes_tools.py` RPC stu
 
 ## Platform Support
 
-Code execution is available on **Linux, macOS, and Windows**. On Linux and macOS the RPC channel uses a Unix domain socket; on Windows, where `AF_UNIX` is unreliable, Hermes automatically falls back to a loopback TCP socket for the sandbox RPC transport. Remote terminal backends (Docker/SSH/etc.) use a file-based RPC transport instead and additionally require Python 3 inside the backend.
+Code execution is available on **Linux, macOS, and Windows**. On Linux and macOS the RPC channel uses a Unix domain socket; on Windows, where `AF_UNIX` is unreliable, Hermes automatically falls back to a loopback TCP socket for the sandbox RPC transport.

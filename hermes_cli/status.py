@@ -4,7 +4,6 @@ import json
 import os
 import sys
 import time
-import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,10 +14,8 @@ PROJECT_ROOT = Path(project_root_str())
 from hermes_cli.auth import AuthError, resolve_provider
 from hermes_cli.colors import Colors, color
 from hermes_cli.config import get_env_path, get_env_value, get_hermes_home, load_config
-from hermes_cli.config_defaults import DEFAULT_SANDBOX_IMAGE, DEFAULT_VERCEL_IMAGE
 from hermes_cli.models import provider_label
 from hermes_cli.runtime_provider import resolve_requested_provider
-from hermes_cli.vercel_auth import describe_vercel_auth
 from hermes_cli.status_auth import (  # renderers wired into _SECTIONS below
     _render_api_keys, _render_apikey_providers, _render_auth_providers, _render_nous_gateway)
 from hermes_constants import OPENROUTER_MODELS_URL
@@ -107,13 +104,6 @@ def _estop_status_line():
 
 # --- Data tables driving the per-section renderers -------------------------
 
-# Simple env-driven terminal backends: (label, env var, default, empty-counts-as-unset).
-_TERMINAL_ENV_ROWS = {
-    "ssh": (("SSH Host:", "TERMINAL_SSH_HOST", "(not set)", True), ("SSH User:", "TERMINAL_SSH_USER", "(not set)", True)),
-    "docker": (("Docker Image:", "TERMINAL_DOCKER_IMAGE", DEFAULT_SANDBOX_IMAGE, False),),
-
-}
-
 # Gateway manager label when the runtime snapshot is unavailable, keyed by platform.
 _GATEWAY_FALLBACK = {"termux": ("unknown", "Termux / manual process"), "linux": ("unknown", "systemd/manual"),
                      "darwin": ("unknown", "launchd")}
@@ -158,37 +148,8 @@ def _render_terminal(ctx):
     terminal_cfg = ctx.config.get("terminal", {}) if isinstance(ctx.config.get("terminal"), dict) else {}
     terminal_env = os.getenv("TERMINAL_ENV", "") or terminal_cfg.get("backend", "local")
     _kv("Backend:", terminal_env)
-    if terminal_env in _TERMINAL_ENV_ROWS:
-        for label, var, default, empty_is_unset in _TERMINAL_ENV_ROWS[terminal_env]:
-            value = (os.getenv(var, "") or default) if empty_is_unset else os.getenv(var, default)
-            print(f"  {label:<13} {value}")
-    elif terminal_env == "vercel_sandbox":
-        persist = os.getenv("TERMINAL_CONTAINER_PERSISTENT")
-        persist_enabled = (bool(terminal_cfg.get("container_persistent", True)) if persist is None
-                           else persist.lower() in {"1", "true", "yes", "on"})
-        auth_status = describe_vercel_auth()
-        _kv("Image:", os.getenv('TERMINAL_VERCEL_RUNTIME') or terminal_cfg.get('vercel_runtime')
-            or os.getenv('TERMINAL_VERCEL_IMAGE') or terminal_cfg.get('vercel_image') or DEFAULT_VERCEL_IMAGE)
-        _kv_flag("SDK:", importlib.util.find_spec("vercel") is not None, "installed",
-                 "missing (run hermes setup terminal and select Vercel Sandbox, then restart Hermes)")
-        _kv("Auth:", f"{check_mark(auth_status.ok)} {auth_status.label}")
-        for line in auth_status.detail_lines:
-            _kv("Auth detail:", line)
-        _kv("Persistence:", 'snapshot filesystem' if persist_enabled else 'ephemeral filesystem')
-        _kv("Processes:", "live processes do not survive cleanup, snapshots, or sandbox recreation")
-    else:
-        # Plugin-registered terminal backends: show availability via the provider's doctor rows
-        # (fail-soft — never break `hermes status`).
-        try:
-            from hermes_cli.plugins import discover_plugins
-            discover_plugins()
-            from agent.terminal_env_registry import get_provider
-            provider = get_provider(terminal_env)
-            if provider is not None:
-                for ok, label, text in provider.doctor_checks():
-                    print(f"  {label}: {check_mark(bool(ok))} {text}")
-        except Exception:
-            pass
+    if str(terminal_env).strip().lower() != "local":
+        _kv("Status:", "unsupported; set terminal.backend to local")
     _kv_flag("Sudo:", os.getenv("SUDO_PASSWORD", ""), "enabled", "disabled")
 
 

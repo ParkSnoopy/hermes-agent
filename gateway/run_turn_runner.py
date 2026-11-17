@@ -1194,7 +1194,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
 
     def run_sync(self):
         from contextlib import ExitStack
-        from gateway.session_policy import bind_turn_workspace, policy_for_source, policy_scope, refused_turn_result
+        from gateway.session_policy import policy_for_source, policy_scope, refused_turn_result
         from gateway.session_api_turn import api_policy_scope
         from gateway.session_authorities import active_authority
         from hermes_state_runtime import RuntimeStoreError
@@ -1208,7 +1208,6 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                     raise
             else:
                 scope.enter_context(api_policy_scope())
-                bind_turn_workspace(policy, self._ctx.session_id)
                 result = self._run_sync_scoped()
             from gateway.session_results import execution_result
             captured = execution_result.get()

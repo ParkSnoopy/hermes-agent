@@ -122,7 +122,6 @@ Every `ctx.*` API below is available inside a plugin's `register(ctx)` function.
 | Register a delegation strategy (how each `delegate_task` subagent is routed) | `ctx.register_delegation_provider(provider)` — see [Delegation Provider Plugins](../../developer-guide/delegation-provider-plugin.md) |
 | Register a video-generation backend | `ctx.register_video_gen_provider(provider)` — see [Video Generation Provider Plugins](../../developer-guide/video-gen-provider-plugin.md) |
 | Register a context-compression engine | `ctx.register_context_engine(engine)` — see [Context Engine Plugins](../../developer-guide/context-engine-plugin.md) |
-| Register a terminal execution backend (cloud sandbox) | `ctx.register_terminal_environment_provider(provider)` — see [Terminal Environment Plugins](../../developer-guide/terminal-environment-plugin.md) |
 | Register a computer-use driver | `ctx.register_computer_use_provider(provider)` — selected by `computer_use.backend`; see [Computer-use backend plugins](../../developer-guide/plugins/index.md#computer-use-backend-plugins) |
 | Route human approval prompts | `ctx.register_approval_transport(name, present_fn)` — see [Approval transports](#approval-transports) |
 | Register a memory backend | Subclass `MemoryProvider` in `plugins/memory/<name>/__init__.py` — see [Memory Provider Plugins](../../developer-guide/memory-provider-plugin.md) (uses a separate discovery system) |
@@ -884,8 +883,7 @@ What changes in `host` mode:
   flight returns a tool error and Hermes restarts the host and reloads its plugins (bounded retries).
 - **A few surfaces need in-process code** and fail that plugin with a clear reason instead of loading:
   gateway platform adapters (`register_platform`), approval transports, Telegram/platform handlers,
-  model-provider profiles that build their own SDK client (`create_client`), terminal backends (the
-  backend's commands fail with this reason; the `singularity` plugin is one), streaming and websocket
+  model-provider profiles that build their own SDK client (`create_client`), streaming and websocket
   dashboard endpoints, and plugins that monkeypatch Hermes modules. Run those with `isolation: in_process`.
 
 **Locking it for a shared deployment.** `plugins.isolation` is ordinary profile config, so whoever can
@@ -901,8 +899,8 @@ plugins:
     launcher: [...]      # pin the sandbox runner too, if you use one
 ```
 
-Run the agents' terminal on an isolated backend (Docker, SSH, ...) as well, so the agent itself cannot
-reach the operator's files.
+The terminal runs locally and is not isolated by plugin-host isolation. Use a separately isolated
+Hermes deployment if the agent must not reach the operator's files.
 
 `hermes plugins validate <dir>` and `hermes plugins show <name>` report whether a plugin runs in the host
 and, if not, why. Across the plugin catalog at the time of writing, 299 of 348 entries run in the host

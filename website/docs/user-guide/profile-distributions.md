@@ -718,7 +718,7 @@ The installer hard-excludes these paths even if an author accidentally ships the
 - `logs/` — agent and error logs
 - `workspace/` — generated working files
 - `plans/` — scratch plans
-- `home/` — user's home mount in Docker backends
+- `home/` — profile home data
 - `*_cache/` — image / audio / document caches
 - `local/` — user-reserved customization namespace
 

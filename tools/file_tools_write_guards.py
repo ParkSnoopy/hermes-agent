@@ -5,7 +5,7 @@ the tool returns verbatim.
 Guards, in the order the tools apply them: ``_check_sensitive_path`` (hard
 deny), ``_check_binary_document_write``, ``_check_protected_instruction_write``
 (ALWAYS ask), ``_check_approval_required_write`` (normal gate),
-``_check_cross_profile_path`` (sandbox-mirror lost-work), ``_is_internal_file_tool_content``.
+``_is_internal_file_tool_content``.
 ``_stale_overwrite_blocker`` (write_file only, under the per-path lock) refuses a
 whole-file overwrite of content this task never saw or that changed since.
 """
@@ -23,7 +23,7 @@ from tools.binary_extensions import (
     is_sqlite_sidecar,
 )
 from tools.file_tools_paths import (
-    _expand_tilde, _resolve_path_for_task, _ssh_path_escapes_home, _terminal_env_type_for_task)
+    _expand_tilde, _resolve_path_for_task)
 from tools.file_tools_read_tracking import _has_full_write_baseline, _is_own_blind_patch, _read_mtime_drifted
 import itertools
 
@@ -155,10 +155,6 @@ def _check_sensitive_path(filepath: str, task_id: str = "default") -> str | None
     if nt_err:
         return nt_err
     candidates = (_resolved_or_raw(filepath, task_id), os.path.normpath(_expand_tilde(filepath)))
-    if _ssh_path_escapes_home(candidates[0]) and _terminal_env_type_for_task(task_id) == "ssh":
-        return (
-            f"Refusing to write to {filepath}: it climbs above the SSH home and the remote "
-            "home could not be detected, so its target cannot be checked. Pass an absolute path.")
     if any(c.startswith(_SENSITIVE_PATH_PREFIXES) or c in _SENSITIVE_EXACT_PATHS for c in candidates):
         return (
             f"Refusing to write to sensitive system path: {filepath}\n"
@@ -407,41 +403,6 @@ def _check_approval_required_write(paths: list[str], task_id: str = "default") -
     return result.get("message") or blocked.format(why="was denied.")
 
 
-def _get_container_mirror_prefix_for_task(task_id: str = "default") -> str | None:
-    """Return the container-side Hermes mirror prefix for persistent Docker file tools."""
-    try:
-        from tools.terminal_tool import (
-            _active_environments, _env_lock, _get_env_config, _resolve_container_task_id)
-        container_key = _resolve_container_task_id(task_id)
-        with _env_lock:
-            env = _active_environments.get(container_key) or _active_environments.get(task_id)
-        if env is not None:
-            persistent_docker = (env.__class__.__name__ == "DockerEnvironment"
-                                 and bool(getattr(env, "_persistent", False)))
-            return "/root/.hermes" if persistent_docker else None
-        config = _get_env_config()
-    except Exception:
-        return None
-    if config.get("env_type") == "docker" and config.get("container_persistent", True):
-        return "/root/.hermes"
-    return None
-
-
-def _check_cross_profile_path(filepath: str, task_id: str = "default") -> str | None:
-    """Soft-guard: warn when ``filepath`` lands on a host-side or Docker sandbox MIRROR of
-    Hermes state (a write the host never reads). Not profile isolation — that guard was
-    removed; ``cross_profile=True`` keeps bypassing this one for replay compat. Fails open."""
-    try:
-        from agent.file_safety import get_container_mirror_warning, get_sandbox_mirror_warning
-    except Exception:
-        return None
-    resolved = _resolved_or_raw(filepath, task_id)
-    warning = get_sandbox_mirror_warning(resolved)
-    if warning is not None:
-        return warning
-    return get_container_mirror_warning(resolved, mirror_prefix=_get_container_mirror_prefix_for_task(task_id))
-
-
 def _target_regular_file_state(filepath: str, task_id: str = "default") -> str:
     """Is a REGULAR file at *filepath* present where the write will execute
     (the task's backend, not the controller's disk — #122662)?
@@ -450,37 +411,11 @@ def _target_regular_file_state(filepath: str, task_id: str = "default") -> str:
     keep ``Path.is_file`` semantics; anything not proven absent is
     ``"unavailable"`` and callers must fail closed.
     """
-    from tools.file_tools import _file_ops_uses_host_paths, _get_file_ops
     try:
-        resolved = str(_resolve_path_for_task(filepath, task_id))
-    except Exception:
-        resolved = None
-    try:
-        file_ops = _get_file_ops(task_id)
-    except Exception:
+        resolved = _resolve_path_for_task(filepath, task_id)
+        return "exists" if resolved.is_file() else "absent"
+    except (OSError, ValueError):
         return "unavailable"
-    if _file_ops_uses_host_paths(file_ops):
-        # Host writes land on the resolved path, else today's HOST
-        # ``_expand_tilde`` fallback — probe exactly that string.
-        probe = _expand_tilde(filepath) if resolved is None else resolved
-        try:
-            return "exists" if Path(probe).is_file() else "absent"
-        except OSError:
-            return "absent"
-    try:
-        # Backend writes land on ``_expand_path(_resolved or path)``: the
-        # backend's own home for a tilde fallback, never the host's.
-        _size, status = file_ops._probe_regular_file(file_ops._expand_path(resolved or filepath))
-    except Exception:
-        return "unavailable"
-    if status in ("ok", "bad_size"):
-        # bad_size: ``[ -f ]`` succeeded, only ``wc`` was unparseable.
-        return "exists"
-    if status in ("missing", "not_regular"):
-        # not_regular: no REGULAR file at the path (dir/FIFO/dangling link) —
-        # the same answer Path.is_file gives on the host.
-        return "absent"
-    return "unavailable"
 
 
 def _check_binary_document_write(filepath: str, task_id: str = "default") -> str | None:

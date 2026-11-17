@@ -182,7 +182,7 @@ Details:
 - Quote-aware parsing exposes commands after assignments, leading redirections, `;`, `&&`, `||`, pipelines, groups, command substitutions, and ordinary `if`/`then`/`else`/`do` transitions. Supported launchers include `sudo`, `env`, `command`, `exec`, `nohup`, `setsid`, `time`, `nice`, `timeout`, `stdbuf`, `ionice`, `chrt`, `taskset`, and `chroot`. Known option operands are skipped; `command -v`/`-V` lookups are not executions. Shell `-c` payloads are inspected recursively. Literal executable-and-argument strings in `env -S` / `--split-string` use GNU quoting and escapes (including `\_` word boundaries and `\c` termination), with the remaining command arguments appended; shell punctuation inside those arguments stays data unless an actual shell `-c` consumes it. `env -a` / `--argv0` values are arguments, not executable names. Shell and GNU split-string comments do not introduce executable candidates.
 - In the additional executable candidates, whitespace **between** words is collapsed, but quoted argument content and argument paths are retained. An exact rule such as `git status` therefore also matches `env git\tstatus; echo done` (where `\t` represents a tab). Quoted mentions such as `echo 'sudo -n id'` are not promoted to commands. Existing whole-input globs such as `*sudo*` still intentionally match mentions anywhere.
 - **YAML quoting:** always quote patterns. A bare leading `*` is a YAML alias and fails to parse; `{`, `!`, and `: ` have their own YAML meanings. Single quotes are safest for shell-ish content.
-- User-defined deny rules apply to all terminal backends, including isolated containers, before any backend-specific approval shortcut.
+- User-defined deny rules apply to terminal commands.
 - A denied command returns a BLOCKED error to the agent telling it not to retry or rephrase. Nothing runs.
 
 Like the rest of the approval config, changes take effect immediately (the config cache is mtime-keyed) — no session restart needed.
@@ -243,9 +243,6 @@ The following patterns trigger approval prompts (defined in `tools/approval.py`)
 | `docker context use` | Switches the default daemon for all future docker commands |
 | `podman --remote`/`-r`/`--url`/`--connection`/`--identity`, `CONTAINER_HOST=` | Podman remote daemon redirect |
 
-:::info
-**Container bypass**: When running in `docker` or `vercel_sandbox` backends (or a container plugin backend such as `singularity` or `sprites`), dangerous command checks are **skipped** because the container itself is the security boundary. Destructive commands inside a container can't harm the host.
-:::
 
 ### `execute_code` Scripts {#execute-code-scripts}
 
@@ -573,68 +570,11 @@ restart the container — the entrypoint will fix ownership on the next start.
 - `{platform}-approved.json` — approved users
 - `_rate_limits.json` — rate limit and lockout tracking
 
-## Container Isolation
+## Terminal execution security
 
-When using the `docker` terminal backend, Hermes applies strict security hardening to every container.
+Terminal commands run locally as the Hermes process user, with that user’s filesystem permissions. They are not isolated by Hermes. Explicit nonlocal terminal selectors are refused; remove or correct old configuration before running. Running Hermes itself on a remote server or in a container is a separate deployment choice.
 
-### Docker Security Flags
-
-Every container runs with these flags (defined in `tools/environments/docker.py`):
-
-```python
-_BASE_SECURITY_ARGS = [
-    "--cap-drop", "ALL",                          # Drop ALL Linux capabilities
-    "--cap-add", "DAC_OVERRIDE",                  # Root can write to bind-mounted dirs
-    "--cap-add", "CHOWN",                         # Package managers need file ownership
-    "--cap-add", "FOWNER",                        # Package managers need file ownership
-    "--security-opt", "no-new-privileges",         # Block privilege escalation
-    "--pids-limit", "256",                         # Limit process count
-    # no-tmp: ok — configures the sandbox's own tmpfs
-    "--tmpfs", "/tmp:rw,nosuid,size=512m",         # Size-limited /tmp
-    "--tmpfs", "/var/tmp:rw,noexec,nosuid,size=256m",  # No-exec /var/tmp
-]
-```
-
-`SETUID`/`SETGID` are **not** in the base list — they're added conditionally when the container starts as root and an init/entrypoint must drop privileges (the s6 privilege-drop path). They're skipped when the container already runs as a non-root `--user`. The `/run` tmpfs is also split out from the base list and mounted per-image (hardened `noexec` by default, `exec` only for s6-overlay images that exec from `/run`).
-
-### Resource Limits
-
-Container resources are configurable in `~/.hermes/config.yaml`:
-
-```yaml
-terminal:
-  backend: docker
-  docker_image: "nousresearch/hermes-sandbox:desktop"
-  docker_forward_env: []  # Explicit allowlist only; empty keeps secrets out of the container
-  container_cpu: 1        # CPU cores
-  container_memory: 5120  # MB (default 5GB)
-  container_disk: 51200   # MB (default 50GB, requires overlay2 on XFS)
-  container_persistent: true  # Persist filesystem across sessions
-```
-
-### Filesystem Persistence
-
-- **Persistent mode** (`container_persistent: true`): Bind-mounts `/workspace` and `/root` from `~/.hermes/sandboxes/docker/<task_id>/`
-- **Ephemeral mode** (`container_persistent: false`): Uses tmpfs for workspace — everything is lost on cleanup
-
-:::tip
-For production gateway deployments, use `docker` or `vercel_sandbox` backend to isolate agent commands from your host system. This eliminates the need for dangerous command approval entirely.
-:::
-
-:::warning
-If you add names to `terminal.docker_forward_env`, those variables are intentionally injected into the container for terminal commands. This is useful for task-specific credentials like `GITHUB_TOKEN`, but it also means code running in the container can read and exfiltrate them.
-:::
-
-## Terminal Backend Security Comparison
-
-| Backend | Isolation | Dangerous Cmd Check | Best For |
-|---------|-----------|-------------------|----------|
-| **local** | None — runs on host | ✅ Yes | Development, trusted users |
-| **ssh** | Remote machine | ✅ Yes | Running on a separate server |
-| **docker** | Container | ❌ Skipped (container is boundary) | Production gateway |
-| **singularity** (plugin) | Container | ❌ Skipped | HPC environments |
-| **sprites** (plugin) | Cloud microVM | ❌ Skipped | Stateful cloud sandboxes |
-| **vercel_sandbox** | Cloud microVM | ❌ Skipped | Cloud execution with snapshot persistence |
+Command approval and deny rules are guardrails, not containment. Limit credentials and filesystem permissions and review proposed commands.
 
 ## Environment Variable Passthrough {#environment-variable-passthrough}
 
@@ -658,11 +598,7 @@ required_environment_variables:
     help: Get a key from https://developers.google.com/tenor
 ```
 
-After loading this skill, `TENOR_API_KEY` passes through to `execute_code`, `terminal` (local), **and remote backends such as Docker** — no manual configuration needed.
-
-:::info Docker
-Prior to v0.5.1, Docker's `forward_env` was a separate system from the skill passthrough. They are now merged — skill-declared env vars are automatically forwarded into Docker containers without needing to add them to `docker_forward_env` manually.
-:::
+After loading this skill, `TENOR_API_KEY` passes through to `execute_code` and local `terminal` — no manual configuration needed.
 
 **2. Config-based passthrough (manual)**
 
@@ -689,21 +625,7 @@ required_credential_files:
     description: Google OAuth2 client credentials
 ```
 
-When loaded, Hermes checks if these files exist in the active profile's `HERMES_HOME` and registers them for mounting:
-
-- **Docker**: Read-only bind mounts (`-v host:container:ro`)
-- **Local**: No action needed (files already accessible)
-
-You can also list credential files manually in `config.yaml`:
-
-```yaml
-terminal:
-  credential_files:
-    - google_token.json
-    - my_custom_oauth_token.json
-```
-
-Paths are relative to `~/.hermes/`. Files are mounted to `/root/.hermes/` inside the container. This list is read by `tools/credential_files.py` (`terminal.credential_files`) — it lives under the `terminal:` block but is loaded by the credential-files module, not the core terminal backend, so it isn't part of the bundled `DEFAULT_CONFIG` snapshot.
+Local tools can access files permitted by the process user. Protect these credentials with operating-system permissions.
 
 ### Borrowed CLI logins (Codex CLI, Claude Code) {#borrowed-cli-logins}
 
@@ -722,14 +644,11 @@ With the switch off Hermes never reads or refreshes those files: the `claude_cod
 |---------|---------------|---------------------|
 | **execute_code** | Blocks vars containing `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL`, `PASSWD`, `AUTH` in name; only allows safe-prefix vars through | ✅ Passthrough vars bypass both checks |
 | **terminal** (local) | Blocks explicit Hermes infrastructure vars (provider keys, gateway tokens, tool API keys) | ✅ Passthrough vars bypass the blocklist |
-| **terminal** (Docker) | No host env vars by default | ✅ Passthrough vars + `docker_forward_env` forwarded via `-e` |
-| **terminal** (SSH) | No host env vars by default | ✅ Passthrough vars forwarded via `SendEnv`; the remote `sshd_config` needs a matching `AcceptEnv` (see [SSH backend](configuration.md#ssh-backend)) |
 | **MCP** | Blocks everything except safe system vars + explicitly configured `env` | ❌ Not affected by passthrough (use MCP `env` config instead) |
 
 ### Security Considerations
 
 - The passthrough only affects vars you or your skills explicitly declare — the default security posture is unchanged for arbitrary LLM-generated code
-- Credential files are mounted **read-only** into Docker containers
 - Skills Guard scans skill content for suspicious env access patterns before installation
 - Missing/unset vars are never registered (you can't leak what doesn't exist)
 - Hermes infrastructure secrets (provider API keys, gateway tokens) should never be added to `env_passthrough` — they have dedicated mechanisms. Such a name is refused when declared, and a declared name that a platform adapter claims later (a plugin adapter registering after the skill loaded) stops being forwarded from then on
@@ -825,7 +744,7 @@ not stop every route to a private host. With it `false`:
 |---|---|
 | `web_extract` | Refused before any backend is called. With it `true`, hosted extract backends still fetch from their own servers and cannot reach your LAN. |
 | `vision_analyze` URL fetches, image/video result downloads, gateway media downloads | Refused |
-| `browser_exec` on a cloud provider with `browser.auto_local_for_private_urls: false`, on a `/browser connect` (CDP) endpoint, or with a Docker/SSH terminal backend | Refused (`Blocked: URL targets a private or internal address`) |
+| `browser_exec` on a cloud provider with `browser.auto_local_for_private_urls: false`, on a `/browser connect` (CDP) endpoint | Refused (`Blocked: URL targets a private or internal address`) |
 | `browser_cdp` raw CDP calls on those same backends | Refused while a private page is open, and when an absolute `http(s)://` URL the call fetches (a `url` param, a script, injected HTML) is private. A scheme-relative `//host` URL is checked for cloud metadata only |
 | `browser_exec` on a cloud provider with `browser.auto_local_for_private_urls: true` (the default) | **Opens**, in a local Chromium sidecar on the Hermes host ([hybrid routing](./features/browser.md#hybrid-routing-cloud-for-public-urls-local-for-lanlocalhost)) |
 | `browser_exec` on the local Chromium with a local terminal backend | **Opens**: the browser reaches nothing the terminal can't |
@@ -924,7 +843,7 @@ a scan or an approval prompt, so when `distribution.yaml` owns the file a scanne
 ### Gateway Deployment Checklist
 
 1. **Set explicit allowlists** — never use `GATEWAY_ALLOW_ALL_USERS=true` in production
-2. **Use container backend** — set `terminal.backend: docker` in config.yaml
+2. **Review local execution access** — commands run with the Hermes user’s permissions
 3. **Restrict resource limits** — set appropriate CPU, memory, and disk limits
 4. **Store secrets securely** — keep API keys in `~/.hermes/.env` with proper file permissions
 5. **Enable DM pairing** — use pairing codes instead of hardcoding user IDs when possible
@@ -946,22 +865,7 @@ chmod 600 ~/.hermes/.env
 
 ### Network Isolation
 
-For maximum security, run the gateway on a separate machine or VM. Set `terminal.backend: ssh` in `config.yaml`, then provide host details via environment variables in `~/.hermes/.env`:
-
-```yaml
-# ~/.hermes/config.yaml
-terminal:
-  backend: ssh
-```
-
-```bash
-# ~/.hermes/.env
-TERMINAL_SSH_HOST=agent-worker.local
-TERMINAL_SSH_USER=hermes
-TERMINAL_SSH_KEY=~/.ssh/hermes_agent_key
-```
-
-The SSH connection details live in `.env` (not `config.yaml`) so they aren't checked in or shared along with profile exports. This keeps the gateway's messaging connections separate from the agent's command execution.
+Run Hermes on a separately administered machine or VM if you require a separate execution boundary. Configure its network and operating-system permissions independently; local terminal execution does not itself provide isolation.
 
 ## TLS certificate trust
 

@@ -1,8 +1,7 @@
 """Child-process environment for execute_code: env scrubbing, interpreter and cwd resolution.
 
-Both the per-call remote path and the local session kernel build their child
-env through ``_build_child_env`` so the security rules (secret scrubbing,
-PYTHONPATH hygiene, UTF-8 forcing, TZ) cannot drift between them.
+The local session kernel builds its child environment through ``_build_child_env``
+with secret scrubbing, PYTHONPATH hygiene, UTF-8 forcing and TZ.
 """
 
 import logging

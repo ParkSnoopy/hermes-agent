@@ -21,6 +21,44 @@ def _call(call_id, command):
         name="terminal", arguments=json.dumps({"command": command})))
 
 
+def test_prepared_local_guard_is_single_use_without_starting_a_shell(monkeypatch):
+    from agent import terminal_approval_batch as tab
+    from tools import terminal_tool as tt
+    from tools.approval_context import _approval_tool_call_id
+
+    ref = SimpleNamespace(args={"command": "rm -rf build"}, call_id="prepared-call")
+    batch = SimpleNamespace(
+        cancelled=threading.Event(), failure_seen=False, task_id="local-task",
+        agent=SimpleNamespace(_interrupt_requested=False, session_id="local-session"),
+    )
+    slot = tab._TerminalSlot(batch, SimpleNamespace(ref=lambda task: ref), 0)
+    slot.release.set()
+    seen = []
+    decision = {"approved": True, "user_approved": True}
+
+    def guards(command, env_type):
+        seen.append((command, env_type))
+        return decision
+
+    def no_shell(*args, **kwargs):
+        pytest.fail("approval preparation acquired a shell")
+
+    monkeypatch.setattr(tt, "_get_env_config", lambda: {"env_type": "local"})
+    monkeypatch.setattr(tt, "_check_all_guards", guards)
+    monkeypatch.setattr(tt, "_create_configured_env", no_shell)
+    slot.prepare(ref)
+    assert seen == [(ref.args["command"], "local")]
+    assert slot.ready.is_set()
+    slot_token = tab._slot.set(slot)
+    call_token = _approval_tool_call_id.set(ref.call_id)
+    try:
+        assert tab.consume_prepared_guard(ref.args["command"], "local") is decision
+        assert tab.consume_prepared_guard(ref.args["command"], "local") is None
+    finally:
+        _approval_tool_call_id.reset(call_token)
+        tab._slot.reset(slot_token)
+
+
 def _agent():
     from tools.terminal_tool import TERMINAL_SCHEMA
     from tools.file_tools import READ_FILE_SCHEMA

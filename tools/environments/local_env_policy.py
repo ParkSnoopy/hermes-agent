@@ -181,7 +181,8 @@ def _is_provider_env_blocklisted(name: str, _registered: frozenset | None = None
     ``_is_hermes_internal_secret``, which already folds (``key.upper()``). Loops pass
     ``_registered`` so the registry is read once per env, not once per key."""
     upper = name.upper()
-    if name in _HERMES_PROVIDER_ENV_BLOCKLIST or upper in _HERMES_PROVIDER_ENV_BLOCKLIST:
+    if (_matches_terminal_first_party_prefix(name)
+            or name in _HERMES_PROVIDER_ENV_BLOCKLIST or upper in _HERMES_PROVIDER_ENV_BLOCKLIST):
         return True
     return upper in (_registered_adapter_secret_env() if _registered is None else _registered)
 
@@ -397,16 +398,6 @@ def strip_profile_gate_env(env: dict) -> dict:
     return env
 
 
-def _plugin_terminal_env_strip_keys() -> frozenset:
-    """Credential env keys owned by plugin-registered terminal backends (Tier-1:
-    stripped from every spawned subprocess). Computed at call time because plugins
-    register after import; fail-soft to empty."""
-    try:
-        from agent.terminal_env_registry import plugin_strip_env_keys
-
-        return plugin_strip_env_keys()
-    except Exception:
-        return frozenset()
 
 
 # Tier-1 secrets: stripped from EVERY spawned subprocess even under inherit_credentials

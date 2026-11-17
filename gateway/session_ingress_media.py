@@ -517,9 +517,8 @@ def _history_mentions(conn, references, after_id=0):
     """Candidate paths any transcript row (id > after_id) mentions raw or JSON-escaped, in ONE
     messages pass. Rows are prefiltered in SQL on the literal text before each candidate's digest
     directory, so only rows that could name a candidate reach Python's exact substring test."""
-    # Matched by the content-addressed tail ``<sha256>/<name>`` with either separator, so every
-    # spelling a note can carry (the host path, a sandbox backend's ``to_agent_visible_cache_path``)
-    # counts as a mention.
+    # Match the content-addressed tail ``<sha256>/<name>`` with either separator, so retained
+    # historical prefixes and current local profile paths both count as mentions.
     needles = {}
     for reference in references:
         raw = reference['path']

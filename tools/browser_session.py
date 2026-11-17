@@ -194,16 +194,8 @@ def _launch_target(cache_key: str) -> tuple[str, dict[str, Any], bool]:
 
 
 def _create_chromium_session(cache_key: str) -> dict[str, Any]:
-    from tools.bot_desktop import placement, runtime
-    try:
-        # Policy first: a refused placement raises, a terminal placement starts its sandbox screen; neither
-        # ever falls back to a host browser.
-        where = runtime.tool_placement()
-    except RuntimeError as exc:
-        raise RuntimeError(f"The browser cannot run here: {exc}") from exc
-    if where == placement.TERMINAL:
-        from tools.browser_session_sandbox import create_sandbox_session
-        return create_sandbox_session(cache_key)
+    from tools.terminal_tool import _get_env_config
+    _get_env_config()
     from tools.browser_launcher import launch_chromium
     ensure_screen_for_headed_chromium()  # first: an auto-started screen selects the Bot Desktop profile
     launcher_key, kwargs, shared = _launch_target(cache_key)
@@ -233,6 +225,8 @@ def _create_local_session(cache_key: str, allow_real_profile: bool = True) -> di
     can't load, the fresh browser carries ``real_profile_unavailable`` so the first result tells the model it
     is signed out. The hybrid sidecar passes ``allow_real_profile=False``: the user's cookie jar must not
     reach an arbitrary internal host the model chose."""
+    from tools.terminal_tool import _get_env_config
+    _get_env_config()
     fallback_note = None
     if allow_real_profile:
         from tools.browser_session_real_profile import real_profile_cdp, real_profile_fallback_note, real_profile_key
@@ -303,9 +297,6 @@ def _backend_dead(session_info: dict[str, Any]) -> bool:
         from tools.browser_lightpanda import get_server
         server = get_server(session_info.get("session_name", ""))
         return server is None or not server.is_alive()
-    if features.get("sandbox"):
-        from tools.browser_session_sandbox import sandbox_browser_alive
-        return not sandbox_browser_alive(session_info)
     launcher_key = session_info.get("launcher_key")
     if launcher_key:
         from tools.browser_launcher import get_browser

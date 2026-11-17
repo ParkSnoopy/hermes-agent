@@ -783,7 +783,7 @@ class TestSmartDeniedPrompt:
         )
 
         assert result == "deny"
-        assert captured == {"allow_permanent": False, "smart_denied": True}
+        assert captured == {"allow_permanent": False, "smart_denied": True, "title": None}
 
     def test_short_prompt_smart_deny_rejects_session_input(self):
         with mock_patch("builtins.input", return_value="session"):
@@ -1953,7 +1953,7 @@ class TestApprovalPromptRedaction:
         """prompt_dangerous_approval hands the callback a masked command."""
         seen = {}
 
-        def cb(command, description, *, allow_permanent=True):
+        def cb(command, description, *, allow_permanent=True, title=None):
             seen["command"] = command
             seen["description"] = description
             return "deny"
@@ -1973,7 +1973,7 @@ class TestApprovalPromptRedaction:
         """A command with no secret is shown verbatim -- no over-redaction."""
         seen = {}
 
-        def cb(command, description, *, allow_permanent=True):
+        def cb(command, description, *, allow_permanent=True, title=None):
             seen["command"] = command
             return "deny"
 

@@ -2001,17 +2001,9 @@ def write_platform_config_field(
 # except ``backend`` (historically ``TERMINAL_ENV``).
 TERMINAL_CONFIG_ENV_MAP = {
     "backend": "TERMINAL_ENV",
-    **{
-        key: f"TERMINAL_{key.upper()}"
-        for key in (
-            "degraded_mode", "cwd", "temp_dir", "timeout", "lifetime_seconds",
-            "docker_image", "docker_forward_env",
-            "vercel_runtime", "vercel_image", "ssh_host", "ssh_user", "ssh_port", "ssh_key",
-            "container_cpu", "container_memory", "container_disk", "container_persistent",
-            "docker_volumes", "docker_env", "docker_mount_cwd_to_workspace", "docker_network",
-            "docker_extra_args", "docker_shm_size", "docker_run_as_host_user", "docker_snap_compat",
-            "docker_persist_across_processes", "docker_shared_container_key",
-            "docker_orphan_reaper", "sandbox_dir", "persistent_shell")}}
+    **{key: f"TERMINAL_{key.upper()}" for key in (
+        "cwd", "temp_dir", "timeout", "home_mode", "lifetime_seconds", "local_persistent")}}
+
 
 
 def _terminal_env_value(value: Any) -> str:
@@ -2039,12 +2031,6 @@ def terminal_config_env_var_for_key(key: str) -> Optional[str]:
     return TERMINAL_CONFIG_ENV_MAP.get(key[len("terminal."):]) if key.startswith("terminal.") else None
 
 
-def _is_ssh_remote_tilde_cwd(backend: str, cwd: str) -> bool:
-    """Whether the remote SSH shell must expand *cwd* itself: ``~`` expanded on the Hermes host
-    would name the host/container home instead of the SSH user's."""
-    return (backend or "").strip().lower() == "ssh" and (cwd == "~" or cwd.startswith("~/"))
-
-
 def apply_terminal_config_to_env(
     *, env: Optional[dict[str, str]] = None, config: Optional[dict[str, Any]] = None,
     override: Optional[bool] = None) -> dict[str, str]:
@@ -2068,19 +2054,6 @@ def apply_terminal_config_to_env(
     # A caller-supplied config is its own source of explicit keys; otherwise only keys present
     # in raw config.yaml may override existing env values (DEFAULT_CONFIG keys are backfill-only).
     explicit_keys = terminal_cfg.keys() if config is not None else raw_terminal_cfg.keys()
-    backend_sources = (terminal_cfg.get("backend"), target.get("TERMINAL_ENV"))
-    if not (config is not None or "backend" in raw_terminal_cfg):
-        backend_sources = backend_sources[::-1]  # env wins when the file did not set backend
-    terminal_backend = str(backend_sources[0] or backend_sources[1] or "")
-    # Whether docker_image is the user's choice (config.yaml key, or TERMINAL_DOCKER_IMAGE set before
-    # any bridge ran) or the shipped default. DockerEnvironment recreates a persisted container on
-    # image mismatch only for a pinned image; a default flip keeps the user's sandbox and asks.
-    # Children inherit both vars, so a launcher's verdict is kept unless the file pins it.
-    if should_override and "docker_image" in explicit_keys:
-        target["TERMINAL_DOCKER_IMAGE_PINNED"] = "1"
-    elif "TERMINAL_DOCKER_IMAGE_PINNED" not in target:
-        target["TERMINAL_DOCKER_IMAGE_PINNED"] = "1" if "TERMINAL_DOCKER_IMAGE" in target else "0"
-
     for cfg_key, env_var in TERMINAL_CONFIG_ENV_MAP.items():
         if cfg_key not in terminal_cfg:
             continue
@@ -2088,8 +2061,7 @@ def apply_terminal_config_to_env(
         if not _terminal_config_value_is_bridgeable(cfg_key, value):
             continue
         if cfg_key == "cwd":
-            raw_cwd = str(value or "").strip()
-            if isinstance(value, str) and not _is_ssh_remote_tilde_cwd(terminal_backend, raw_cwd):
+            if isinstance(value, str):
                 value = os.path.expanduser(value)
         if (should_override and cfg_key in explicit_keys) or env_var not in target:
             target[env_var] = _terminal_env_value(value)
@@ -3552,7 +3524,7 @@ _USAGE_GET = ("Usage: hermes config get <key> [--json] [--raw]", [
     "hermes config get model", "hermes config get terminal.backend",
     "hermes config get skills.config --json"], None)
 _USAGE_SET = ("Usage: hermes config set [--force] <key> <value>", [
-    "hermes config set model anthropic/claude-sonnet-4", "hermes config set terminal.backend docker",
+    "hermes config set model anthropic/claude-sonnet-4", "hermes config set terminal.backend local",
     "hermes config set OPENROUTER_API_KEY sk-or-..."], [
     "", "  --force: skip the unknown-key notice for unrecognized keys,",
     "           and allow a scalar to replace a whole mapping section"])

@@ -230,7 +230,7 @@ def test_locked_key_refused_by_config_set_without_sending(plane, capsys):
 def test_locked_key_refused_by_backend_single_key_write(plane):
     plane.upper_locks = [{"path": "terminal", "level": "tenant"}]
     with pytest.raises(ConfigLockedError) as exc:
-        write_config_key(plane.home / "config.yaml", "terminal.backend", "local")
+        write_config_key(plane.home / "config.yaml", "terminal.timeout", 300)
     assert (exc.value.path, exc.value.locked_by) == ("terminal", "tenant")
     assert plane.patches() == []
 
@@ -882,11 +882,11 @@ def test_plane_refusals_map_to_http(status, error, expected):
 # --- portal-groups (multi-group plane, contract fixtureVersion 2 / ETag v2) ------------------
 
 def _multi_group_plane(plane):
-    plane.upper = {"terminal": {"backend": "docker"}, "model": {"default": "hermes-4"}}
-    plane.upper_locks = [{"path": "terminal.backend", "level": "group", "groupId": "g-sec"}]
+    plane.upper = {"terminal": {"timeout": 180}, "model": {"default": "hermes-4"}}
+    plane.upper_locks = [{"path": "terminal.timeout", "level": "group", "groupId": "g-sec"}]
     plane.groups = [{"groupId": "g-sec", "priority": 10, "version": 3},
                     {"groupId": "g-eng", "priority": 5, "version": 1}]
-    plane.group_provenance = {"terminal": {"backend": "g-sec"}}
+    plane.group_provenance = {"terminal": {"timeout": "g-sec"}}
 
 
 def test_multi_group_response_fields_are_ignored_and_group_lock_refuses_client_side(plane):
@@ -897,11 +897,11 @@ def test_multi_group_response_fields_are_ignored_and_group_lock_refuses_client_s
 
     doc = read_raw_config()
 
-    assert doc["terminal"]["backend"] == "docker" and doc["model"]["default"] == "hermes-4"
-    assert get_config_backend().locked(plane.home, "terminal.backend") == "group"
+    assert doc["terminal"]["timeout"] == 180 and doc["model"]["default"] == "hermes-4"
+    assert get_config_backend().locked(plane.home, "terminal.timeout") == "group"
     with pytest.raises(ConfigLockedError) as exc:
-        write_config_key(plane.home / "config.yaml", "terminal.backend", "local")
-    assert (exc.value.path, exc.value.locked_by) == ("terminal.backend", "group")
+        write_config_key(plane.home / "config.yaml", "terminal.timeout", 300)
+    assert (exc.value.path, exc.value.locked_by) == ("terminal.timeout", "group")
     assert plane.patches() == []
     write_config_key(plane.home / "config.yaml", "model.default", "hermes-5")  # unlocked: written
     (p,) = plane.patches()
@@ -914,11 +914,11 @@ def test_plane_group_lock_refusal_maps_to_locked_error_and_403():
     from hermes_cli.web_routers._common import config_refusal_http
     from plugins.config_backends.remote import client
     exc = backend_mod.RemoteBackend._write_error(client.Response(
-        status=403, body={"error": "config_key_locked", "path": "terminal.backend", "lockedBy": "group",
-                          "lockedByGroupId": "g-sec", "message": "terminal.backend is locked by group g-sec"},
+        status=403, body={"error": "config_key_locked", "path": "terminal.timeout", "lockedBy": "group",
+                          "lockedByGroupId": "g-sec", "message": "terminal.timeout is locked by group g-sec"},
         etag=None, retry_after=None))
     assert isinstance(exc, ConfigLockedError)
-    assert (exc.path, exc.locked_by) == ("terminal.backend", "group")
+    assert (exc.path, exc.locked_by) == ("terminal.timeout", "group")
     http = config_refusal_http(exc)
     assert http is not None and http.status_code == 403 and "locked by group" in http.detail
 
@@ -1492,10 +1492,9 @@ def test_config_only_migration_ladder_touches_no_file(tmp_path, monkeypatch, con
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
-    for name in ("HERMES_CONFIG_BACKEND", "LLM_MODEL", "OPENAI_MODEL", "TERMINAL_VERCEL_RUNTIME"):
+    for name in ("HERMES_CONFIG_BACKEND", "LLM_MODEL", "OPENAI_MODEL"):
         monkeypatch.delenv(name, raising=False)
-    from hermes_cli.config_defaults import LEGACY_VERCEL_RUNTIME
-    (home / ".env").write_text(f"LLM_MODEL=old-model\nTERMINAL_VERCEL_RUNTIME={LEGACY_VERCEL_RUNTIME}\n")
+    (home / ".env").write_text("LLM_MODEL=old-model\n")
     (home / "SOUL.md").write_text(_LEGACY_SOUL)
     _sibling_with_legacy_soul(home)
     doc = {"_config_version": config_migrations.SUPPORT_FLOOR_VERSION, "model": {"default": "m"}}

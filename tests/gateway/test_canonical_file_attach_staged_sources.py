@@ -20,19 +20,16 @@ import pytest_asyncio
 
 
 
-async def _authority_with_old_desktop_chat(tmp_path, monkeypatch, cwd=None):
-    """This home's session authority over a store holding one ended pre-gateway Desktop chat."""
+async def _authority(tmp_path, monkeypatch):
+    """This home's session authority over an isolated local store."""
     from gateway import run
     from gateway.config import GatewayConfig
     from gateway.session import SessionStore
     from gateway.session_authority import initialize_session_authority
     monkeypatch.setenv('HERMES_HOME', str(tmp_path))
-    monkeypatch.setattr(run, '_load_gateway_config', lambda: {'platform_toolsets': {'gui': []}})
+    monkeypatch.setattr(run, '_load_gateway_config', lambda: {'platform_toolsets': {'cli': []}})
     store = SessionStore(tmp_path / 'sessions', GatewayConfig())
     db = store._db
-    db.create_session('old-desktop', source='desktop', model='old-model', cwd=str(cwd or tmp_path))
-    db.append_message('old-desktop', role='user', content='OLD-DESKTOP')
-    db.end_session('old-desktop', 'session_switch')
     runner = SimpleNamespace(session_store=store, _session_db=db, adapters={}, _draining=False,
                              _cached_agent_for=lambda route: None)
     runner._adapter_for_source = lambda source: runner.adapters.get(source.platform)
@@ -52,15 +49,16 @@ def _attach(authority, tickets, purpose, subject):
 
 @pytest_asyncio.fixture
 async def owner(tmp_path, monkeypatch):
-    """The profile's owner with one adopted chat open on a native connection, serving a sibling profile."""
+    """The profile's owner with one local chat open on a native connection, serving a sibling profile."""
     from gateway.runtime_bootstrap import TicketStore
+    from gateway.session_local import create_local_session
     from hermes_cli import install_identity
 
     monkeypatch.setattr(install_identity, '_INSTALL_ID_CACHE', {'root': None, 'value': None})
     # The chat runs in a workspace of its own: a pick from the profile's uploads/ is copied, never referenced.
     workspace = tmp_path / 'workspace'
     workspace.mkdir()
-    authority = await _authority_with_old_desktop_chat(tmp_path, monkeypatch, cwd=workspace)
+    authority = await _authority(tmp_path, monkeypatch)
     worker = tmp_path / 'profiles' / 'worker'
     worker.mkdir(parents=True)
     (worker / 'config.yaml').write_text('{}\n', encoding='utf-8')
@@ -71,7 +69,9 @@ async def owner(tmp_path, monkeypatch):
     served.add(worker, SimpleNamespace(profile_id=str(worker), retired=False))
     authority.runner.session_authorities = served
     host = _attach(authority, TicketStore('first', frozenset({authority.profile_id})), 'interactive', 'uid:1000')
-    resumed = await host.dispatch({'id': 'resume', 'method': 'session.resume', 'params': {'session_id': 'old-desktop'}})
+    ref = create_local_session(authority, host.actor, {'request_id': 'attachments', 'source': 'cli',
+                                                      'cwd': str(workspace), 'model': 'fixture', 'toolsets': []})
+    resumed = await host.dispatch({'id': 'resume', 'method': 'session.resume', 'params': {'session_id': ref.session_id}})
     assert 'result' in resumed, resumed
 
     def upload(home=tmp_path, payload=b'browser payload'):
@@ -82,7 +82,7 @@ async def owner(tmp_path, monkeypatch):
 
     async def attach(receipt, connection=host, **extra):
         reply = await connection.dispatch({'id': 'attach', 'method': 'file.attach', 'params': {
-            'session_id': 'old-desktop', 'name': 'notes.txt', 'staged_upload': receipt, **extra}})
+            'session_id': ref.session_id, 'name': 'notes.txt', 'staged_upload': receipt, **extra}})
         return reply.get('result') or reply.get('error', {}).get('message')
 
     return SimpleNamespace(home=tmp_path, worker=worker, attachments=tmp_path / 'attachments', upload=upload,
@@ -96,9 +96,7 @@ async def test_a_staged_pick_is_copied_into_the_session_cache_without_retransmis
     attached = await owner.attach(receipt)
     assert isinstance(attached, dict) and attached['attached'] is True and attached['uploaded'] is True, attached
     stored = Path(attached['path'])
-    # The cache directory container/SSH terminal backends mount.
-    from tools.credential_files import _CACHE_DIRS
-    assert stored.parent == owner.attachments and stored.parent.name in {rel for rel, _ in _CACHE_DIRS}
+    assert stored.parent == owner.attachments
     assert stored.read_bytes() == Path(receipt['path']).read_bytes() == b'browser payload'
     assert attached['ref_text'].startswith('@file:')
 
@@ -178,15 +176,18 @@ async def home_in_workspace(request, tmp_path, monkeypatch):
     unless ``terminal.cwd`` says otherwise; a default profile home is ``~/.hermes``) or the profile
     home itself."""
     from gateway.runtime_bootstrap import TicketStore
+    from gateway.session_local import create_local_session
     from hermes_cli import install_identity
 
     monkeypatch.setattr(install_identity, '_INSTALL_ID_CACHE', {'root': None, 'value': None})
     home = tmp_path / '.hermes'
     home.mkdir()
     workspace = tmp_path if request.param == 'home-folder' else home
-    authority = await _authority_with_old_desktop_chat(home, monkeypatch, cwd=workspace)
+    authority = await _authority(home, monkeypatch)
     host = _attach(authority, TicketStore('first', frozenset({authority.profile_id})), 'interactive', 'uid:1000')
-    resumed = await host.dispatch({'id': 'resume', 'method': 'session.resume', 'params': {'session_id': 'old-desktop'}})
+    ref = create_local_session(authority, host.actor, {'request_id': 'attachments', 'source': 'cli',
+                                                      'cwd': str(workspace), 'model': 'fixture', 'toolsets': []})
+    resumed = await host.dispatch({'id': 'resume', 'method': 'session.resume', 'params': {'session_id': ref.session_id}})
     assert 'result' in resumed, resumed
 
     def upload(payload):
@@ -196,7 +197,7 @@ async def home_in_workspace(request, tmp_path, monkeypatch):
 
     async def attach(params):
         reply = await host.dispatch({'id': 'attach', 'method': 'file.attach', 'params': {
-            'session_id': 'old-desktop', 'name': 'notes.txt', **params}})
+            'session_id': ref.session_id, 'name': 'notes.txt', **params}})
         return reply.get('result') or reply.get('error', {}).get('message')
 
     return SimpleNamespace(home=home, upload=upload, attach=attach)

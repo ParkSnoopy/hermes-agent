@@ -61,7 +61,7 @@ class _TerminalSlot:
                     command = ref.args["command"]
                     if not ref.args.get("background"):
                         command = tt.trailing_amp_background_command(command) or command
-                    self.guard_key = (command, config["env_type"], tt._docker_has_host_access(config))
+                    self.guard_key = (command, config["env_type"])
                     self.decision = tt._check_all_guards(*self.guard_key)
                 finally:
                     reset_current_observability_context(tokens)
@@ -216,7 +216,7 @@ def register_prepared_approval(session_key, entry):
         slot.batch.pending_approvals.append((session_key, entry))
 
 
-def consume_prepared_guard(command, env_type, has_host_access):
+def consume_prepared_guard(command, env_type):
     slot = _slot.get()
     if slot is None or slot.preparing:
         return None
@@ -233,7 +233,7 @@ def consume_prepared_guard(command, env_type, has_host_access):
         return None
     from tools.approval_context import _approval_tool_call_id
     if (_approval_tool_call_id.get() != slot.parsed.ref(slot.batch.task_id).call_id
-            or slot.guard_key != (command, env_type, has_host_access)):
+            or slot.guard_key != (command, env_type)):
         return None
     decision, slot.decision = slot.decision, None  # single-use, even for identical calls
     # Batching exists to publish the human asks together. An approval nobody answered (/yolo,

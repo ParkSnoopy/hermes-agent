@@ -31,13 +31,13 @@ pull_request / push main
  ├─ ci.yaml  (CI)  ── detect ──┬─ tests.yml ─────────────── (e2e jobs: release/dispatch only)
  │                             ├─ tests-os.yml ──────────── windows-install-update-e2e.yml
  │                             ├─ lint.yml, js-tests.yml, catalog-tests.yml
- │                             ├─ remote-backends.yml, bootstrap-installer.yml, docs-site-checks.yml
+ │                             ├─ bootstrap-installer.yml, docs-site-checks.yml
  │                             ├─ repo-guards.yml (one job: every cheap guard as a lane-gated step)
  │                             └─ all-checks-pass  ← the ONLY required branch-protection check
  │                                                   (+ the CI timing report steps)
  ├─ docker.yml   (own run; build/test, push :main on main)
  ├─ nix.yml      (own run; nix flake check)
- └─ path-filtered: pm-bundle, termux-verify, plugin-catalog-ci, sandbox-image, windows-bundle-sdk
+ └─ path-filtered: pm-bundle, termux-verify, plugin-catalog-ci, windows-bundle-sdk
 
 workflow_run CI started  → ci-review-comment.yml (live PR comment)
 PR labeled run-e2e       → label-rerun.yml (reruns CI, Docker, Nix)
@@ -192,7 +192,6 @@ Then a gate step in `ci.yaml` rewrites the result:
 | `site` | the Docusaurus site |
 | `bootstrap` | `install.sh` and its pin fragments and stamp |
 | `desktop_updater` | `scripts/desktop-update/` and its Windows hand-off tests |
-| `remote_backends` | the SSH/Docker terminal backends, the terminal tool, their real-backend tests |
 | `uv_lock` | `pyproject.toml` or `uv.lock` |
 | `deps` | `pyproject.toml` |
 | `scan` | Python files, `.pth`, setup hooks |
@@ -224,7 +223,6 @@ of every suite that reads it.
 | JS & TS checks | `js-tests.yml` | `frontend` | no frontend change |
 | Rust tests | `rust-tests.yml` | `rust` | no Rust change |
 | Catalog tests | `catalog-tests.yml` | `catalog` | no catalog data change |
-| Remote terminal backends | `remote-backends.yml` | `remote_backends` | no backend change |
 | Bootstrap installer | `bootstrap-installer.yml` | `bootstrap` | no installer change |
 | Desktop E2E | `e2e-desktop.yml` | **never** (`if: false`, deferred as flaky) | always |
 | Desktop core E2E | `e2e-desktop-core.yml` | `e2e_desktop_core` (release or dispatch) | PRs and pushes |
@@ -260,11 +258,11 @@ ones. OSV runs on a weekly schedule.
 
 - **Regular mode (PR / push / dispatch without `release`):** any non-success
   that is not an allowed skip fails the gate. Skips are allowed, except for
-  the lane-bound consumers `tests`, `tests-os`, `e2e-desktop-update`,
-  `remote-backends` and `catalog-tests`: when `detect` selected their lane,
+  the lane-bound consumers `tests`, `tests-os`, `catalog-tests` and
+  `bootstrap-installer`: when `detect` selected their lane,
   they must succeed.
-- **Release mode:** every required job must be `success`. Only the deferred
-  `e2e-desktop` may skip. The PR-only checks are steps of `repo-guards`, which
+- **Release mode:** every required job must be `success`. The PR-only checks
+  are steps of `repo-guards`, which
   runs on every event, so they never reach the gate as a skip.
 
 Branch protection requires only this check. The `(v2)` suffix is deliberate.
@@ -313,7 +311,6 @@ branch protection.
 | `pm-bundle.yml`, **PM Bundle** | `pull_request` on `pm/**` (not `*.md`), `scripts/bundles/**`, the Windows build deps, `uv.lock`, `pyproject.toml`, itself; `workflow_dispatch`; `workflow_call` (stable) | Stages and smoke-tests `hermes pm bundle` on darwin-arm64, win32-x64, win32-arm64. Linux targets are commented out; there is no Intel macOS leg. | `gh workflow run pm-bundle.yml [-f ref=<sha>]` |
 | `termux-verify.yml`, **Termux verification** | `push: main` / `pull_request` on `scripts/termux/**`, `pm/**` (not `*.md`), `tests/scripts/test_termux*`, itself; `workflow_dispatch`; `workflow_call` (stable) | `contracts` and `tui` always run. `r2-provisioned` is skipped on PRs. `native-runtime` (arm64) runs only when R2 secrets exist or `release: true`. A release run fails loudly without R2. | `gh workflow run termux-verify.yml` |
 | `plugin-catalog-ci.yml`, **Plugin Catalog CI** | `pull_request` on `plugin-catalog/**` | `structural` (schema) and `pinned-source-validate` (the pinned SHA is reachable and the plugin passes `hermes plugins validate`; inner steps skip when no entry file changed). | none |
-| `sandbox-image.yml`, **Sandbox desktop image** | `pull_request` on its Dockerfile and smoke script; `release: published`; `workflow_dispatch` (`publish`) | `build`+smoke on the upstream repo only. `publish`/`merge` (push `nousresearch/hermes-sandbox:desktop`) only on `release` or a dispatch with `publish=true`. Never on `main` pushes. | `gh workflow run sandbox-image.yml -f publish=true` |
 | `windows-bundle-sdk.yml`, **Windows bundle SDK** | `pull_request` on the Windows bundle and signing scripts plus their tests; `workflow_dispatch` | Runs the real Windows SDK downloader on cold Windows runners. | `gh workflow run windows-bundle-sdk.yml --ref <branch>` |
 
 ---
@@ -480,7 +477,6 @@ gh workflow run install-e2e-red.yml -f run-id=<id> -f dry-run=false
 | Workflow | Triggers | Notes |
 |---|---|---|
 | `live-providers.yml`, **Live provider canaries** | `push: tags v*`; `workflow_dispatch` (`filter`) | Live calls to real provider APIs, upstream only. Each case skips when its `LIVE_*_API_KEY` secret is missing. Tags pushed by `GITHUB_TOKEN` do not start it, and stable attempt refs (`rc.*`) do not match `v*`. In practice it runs on dispatch or on a `v*` tag a person pushes. `gh workflow run live-providers.yml -f filter='openrouter-anthropic'` |
-| `sandbox-image.yml` | see [standalone](#standalone-pr--main-checks) | Publishes `:desktop` on `release: published` or dispatch. |
 | `deploy-site.yml` | see [post-merge](#post-merge-automation-on-main) | The Vercel deploy runs on `release: published` or dispatch. |
 
 ---
@@ -531,9 +527,7 @@ gh workflow run windows-install-update-e2e.yml --ref <branch> -f strict_acceptan
 | `osv-scanner.yml` | OSV-Scanner | cron Mon 09:00, dispatch | none |
 | `plugin-catalog-ci.yml` | Plugin Catalog CI | PR (paths) | none |
 | `pm-bundle.yml` | PM Bundle | PR (paths), dispatch, call | stable |
-| `remote-backends.yml` | Remote terminal backends | R | ci |
 | `repo-guards.yml` | Repository guards | R | ci |
-| `sandbox-image.yml` | Sandbox desktop image | PR (paths), release published, dispatch | none |
 | `skills-index-freshness.yml` | Skills Index Freshness Check | cron 4 h, dispatch | none |
 | `skills-index.yml` | Build Skills Index | cron 06:00/18:00, main (paths), dispatch | none |
 | `stable-release-publication.yml` | Stable Release Publication | workflow_run(Stable Release completed), dispatch | none |
@@ -563,5 +557,5 @@ coverage:
   on every push to `main`. The `detect` gate in `ci.yaml` is authoritative:
   the E2E lanes are off for every PR and every push.
 - The `push: tags` / `release: published` triggers (`live-providers`,
-  `deploy-site` Vercel job, `sandbox-image` publish) do not fire for tags and
+  `deploy-site` Vercel job) do not fire for tags and
   releases that automation creates with `GITHUB_TOKEN`.

@@ -16,8 +16,6 @@ def _make_env_config(**overrides):
         "env_type": "local",
         "timeout": 180,
         "cwd": "/tmp",
-        "host_cwd": None,
-        "docker_image": "",
     }
     config.update(overrides)
     return config

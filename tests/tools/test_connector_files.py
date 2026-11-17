@@ -89,7 +89,7 @@ class Storage:
 @pytest.fixture(autouse=True)
 def _fresh_schema_cache(monkeypatch):
     monkeypatch.setattr(files, "_FILE_INPUTS", {})
-    for name in ("HERMES_MEDIA_DELIVERY_STRICT", "TERMINAL_ENV", "TERMINAL_DOCKER_VOLUMES", "TERMINAL_CWD"):
+    for name in ("HERMES_MEDIA_DELIVERY_STRICT", "TERMINAL_CWD"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -301,29 +301,6 @@ def test_dispatch_resolves_a_relative_path_in_the_calling_task_s_directory(tmp_p
 
     assert [put["data"] for put in storage.requests] == [b"from the task directory"]
 
-
-def test_a_docker_path_is_read_through_its_volume_mount(tmp_path, monkeypatch):
-    host = tmp_path / "shared"
-    _pdf(host / "report.pdf", b"from the container mount")
-    monkeypatch.setenv("TERMINAL_ENV", "docker")
-    monkeypatch.setenv("TERMINAL_DOCKER_VOLUMES", json.dumps([f"{host}:/data"]))
-    gateway, storage = Gateway(), Storage()
-
-    entry = _execute(gateway, storage, {"attachment": "/data/report.pdf"})
-
-    assert entry["response"] == {"sent": True}
-    assert gateway.requests[1]["json"]["filename"] == "report.pdf"
-    assert [put["data"] for put in storage.requests] == [b"from the container mount"]
-
-
-def test_a_remote_terminal_backend_is_refused_like_media_delivery(tmp_path, monkeypatch):
-    monkeypatch.setenv("TERMINAL_ENV", "ssh")
-    gateway, storage = Gateway(), Storage()
-
-    entry = _execute(gateway, storage, {"attachment": "/home/me/q3.pdf"})
-
-    assert entry["error"]["code"] == "FILE_NOT_ALLOWED" and "ssh" in entry["error"]["message"]
-    assert "files/upload" not in gateway.routes() and storage.requests == []
 
 
 def test_a_storage_descriptor_from_the_model_is_refused_with_a_hint():

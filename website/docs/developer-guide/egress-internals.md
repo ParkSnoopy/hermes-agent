@@ -6,6 +6,10 @@ description: "How the iron-proxy egress firewall integrates with Hermes — modu
 
 # Egress proxy internals
 
+:::danger Historical integration
+The Docker terminal backend and its automatic proxy wiring have been removed. The material below describes the former implementation and is not an operational security guide for local terminal execution. Do not rely on it for credential isolation or egress enforcement.
+:::
+
 This page covers the architecture of the egress credential-injection firewall (`hermes egress` / iron-proxy) from a contributor / plugin author's perspective. End-user setup + usage docs live at [Egress proxy](../user-guide/egress/iron-proxy.md).
 
 The threat model and high-level design are summarised on the user page; this page is about *how* it's wired, where the security-relevant code lives, and what invariants you have to preserve if you touch it.

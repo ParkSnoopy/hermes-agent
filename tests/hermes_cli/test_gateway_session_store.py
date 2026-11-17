@@ -487,6 +487,16 @@ def test_verbose_flag_rides_session_create():
     assert "verbose" not in _creation_policy({"verbose": None})
 
 
+@pytest.mark.parametrize("backend", ["docker", "ssh", "singularity", "modal", "daytona", "plugin-backend"])
+def test_retired_terminal_selection_refuses_session_creation_before_rpc(store, monkeypatch, tmp_path, backend):
+    db, client = store
+    monkeypatch.setenv("TERMINAL_ENV", backend)
+    monkeypatch.setenv("TERMINAL_CWD", str(tmp_path / "missing-worktree"))
+    with pytest.raises(ValueError, match="Only 'local' is supported"):
+        db.create()
+    assert client.calls == []
+
+
 def test_row_cwd_is_mains_stamp_while_the_tools_run_in_terminal_cwd(store, monkeypatch, tmp_path):
     """Main's row cwd: the launching process's cwd on its first session (``-w`` never chdirs, so the
     repo root), none on ``/new`` and ``--create-if-missing``. The execution cwd stays TERMINAL_CWD."""
@@ -497,7 +507,7 @@ def test_row_cwd_is_mains_stamp_while_the_tools_run_in_terminal_cwd(store, monke
     tree.mkdir(parents=True)
     monkeypatch.chdir(repo)
     monkeypatch.setenv("TERMINAL_CWD", str(tree))
-    monkeypatch.delenv("TERMINAL_ENV", raising=False)
+
     monkeypatch.delenv("HERMES_SESSION_SOURCE", raising=False)
     db.open_session(cli(), {"toolsets": ["file"]})
     first = [p for m, p in client.calls if m == "session.create"][-1]
@@ -508,48 +518,10 @@ def test_row_cwd_is_mains_stamp_while_the_tools_run_in_terminal_cwd(store, monke
     monkeypatch.setattr(gss, "session_store", lambda: db)
     gss.create_titled_session("Fresh Named")
     assert [p for m, p in client.calls if m == "session.create"][-1]["row_cwd"] == ""
-    monkeypatch.setenv("TERMINAL_ENV", "docker")  # main stamps no host cwd for a remote backend
-    db.create({"toolsets": ["file"]})
-    assert [p for m, p in client.calls if m == "session.create"][-1]["row_cwd"] == ""
-
-
-@pytest.mark.parametrize("backend", ["docker", "ssh"])
-def test_a_sandbox_backend_sends_the_host_launch_dir_not_its_terminal_cwd(store, monkeypatch, tmp_path, backend):
-    """A docker/ssh ``terminal.cwd`` (bridged to TERMINAL_CWD) names a path inside the sandbox. The
-    owner checks ``cwd`` on its own host, so sending it refused every launch with ``invalid_params``;
-    like the thin client and the TUI, the classic CLI sends its host launch dir."""
-    from hermes_cli import gateway_session_store as gss
-    db, client = store
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("TERMINAL_CWD", "/project/not-on-this-host")
-    monkeypatch.setenv("TERMINAL_ENV", backend)
-    monkeypatch.delenv("HERMES_SESSION_SOURCE", raising=False)
-    db.create({"toolsets": ["file"]})
-    assert [p for m, p in client.calls if m == "session.create"][-1]["cwd"] == str(tmp_path.resolve())
-    monkeypatch.setattr(gss, "session_store", lambda: db)
-    gss.create_titled_session("Remote Named")
-    assert [p for m, p in client.calls if m == "session.create"][-1]["cwd"] == str(tmp_path.resolve())
-
-
-def test_a_mounting_docker_backend_sends_the_w_worktree_not_the_launch_dir(store, monkeypatch, tmp_path):
-    """``-w`` puts its host worktree in TERMINAL_CWD without a chdir. A docker backend mounting the
-    session cwd at ``/workspace`` would otherwise mount the original checkout, so the tools edit it
-    instead of the isolated tree."""
-    db, client = store
-    repo, tree = tmp_path / "repo", tmp_path / "repo" / ".worktrees" / "wt"
-    tree.mkdir(parents=True)
-    monkeypatch.chdir(repo)
-    monkeypatch.setenv("TERMINAL_CWD", str(tree))
-    monkeypatch.setenv("TERMINAL_ENV", "docker")
-    monkeypatch.setenv("TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE", "true")
-    monkeypatch.delenv("HERMES_SESSION_SOURCE", raising=False)
-    db.create({"toolsets": ["file"]})
-    assert [p for m, p in client.calls if m == "session.create"][-1]["cwd"] == str(tree.resolve())
 
 
 @pytest.mark.parametrize("entry", ["cli", "__main__"])
-@pytest.mark.parametrize("backend,mount", [("local", None), ("docker", "true")])
-def test_a_removed_w_worktree_is_sent_so_the_gateway_refuses_it(store, monkeypatch, tmp_path, backend, mount, entry):
+def test_a_removed_w_worktree_is_sent_so_the_gateway_refuses_it(store, monkeypatch, tmp_path, entry):
     """-w publishes its tree in TERMINAL_CWD without a chdir; once the tree is gone, creating from the
     original checkout would put the agent's edits there. Main sent the path and the gateway refused it.
     ``hermes -w`` records the tree in the imported ``cli`` module, ``python cli.py -w`` in ``__main__``."""
@@ -565,9 +537,6 @@ def test_a_removed_w_worktree_is_sent_so_the_gateway_refuses_it(store, monkeypat
     else:
         monkeypatch.setattr(sys.modules["__main__"], "_active_worktree", {"path": str(tree)}, raising=False)
     monkeypatch.setenv("TERMINAL_CWD", str(tree))
-    monkeypatch.setenv("TERMINAL_ENV", backend)
-    if mount:
-        monkeypatch.setenv("TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE", mount)
     monkeypatch.delenv("HERMES_SESSION_SOURCE", raising=False)
     db.create({"toolsets": ["file"]})
     assert [p for m, p in client.calls if m == "session.create"][-1]["cwd"] == str(tree.resolve())
@@ -576,8 +545,7 @@ def test_a_removed_w_worktree_is_sent_so_the_gateway_refuses_it(store, monkeypat
     assert [p for m, p in client.calls if m == "session.create"][-1]["cwd"] == str(tree.resolve())
 
 
-@pytest.mark.parametrize("backend,mount", [("local", None), ("docker", "true")])
-def test_a_project_resumed_after_w_is_sent_not_the_w_worktree(store, monkeypatch, tmp_path, backend, mount):
+def test_a_project_resumed_after_w_is_sent_not_the_w_worktree(store, monkeypatch, tmp_path):
     """``hermes -w`` in A, ``/resume`` of a session from B, then ``/new``: the resume moves cwd and
     TERMINAL_CWD to B but A stays recorded (its quit cleanup is still due), so A must not win."""
     import sys
@@ -589,9 +557,6 @@ def test_a_project_resumed_after_w_is_sent_not_the_w_worktree(store, monkeypatch
     monkeypatch.chdir(tmp_path / "a")
     monkeypatch.setitem(sys.modules, "cli", types.SimpleNamespace(_active_worktree={"path": str(tree)}))
     monkeypatch.setenv("TERMINAL_CWD", str(tree))
-    monkeypatch.setenv("TERMINAL_ENV", backend)
-    if mount:
-        monkeypatch.setenv("TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE", mount)
     monkeypatch.delenv("HERMES_SESSION_SOURCE", raising=False)
     CLISessionMixin._restore_session_cwd(types.SimpleNamespace(), {"cwd": str(project_b)}, quiet=True)
     db.create({"toolsets": ["file"]}, record_cwd=False)

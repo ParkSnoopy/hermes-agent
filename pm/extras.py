@@ -42,7 +42,6 @@ ANCHORS: dict[str, str | tuple[str, ...]] = {
 
     "keychain": "keyring",
 
-    "vercel": "vercel",
     "google": ("googleapiclient", "google.auth", "google_auth_oauthlib.flow", "google_auth_httplib2"),
 
     "google-meet": ("playwright.sync_api", "websockets"),

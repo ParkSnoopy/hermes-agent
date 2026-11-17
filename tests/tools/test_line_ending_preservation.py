@@ -21,7 +21,7 @@ def hermes_home(monkeypatch, tmp_path):
     file-staleness state) after the test so subsequent tests in the
     same pytest process aren't affected by our shell-out side effects
     (real file_ops and terminal environments get created under
-    task_id='default' via _resolve_container_task_id).
+    task_id='default' via _resolve_task_id).
     """
     home = tmp_path / "hermes"
     home.mkdir()

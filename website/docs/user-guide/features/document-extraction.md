@@ -31,7 +31,6 @@ Conversion output is Markdown, paginated through `read_file`'s normal `offset`/`
 
 Notebook cell outputs longer than 20,000 characters are truncated; the truncation marker carries a `jq` command that names the notebook's full, shell-quoted path so the omitted output can be pulled from the original file.
 
-Extraction works with remote terminal backends (Docker, SSH): the file's bytes are transferred across the backend boundary and converted host-side, so a document inside a sandbox reads the same as a local one.
 
 ## Scanned PDFs: the coverage warning
 

@@ -595,12 +595,11 @@ no longer spawns every helper process in the same instant. Trust policy stays pe
 profile: a `trust: untrusted` profile sharing a `trust: full` profile's
 connection is still asked before every write-capable call, and
 `supports_parallel_tool_calls` applies only to the profile that set it. Terminal settings
-(`terminal.backend`, `terminal.cwd`, `terminal.docker_volumes`,
-`terminal.docker_shared_container_key`, SSH targets, …) are likewise resolved
+(`terminal.backend`, `terminal.cwd`, …) are likewise resolved
 per profile on every routed turn: a profile that omits a terminal key gets the
 documented default, never the launch profile's value, and a profile whose
 `config.yaml`/`.env` cannot be parsed has terminal execution refused rather than
-run under another profile's sandbox policy. The media-delivery credential
+run under another profile's terminal policy. The media-delivery credential
 guard (the denylist behind `MEDIA:` attachments — `.env`, `auth.json`,
 `config.yaml`, `state.db`, session transcripts, OAuth token stores) covers every
 profile under `profiles/`, so no profile's turn can attach another profile's

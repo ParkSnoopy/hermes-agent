@@ -310,7 +310,7 @@ describe('describeShellExecError', () => {
     const text = describeShellExecError(err)
 
     expect(text).toContain(`terminal backend is ${backend}`)
-    expect(text).toContain('Ask the agent to run it instead')
+    expect(text).toContain('Set terminal.backend to local before running commands')
     expect(text).not.toContain('unsupported_terminal_backend')
   })
 
@@ -323,7 +323,7 @@ describe('describeShellExecError', () => {
     const text = describeShellExecError(bare)
 
     expect(text).toContain("this session's terminal backend isn't local")
-    expect(text).toContain('Ask the agent to run it instead.')
+    expect(text).toContain('Set terminal.backend to local before running commands.')
     expect(text).not.toContain('not local')
     expect(text).not.toContain("agent's terminal runs inside")
     expect(describeShellExecError(new JsonRpcGatewayError('dangerous_command', { code: 4001 }))).toBe('dangerous_command')

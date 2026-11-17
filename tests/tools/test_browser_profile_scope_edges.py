@@ -452,13 +452,11 @@ def real_profile_launches(tmp_path, monkeypatch):
     import os
     from tools import browser_launcher as launcher, browser_lightpanda, browser_session as bs
     from tools import browser_session_lifecycle as lifecycle
-    from tools.bot_desktop import placement, runtime
     import hermes_cli.browser_connect as bc
     for name in ("_active_sessions", "_session_last_activity", "_session_owner_homes", "_cleanup_failures"):
         monkeypatch.setattr(bs, name, {})
     monkeypatch.setattr(lifecycle, "start_cleanup_thread", lambda: None)
     monkeypatch.setattr(launcher, "_browsers", {})
-    monkeypatch.setattr(runtime, "tool_placement", lambda: placement.GATEWAY)
     monkeypatch.setattr(bs, "ensure_screen_for_headed_chromium", lambda: None)
     monkeypatch.setattr(browser_lightpanda, "using_lightpanda_engine", lambda: False)
     monkeypatch.setattr(bc, "detect_default_chromium", lambda system=None: "chrome")

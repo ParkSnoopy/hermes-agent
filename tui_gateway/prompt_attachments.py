@@ -158,8 +158,6 @@ def _session_attachments_workspace(session: dict) -> Path | None:
     for, so both keep the bind-mounted ``<profile home>/attachments`` that container and
     remote backends receive (#76577)."""
     import contextlib as _contextlib
-    if _cwd_is_remote(session.get("profile_home")):
-        return None
     with _contextlib.suppress(Exception):
         workspace = Path(_session_cwd(session)).resolve()
         if workspace.is_dir():

@@ -81,13 +81,10 @@ def _compress_preview_reply(history, partial: bool, keep_last, focus_topic, agg_
 
 
 def _reset_process_scoped_tool_state() -> None:
-    """Drop env-passthrough and credential-file state at a conversation boundary (best-effort)."""
+    """Drop env-passthrough state at a conversation boundary (best-effort)."""
     with contextlib.suppress(Exception):
         from tools.env_passthrough import clear_env_passthrough
         clear_env_passthrough()
-    with contextlib.suppress(Exception):
-        from tools.credential_files import clear_credential_files
-        clear_credential_files()
 
 
 def _branch_row(msg: dict) -> dict:

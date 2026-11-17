@@ -581,18 +581,10 @@ def _start_gateway_resolve_terminal_cwd() -> None:
     from gateway.cwd_placeholder import CWD_PLACEHOLDERS, resolve_placeholder_terminal_cwd
     configured_cwd = os.environ.get("TERMINAL_CWD", "")
     if not configured_cwd or configured_cwd in CWD_PLACEHOLDERS:
-        resolved_cwd = resolve_placeholder_terminal_cwd(
+        os.environ["TERMINAL_CWD"] = resolve_placeholder_terminal_cwd(
             configured_cwd=configured_cwd,
-            terminal_backend=os.environ.get("TERMINAL_ENV", ""),
             messaging_cwd=os.getenv("MESSAGING_CWD"),
-            docker_mount_cwd_to_workspace=os.getenv(
-                "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE", "false").lower()
-            in {"true", "1", "yes"},
             home_fallback=str(Path.home()))
-        if resolved_cwd is None:
-            os.environ.pop("TERMINAL_CWD", None)
-        else:
-            os.environ["TERMINAL_CWD"] = resolved_cwd
 
 
 # A browse that catches a lagging state.db up holds the profile's gateway.lock only for the drift

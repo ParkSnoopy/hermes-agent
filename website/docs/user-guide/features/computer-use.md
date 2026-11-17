@@ -41,16 +41,8 @@ no-foreground invariant, click-dispatch internals — see
 
 ## Which machine it drives
 
-`computer_use` acts on the same machine the bot's screen lives on, never on
-the machine running Hermes Desktop. On a gateway with `terminal.backend:
-local` that is the gateway host. With a sandboxed terminal (`docker`, `ssh`,
-or a plugin backend that declares `supports_streams`, such as `singularity`) the
-driver runs **inside the sandbox** on the sandbox's own
-display, so it can only ever touch what the terminal can; the sandbox image
-must carry `cua-driver` (`nousresearch/hermes-sandbox:desktop` does). Vercel
-sandboxes cannot host a display yet, so with those
-backends `computer_use` refuses unless `bot_desktop.placement: gateway` opts
-into driving the host. Details: [Bot Screen → Where the screen
+`computer_use` acts on the machine running the gateway, which can differ from
+the machine running Hermes Desktop. See [Bot Screen → Where the screen
 runs](./bot-screen.md#where-the-screen-runs).
 
 ## Enabling

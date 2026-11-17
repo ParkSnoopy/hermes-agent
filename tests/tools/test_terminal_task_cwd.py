@@ -144,7 +144,7 @@ def test_background_command_prefers_recorded_session_cwd_over_init_time_cwd(monk
     monkeypatch.setattr(terminal_tool, "_task_env_overrides", {task_id: {"cwd": "/workspace/init"}})
     monkeypatch.setattr(terminal_tool, "_get_env_config", lambda: _minimal_terminal_config(cwd="/workspace/init"))
     monkeypatch.setattr(terminal_tool, "_start_cleanup_thread", lambda: None)
-    monkeypatch.setattr(terminal_tool, "_resolve_container_task_id", lambda value: value or "default")
+    monkeypatch.setattr(terminal_tool, "_resolve_task_id", lambda value: value or "default")
     monkeypatch.setattr(
         terminal_tool,
         "_check_all_guards",
@@ -170,71 +170,6 @@ def test_background_command_prefers_recorded_session_cwd_over_init_time_cwd(monk
     assert registry.calls[0]["session_key"] == task_id
 
 
-def test_host_local_background_command_bypasses_configured_backend(tmp_path, monkeypatch):
-    """Hermes control-plane children stay on the host when tools use Docker."""
-    calls = []
-
-    class FakeEnv:
-        env = {}
-        cwd = str(tmp_path)
-
-    class FakeRegistry:
-        pending_watchers = []
-
-        def spawn_local(self, **kwargs):
-            calls.append(("local", kwargs))
-            return SimpleNamespace(id="proc_host", pid=1234)
-
-        def spawn_via_env(self, **kwargs):
-            calls.append(("configured", kwargs))
-            raise AssertionError("host-local command reached configured backend")
-
-    import tools.process_registry as process_registry_mod
-    from tools import self_repo_guard
-
-    task_id = "bot-delivery"
-    monkeypatch.setattr(
-        terminal_tool,
-        "_get_env_config",
-        lambda: {
-            "env_type": "docker",
-            "docker_image": "python:3.11",
-            "cwd": str(tmp_path),
-            "timeout": 60,
-            "lifetime_seconds": 3600,
-        },
-    )
-    monkeypatch.setattr(
-        terminal_tool,
-        "_active_environments",
-        {f"host-local-{task_id}": FakeEnv()},
-    )
-    monkeypatch.setattr(terminal_tool, "_last_activity", {})
-    monkeypatch.setattr(terminal_tool, "_task_env_overrides", {})
-    monkeypatch.setattr(terminal_tool, "_start_cleanup_thread", lambda: None)
-    monkeypatch.setattr(terminal_tool, "_resolve_container_task_id", lambda value: value)
-    monkeypatch.setattr(terminal_tool, "_docker_has_host_access", lambda config: False)
-    monkeypatch.setattr(
-        terminal_tool,
-        "_check_all_guards",
-        lambda command, env_type, **kwargs: {"approved": env_type == "local"},
-    )
-    monkeypatch.setattr(self_repo_guard, "guard_active", lambda: False)
-    monkeypatch.setattr(process_registry_mod, "process_registry", FakeRegistry())
-
-    result = json.loads(
-        terminal_tool.terminal_tool(
-            command="host-runner",
-            task_id=task_id,
-            workdir=str(tmp_path),
-            background=True,
-            _host_local=True,
-        )
-    )
-
-    assert result["session_id"] == "proc_host"
-    assert calls[0][0] == "local"
-    assert calls[0][1]["task_id"] == f"host-local-{task_id}"
 
 
 def test_concurrent_commands_record_their_own_observed_cwd(monkeypatch, tmp_path):
@@ -274,7 +209,7 @@ def test_concurrent_commands_record_their_own_observed_cwd(monkeypatch, tmp_path
     monkeypatch.setattr(terminal_tool, "_last_activity", {})
     monkeypatch.setattr(terminal_tool, "_task_env_overrides", {})
     monkeypatch.setattr(terminal_tool, "_session_cwd", {})
-    monkeypatch.setattr(terminal_tool, "_resolve_container_task_id", lambda _value: "default")
+    monkeypatch.setattr(terminal_tool, "_resolve_task_id", lambda _value: "default")
     monkeypatch.setattr(terminal_tool, "_get_env_config", lambda: _minimal_terminal_config())
     monkeypatch.setattr(
         terminal_tool,

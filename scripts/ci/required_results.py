@@ -23,14 +23,13 @@ from typing import Any
 
 NEEDS_JSON_OUTPUT = "needs-json"
 
-# Reusable-workflow parents of the update/E2E consumers, and of the real
-# remote-backend and catalog lanes. The actual detect outputs already arrive in
+# Reusable-workflow parents of the update/E2E consumers and catalog lane.
+# The actual detect outputs already arrive in
 # toJSON(needs); a selected consumer cannot skip merely because this is a PR
 # rather than a release.
 _UPDATE_CONSUMER_LANES = {
     "tests": ("python", "e2e", "e2e_upgrade"),
     "tests-os": ("python", "e2e", "e2e_upgrade"),
-    "remote-backends": ("remote_backends",),
     "catalog-tests": ("catalog",),
     "bootstrap-installer": ("bootstrap",),
 }

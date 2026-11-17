@@ -179,7 +179,7 @@ terminal:
 
 Missing files are skipped silently. Sourcing happens in bash, so files that rely on zsh-only syntax may error — if that's a concern, source just the PATH-setting portion (e.g. nvm's `nvm.sh` directly) rather than the whole rc file.
 
-Independently of the init files, every terminal command's `PATH` is completed with the standard system directories (`/usr/local/bin`, `/opt/homebrew/bin`, …), the Hermes-managed runtime dirs, and `~/.local/bin` when it exists (the `pip --user` / `pipx` / `uv tool` install target) — appended after your own entries, so precedence is unchanged. This covers backends started with a thin non-interactive PATH (systemd, GUI launchers, the Desktop SSH remote backend) without any configuration.
+Independently of the init files, every terminal command's `PATH` is completed with the standard system directories (`/usr/local/bin`, `/opt/homebrew/bin`, …), the Hermes-managed runtime dirs, and `~/.local/bin` when it exists (the `pip --user` / `pipx` / `uv tool` install target) — appended after your own entries, so precedence is unchanged. This covers backends started with a thin non-interactive PATH (systemd and GUI launchers) without any configuration.
 
 To disable the auto-source behaviour (strict login-shell semantics only):
 
@@ -378,25 +378,6 @@ See [Context Length Detection](../integrations/providers.md#context-length-detec
 This is working as intended — Hermes never silently runs destructive commands. The approval prompt shows you exactly what will execute.
 :::
 
-
-#### Docker backend not connecting
-
-**Cause:** Docker daemon isn't running or the user lacks permissions.
-
-**Solution:**
-```bash
-# Check Docker is running
-docker info
-
-# Add your user to the docker group
-sudo usermod -aG docker $USER
-newgrp docker
-
-# Verify
-docker run hello-world
-```
-
----
 
 ### Gateway Issues
 

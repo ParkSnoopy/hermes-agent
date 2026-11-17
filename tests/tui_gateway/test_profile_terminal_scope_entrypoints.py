@@ -4,7 +4,7 @@
 home override, so every secondary-profile entrypoint must bind the owning terminal scope itself:
 side workers (``prompt.background`` / ``prompt.btw`` / ``preview.restart``) and agent builds
 (eager resume, ``session.branch``) used to bind only the home (+ secrets) and ran a
-``terminal.backend: docker`` secondary on the launch process's ``local`` backend.
+a secondary on the launch process's terminal policy.
 
 Launch-profile turns bind a scope once any secondary is served (#107422); that scope must carry
 the launch process's env-only policy (``TERMINAL_ENV=ssh`` from systemd / a launcher, no file to
@@ -41,12 +41,12 @@ def _secondary(tmp_path):
     home = tmp_path / "profiles" / "secondary"
     home.mkdir(parents=True)
     (home / "config.yaml").write_text(
-        "terminal:\n  backend: docker\n  docker_image: secondary:test\n", encoding="utf-8")
+        "terminal:\n  backend: local\n  timeout: 37\n", encoding="utf-8")
     return home
 
 
 def _observe(got):
-    got.update(scope_bound=get_terminal_scope() is not None, backend=tt._get_env_config()["env_type"])
+    got.update(scope_bound=get_terminal_scope() is not None, timeout=tt._get_env_config()["timeout"])
 
 
 def _run_side_worker(session, body):
@@ -66,7 +66,7 @@ def test_secondary_side_worker_runs_its_own_terminal_backend(tmp_path):
         return "done"
 
     _run_side_worker(session, body)
-    assert got == {"scope_bound": True, "backend": "docker"}
+    assert got == {"scope_bound": True, "timeout": 37}
     assert os.environ["TERMINAL_ENV"] == "local"  # never an ambient write
     assert get_terminal_scope() is None
 
@@ -78,7 +78,7 @@ def test_secondary_side_worker_runs_its_own_terminal_backend(tmp_path):
         raise RuntimeError("side turn blew up")
 
     _run_side_worker(session, exploding)
-    assert seen["backend"] == "docker"
+    assert seen["timeout"] == 37
     assert get_terminal_scope() is None
     assert os.environ["TERMINAL_ENV"] == "local"
 
@@ -95,7 +95,7 @@ def test_secondary_branch_build_runs_its_own_terminal_backend(tmp_path):
             patch.object(server, "_make_agent_in_context", build), \
             patch.object(server, "_init_session"), patch.object(server, "_transfer_db_to_agent"):
         server._build_branch_agent(session, "branch-sid", "branch-key", [], "gui")
-        assert got == {"scope_bound": True, "backend": "docker"}
+        assert got == {"scope_bound": True, "timeout": 37}
         assert get_terminal_scope() is None
 
         def failing(*a, **k):
@@ -142,17 +142,17 @@ def _launch_turn_policy(launch_home):
         server._clear_session_context(st.scopes.session_tokens)
 
 
-def test_launch_turn_keeps_env_only_ssh_policy_once_multiplexing_is_active(tmp_path, monkeypatch):
+def test_launch_turn_keeps_env_only_local_policy_once_multiplexing_is_active(tmp_path, monkeypatch):
     launch = tmp_path / "launch"
     launch.mkdir()
     (launch / "config.yaml").write_text("{}\n", encoding="utf-8")
     monkeypatch.setenv("HERMES_HOME", str(launch))
-    monkeypatch.setenv("TERMINAL_ENV", "ssh")
-    monkeypatch.setenv("TERMINAL_SSH_HOST", "example.test")
+    monkeypatch.setenv("TERMINAL_ENV", "local")
+    monkeypatch.setenv("TERMINAL_TIMEOUT", "42")
     ltp.activate_multi_profile_hosting()  # multiplex activation: first secondary served
 
     cfg = _launch_turn_policy(launch)
-    assert (cfg["env_type"], cfg["ssh_host"]) == ("ssh", "example.test")
+    assert (cfg["env_type"], cfg["timeout"]) == ("local", 42)
     assert get_terminal_scope() is None
 
 
@@ -161,15 +161,14 @@ def test_launch_turn_ignores_ambient_terminal_env_written_after_activation(tmp_p
     launch.mkdir()
     (launch / "config.yaml").write_text("{}\n", encoding="utf-8")
     monkeypatch.setenv("HERMES_HOME", str(launch))
-    monkeypatch.setenv("TERMINAL_ENV", "ssh")
-    monkeypatch.setenv("TERMINAL_SSH_HOST", "example.test")
+    monkeypatch.setenv("TERMINAL_ENV", "local")
+    monkeypatch.setenv("TERMINAL_TIMEOUT", "42")
     ltp.activate_multi_profile_hosting()
     # A secondary context later poisons the process env (the pre-#108440 latch shape).
     monkeypatch.setenv("TERMINAL_ENV", "docker")
-    monkeypatch.setenv("TERMINAL_DOCKER_IMAGE", "bee/img:1")
+    monkeypatch.setenv("TERMINAL_TIMEOUT", "99")
 
     cfg = _launch_turn_policy(launch)
-    assert cfg["env_type"] == "ssh"
-    assert cfg["ssh_host"] == "example.test"
-    assert cfg.get("docker_image") != "bee/img:1"
+    assert cfg["env_type"] == "local"
+    assert cfg["timeout"] == 42
     assert os.environ["TERMINAL_ENV"] == "docker"  # observed, never rewritten

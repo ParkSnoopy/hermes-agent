@@ -1,13 +1,4 @@
-"""A backend that confines execution keeps the file tools inside it.
-
-The file tools answer reads, writes, patches and searches on the host when the terminal backend runs
-on the host. A backend that subclasses ``LocalEnvironment`` but confines its commands (a bubblewrap
-sandbox: bind mounts, read-only paths, its own ``$TMPDIR``) sets ``uses_host_filesystem = False``, and
-then every file tool goes through ``env.execute`` and sees what the sandbox sees.
-
-The test backend exposes a real directory under a second path, the way a bind mount does: the view
-path exists only for commands it runs, so a tool result that names it came through ``execute``.
-"""
+"""Verify local file operations continue to use the host filesystem."""
 
 import json
 
@@ -36,8 +27,6 @@ class _MountedViewEnv(LocalEnvironment):
         return result
 
 
-class _ConfinedEnv(_MountedViewEnv):
-    uses_host_filesystem = False
 
 
 def _dispatch(name, task_id, **arguments):
@@ -53,31 +42,12 @@ def mounted(tmp_path, monkeypatch, request):
     (real / "a.txt").write_text("alpha\nbeta\n", encoding="utf-8")
     env = request.param(str(view), str(real))
     task_id = f"confined-{request.node.name}"
-    monkeypatch.setitem(terminal_tool._active_environments, terminal_tool._resolve_container_task_id(task_id), env)
+    monkeypatch.setitem(terminal_tool._active_environments, terminal_tool._resolve_task_id(task_id), env)
     yield env, view, real, task_id
     clear_file_ops_cache()
     env.cleanup()
 
 
-@pytest.mark.parametrize("mounted", [_ConfinedEnv], indirect=True)
-def test_confined_backend_runs_every_file_tool_through_execute(mounted):
-    _env, view, real, task = mounted
-
-    read = _dispatch("read_file", task, path=str(view / "a.txt"))
-    assert "alpha" in read.get("content", ""), read
-
-    written = _dispatch("write_file", task, path=str(view / "b.txt"), content="gamma\n")
-    assert "error" not in written, written
-    assert (real / "b.txt").read_text(encoding="utf-8") == "gamma\n"
-
-    patched = _dispatch("patch", task, path=str(view / "a.txt"), old_string="beta", new_string="delta")
-    assert "error" not in patched, patched
-    assert (real / "a.txt").read_text(encoding="utf-8") == "alpha\ndelta\n"
-
-    found = _dispatch("search_files", task, pattern="delta", path=str(view))
-    assert [m["path"] for m in found.get("matches", [])] == [str(view / "a.txt")], found
-
-    assert not view.exists(), "a file tool touched the host path instead of the sandbox"
 
 
 @pytest.mark.parametrize("mounted", [_MountedViewEnv], indirect=True)

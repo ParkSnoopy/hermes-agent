@@ -1687,7 +1687,7 @@ def register(ctx):
 - Each name has one plugin per profile. Declaring a name another loaded plugin of the same profile already declared raises `ValueError` naming that plugin. Unloading a plugin frees its names, and a reload of the same plugin declares them again. Your own plugin may declare a name in more than one call: the later registration's value wins, and disposing it brings back the earlier one's.
 - Names must be valid environment variable names. `HERMES_*` names are refused (they belong to core). Provider and Hermes credential names that the subprocess scrub removes are also removed from your values.
 - A resolver that raises is logged and contributes nothing; the command still runs. Keep it fast and local: it runs on every spawn.
-- Values apply on the local terminal backend only. Remote backends (Docker, SSH and other sandboxes) do not receive them.
+- Values apply to local terminal execution.
 
 ### Register CLI commands
 

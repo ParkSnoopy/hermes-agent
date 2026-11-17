@@ -30,10 +30,10 @@ from hermes_platform.host import facts
 from agent.redact import _is_secret_file_arg, redact_sensitive_text
 from tools.file_tools_paths import (
     _expand_tilde, _path_resolution_warning, _resolve_base_dir, _resolve_entry_for_task,
-    _resolve_path_for_task)
+    _resolve_path_for_task, _terminal_env_type_for_task)
 from tools.file_tools_write_guards import (
     _READ_DEDUP_STATUS_MESSAGE, _check_approval_required_write, _check_binary_document_write,
-    _check_cross_profile_path, _check_protected_instruction_write, _check_sensitive_path,
+    _check_protected_instruction_write, _check_sensitive_path,
     _is_internal_file_tool_content, _stale_overwrite_blocker, _stale_write_refusal)
 from tools.file_tools_read_tracking import (
     _bump_consecutive, _cap_read_tracker_data, _carry_full_write_baselines, _check_file_staleness,
@@ -133,17 +133,6 @@ _BLOCKED_PROC_SUFFIXES = (
     "/mem", "/auxv", "/pagemap")
 
 
-def _file_ops_uses_host_paths(file_ops) -> bool:
-    """True when *file_ops* targets the host filesystem (only then may we stat paths
-    or rewrite V4A headers to host-absolute paths; sandboxes have their own namespace)."""
-    env = getattr(file_ops, "env", None)
-    if env is None:
-        return True
-    from tools.environments.base import env_uses_host_filesystem
-
-    return env_uses_host_filesystem(env)
-
-
 # V4A file headers: group 1 = header prefix, 2 = op, 3 = path. ``\s*`` after
 # ``***`` mirrors patch_parser's leniency (``***Update File:`` applies, so it
 # must be checked).
@@ -160,9 +149,6 @@ def _rewrite_v4a_patch_paths_for_host(patch: str, path_to_resolved: dict, path_t
     (which can differ — the git-worktree cwd bug). Delete and Move headers take
     ``path_to_entry``: they act on a symlink itself, never on its target.
     """
-    if not _file_ops_uses_host_paths(file_ops):
-        return patch
-
     def _res(raw: str, entry: bool = False) -> str:
         raw = raw.strip()
         return (path_to_entry if entry else path_to_resolved).get(raw) or raw
@@ -269,42 +255,21 @@ _file_ops_cache: dict = {}
 def _create_terminal_env_for_file_ops(raw_task_id: str, task_id: str):
     """Build the terminal environment for *task_id* via the shared ``_create_configured_env``,
     so a file tool that runs before any terminal command still gets the configured backend."""
-    from tools.terminal_tool_config import _is_container_backend, coerce_ssh_remote_cwd
+    from tools.terminal_tool_config import require_local_environment
     from tools.terminal_tool import (
-        _create_configured_env, _get_env_config, _is_mounted_host_cwd, _is_unusable_container_cwd,
-        _resolve_task_host_cwd, _select_image, get_session_cwd, resolve_task_overrides)
+        _create_configured_env, _get_env_config, get_session_cwd, resolve_task_overrides)
 
     config = _get_env_config()
-    env_type = config["env_type"]
     overrides = resolve_task_overrides(raw_task_id)
+    env_type = require_local_environment(overrides.get("env_type", config["env_type"]))
     try:
         recorded_cwd = get_session_cwd(raw_task_id)
     except Exception:
         recorded_cwd = None
-    cwd = coerce_ssh_remote_cwd(overrides.get("cwd") or recorded_cwd or config["cwd"], env_type)
-    # Re-apply the container cwd guard: a gateway/TUI/ACP override is a raw HOST
-    # path and ``docker run -w <host-path>`` makes search_files & co silently
-    # return nothing. Valid in-container overrides (/workspace, /root) pass.
-    # Re-apply the container cwd guard that _get_env_config() already ran on config["cwd"] (see #50636). A
-    # per-task cwd override registered by the gateway/TUI/ACP for workspace tracking is a raw host path
-    # (e.g. a Desktop session's /Users/<me>/workspace or C:\\Users\\<me>). On a container backend that
-    # reaches ``docker run -w <host-path>`` and the container starts in a directory that doesn't exist
-    # inside the sandbox, so search_files and friends silently return empty results (#54447). Sanitize it
-    # back to the already-validated config["cwd"] so the override can't bypass the guard.
-    host_cwd = _resolve_task_host_cwd(config, raw_task_id)
-    if _is_container_backend(env_type) and _is_unusable_container_cwd(cwd, mounted_host=host_cwd):
-        fallback = "/workspace" if _is_mounted_host_cwd(cwd, host_cwd) else config["cwd"]
-        if cwd != fallback:
-            logger.info(
-                "Ignoring host/relative cwd override %r for %s backend "
-                "(won't exist in sandbox). Using %r instead.",
-                cwd, env_type, fallback)
-        cwd = fallback
+    cwd = overrides.get("cwd") or recorded_cwd or config["cwd"]
     logger.info("Creating new %s environment for task %s...", env_type, task_id[:8])
     terminal_env = _create_configured_env(
-        config, env_type, image=_select_image(env_type, overrides, config), cwd=cwd,
-        timeout=config["timeout"], task_id=task_id,
-        host_cwd=host_cwd,
+        config, env_type, cwd=cwd, timeout=config["timeout"],
     )
     return env_type, terminal_env
 
@@ -312,18 +277,19 @@ def _create_terminal_env_for_file_ops(raw_task_id: str, task_id: str):
 def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
     """Get or create ShellFileOperations for the task's terminal environment.
 
-    Uses terminal_tool's per-task creation locks (no duplicate sandboxes).
-    Subagent task_ids collapse to "default" (``_resolve_container_task_id``) so
-    delegate_task children share the parent's container; RL/benchmark task_ids
-    with a registered env override keep their isolation.
+    Uses terminal_tool's per-task creation locks and profile-qualified task keys.
     """
     from tools.terminal_tool import (
         _active_environments, _env_lock, _last_activity, _start_cleanup_thread,
-        _creation_locks, _creation_locks_lock, _resolve_container_task_id,
-        get_session_cwd, record_session_cwd)
+        _creation_locks, _creation_locks_lock, _resolve_task_id,
+        _get_env_config, get_session_cwd, record_session_cwd, resolve_task_overrides)
+    from tools.terminal_tool_config import require_local_environment
 
     raw_task_id = task_id or "default"
-    task_id = _resolve_container_task_id(raw_task_id)
+    config = _get_env_config()
+    overrides = resolve_task_overrides(raw_task_id)
+    require_local_environment(overrides.get("env_type", config["env_type"]))
+    task_id = _resolve_task_id(raw_task_id)
 
     # Fast path: cached AND the environment is still alive (cleanup thread may have killed it).
     with _file_ops_lock:
@@ -611,6 +577,7 @@ def read_file_tool(path: str, offset: int = 1, limit: int = DEFAULT_READ_LIMIT, 
     → negative-result cache → dedup stub → real read.
     """
     try:
+        _terminal_env_type_for_task(task_id)
         offset, limit = normalize_read_pagination(offset, limit)
 
         # On the RAW model-supplied string, before any expanduser()/resolve():
@@ -630,16 +597,15 @@ def read_file_tool(path: str, offset: int = 1, limit: int = DEFAULT_READ_LIMIT, 
         _resolved = _resolve_path_for_task(path, task_id)
 
         # A read on a FIFO/socket blocks until the exec timeout: a self-shipped DoS.
-        if _file_ops_uses_host_paths(_get_file_ops(task_id)):
-            kind = _special_file_kind(_resolved)
-            if kind is not None:
-                return json.dumps({
-                    "success": False,
-                    "note": (
-                        f"'{path}' is {kind}, not a regular file — reading "
-                        "it would block indefinitely, so no read was "
-                        "attempted. Use terminal utilities if you need to "
-                        "interact with it.")})
+        kind = _special_file_kind(_resolved)
+        if kind is not None:
+            return json.dumps({
+                "success": False,
+                "note": (
+                    f"'{path}' is {kind}, not a regular file — reading "
+                    "it would block indefinitely, so no read was "
+                    "attempted. Use terminal utilities if you need to "
+                    "interact with it.")})
 
         # Hermes internal denylist (prompt injection via catalog metadata,
         # credential stores). Runs BEFORE document extraction so a
@@ -677,12 +643,12 @@ def read_file_tool(path: str, offset: int = 1, limit: int = DEFAULT_READ_LIMIT, 
         # Same rule as skill_view: the review fork shares the parent's task_id and its
         # read-before-write guard needs a real read, which the stub path never records (#95976).
         file_ops = _get_file_ops(task_id)
-        version_before = _file_metadata(resolved_str) if _file_ops_uses_host_paths(file_ops) else None
+        version_before = _file_metadata(resolved_str)
         if (cached_version is not None and not is_background_review()
                 and version_before == cached_version and content_served_in_generation):
             return _dedup_stub_or_block(task_data, dedup_key, path)
 
-        result = file_ops.read_file(resolved_str if _file_ops_uses_host_paths(file_ops) else path, offset, limit)
+        result = file_ops.read_file(resolved_str, offset, limit)
         result_dict = result.to_dict()
 
         # Failed reads cannot establish whole-file knowledge.
@@ -768,8 +734,7 @@ def _resolve_or_none(filepath: str, task_id: str, *, entry: bool = False) -> str
         return None
 
 
-def _write_precheck_error(paths: list[str], content_paths: list[str], task_id: str,
-                          cross_profile: bool) -> str | None:
+def _write_precheck_error(paths: list[str], content_paths: list[str], task_id: str) -> str | None:
     """Run the shared write/patch guards in order; return the first error string.
 
     Order matters: hard denies (sensitive path, mirror) and the corruption
@@ -777,8 +742,7 @@ def _write_precheck_error(paths: list[str], content_paths: list[str], task_id: s
     prompt covers every path of a multi-file patch.
     """
     for p in paths:
-        err = _check_sensitive_path(p, task_id) or (
-            None if cross_profile else _check_cross_profile_path(p, task_id))
+        err = _check_sensitive_path(p, task_id)
         if err:
             return err
     for p in content_paths:
@@ -861,20 +825,18 @@ def _whole_file_rewrite_hint(task_id: str, resolved: str | None, new_content: st
 
 
 def write_file_tool(path: str, content: str, task_id: str = "default",
-                    cross_profile: bool = False,
                     session_id: str | None = None) -> str:
     """Write content to a file.
 
-    ``cross_profile`` bypasses the sandbox-mirror lost-write guards only
-    (unadvertised in the schema; the mirror rejection error teaches it — the
-    cross-PROFILE guard it was named for no longer exists).
     """
-    # write_file checks the binary-document guard before the mirror guard.
+    try:
+        _terminal_env_type_for_task(task_id)
+    except ValueError as exc:
+        return tool_error(str(exc))
     err = (_check_sensitive_path(path, task_id)
            or _check_binary_document_write(path, task_id)
            or _check_protected_instruction_write([path], task_id)
-           or _check_approval_required_write([path], task_id)
-           or (None if cross_profile else _check_cross_profile_path(path, task_id)))
+           or _check_approval_required_write([path], task_id))
     if not err and _is_internal_file_tool_content(content):
         err = ("Refusing to write internal read_file display text as file content. "
                "Strip read_file line-number prefixes or reconstruct the intended "
@@ -958,13 +920,15 @@ def _collect_v4a_header_paths(patch: str) -> tuple[list[str], list[str], list[st
 
 def patch_tool(mode: str = "replace", path: str | None = None, old_string: str | None = None,
                new_string: str | None = None, replace_all: bool = False, patch: str | None = None,
-               task_id: str = "default", cross_profile: bool = False,
+               task_id: str = "default",
                session_id: str | None = None) -> str:
     """Patch a file using replace mode or V4A patch format.
 
-    ``cross_profile``: same semantics as ``write_file``'s flag (mirror-guard
-    bypass only; unadvertised).
     """
+    try:
+        _terminal_env_type_for_task(task_id)
+    except ValueError as exc:
+        return tool_error(str(exc))
     _paths_to_check = [path] if path else []
     _content_write_paths = list(_paths_to_check)
     _entry_paths: list[str] = []
@@ -975,7 +939,7 @@ def patch_tool(mode: str = "replace", path: str | None = None, old_string: str |
         _paths_to_check += collected[0]
         _content_write_paths += collected[1]
         _entry_paths = collected[2]
-    precheck_err = _write_precheck_error(_paths_to_check, _content_write_paths, task_id, cross_profile)
+    precheck_err = _write_precheck_error(_paths_to_check, _content_write_paths, task_id)
     if precheck_err:
         return tool_error(precheck_err)
     try:
@@ -1057,6 +1021,7 @@ def search_tool(pattern: str, target: str = "content", path: str = ".",
                 task_id: str = "default") -> str:
     """Search for content or files."""
     try:
+        _terminal_env_type_for_task(task_id)
         offset, limit = normalize_search_pagination(offset, limit)
 
         # Pagination args (and order) are part of the key so paging through truncated
@@ -1179,11 +1144,6 @@ WRITE_FILE_SCHEMA = {
         "properties": {
             "path": {"type": "string", "description": "Path to the file to write (will be created if it doesn't exist, overwritten if it does)"},
             "content": {"type": "string", "description": "Complete content to write to the file"},
-            # NOTE: the handler still accepts `cross_profile` (bool) — it now
-            # bypasses only the #32049 sandbox-mirror lost-write guards, whose
-            # rejection error teaches it. Unadvertised: the cross-PROFILE
-            # guard it was named for was removed (profiles are not isolated,
-            # maintainer decision), and mirror hits are rare + self-teaching.
         },
         "required": ["path", "content"]
     }
@@ -1225,8 +1185,6 @@ PATCH_SCHEMA = {
                 "description": "Replace all occurrences instead of requiring a unique match (default: false)",
                 "default": False,
             },
-            # NOTE: handler still accepts `cross_profile` — see write_file's
-            # NOTE (mirror-guard bypass only; unadvertised by design).
             # NOTE: handler still accepts `mode` + `patch` (V4A) from ANY
             # model — the schema just doesn't advertise them off-family.
         },
@@ -1340,7 +1298,6 @@ def _handle_write_file(args, **kw):
         )
     return _owned(kw.get("session_id") or tid, write_file_tool,
         path=args["path"], content=args["content"], task_id=tid,
-        cross_profile=bool(args.get("cross_profile", False)),
         session_id=kw.get("session_id"),
     )
 
@@ -1360,7 +1317,6 @@ def _handle_patch(args, **kw):
         mode=mode, path=args.get("path"),
         old_string=args.get("old_string"), new_string=args.get("new_string"),
         replace_all=args.get("replace_all", False), patch=args.get("patch"), task_id=tid,
-        cross_profile=bool(args.get("cross_profile", False)),
         session_id=kw.get("session_id"),
     )
 

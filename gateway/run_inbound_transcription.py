@@ -156,8 +156,7 @@ class GatewayInboundTranscriptionMixin:
     def _untranscribed_audio_note(path: str) -> str:
         """One minimal neutral marker for every STT failure. Never mention "no STT provider" or setup
         steps — persisted in history they make the model keep volunteering STT-setup advice."""
-        from tools.credential_files import to_agent_visible_cache_path
-        agent_path = to_agent_visible_cache_path(os.path.abspath(path))
+        agent_path = os.path.abspath(path)
         return f"[voice message could not be transcribed automatically; the audio is available at: {agent_path}]"
 
     async def _transcribe_one_clip(self, path: str, transcribe_audio, transcribe_audio_local_fallback) -> tuple[Optional[str], str]:

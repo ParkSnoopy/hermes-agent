@@ -7,7 +7,6 @@ or a temp file (local). Cohesive pieces live in sibling modules (``base_output``
 ``base_session_env``, ``base_wait``, ``path_utils``).
 """
 
-import json
 import logging
 import os
 import shlex
@@ -19,7 +18,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Callable, Iterable
 
-from hermes_constants import get_hermes_home
 from tools.interrupt import consume_yield, is_interrupted, is_thread_interrupted
 from tools.environments.base_output import (
     ProcessHandle, _finalize_wait_result, _new_output_collector, _start_drain_thread,
@@ -29,7 +27,7 @@ from tools.environments.base_session_env import (
     _wrap_command_script,
 )
 from tools.environments.base_wait import _WaitTrace
-from utils import atomic_json_write, env_var_enabled, file_signature
+from utils import env_var_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -129,29 +127,11 @@ def kill_live_foreground_processes(*, now: bool = False) -> int:
     return len(live)
 
 
-class FileFetchError(RuntimeError):
-    """A file could not be extracted from the backend filesystem."""
 
 
 # Pulling a large artifact over a slow exec channel can outlast the per-command terminal timeout.
-_FETCH_TIMEOUT_SECONDS = 300
 
 
-class EnvironmentConnectionError(RuntimeError):
-    """Infrastructure/connection-class failure of a terminal backend (SSH host down, Docker
-    daemon not running, remote sync on a dead link) — never a command that merely exited
-    nonzero. Subclassing RuntimeError keeps every ``except RuntimeError`` catcher working.
-    ``terminal_tool`` turns this into a structured ``status: "degraded"`` result; the failed
-    backend is never cached, so a later call retries from scratch."""
-
-    def __init__(self, reason: str, *, retry_hint: str = ""):
-        super().__init__(reason)
-        self.reason = reason
-        self.retry_hint = retry_hint or (
-            "This is an infrastructure failure, not a command failure. "
-            "Verify the backend is reachable (network, service running, "
-            "credentials), then retry the same command — recovery is "
-            "automatic once the backend is back.")
 
 
 def set_activity_callback(cb: Callable[[str], None] | None) -> None:
@@ -184,68 +164,16 @@ def touch_activity_if_due(state: dict, label: str) -> None:
         logger.debug("activity callback failed during a long-running command", exc_info=True)
 
 
-def get_sandbox_dir() -> Path:
-    """Host-side root for all sandbox storage (Docker workspaces, plugin backends'
-    host-side state). ``TERMINAL_SANDBOX_DIR`` overrides ``{HERMES_HOME}/sandboxes``."""
-    custom = os.getenv("TERMINAL_SANDBOX_DIR")
-    p = Path(custom) if custom else get_hermes_home() / "sandboxes"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
 
 
-def _load_json_store(path: Path) -> dict:
-    """Treat a missing or damaged snapshot store as empty."""
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
 
 
-def _save_json_store(path: Path, data: dict) -> None:
-    """Write *data* as pretty-printed JSON to *path* atomically (readers never see a torn file)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_json_write(path, data, indent=2)
 
 
-_JSON_STORE_LOCK_HOLDER = threading.local()
 
 
-def _update_json_store(path: Path, update: Callable[[dict], None]) -> None:
-    """Read-modify-write the JSON store at *path* under a cross-process lock.
-
-    Concurrent sandbox cleanups (delegate children, gateway sessions, the idle reaper) each
-    record a snapshot id; an unlocked load/mutate/save lets one cleanup drop the other's entry.
-    An unusable lock (no flock on the filesystem, a wedged holder) degrades to an unlocked
-    update: a sandbox lifecycle step (modal's restore fallback included) must not abort on it."""
-    from contextlib import ExitStack
-
-    from hermes_cli.auth import _file_lock
-
-    lock_path = path.with_name(f"{path.name}.lock")
-    with ExitStack() as stack:
-        try:
-            stack.enter_context(_file_lock(
-                lock_path, _JSON_STORE_LOCK_HOLDER, 10.0, f"Timed out waiting for the snapshot store lock ({path})",
-            ))
-        except (OSError, TimeoutError):
-            logger.warning("Updating %s without its lock", path, exc_info=True)
-        data = _load_json_store(path)
-        before = dict(data)
-        update(data)
-        if data != before:
-            _save_json_store(path, data)
 
 
-def _file_mtime_key(host_path: str) -> tuple[int, int, int, int] | None:
-    """Return the ``file_signature`` change key, or ``None`` if unreadable.
-
-    mtime + size alone miss a same-size credential refresh landing in the same mtime tick;
-    inode and ctime catch the atomic replace / rewrite."""
-    try:
-        return file_signature(Path(host_path).stat())
-    except OSError:
-        return None
 
 
 def env_uses_host_filesystem(env: object) -> bool:
@@ -342,42 +270,7 @@ class BaseEnvironment(ABC):
         ...
 
     # --- File extraction (backend -> host) ---
-    def fetch_file(self, remote_path: str, local_dest: Path, *, max_bytes: int) -> None:
-        """Copy a regular file out of the backend filesystem to ``local_dest`` on the host.
 
-        One transport for every backend: base64 over the exec channel, bounded INSIDE the sandbox
-        (``head -c max+1`` so /dev/zero can't stream unbounded data into host memory — the same
-        shape ``tools.image_source`` uses to read sandbox images). The payload is fenced between
-        unique markers so login-shell noise in the merged stdout/stderr can't corrupt the decode.
-        Raises :class:`FileFetchError` on a missing/unreadable/oversized file.
-        """
-        import base64
-        import binascii
-        marker = f"__HERMES_FETCH_{uuid.uuid4().hex[:12]}__"
-        quoted = shlex.quote(remote_path)
-        # ``[ -f ]`` follows symlinks, so a link to a denied host file is judged by the CALLER on
-        # ``readlink -f`` output before any bytes move.
-        result = self.execute(
-            f"[ -f {quoted} ] && echo {marker} && head -c {max_bytes + 1} < {quoted} | base64 && echo {marker}",
-            timeout=_FETCH_TIMEOUT_SECONDS, rewrite_compound_background=False)
-        output = result.get("output") or ""
-        first, last = output.find(marker), output.rfind(marker)
-        if int(result.get("returncode") or 0) != 0 or first == -1 or last <= first:
-            raise FileFetchError(f"could not read {remote_path!r} in the sandbox (missing, not a regular file, or unreadable)")
-        try:
-            data = base64.b64decode("".join(output[first + len(marker):last].split()), validate=True)
-        except (ValueError, binascii.Error) as exc:
-            raise FileFetchError(f"transfer of {remote_path!r} was corrupted in transit: {exc}") from exc
-        if len(data) > max_bytes:
-            raise FileFetchError(f"{remote_path!r} exceeds the {max_bytes // (1024 * 1024)} MB delivery limit")
-        Path(local_dest).write_bytes(data)
-
-    def fetch_realpath(self, remote_path: str) -> str | None:
-        """``readlink -f`` inside the backend, or None when it cannot be resolved."""
-        result = self.execute(f"readlink -f {shlex.quote(remote_path)} 2>/dev/null", rewrite_compound_background=False)
-        if int(result.get("returncode") or 0) != 0:
-            return None
-        return next((ln.strip() for ln in reversed((result.get("output") or "").splitlines()) if ln.strip().startswith("/")), None)
 
     # --- Session snapshot (init_session) ---
     def _additional_profile_scoped_passthrough_names(self) -> Iterable[str]:

@@ -386,28 +386,6 @@ class TestTerminalIntegration:
         assert not is_env_passthrough("openai_api_key")
         assert is_env_passthrough("MY_OWN_KEY")
 
-    def test_passthrough_case_variant_never_reaches_remote_exec_env(self, monkeypatch):
-        """Even if a case-variant name were present in the registered set, the
-        remote env builder must not resolve it: on Windows ``os.getenv`` is
-        case-insensitive, so ``openai_api_key`` would carry the real
-        ``OPENAI_API_KEY`` into SSH/Docker exec envs."""
-        from tools.environments import remote_common
-
-        register_env_passthrough(["openai_api_key"])
-        exec_env, _unset = remote_common.resolve_passthrough_env(set())
-        assert not any(k.lower() == "openai_api_key" for k in exec_env)
-
-        # Defense in depth, load-bearing on POSIX too: force the variant into
-        # the registered set and set a real env entry under that spelling, so
-        # os.getenv() resolves it and only the folded blocklist drops it.
-        monkeypatch.setenv("openai_api_key", "sk-variant-value")
-        monkeypatch.setenv("MY_OWN_KEY", "own-value")
-        monkeypatch.setattr(
-            "tools.env_passthrough.get_all_passthrough",
-            lambda: {"openai_api_key", "MY_OWN_KEY"})
-        exec_env, _unset = remote_common.resolve_passthrough_env(set())
-        assert "openai_api_key" not in exec_env
-        assert exec_env.get("MY_OWN_KEY") == "own-value"
 
     def test_passthrough_case_variant_never_reaches_execute_code_env(self):
         """The GHSA-rhgp-j443-p4rf path end to end: the variant registration

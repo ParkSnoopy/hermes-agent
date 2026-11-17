@@ -300,15 +300,7 @@ class CLITuiRuntimeMixin:
             self._maybe_offer_first_run_setup()
         except Exception:
             logger.debug("first-run setup offer failed", exc_info=True)
-        # A persisted Docker sandbox on the previous default image is kept until the user says
-        # so; this TTY is where they can. Either answer pins an image, so it is asked once.
         if sys.stdin.isatty():
-            try:
-                from hermes_cli.sandbox_image_switch import offer_interactive
-                from cli import _cprint
-                offer_interactive(cprint=_cprint)
-            except Exception:
-                logger.debug("sandbox image switch offer failed", exc_info=True)
             # Low disk + auto-prune never decided: ask once (either answer ends it for good).
             try:
                 from hermes_cli.prune_advisor import offer_interactive as _offer_auto_prune

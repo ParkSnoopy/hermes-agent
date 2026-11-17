@@ -224,21 +224,17 @@ class TestApiServerSessionProfileBinding:
         finally:
             clear_session_vars(tokens)
 
-    def test_bound_profile_selects_profile_scoped_container_key(self, monkeypatch):
-        """Persistent-Docker container keys honour the api_server-bound profile (real resolver chain)."""
+    def test_bound_session_selects_independent_local_task_key(self, monkeypatch):
+        """The API-server binding keeps this session's local shell identity."""
         import tools.terminal_tool as tt
         from gateway.session_context import clear_session_vars
 
         adapter = _make_adapter(multiplex=True)
-        monkeypatch.setattr(tt, "_ensure_terminal_env_bridged", lambda: None)
-        monkeypatch.setenv("TERMINAL_ENV", "docker")
-        monkeypatch.setenv("TERMINAL_CONTAINER_PERSISTENT", "true")
-        monkeypatch.delenv("TERMINAL_DOCKER_SHARED_CONTAINER_KEY", raising=False)
-
+        monkeypatch.setenv("TERMINAL_ENV", "local")
         tokens = adapter._bind_api_server_session(
             chat_id="chat", session_key="key", session_id="sess", profile="nm-media",
         )
         try:
-            assert tt._resolve_container_task_id(None) == "profile:nm-media"
+            assert tt._resolve_task_id(None) == "key"
         finally:
             clear_session_vars(tokens)

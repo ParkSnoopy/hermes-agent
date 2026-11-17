@@ -98,8 +98,6 @@ Skill conflicts are handled by `--skill-conflict`: `skip` leaves the existing He
 | Human delay timing | `agents.defaults.humanDelay.minMs` / `.maxMs` | `human_delay.min_ms` / `.max_ms` | Direct copy |
 | Timezone | `agents.defaults.userTimezone` | `timezone` | Direct string copy |
 | Exec timeout | `tools.exec.timeoutSec` | `terminal.timeout` | Direct copy (field is `timeoutSec`, not `timeout`) |
-| Docker sandbox | `agents.defaults.sandbox.backend` | `terminal.backend` | "docker" → "docker" |
-| Docker image | `agents.defaults.sandbox.docker.image` | `terminal.docker_image` | Direct copy |
 
 ### Session lifetime
 

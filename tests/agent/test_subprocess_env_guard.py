@@ -56,17 +56,13 @@ ALLOWED_RAW_SPAWN_ENV_FILES = {
     "hermes_cli/gateway.py",
     "hermes_cli/stderr_timestamp.py",
     "hermes_cli/profiles.py",
-    # The compute host runs agent turns for the dashboard: Home Assistant tools, Modal/Daytona
-    # backends and platform sends read keys that exist only in the process env (#65895).
+    # The compute host runs local agent turns and platform sends that read provider keys
+    # from the process environment (#65895).
     "tui_gateway/host_supervisor.py",
     # apt/dnf/pacman run as root, through sudo (which resets the environment) or because Hermes
     # already is root. A root child can read every process's environment anyway, and the scrub
     # helpers would point TMPDIR into HERMES_HOME's scratch dir, leaving root-owned files there.
     "tools/bot_desktop/install.py",
-    # The docker/ssh CLIENT process: the user's own backend binary, never code the agent runs,
-    # needing their real HOME for ~/.ssh and ~/.docker. Same as inheriting (``None``) plus the
-    # forwarded values; what crosses into the sandbox is the backend's forward/passthrough policy.
-    "tools/environments/remote_common.py",
     # Needing provider keys is not a reason to be here: such a child uses
     # hermes_subprocess_env(inherit_credentials=True), which still drops bot/relay tokens.
 }

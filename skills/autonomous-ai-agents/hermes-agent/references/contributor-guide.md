@@ -112,12 +112,7 @@ Do not fake the host by patching `sys.platform` or platform probes.
 
 ### System prompt's execution-environment block
 
-Factual host/backend guidance (OS, `$HOME`, cwd, terminal backend, shell)
-is emitted by `agent/prompt_builder.py::build_environment_hints()`. The key
-invariant for prompt authors: with a **remote** terminal backend
-(`docker, ssh, vercel_sandbox`, plus plugin backends declaring `is_remote`), host info is
-suppressed and *every* file tool runs inside the backend container — the
-prompt must never describe the host the agent can't touch.
+Factual host guidance (OS, `$HOME`, cwd and shell) is emitted by `agent/prompt_builder.py::build_environment_hints()`. Terminal commands run locally under the Hermes process user.
 
 ### Commit Conventions
 

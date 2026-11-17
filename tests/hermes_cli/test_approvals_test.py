@@ -2,7 +2,7 @@
 
 The tester must compose the REAL runtime evaluators from ``tools.approval``
 (detect_hardline_command, _match_user_deny_rule, detect_dangerous_command,
-the container-skip gate, and the same ``_command_detection_variants``
+local environment validation, and the same ``_command_detection_variants``
 normalization/de-obfuscation path) — never reimplement them. It is strictly
 read-only: nothing is executed, no prompt fires, nothing is persisted.
 
@@ -82,15 +82,12 @@ class TestVerdicts:
         assert "user-deny" in out
         assert "git push *" in out
 
-    def test_container_env_type_skips_guards_like_runtime(self, isolated_approvals,
-                                                          capsys):
-        # Mirrors check_all_command_guards: isolated docker skips BEFORE the
-        # hardline floor, so even a catastrophic command reports allow.
-        rc = at.approvals_test_command(_args(["rm", "-rf", "/"], env_type="docker"))
+    @pytest.mark.parametrize("backend", ["docker", "ssh", "modal", "daytona", "vercel_sandbox", "plugin"])
+    def test_retired_environment_refused(self, isolated_approvals, capsys, backend):
+        rc = at.approvals_test_command(_args(["rm", "-rf", "/"], env_type=backend))
         out = capsys.readouterr().out
-        assert rc == 0
-        assert "allow" in out
-        assert "container" in out or "isolated" in out
+        assert rc == at.EXIT_USAGE
+        assert "Only 'local'" in out
 
     def test_mode_off_bypasses_dangerous_but_not_hardline(self, isolated_approvals,
                                                           capsys, monkeypatch):
@@ -175,9 +172,9 @@ class TestOutputAndWiring:
         sentinel = []
         build_approvals_parser(sub, cmd_approvals=lambda a: sentinel.append(a) or 0)
         args = parser.parse_args(
-            ["approvals", "test", "--env-type", "ssh", "--", "ls", "-la"])
+            ["approvals", "test", "--env-type", "local", "--", "ls", "-la"])
         assert args.approvals_command == "test"
-        assert args.env_type == "ssh"
+        assert args.env_type == "local"
         # argparse REMAINDER keeps the leading "--"; the handler strips it.
         # dest is command_words (NOT command) so main.py's startup path can
         # keep reading args.command as the top-level subcommand name.
@@ -187,6 +184,9 @@ class TestOutputAndWiring:
         assert getattr(args, "command", None) != ["--", "ls", "-la"]
         args.func(args)
         assert sentinel
+        with pytest.raises(SystemExit) as rejected:
+            parser.parse_args(["approvals", "test", "--env-type", "ssh", "--", "ls"])
+        assert rejected.value.code == 2
 
     def test_leading_separator_stripped_from_command(self, isolated_approvals,
                                                      capsys):

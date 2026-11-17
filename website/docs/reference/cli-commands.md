@@ -52,7 +52,7 @@ The install also ships `hermes-agent`, a minimal runner that sends one query and
 | `hermes fallback` | Manage fallback providers tried when the primary model errors. |
 | `hermes gateway` | Run or manage the messaging gateway service. |
 | `hermes proxy` | Local OpenAI-compatible proxy that attaches OAuth provider credentials. See [Subscription Proxy](../user-guide/features/subscription-proxy.md). |
-| `hermes egress` | Outbound credential-injection firewall for remote terminal sandboxes (iron-proxy). Disabled by default. See [Egress proxy](../user-guide/egress/iron-proxy.md). |
+| `hermes egress` | Outbound credential-injection proxy management (iron-proxy). Disabled by default. See [Egress proxy](../user-guide/egress/iron-proxy.md). |
 | `hermes lsp` | Manage Language Server Protocol integration (semantic diagnostics for write_file/patch). |
 | `hermes setup` | Interactive setup wizard for all or part of the configuration. |
 | `hermes whatsapp-cloud` | Configure the official Meta WhatsApp Business Cloud API adapter (Business account + public webhook required). Distinct from `hermes whatsapp` (Baileys personal-account bridge). |
@@ -425,7 +425,7 @@ Jump into one section instead of the full wizard:
 | Section | Description |
 |---------|-------------|
 | `model` | Provider and model setup. |
-| `terminal` | Terminal backend and sandbox setup. |
+| `terminal` | Local terminal setup. |
 | `gateway` | Messaging platform setup. |
 | `tools` | Enable/disable tools per platform. |
 | `agent` | Agent behavior settings. |
@@ -767,7 +767,7 @@ the built-in, so cron is never left without a trigger. See the
 
 ## `hermes egress`
 
-Outbound credential-injection firewall for remote terminal sandboxes. Wraps the [iron-proxy](https://github.com/ironsh/iron-proxy) daemon — a TLS-intercepting proxy that swaps opaque proxy tokens for real upstream API credentials at the network boundary, so sandboxes never hold real keys. Disabled by default; see the full [Egress proxy](../user-guide/egress/iron-proxy.md) page for setup + architecture.
+Manage the optional [iron-proxy](https://github.com/ironsh/iron-proxy) daemon. Starting it does not automatically route local terminal traffic through it; configure and verify any external proxy integration separately.
 
 ```bash
 hermes egress install                  # download the pinned iron-proxy binary
@@ -798,7 +798,6 @@ hermes egress config                   # print the path to proxy.yaml for inspec
 # First-time setup
 export OPENROUTER_API_KEY=…
 hermes egress setup && hermes egress start
-hermes config set terminal.backend docker   # if not already
 
 # Switching credential source after the fact
 hermes egress setup --from-bitwarden       # env → bitwarden
@@ -807,7 +806,7 @@ hermes egress setup --no-bitwarden         # bitwarden → env
 
 # Rotating all tokens (e.g. after a suspected token leak)
 hermes egress setup --rotate-tokens    # setup offers to restart the running daemon for you
-# (running sandboxes still hold old tokens; restart them too)
+# Reconfigure any external proxy clients that still hold old tokens.
 
 # Adding a new upstream
 # Edit ~/.hermes/config.yaml proxy.extra_allowed_hosts: [api.example.com]
@@ -926,7 +925,7 @@ Outputs a compact, plain-text summary of your entire Hermes setup. Designed to b
 | **Environment** | OS, Python version, OpenAI SDK version |
 | **Identity** | Active profile name, HERMES_HOME path |
 | **Model** | Configured default model and provider |
-| **Terminal** | Backend type (local, docker, ssh, etc.) |
+| **Terminal** | Backend type (local) |
 | **API keys** | Presence check for all 22 provider/tool API keys |
 | **Features** | Enabled toolsets, MCP server count, memory provider |
 | **Services** | Gateway status, configured messaging platforms |

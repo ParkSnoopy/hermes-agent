@@ -143,18 +143,11 @@ class TestConfigYamlRouting:
         assert config["tools"]["tool_search"]["defer"] == ["todo_list", "skill_manage"]
 
 
-    def test_terminal_docker_shared_key_preserves_string_values(
-        self, _isolated_hermes_home, capsys
-    ):
-        set_config_value("terminal.docker_shared_container_key", "off")
-
-        import hermes_yaml as yaml
-
+    def test_terminal_local_persistence_syncs_to_env(self, _isolated_hermes_home, capsys):
+        set_config_value("terminal.local_persistent", "false")
         saved = yaml.safe_load(_read_config(_isolated_hermes_home))
-        assert saved["terminal"]["docker_shared_container_key"] == "off"
-        assert "TERMINAL_DOCKER_SHARED_CONTAINER_KEY=off" in _read_env(
-            _isolated_hermes_home
-        )
+        assert saved["terminal"]["local_persistent"] is False
+        assert "TERMINAL_LOCAL_PERSISTENT=False" in _read_env(_isolated_hermes_home)
         assert "not a recognized config key" not in capsys.readouterr().out
 
 
@@ -195,8 +188,8 @@ class TestConfigGetUnset:
 
 
     def test_config_unset_removes_yaml_key_and_synced_env(self, _isolated_hermes_home, capsys):
-        set_config_value("terminal.backend", "docker")
-        assert "TERMINAL_ENV=docker" in _read_env(_isolated_hermes_home)
+        set_config_value("terminal.backend", "local")
+        assert "TERMINAL_ENV=local" in _read_env(_isolated_hermes_home)
         capsys.readouterr()
 
         args = argparse.Namespace(config_command="unset", key="terminal.backend")
@@ -718,8 +711,8 @@ class TestMappingGuard:
         """hermes config set terminal bash → refuse, terminal has sub-keys."""
         self._write_config(_isolated_hermes_home, {
             "terminal": {
-                "backend": "docker",
-                "docker_image": "python:3.12",
+                "backend": "local",
+                "timeout": 90,
                 "shell": "bash",
             }
         })
@@ -731,7 +724,7 @@ class TestMappingGuard:
         """hermes config set --force terminal bash → proceed, section wiped."""
         self._write_config(_isolated_hermes_home, {
             "terminal": {
-                "backend": "docker",
+                "backend": "local",
                 "shell": "bash",
             }
         })
@@ -952,11 +945,11 @@ class TestLiteralDotKeyEscaping:
 
     def test_unescaped_dotted_path_unchanged(self, _isolated_hermes_home):
         """Nesting semantics for plain dotted keys are untouched."""
-        set_config_value("terminal.backend", "docker")
+        set_config_value("terminal.backend", "local")
 
         import hermes_yaml as yaml
         saved = yaml.safe_load(_read_config(_isolated_hermes_home))
-        assert saved["terminal"]["backend"] == "docker"
+        assert saved["terminal"]["backend"] == "local"
 
 
 class TestConfigGetRedaction:

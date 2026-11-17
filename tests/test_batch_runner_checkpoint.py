@@ -154,3 +154,40 @@ class TestBatchWorkerResumeBehavior:
 
         assert filtered_entries == [], "discarded prompt was rescheduled on resume"
         assert skipped_indices == [0]
+
+
+class TestLocalExecutionAdmission:
+    @pytest.mark.parametrize("field", ["image", "docker_image"])
+    def test_container_row_is_rejected_before_agent_construction(self, monkeypatch, field):
+        import batch_runner
+        from tools import terminal_tool
+
+        monkeypatch.setattr(terminal_tool, "_get_env_config", lambda: {"env_type": "local"})
+        monkeypatch.setattr(batch_runner, "AIAgent", lambda **kwargs: pytest.fail("agent must not start"))
+        result = batch_runner._process_single_prompt(0, {"prompt": "hi", field: "image:tag"}, 1, {})
+        assert result["success"] is False
+        assert "not supported" in result["error"]
+
+    def test_nonlocal_config_is_rejected_before_agent_construction(self, monkeypatch):
+        import batch_runner
+        from tools import terminal_tool
+
+        def reject():
+            raise ValueError("Only 'local' is supported")
+
+        monkeypatch.setattr(terminal_tool, "_get_env_config", reject)
+        monkeypatch.setattr(batch_runner, "AIAgent", lambda **kwargs: pytest.fail("agent must not start"))
+        result = batch_runner._process_single_prompt(0, {"prompt": "hi"}, 1, {})
+        assert result["success"] is False
+        assert "Only 'local'" in result["error"]
+
+    def test_local_workspace_is_registered_for_the_row(self, monkeypatch, tmp_path):
+        import batch_runner
+        from tools import terminal_tool
+
+        calls = []
+        monkeypatch.setattr(terminal_tool, "_get_env_config", lambda: {"env_type": "local"})
+        monkeypatch.setattr(terminal_tool, "register_task_env_overrides", lambda *args: calls.append(args))
+        result = batch_runner._prepare_local_workspace(0, {"cwd": str(tmp_path)}, 1, "task_0", {})
+        assert result is None
+        assert calls == [("task_0", {"cwd": str(tmp_path)})]
