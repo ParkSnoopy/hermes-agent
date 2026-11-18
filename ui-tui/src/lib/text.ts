@@ -176,8 +176,12 @@ export const toolTrailLabel = (name: string) =>
 
 export const formatToolCall = (name: string, context = '') => {
   const label = toolTrailLabel(name)
-  const preview = name === 'terminal' || name === 'execute_code' ? context : compactPreview(context, 64)
+  if (context && (name === 'terminal' || name === 'execute_code')) {
+    const script = context.includes('\n') ? `"""\n${context}\n"""` : JSON.stringify(context)
+    return `${label}(${script})`
+  }
 
+  const preview = compactPreview(context, 64)
   return preview ? `${label}("${preview}")` : label
 }
 
@@ -259,6 +263,14 @@ export const parseToolTrailResultLine = (line: string) => {
 
   const mark = line.endsWith(' ✗') ? '✗' : '✓'
   const body = line.slice(0, -2)
+  // A script can contain the trail's detail separator as literal text.
+  const script = body.match(
+    /^(?:Terminal|Execute Code)\((?:"""\n.*?\n"""|"(?:\\.|[^"\\])*")\)(?: \(\d+(?:\.\d)?s\))?(?= :: |$)/s
+  )?.[0]
+  if (script !== undefined) {
+    return { call: script, detail: body.slice(script.length + 4), mark }
+  }
+
   const sep = body.indexOf(' :: ')
 
   if (sep >= 0) {
@@ -275,7 +287,7 @@ export const parseToolTrailResultLine = (line: string) => {
 }
 
 export const splitToolDuration = (call: string) => {
-  const match = call.match(/^(.*?)( \(\d+(?:\.\d)?s\))$/)
+  const match = call.match(/^(.*?)( \(\d+(?:\.\d)?s\))$/s)
 
   return match ? { label: match[1]!, duration: match[2]! } : { label: call, duration: '' }
 }

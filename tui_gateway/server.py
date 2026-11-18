@@ -1437,8 +1437,8 @@ def _tool_ctx(name: str, args: dict) -> str:
     """Argument preview for a tool row — never a phrased label: clients own their phrasing, so
     ``build_tool_label`` here would stutter ("Running Running …") and leak into the desktop's ``args.context``."""
     with contextlib.suppress(Exception):
-        from agent.display import build_tool_preview
-        return build_tool_preview(name, args, max_len=(0 if name in {"terminal", "execute_code"} else 80)) or ""
+        from agent.display import build_tool_context
+        return build_tool_context(name, args)
     return ""
 
 

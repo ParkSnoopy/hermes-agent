@@ -271,7 +271,7 @@ The TUI ships with opinionated per-section defaults that stream the turn as
 a live transcript instead of a wall of chevrons:
 
 - `thinking` — **expanded**. Reasoning streams inline as the model emits it.
-- `tools` — **expanded**. Tool calls and their results render open.
+- `tools` — **expanded**. Tool calls and their results render open. Terminal commands and code blocks keep their full text, with multiline input shown between triple quotes on separate lines. Credentials are still redacted.
 - `subagents` — falls through to the global `details_mode` (collapsed under
   chevron by default — stays quiet until a delegation actually happens).
 - `activity` — **hidden**. Ambient meta (gateway hints, terminal-parity

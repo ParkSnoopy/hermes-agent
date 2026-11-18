@@ -25,6 +25,25 @@ describe('isToolTrailResultLine', () => {
 })
 
 describe('buildToolTrailLine', () => {
+  it.each(['terminal', 'execute_code'])('keeps complete single-line and multiline %s input visible', (name: string) => {
+    const label = name === 'terminal' ? 'Terminal' : 'Execute Code'
+    const command = `cd fixtures && printf '%s' '${'a'.repeat(96)} :: value' | sort > output && wc -l output`
+    const script = ['prepare()', '', 'if ready:  # setup :: check', '    finish()'].join('\n')
+
+    const examples = [
+      [command, `"${command}"`],
+      [script, `"""\n${script}\n"""`]
+    ] as const
+
+    for (const [input, quoted] of examples) {
+      const call = `${label}(${quoted})`
+      const row = buildToolTrailLine(name, input, false, 'done', 1.2)
+      const parsed = parseToolTrailResultLine(row)
+      expect(parsed).toEqual({ call: `${call} (1.2s)`, detail: 'done', mark: '✓' })
+      expect(splitToolDuration(parsed!.call)).toEqual({ label: call, duration: ' (1.2s)' })
+    }
+  })
+
   it('puts completion duration inline before the result marker', () => {
     const line = buildToolTrailLine('read_file', 'x', false, '', 0.94)
 

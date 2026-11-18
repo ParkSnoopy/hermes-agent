@@ -76,11 +76,11 @@ def _settle_progress_send(st, result) -> None:
 def _tool_lifecycle_payload(call_id, tool_name, args) -> dict:
     """The ``ToolStartPayload`` contract every client reads (``tool_id``/``name``/``context``),
     plus the ``tool_call_id``/``tool_name`` the gateway's own consumers were built on."""
-    from agent.display import build_tool_preview, tool_labels_for_call
+    from agent.display import build_tool_context, tool_labels_for_call
     name = str(tool_name or "tool")
     args = args if isinstance(args, dict) else {}
     from gateway.session_tool_events import bounded_args
-    payload = {"tool_id": str(call_id or ""), "name": name, "context": build_tool_preview(name, args, max_len=80) or "",
+    payload = {"tool_id": str(call_id or ""), "name": name, "context": build_tool_context(name, args),
                "tool_call_id": str(call_id or ""), "tool_name": name, "args": bounded_args(args)}
     if labels := [label.as_payload() for label in tool_labels_for_call(name, args)]:
         payload["labels"] = labels

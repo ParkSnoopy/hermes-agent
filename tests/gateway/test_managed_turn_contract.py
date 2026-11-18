@@ -182,3 +182,21 @@ def test_shared_tool_events_bound_large_content_without_losing_error_or_path():
     assert complete['is_error'] is True
     assert 'error' in json.loads(complete['result'])
     assert len(json.dumps(complete)) < 100_000
+
+
+def test_tool_lifecycle_keeps_full_scripts_and_compacts_other_previews():
+    from gateway.run_turn_progress import _tool_complete_payload, _tool_lifecycle_payload
+    from tui_gateway.server import _tool_ctx
+
+    calls = (
+        ('terminal', 'command', 'cd fixtures && ls -a | sort > manifest\n' + 'printf "%s\\n" item\n' * 12),
+        ('execute_code', 'code', 'def generate():\n' + '    print("fixture")\n' * 12),
+    )
+    for name, key, text in calls:
+        args = {key: text}
+        start = _tool_lifecycle_payload('call', name, args)
+        complete = _tool_complete_payload('call', name, args, '{}')
+        assert start['context'] == complete['context'] == _tool_ctx(name, args) == text
+
+    preview = _tool_lifecycle_payload('call', 'web_search', {'query': 'a' * 100})['context']
+    assert len(preview) <= 80

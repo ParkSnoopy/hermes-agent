@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field, replace
 from difflib import unified_diff
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 from urllib.parse import urlsplit
 
 from utils import safe_json_loads
@@ -234,122 +234,6 @@ class ToolPreview:
     url: str | None = None
 
 
-# ── Shell command summarisation ──────────────────────────────────────────
-
-_SHELL_SILENT_HEADS = {"cd", "pushd", "popd", "export", "set", "unset", "source", ".", "true", "false", ":"}
-_SHELL_PIPE_TAIL_HEADS = {"head", "tail", "wc", "sort", "uniq"}
-
-
-def _shell_basename(head: str) -> str:
-    return head.rsplit("/", 1)[-1] if head else ""
-
-
-def _scan_quoted(text: str) -> Iterator[tuple[int, str, bool]]:
-    """Yield ``(index, char, inside_quotes)``; a quote closes unless backslash-escaped."""
-    quote: str | None = None
-    for i, ch in enumerate(text):
-        if quote:
-            yield i, ch, True
-            if ch == quote and (i == 0 or text[i - 1] != "\\"):
-                quote = None
-        elif ch in {"'", '"'}:
-            quote = ch
-            yield i, ch, True
-        else:
-            yield i, ch, False
-
-
-def _split_shell_words(segment: str) -> list[str]:
-    parts: list[list[str]] = [[]]
-    for _, ch, quoted in _scan_quoted(segment):
-        if not quoted and ch.isspace():
-            parts.append([])
-        else:
-            parts[-1].append(ch)
-    return ["".join(p) for p in parts if p]
-
-
-def _strip_shell_pipe_tail(segment: str) -> str:
-    """Drop a trailing ``| head/tail/wc/sort/uniq ...`` pipeline stage."""
-    words = _split_shell_words(segment)
-    for i, word in enumerate(words):
-        if word == "|" and _shell_basename(words[i + 1] if i + 1 < len(words) else "") in _SHELL_PIPE_TAIL_HEADS:
-            words = words[:i]
-            break
-    return " ".join(words).strip()
-
-
-def _split_shell_compound(command: str) -> list[str]:
-    """Split on unquoted ``&&`` / ``||`` / ``;`` / newline, dropping pipe tails per segment."""
-    raw: list[list[str]] = [[]]
-    skip = False
-    for i, ch, quoted in _scan_quoted(command):
-        if skip:
-            skip = False
-        elif not quoted and (command.startswith("&&", i) or command.startswith("||", i)):
-            raw.append([])
-            skip = True
-        elif not quoted and ch in {";", "\n"}:
-            raw.append([])
-        else:
-            raw[-1].append(ch)
-    segments = (_strip_shell_pipe_tail("".join(buf).strip()) for buf in raw)
-    return [s for s in segments if s]
-
-
-def _shell_head_word(segment: str) -> str:
-    """Command name of a segment, skipping leading ``VAR=value`` assignments."""
-    words = _split_shell_words(segment)
-    while words and re.match(r"^[A-Za-z_]\w*=", words[0]):
-        words.pop(0)
-    return _shell_basename(words[0] if words else "")
-
-
-def _clean_shell_segment(segment: str) -> str:
-    """Drop redirections (``> file``, ``2>&1``) from a segment."""
-    words = _split_shell_words(segment)
-    out: list[str] = []
-    i = 0
-    while i < len(words):
-        word = words[i]
-        if re.match(r"^\d*(?:>>?|<)$", word):
-            i += 2  # operator + target
-        elif re.match(r"^\d*(?:>&|<&)\d+$", word):
-            i += 1
-        else:
-            out.append(word)
-            i += 1
-    return " ".join(out).strip()
-
-
-def _is_shell_boundary_echo(segment: str) -> bool:
-    words = _split_shell_words(segment)
-    if _shell_basename(words[0] if words else "") != "echo":
-        return False
-    return bool(re.search(r"-{2,}|_exit=|(?:^|\s|=)\$[?{]|PIPESTATUS", " ".join(words[1:])))
-
-
-def summarize_shell_command(command: str) -> str:
-    """Compact shell wrapper/plumbing for display while preserving raw command elsewhere."""
-    original = _oneline(command)
-    if not original:
-        return ""
-    segments = _split_shell_compound(original)
-    if len(segments) <= 1:
-        return _clean_shell_segment(segments[0] if segments else original) or original
-    core: list[str] = []
-    for segment in segments:
-        cleaned = _clean_shell_segment(segment)
-        if cleaned and _shell_head_word(cleaned) not in _SHELL_SILENT_HEADS and not _is_shell_boundary_echo(cleaned):
-            core.append(cleaned)
-    if not core:
-        return original
-    count = len(core) - 1
-    if not count:
-        return core[0]
-    return ('{first} + {count} command' if count == 1 else '{first} + {count} commands').format(first=core[0], count=count)
-
-
 def _read_file_line_label(args: dict) -> str:
     offset, limit = args.get("offset"), args.get("limit")
     if not isinstance(offset, int) or offset <= 0:
@@ -441,10 +325,8 @@ def _preview_shell(key: str):
         command = args.get(key)
         if command is None:
             return None
-        # Keep command boundaries visible without turning a tool row into raw terminal output.
         safe = sanitize_command_for_display(redact_sensitive_text(str(command)))
-        preview = summarize_shell_command(safe) if max_len > 0 else safe.strip().replace("\n", r"\n")
-        return _tail_trunc(preview, max_len) or None
+        return _tail_trunc(safe, max_len) if safe.strip() else None
     return _build
 
 
@@ -533,6 +415,12 @@ def build_tool_preview(tool_name: str, args: dict, max_len: int | None = None) -
     if builder is not None:
         return builder(args, max_len)
     return _primary_arg_preview(tool_name, args, max_len)
+
+
+def build_tool_context(tool_name: str, args: dict) -> str:
+    """Transcript context: full scripts, compact previews for other calls."""
+    max_len = 0 if tool_name in {"terminal", "execute_code"} else 80
+    return build_tool_preview(tool_name, args, max_len=max_len) or ""
 
 
 def _primary_arg_preview(tool_name: str, args: dict, max_len: int) -> str | None:

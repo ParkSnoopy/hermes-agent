@@ -846,7 +846,7 @@ TERMINAL_SCHEMA = {
         "properties": {
             "command": {
                 "type": "string",
-                "description": "The shell command to execute"
+                "description": "The shell command to execute. In a batch, use real newlines between statements; keep && or || where conditional execution is intended."
             },
             "background": {
                 "type": "boolean",
