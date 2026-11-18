@@ -337,7 +337,7 @@ def _history_to_messages(history: list[dict], *, profile_home=None, image_urls: 
             tc_name, tc_args = tool_call_args.get(m.get("tool_call_id") or "", (None, None))
             name = tc_name or m.get("tool_name") or "tool"
             args = tc_args or {}
-            # `context` is an 80-char preview; ship args so a full-call renderer isn't truncated.
+            # `context` previews the primary argument; ship args for full-call rendering.
             labels = _bridged_tool_labels(name, args)
             messages.append({"role": "tool", "name": name, "context": _tool_ctx(name, args),
                              # Edit cards need the original result; other tool outputs

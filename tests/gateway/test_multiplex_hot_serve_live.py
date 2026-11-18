@@ -415,7 +415,7 @@ def test_standalone_secondary_stops_without_stopping_host(mux):
 
 
 def test_unsupervised_host_without_profile_flag_can_stop(mux):
-    proc, _ = start_daemon(mux, extra_args=('--no-supervise',))
+    proc, _ = start_daemon(mux)
     try:
         result = subprocess.run(
             [sys.executable, '-m', 'hermes_cli.main', 'gateway', 'stop'],

@@ -391,7 +391,7 @@ def test_a_saved_disabled_mcp_server_does_not_enable_every_other_server(listed):
 
 
 class TestChromiumPostSetup:
-    """Cloud isolation, image ownership, and failed setup remain observable."""
+    """Cloud isolation and failed setup remain observable."""
 
     @pytest.fixture(autouse=True)
     def _stub_browser_use_install(self):
@@ -399,14 +399,14 @@ class TestChromiumPostSetup:
             yield stub
 
     @pytest.mark.parametrize("failure", ["pm", "worker"])
-    def test_install_failure_reports_error(self, failure, tmp_path):
+    def test_install_failure_reports_error(self, failure):
         import pm
 
         error = (pm.InstallError("chromium", "fatal: network error") if failure == "pm"
                  else RuntimeError("worker exited unsuccessfully"))
         with patch("pm.ensure", side_effect=error), patch(
             "hermes_cli.browser_runtime.chromium_executable", return_value=None
-        ), patch("hermes_cli.browser_runtime.BAKED_EXECUTABLE_FILE", tmp_path / "absent"), patch(
+        ), patch(
             "hermes_constants.is_termux", return_value=False
         ), patch("hermes_cli.tools_config_post_setup._print_warning") as warn, patch(
             "hermes_cli.tools_config_post_setup._print_info"

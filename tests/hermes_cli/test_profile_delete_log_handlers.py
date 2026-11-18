@@ -27,7 +27,7 @@ def routed_profile(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setattr(profiles, "_cleanup_gateway_service", lambda *_: None)
-    monkeypatch.setattr(profiles, "_maybe_unregister_gateway_service", lambda *_: None)
+
     monkeypatch.setattr(profiles, "_stop_profile_backends", lambda *_: None)
     monkeypatch.setattr(profiles, "_notify_multiplexer", lambda *_: None)
     profile = profiles.create_profile("routed-log-delete", no_alias=True)

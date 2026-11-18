@@ -33,7 +33,7 @@ def test_service_gateway_boot_adopts_its_user_bus(monkeypatch):
     runtime_dir = _fake_user_bus(monkeypatch, present=True)
     _service_manager_env(monkeypatch)
     for guard in (
-        "_guard_official_docker_root_gateway",
+
         "_guard_named_profile_under_multiplexer",
         "_guard_supervised_gateway_conflict",
         "_guard_existing_gateway_process_conflict",

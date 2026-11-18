@@ -130,7 +130,7 @@ def _hermes_home_for_pid(pid: int, *, require_launch_identity: bool = False) -> 
     else:
         default_home = Path(env.get("HOME") or _pid_passwd_home(pid) or Path.home()) / ".hermes"
     root = profile_root_for_env_home(env_home, default_home)
-    fixed = any(env.get(k) for k in ("HERMES_SUPERVISED_CHILD", "HERMES_S6_SUPERVISED_CHILD", "HERMES_GATEWAY_EXTERNAL_SUPERVISOR", "HERMES_GATEWAY_PROFILE_PIN"))
+    fixed = any(env.get(k) for k in ("HERMES_SUPERVISED_CHILD", "HERMES_GATEWAY_EXTERNAL_SUPERVISOR", "HERMES_GATEWAY_PROFILE_PIN"))
     if profile is None and not fixed:
         if require_launch_identity:
             return None

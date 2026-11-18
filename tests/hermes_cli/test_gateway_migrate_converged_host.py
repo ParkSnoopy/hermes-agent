@@ -71,7 +71,7 @@ def converged_host(tmp_path, monkeypatch):
                         lambda kind, system, verb, home, **kw: signals.append(("service", verb, str(home))))
     monkeypatch.setattr(gm, "_stop_gateway_process", lambda home: signals.append(("stop", str(home))))
     monkeypatch.setattr(gm, "_spawn_detached_gateway", lambda home: signals.append(("spawn", str(home))) or True)
-    monkeypatch.setattr(gm, "_host_supports_migration", lambda: None)
+
     yield type("Fixture", (), {"root": root, "signals": signals, "pid": pid, "served": served})
     hr.clear_record(hr.ROLE_GATEWAY)
     hr.release_host_lock(hr.ROLE_GATEWAY)

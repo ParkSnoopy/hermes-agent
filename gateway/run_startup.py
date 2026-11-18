@@ -1498,7 +1498,7 @@ class GatewayStartupMixin:
                 # WhatsApp enabled but never paired) while others hit merely transient errors (e.g. Telegram
                 # TimedOut during polling startup). Exiting with GATEWAY_FATAL_CONFIG_EXIT_CODE here is
                 # wrong in both supervision worlds: under supervisors that honor the exit-78 contract
-                # (systemd RestartPreventExitStatus, s6 finish→125 since #51228) the gateway goes
+                # (such as systemd RestartPreventExitStatus) the gateway goes
                 # PERMANENTLY down over a network blip; under anything else it crash-loops. Either way the
                 # retryable platforms never get their retry. Log the fatal side loudly, then fall through to
                 # the degraded/retry path below: the reconnect watcher recovers the retryable platforms; the

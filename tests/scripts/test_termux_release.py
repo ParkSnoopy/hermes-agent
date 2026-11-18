@@ -206,20 +206,19 @@ def test_corrupted_candidate_bytes_never_publish_apt(tmp_path, monkeypatch, apt_
     assert writes == []
 
 
-@pytest.mark.parametrize("selected,apt_head,docker_digest,expected", [
-    ({"termux"}, "1.2.3", None, "1.2.3"),
-    ({"docker"}, None, "sha256:" + "c" * 64, "1.2.3"),
-    ({"termux", "docker"}, "1.2.3", "sha256:" + "c" * 64, "1.2.3"),
-    ({"termux", "docker"}, "1.2.3", None, None),
-    ({"termux", "docker"}, None, "sha256:" + "c" * 64, None),
-    ({"ci"}, None, None, "1.2.3"),
+@pytest.mark.parametrize("selected,apt_head,expected", [
+    ({"termux"}, "1.2.3", "1.2.3"),
+    ({"docker"}, None, "1.2.3"),
+    ({"termux", "docker"}, "1.2.3", "1.2.3"),
+    ({"termux", "docker"}, None, None),
+    ({"ci"}, None, "1.2.3"),
 ])
-def test_publication_finishes_only_when_every_selected_channel_reaches_it(selected, apt_head, docker_digest, expected):
+def test_publication_finishes_only_when_every_retained_channel_reaches_it(selected, apt_head, expected):
     from scripts.releases import sequencer
 
     record = {"state": "published", "version": "1.2.3", "lanes": selected,
               "docker_manifest_digest": "sha256:" + "c" * 64}
-    assert sequencer.channel_head(apt_head, [record], docker_digest) == expected
+    assert sequencer.channel_head(apt_head, [record]) == expected
 
 
 @pytest.fixture

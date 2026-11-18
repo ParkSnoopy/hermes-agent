@@ -23,11 +23,10 @@ def _python_repair_hint() -> str:
     from hermes_cli.doctor import PROJECT_ROOT
 
     method = detect_install_method(PROJECT_ROOT)
-    if is_nix_install_method(method):
+    if is_nix_install_method(method) or method == "docker":
         return recommended_update_command_for_method(method)
-    if method in ("docker", "apt"):
-        command = recommended_update_command_for_method(method)
-        return f"Run `{command}`" + (", then recreate the Hermes container" if method == "docker" else "")
+    if method == "apt":
+        return f"Run `{recommended_update_command_for_method(method)}`"
     return "Run `hermes pm repair`, then restart Hermes"
 
 
@@ -41,8 +40,7 @@ def _sqlite_upgrade_hint(install_method: str | None = None) -> str:
     from hermes_cli.config import detect_install_method
     method = install_method or detect_install_method(PROJECT_ROOT)
     cmd = recommended_update_command_for_method(method)
-    action = cmd if is_nix_install_method(method) else {  # nix: prose guidance, not a shell command
-        "docker": f"run `{cmd}`, then recreate all Hermes containers", "apt": f"run `{cmd}`"}.get(method, "run `hermes update`")
+    action = cmd.rstrip(".") if is_nix_install_method(method) or method == "docker" else f"run `{cmd}`"
     return f"({action}; fixed versions: 3.51.3+ / 3.50.7 / 3.44.6 — see https://sqlite.org/wal.html#walresetbug)"
 
 
@@ -180,48 +178,6 @@ def _report_database_journal_modes(hermes_home: Path | None = None, version_info
         check_info(f"To clear the exposure: {_wal_reset_repair_hint()}")
 
 
-def _check_s6_supervision(issues: list[str]) -> None:
-    """Under our s6 /init, report static services and the ONE host gateway slot; no-op elsewhere.
-    Counterpart to :func:`_check_gateway_service_linger` (systemd-on-host)."""
-    try:
-        from hermes_cli.service_manager import (
-            S6_STATIC_SCANDIR, S6ServiceManager, detect_service_manager, s6_service_up)
-    except Exception:
-        return
-    if detect_service_manager() != "s6":
-        return
-    _section("s6 Supervision")
-    mgr = S6ServiceManager()
-    for static in ("main-hermes", "dashboard"):  # s6-rc symlinks in the root scandir, not the gateway one
-        up = s6_service_up(S6_STATIC_SCANDIR / static)
-        (check_ok if up else check_info)(f"{static}: up" if up else f"{static}: down (expected if not enabled via env)")
-    _report_host_gateway_slot(mgr, issues)
-
-
-def _report_host_gateway_slot(mgr, issues: list[str]) -> None:
-    """Multiplex-only: ONE gateway process serves N profiles, so report THAT process and its
-    roster. The old ``Per-profile gateways: up/total`` line described a topology we no longer
-    run — it counted supervision slots and never said which profiles were actually served."""
-    from gateway.host_topology import host_gateway_topology
-    slots = sorted(mgr.list_profile_gateways())
-    topology = host_gateway_topology()
-    if topology is None:
-        if not slots:
-            return check_info("No gateway registered yet — run `hermes gateway install`")
-        up = [p for p in slots if mgr.is_running(f"gateway-{p}")]
-        issues.append("No host gateway owns the gateway role — start the ONE host multiplexer: "
-                      "hermes --profile default gateway start")
-        return check_warn(f"No host gateway owns the gateway role ({len(up)}/{len(slots)} supervision "
-                          f"slots up: {', '.join(slots)})", "(nothing is serving these profiles)")
-    check_ok(f"Host gateway: {topology.describe()}")
-    legacy_up = sorted(p for p in slots if p != "default" and mgr.is_running(f"gateway-{p}"))
-    if legacy_up:
-        check_warn(f"LEGACY per-profile gateway slots still supervised: {', '.join(legacy_up)}",
-                   "(multiplex-only: the host gateway already serves every profile from one process)")
-        issues.append("Fold the legacy per-profile gateways into the host gateway: "
-                      "hermes --profile default gateway migrate --multiplex")
-
-
 def check_certificates(should_fix: bool = False, issues: list | None = None) -> None:
     """Verify the actual TLS policy is usable before the first HTTPS call tracebacks.
 
@@ -253,7 +209,7 @@ def check_certificates(should_fix: bool = False, issues: list | None = None) -> 
 
 
 def _check_gateway_service_linger(issues: list[str]) -> None:
-    """Warn when a systemd user gateway service will stop after logout (skipped under s6: no linger concept).
+    """Warn when a systemd user gateway service will stop after logout.
 
     Multiplex-only: the HOST gateway runs under the default profile's unit, so a doctor run from a
     SERVED profile must still check it — gating on the active profile's own unit silently skipped
@@ -263,10 +219,10 @@ def _check_gateway_service_linger(issues: list[str]) -> None:
         from hermes_cli.gateway import (
             _SERVICE_BASE, get_systemd_linger_status, get_systemd_unit_path, is_linux,
             user_systemd_unit_dir)
-        from hermes_cli.service_manager import detect_service_manager
+
     except Exception as e:
         return check_warn("Gateway service linger", f"(could not import gateway helpers: {e})")
-    if not is_linux() or detect_service_manager() == "s6":
+    if not is_linux():
         return
     host_unit = user_systemd_unit_dir() / f"{_SERVICE_BASE}.service"
     if not (get_systemd_unit_path().exists() or host_unit.exists()):
@@ -439,7 +395,7 @@ def _check_web_dashboard_import(should_fix: bool, f: Finding) -> None:
 @doctor_check()
 def _check_gateway_supervision(should_fix: bool, f: Finding) -> None:
     _check_gateway_service_linger(f.issues)
-    _check_s6_supervision(f.issues)
+
 
 
 

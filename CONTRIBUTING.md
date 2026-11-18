@@ -174,7 +174,7 @@ script or tool in this repository, so the commands below also work without
 | `just docs-generate`, `just docs-check` | regenerate the skill docs pages; then every docs check CI runs (committed pages match, links, diagrams) |
 | `just lock` | `scripts/relock.sh`: refreshes `uv.lock` after a `pyproject.toml` change, then re-syncs |
 | `just check-repo-guards`, `just check-uv-lock` | the repo-guards history, contributor and supply-chain steps, and the `uv.lock` check, through `scripts/ci/local_step.sh` against the merge base with `origin/main` |
-| `just check-icons`, `just lint-docker`, `just check-plugin-catalog`, `just check-nix` | the committed-icons check, hadolint and shellcheck on the container inputs, the catalog validator, `nix flake check` |
+| `just check-icons`, `just check-plugin-catalog`, `just check-nix` | the committed-icons check, the catalog validator, `nix flake check` |
 | `just test-catalog`, `just test-rust` | the plugin-catalog tests and the bootstrap installer's `cargo test --lib` |
 
 Recipes that run Python go through `scripts/run-in-hermes-env`, so they work in
@@ -248,7 +248,7 @@ refusal.
 `npx`, `npm exec` and `npm run` keep working, so MCP servers and tools still start.
 But `engine-strict` applies anywhere in the checkout: in these folders, and through
 the root `.npmrc` in every folder without a `package.json` of its own (`agent/`,
-`tools/`, the Docker image's `/opt/hermes`). There `npx` refuses to install a package
+`tools/`). There `npx` refuses to install a package
 when it or any non-optional dependency it pulls in declares `engines` the current Node
 or npm does not satisfy, where it would only warn outside the checkout.
 
@@ -764,7 +764,7 @@ Hermes has terminal access. Security matters.
 | **Write deny list** | Protected paths (`~/.ssh/authorized_keys`, `/etc/shadow`) resolved via `os.path.realpath()` to prevent symlink bypass |
 | **Skills guard** | Security scanner for hub-installed skills (`tools/skills_guard.py`) |
 | **Code execution sandbox** | `execute_code` child process runs with API keys stripped from environment |
-| **Container hardening** | Docker: all capabilities dropped, no privilege escalation, PID limits, size-limited tmpfs |
+
 
 ### When contributing security-sensitive code
 

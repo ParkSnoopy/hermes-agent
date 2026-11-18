@@ -209,8 +209,7 @@ def _start_gateway_make_shutdown_signal_handler(runner, _signal_initiated_shutdo
         elif planned_stop:
             logger.info("Received %s as a planned gateway stop — exiting cleanly", sig_name or "SIGTERM/SIGINT")
         else:
-            # Mirrored onto the runner so _stop_impl suppresses the gateway_state=stopped persist for
-            # unexpected signals; operator stops take the `planned_stop` branch and leave it False (DO persist).
+            # The runner gives agent cleanup longer on unexpected signals.
             _signal_initiated_shutdown[0] = runner._signal_initiated_shutdown = True
             logger.info("Received %s — initiating shutdown", sig_name or "SIGTERM/SIGINT")
 
@@ -230,7 +229,7 @@ def _start_gateway_make_shutdown_signal_handler(runner, _signal_initiated_shutdo
             _best_effort(_log_context, "format_context_for_log failed: %s")
             _best_effort(_diagnostic, "spawn_async_diagnostic failed: %s")
         if not planned_takeover:
-            # Supervisor/operator SIGNAL stop (bootout, kickstart -k, systemd, s6, bare kill) — the
+            # Supervisor/operator signal stop (bootout, kickstart -k, systemd, bare kill) — the
             # only kind launchd times with ExitTimeOut. In-band SIGUSR1 restarts never pass through
             # here, and a sibling-driven --replace takeover is not launchd-timed either, so both
             # keep the configured drain. _stop_impl uses this to cap the drain to the live budget.
@@ -596,7 +595,7 @@ async def _start_gateway_run_runner(runner, _signal_initiated_shutdown: list) ->
     if runner.should_exit_cleanly:
         if runner.exit_reason:
             logger.error("Gateway exiting cleanly: %s", runner.exit_reason)
-        # Explicit exit codes (GATEWAY_FATAL_CONFIG_EXIT_CODE) must propagate so s6 finish maps 78 → 125.
+        # Explicit exit codes must propagate so supervisors can honor restart policy.
         if runner.exit_code is not None:
             raise SystemExit(runner.exit_code)
         return True

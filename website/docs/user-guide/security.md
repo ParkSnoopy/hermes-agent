@@ -10,16 +10,15 @@ Hermes Agent is designed with a defense-in-depth security model. This page cover
 
 ## Overview
 
-The security model has eight layers:
+The security model uses these protections:
 
 1. **User authorization** — who can talk to the agent (allowlists, DM pairing)
 2. **Dangerous command approval** — human-in-the-loop for destructive operations
 3. **File write safety** — denylist and optional write sandbox for `write_file`/`patch`
-4. **Container isolation** — Docker (and the Singularity plugin) sandboxing with hardened settings
-5. **MCP credential filtering** — environment variable isolation for MCP subprocesses
-6. **Context file scanning** — prompt injection detection in project files
-7. **Cross-session isolation** — sessions cannot access each other's data or state
-8. **Input sanitization** — working directory parameters in terminal tool backends are validated against an allowlist to prevent shell injection
+4. **MCP credential filtering** — environment variable isolation for MCP subprocesses
+5. **Context file scanning** — prompt injection detection in project files
+6. **Cross-session isolation** — sessions cannot access each other's data or state
+7. **Input sanitization** — working directory parameters in terminal tool backends are validated against an allowlist to prevent shell injection
 
 ## Dangerous Command Approval
 
@@ -115,8 +114,8 @@ gateway is literally a `python` process and such a command takes it (and the age
 own turn) down. Kills scoped to a process the agent owns pass: the `proc_*` id of a
 background job (`process(action="kill", …)`) or an explicit PID
 (`taskkill /F /PID <pid>`, `kill <pid>`). Other image names (`taskkill /F /IM notepad.exe`)
-are unaffected. The guard is active under every generated launcher — systemd unit or s6 run script — via the
-`HERMES_SUPERVISED_CHILD` marker they export.
+are unaffected. Managed gateway launchers activate the guard through the
+`HERMES_SUPERVISED_CHILD` marker.
 
 A tool rejection means the command did not execute through that tool call. An
 assistant declining to issue a call is a separate model decision; changing models
@@ -408,7 +407,7 @@ file bridge, background jobs with no human channel) fail closed. Private keys,
 
 When set, `write_file` and `patch` may only target paths inside the listed directory prefix(es). Anything outside is **hard-blocked** — not routed through dangerous-command approval.
 
-- Set automatically in the [official Docker image](https://github.com/NousResearch/hermes-agent) (`HERMES_WRITE_SAFE_ROOT=/opt/data`)
+
 - Supports multiple roots separated by `:` on Unix or `;` on Windows
 - **Do not add to `~/.hermes/.env` casually.** If you set it to a project directory, the agent cannot write to profile skills or other Hermes state outside that prefix
 
@@ -527,23 +526,6 @@ hermes pairing revoke telegram 123456789
 hermes pairing clear-pending
 ```
 
-:::tip Docker users: run pairing commands as the `hermes` user
-The official Docker image runs the gateway as the unprivileged `hermes` user
-(uid 10000) via `gosu`, but `docker exec` defaults to root. Approval files
-created by root are written with mode `0600 root:root` and the gateway
-cannot read them — the approval is silently ignored ([#10270][i10270]).
-
-Always pass `-u hermes`:
-
-```bash
-docker exec -u hermes hermes-agent hermes pairing approve telegram ABC12DEF
-```
-
-If you already ran the command as root and the user is still unauthorized,
-restart the container — the entrypoint will fix ownership on the next start.
-
-[i10270]: https://github.com/NousResearch/hermes-agent/issues/10270
-:::
 
 **Storage:** Pairing data is stored in `~/.hermes/pairing/` with per-platform JSON files:
 - `{platform}-pending.json` — pending pairing requests
@@ -949,8 +931,7 @@ Already installed dependencies remain usable. Explicit PM install commands
 are separate from on-demand installation. A bundle's frozen feature list,
 when present with lazy installs disabled, restricts requested Python extra
 names. This setting is not a blanket ban on explicit plugin admission or
-manual package-manager commands. The official Docker image also disables
-on-demand installs through its internal environment policy.
+manual package-manager commands.
 
 For missing dependencies, use `hermes tools` and `hermes doctor` to identify
 the requirement. Do not run pip against a signed payload or the system Python.

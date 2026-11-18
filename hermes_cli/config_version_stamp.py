@@ -1,8 +1,7 @@
 """The config schema-version stamp: raw reads of ``_config_version`` from config.yaml.
 
-Split out of :mod:`hermes_cli.config` (code-health size ratchet); ``hermes_cli.config``
-late-imports these and re-exports them, and :mod:`scripts.docker_config_migrate` reads the
-raw stamp directly. ``_coerce_config_version`` stays module-private here.
+Split out of :mod:`hermes_cli.config`, which late-imports and re-exports the public
+readers. ``_coerce_config_version`` stays module-private here.
 """
 
 from __future__ import annotations

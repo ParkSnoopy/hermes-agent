@@ -577,5 +577,5 @@ When the pinned version moves to v0.40+ (which adds `log.audit_path`), per-reque
 - Upstream project: [github.com/ironsh/iron-proxy](https://github.com/ironsh/iron-proxy)
 - Upstream docs: [docs.iron.sh](https://docs.iron.sh/)
 - Bitwarden integration: [`hermes secrets bitwarden`](../secrets/bitwarden)
-- Hermes Docker terminal backend: [Docker](../docker)
+
 - Developer / contributor reference: [Egress proxy internals](../../developer-guide/egress-internals)

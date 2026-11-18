@@ -21,7 +21,7 @@ _HERMES_HOME_OVERRIDE: ContextVar[str | object] = ContextVar("_HERMES_HOME_OVERR
 # Keep in sync with INDICATOR_STYLES / DEFAULT_INDICATOR_STYLE in ui-tui/src/app/interfaces.ts.
 INDICATOR_STYLES: tuple[str, ...] = ("ascii", "emoji", "kaomoji", "unicode")
 DEFAULT_INDICATOR_STYLE: str = "ascii"
-DEFAULT_SKIN: str = "slate"
+DEFAULT_SKIN: str = "default"
 
 # Browser-hosted attachments are staged on the Hermes host and then read back
 # as a base64 data URL for the normal remote attachment RPC. Keep the upload

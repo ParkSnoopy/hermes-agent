@@ -13,7 +13,6 @@ Choose the update method for the installation that is running:
 | Installation | Update method |
 |---|---|
 | Managed source checkout | `hermes update`, or the source-built desktop's update handoff. |
-| Docker image | Pull the chosen image and recreate the container with the same data mount. |
 | Nix | Update the flake/profile and rebuild. |
 | Termux APT | `pkg update`, then `pkg upgrade hermes-agent`. |
 
@@ -94,7 +93,7 @@ On Linux, `hermes update` stops every gateway running from this install right be
 - systemd units are stopped and started through systemd, so the service manager cannot restart them on old code mid-update. A gateway you started by hand (`hermes gateway run`) is drained and then started again in the background from the same command line and Hermes home; its output goes to `logs/gateway-update-resume.log` in that home instead of your terminal.
 - `/update` from chat survives the pause: when the update runs inside the gateway's own systemd unit, it first moves itself into a scope of its own. A prompt asked while the gateways are paused takes its default immediately, because no gateway can relay it.
 - The paused set is recorded in the Hermes home before the first stop. If the update is killed, the next `hermes` command (or `hermes update`) starts exactly those gateways again. A failed update that never changed the checkout restarts them on the old code. If the dependency sync fails after the checkout moved, they restart once a launch has synced the dependencies.
-- A gateway the updater cannot stop through its supervisor (an s6 or custom systemd unit, or `--external-supervisor`) is left running and refreshed after the update, as before.
+- A gateway the updater cannot stop through its supervisor (a custom systemd unit or `--external-supervisor`) is left running and refreshed after the update, as before.
 - `--no-gateway-restart` stops nothing; you manage the gateways.
 - The pause never blocks an update. If it cannot list, record or stop the gateways, it restarts anything it stopped, says so, and the update continues the way it did before the pause existed: gateways run through the swap and are restarted afterwards.
 
@@ -475,9 +474,6 @@ What this means outside `hermes update`:
   repaired with `hermes update` (or `python -m pm.cli install` from the
   checkout), not by reinstalling into the old venv.
 
-### Image-managed installs (Docker): the provenance marker
-
-Published Docker images bake a small read-only marker (`/etc/hermes/image-provenance.json`) that authoritatively identifies the filesystem as image-managed. `hermes update`, `hermes update --check`, and the dashboard's Update button all consult it before touching anything: on an image-managed install they refuse cleanly (exit code 2), print the actual update command (`docker pull nousresearch/hermes-agent:latest`), and write a `refused` receipt so fleet tooling can see the attempt happened. The marker wins even when a source checkout is bind-mounted into the container — the refusal is based on what the running filesystem *is*, not what it looks like. A damaged marker still refuses (fail-closed). Nix- and apt-managed installs refuse through the same gate using the existing detection.
 
 ### Note for Nix users
 
@@ -512,7 +508,7 @@ The default removal can preserve configuration and user data. `--full` also
 removes data. `--data` removes user data without deleting package-owned code.
 These modes are destructive; make a backup first.
 
-Docker, Nix, and Termux use the
+Nix and Termux use the
 same manager that installed them. Their package files are not removed by the
 source uninstaller. Data deletion is separate from package removal.
 

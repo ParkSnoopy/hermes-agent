@@ -48,14 +48,13 @@ def _post_setup_lightpanda() -> None:
 
 
 def _post_setup_chromium() -> None:
-    """Local Browser row: browser_exec launches pm's Chromium. Termux (system Chromium) and the Hermes
-    Docker image (its baked build) own their payloads, so a miss there is a hint, never a download."""
+    """The local browser uses PM's Chromium or the system Chromium on Termux."""
     import pm
-    from hermes_cli.browser_runtime import BAKED_EXECUTABLE_FILE, chromium_executable, chromium_missing_hint
+    from hermes_cli.browser_runtime import chromium_executable, chromium_missing_hint
     from hermes_constants import is_termux
 
     _ensure_browser_use_cli()
-    if chromium_executable() is None and not (is_termux() or BAKED_EXECUTABLE_FILE.exists()):
+    if chromium_executable() is None and not is_termux():
         try:
             pm.ensure("chromium", explicit=True)
         except (RuntimeError, OSError) as exc:  # pm.InstallError, a download or worker failure

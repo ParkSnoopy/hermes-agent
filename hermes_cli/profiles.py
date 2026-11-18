@@ -1362,10 +1362,7 @@ def create_profile(
     from hermes_cli.profile_memory_config import notify_memory_provider
     notify_memory_provider(profile_dir, lambda p: p.on_profile_created(canon, str(profile_dir)))
 
-    # Inside a container under s6, register the gateway as a runtime s6 service so
-    # `hermes -p <profile> gateway start` supervises via `s6-svc -u` instead of a bare
-    # process. No-op on host (systemd/launchd/windows unit generation handles lifecycle).
-    _maybe_register_gateway_service(canon)
+
     # A running multiplexer enumerates profiles/ at boot: ask it to serve this one now (it also
     # rescans periodically, so a missed signal only delays serving).
     _notify_multiplexer(canon)
@@ -1660,9 +1657,8 @@ def delete_profile(name: str, yes: bool = False) -> Path:
             print("Cancelled.")
             return profile_dir
 
-    # 1. Disable service (prevents auto-restart); drop the s6 slot on container (host no-op).
+    # 1. Disable the service to prevent auto-restart.
     _cleanup_gateway_service(canon, profile_dir)
-    _maybe_unregister_gateway_service(canon)
 
     # 2. Stop the gateway, then other backends bound to this profile (Desktop-spawned
     # serve/dashboard the pid file never names): they hold the SQLite connection open and
@@ -1741,52 +1737,6 @@ def delete_profile(name: str, yes: bool = False) -> Path:
         # can report a partial success.
         raise ProfileIdentitySettlementPending(canon, profile_dir)
     return profile_dir
-
-
-def _s6_runtime_manager():
-    """The s6 service manager inside the container, else None. Silent on host: a failing/
-    absent detector must never print a confusing s6 warning to non-container users."""
-    try:
-        from hermes_cli.service_manager import detect_service_manager, get_service_manager
-        if detect_service_manager() != "s6":
-            return None
-        mgr = get_service_manager()
-    except Exception:
-        return None
-    return mgr if mgr.supports_runtime_registration() else None
-
-
-def _maybe_register_gateway_service(profile_name: str) -> None:
-    """Register a profile's gateway with s6 inside the container. Best-effort: profile
-    creation must not fail over a supervision-tree hiccup; `gateway start` re-registers.
-
-    Port selection: each supervised profile gateway loads its own ``HERMES_HOME`` and binds the port
-    resolved by ``gateway/config.py`` from that profile's environment — ``API_SERVER_PORT`` (or
-    ``platforms.api_server.extra.port`` in the profile's ``config.yaml``), defaulting to 8642. There is no
-    ``[gateway] port`` key and no Python-side allocator (PR #30136 review item I5 retired the
-    SHA-256-derived range [9200, 9800) as dead code), so two profiles that both leave the port at its
-    default will both try to bind 8642 — give each profile a distinct ``API_SERVER_PORT`` in its ``.env``.
-    """
-    mgr = _s6_runtime_manager()
-    if mgr is None:
-        return
-    try:
-        mgr.register_profile_gateway(profile_name, start_now=False)
-    except ValueError:
-        pass  # already registered (e.g. the container-boot reconciler brought up a stale slot)
-    except Exception as exc:
-        print(f"⚠ Could not register s6 gateway service: {exc}")
-
-
-def _maybe_unregister_gateway_service(profile_name: str) -> None:
-    """Tear down a profile's s6 gateway service inside the container; host no-op, idempotent."""
-    mgr = _s6_runtime_manager()
-    if mgr is None:
-        return
-    try:
-        mgr.unregister_profile_gateway(profile_name)
-    except Exception as exc:
-        print(f"⚠ Could not unregister s6 gateway service: {exc}")
 
 
 def _cleanup_gateway_service(name: str, profile_dir: Path) -> bool:
@@ -2168,7 +2118,7 @@ def rename_profile(old_name: str, new_name: str) -> Path:
     # holds paths under the old name.
     gw_running = _check_gateway_running(old_dir)
     service_removed = _cleanup_gateway_service(old_canon, old_dir)
-    _maybe_unregister_gateway_service(old_canon)
+
     if gw_running:
         _stop_gateway_process(old_dir)
     _stop_bot_desktop(old_dir)
@@ -2201,7 +2151,7 @@ def rename_profile(old_name: str, new_name: str) -> Path:
         if live_mux:
             clear_named_profile_deleted(old_dir)
             _notify_multiplexer(old_canon)
-        _maybe_register_gateway_service(old_canon)
+
         if service_removed:
             print(f"⚠ The gateway service was removed. Reinstall it with: hermes -p {old_canon} gateway install")
         raise
@@ -2240,7 +2190,7 @@ def rename_profile(old_name: str, new_name: str) -> Path:
     # 7. Hot-serve the renamed profile now (mirrors create; a missed signal only delays it).
     if live_mux:
         _notify_multiplexer(new_canon)
-    _maybe_register_gateway_service(new_canon)
+
     if service_removed:
         print(f"⚠ The gateway service was removed. Reinstall it with: hermes -p {new_canon} gateway install")
     return new_dir

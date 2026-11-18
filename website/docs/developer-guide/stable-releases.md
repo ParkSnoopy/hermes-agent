@@ -45,20 +45,16 @@ files on `main`.
    `main`'s tip, never the commit under test. Every lane that tests or builds the
    payload is passed the admitted commit, and the commit-threading lint in
    `tests/ci/test_stable_release_commit_threading.py` enforces that.
-4. Run the lanes the claim records: by default source CI, Docker, Nix, PM bundle acceptance, and install/update acceptance.
+4. Run the lanes the claim records: by default source CI, Nix, PM bundle acceptance, and install/update acceptance.
    Add the Termux build lane explicitly when publishing an APT package.
-5. Push immutable versioned Docker and R2 artifacts from the tested bytes. The
-   Docker image is pushed as soon as its own tests pass, tagged by the attempt
-   ref. Do not move `stable` or `latest` aliases yet and do not rebuild for
-   publication.
+5. Push immutable versioned R2 artifacts from the tested bytes. Do not rebuild for publication.
 6. Create the annotated final `vMAJOR.MINOR.PATCH` receipt at publish, not at
    green. It binds the winning attempt's ref, object, commit, archive prefix,
-   candidate-manifest SHA256 (`null` when the claim skipped bundles), Docker
-   manifest digest, and autopublish policy.
+   candidate-manifest SHA256 (`null` when the claim skipped bundles), and autopublish policy.
 7. The stable publication controller resolves releases oldest first. It creates
    `vX.Y.Z`, retargets the still-draft release onto it, strips the warning
    blocks, makes the release public as the last call, then verifies and promotes
-   the receipt-bound APT packages and Docker digest for the selected channels.
+   the receipt-bound APT packages for the selected channels.
 
 A sole green draft waits unless its claim selected autopublish. A later green
 claim flushes all contiguous earlier green drafts in order. An older running claim
@@ -66,14 +62,14 @@ blocks newer publication. A burned attempt is skipped, and its version is cut
 again after `abandon`. Failed, cancelled, missing, and unexpectedly skipped
 requirements remain red.
 
-Docker Hub, R2, APT, and GitHub do not support one cross-service
+R2, APT, and GitHub do not support one cross-service
 transaction. The controller is therefore idempotent: after a partial failure,
 run it again and let every mutation verify its current state before continuing.
 The final tag is the custody receipt. Never rebuild or replace accepted bytes to
 repair a pointer.
 
 Termux promotion replaces `releases/termux/stable/release-candidates.json` and the stable APT indexes on the R2 public origin.
-The GitHub release remains the source-installation update authority, independently of APT or Docker publication.
+The GitHub release remains the source-installation update authority, independently of APT publication.
 
 ## Run, publish, or abandon a stable release
 
@@ -101,7 +97,7 @@ the shape.
 
 The draft body carries a fenced warning block at the top and at the bottom: do
 not publish the release from the GitHub UI. Publishing it by hand skips the
-`vX.Y.Z` receipt tag, the APT channel, and the Docker aliases.
+`vX.Y.Z` receipt tag and the APT channel.
 Published releases are immutable, so a hand-published release cannot
 be fixed afterwards, and it blocks the pipeline: the attempt then has neither a
 marker ref nor a final tag, so `release` refuses it as outstanding and
@@ -121,10 +117,8 @@ default set and edits it:
 ```sh
 # The default: everything except Termux
 python scripts/release.py release --commit "$(git rev-parse origin/main)" --remote origin
-# Only the Termux package and Docker image, no standalone test lanes
-python scripts/release.py release --commit "$(git rev-parse origin/main)" --only termux,docker --remote origin
-# The default suites without Docker publication
-python scripts/release.py release --commit "$(git rev-parse origin/main)" --without docker --remote origin
+# Only the Termux package, no standalone test lanes
+python scripts/release.py release --commit "$(git rev-parse origin/main)" --only termux --remote origin
 # Everything, plus Termux, without the install/update E2E
 python scripts/release.py release --commit "$(git rev-parse origin/main)" --with termux --without install-e2e --remote origin
 ```
@@ -135,9 +129,8 @@ lists every lane.
 
 | Lane | Default | What it controls |
 |---|---|---|
-| `docker` | on | build and publish the Docker image |
 | `termux` | off | Termux (Android aarch64) APT package |
-| `ci`, `nix`, `docker-tests`, `pm-bundle`, `install-e2e` | on | the standalone suites |
+| `ci`, `nix`, `pm-bundle`, `install-e2e` | on | the standalone suites |
 | `termux-checks` | on | Termux verification; runs only with `termux` |
 
 Lanes are independent switches. A job runs only when every lane it needs is on
@@ -161,13 +154,12 @@ Old flag sets, revisions, and retired lane names are rejected instead of transla
 
 What a release publishes follows what it built:
 
-- **Docker.** With `docker` off no image is built or promoted, and the final
-  tag records `dockerManifestDigest: null`.
+
 - **Packages.** With the Termux lane off there is no candidate manifest,
   and the final tag records `candidateManifestSha256: null`.
 - **APT.** Only a release with `termux` selected advances the Termux APT channel.
   Other releases leave its indexes and packages unchanged.
-- **Finished.** Every selected channel must name the accepted release: APT through its candidate head and Docker through the final receipt's digest.
+- **Finished.** Every selected channel must name the accepted release: APT through its candidate head.
   A release that moves no channel is finished once it is public.
   The sequencer uses these markers to recover incomplete publication without repeating completed channel moves.
 
@@ -217,10 +209,7 @@ Candidate assembly emits
 one pinned `release-candidates.json`; consumers verify its digest and do not
 re-upload the packages. Its digest is recorded nowhere before publish: the
 publication pass hashes the archive copy and writes that hash into the final
-tag. Docker publication pushes one immutable versioned manifest tagged by the
-attempt ref and records its registry digest in the final tag. Delayed
-publication promotes that digest registry-side, so it does not depend on
-expiring Actions artifacts.
+tag.
 
 The Termux candidate job stages packages and metadata under
 `releases/tag/<attempt ref>/` before acceptance. No stable feed is written at
@@ -229,7 +218,7 @@ this stage. The stable APT pool path also carries the attempt ref:
 immutable with a one-year cache header, so a recut of the same version writes a
 different pool key.
 Immutable uploads accept an existing object only when its bytes match. If an
-archive object, final-tag digest, versioned Docker tag, or read-back differs, stop
+archive object, final-tag digest, or read-back differs, stop
 recovery rather than replacing the accepted candidate.
 
 Candidate manifests use schema `3` and bind the admitted claim epoch, exact source commit, attempt archive, package hashes, and Termux package identity.
@@ -245,9 +234,8 @@ warning blocks from the body, and reads the tag and body back. Making the
 release public is the last call. Published releases are immutable, so nothing
 can retarget or re-tag one afterwards.
 
-The Docker image is pushed early under the attempt ref.
-The `stable` and `latest` aliases move only in the publication pass.
-APT indexes likewise stay on the previous accepted package until promotion.
+
+APT indexes stay on the previous accepted package until promotion.
 
 The reusable `termux-release.yml` workflow owns the Termux build and signed APT handoff.
 Its `termux_upgrade_from_tag` input selects an exact published Termux handoff when explicitly requested.
@@ -280,7 +268,7 @@ These readers are retained CLI functionality, not a reason to restore retired na
   All applicable source CI jobs still run, regardless of changed paths.
 - OSV vulnerability findings retain their existing advisory policy. Required
   scanner execution failures are failures, not advisory findings.
-- PM bundles, Docker, Nix and install/update checks remain required when their lanes are selected.
+- PM bundles, Nix and install/update checks remain required when their lanes are selected.
 - Housekeeping, autofix, comment and skills-index/deploy workflows are not
   release acceptance suites.
 
@@ -300,4 +288,4 @@ they do not install the application or the JS workspace to report a verdict.
 
 Signing and publication credentials stay in their protected job environments.
 The source CI call does not inherit deployment secrets. Configure the existing
-Termux signing and container publication credentials before running this pipeline.
+Termux signing credentials before running this pipeline.

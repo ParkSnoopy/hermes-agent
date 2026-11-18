@@ -61,8 +61,7 @@ class GatewayRuntimeInitMixin:
         # External (NAS-driven) drain, distinct from one-way ``_draining``: set while ``.drain_request.json``
         # exists — NEW turns refused, process stays up, removing the marker reverts to ``running``.
         self._external_drain_active = False
-        # ``_signal_initiated_shutdown``: SIGTERM/SIGINT with no planned-stop/takeover marker (container,
-        # OOM, bare kill); _stop_impl must NOT persist gateway_state=stopped or container_boot won't restart.
+        # ``_signal_initiated_shutdown``: SIGTERM/SIGINT with no planned-stop/takeover marker.
         self._restart_requested = self._signal_initiated_shutdown = self._restart_task_started = False
         self._restart_detached = self._restart_via_service = self._detached_restart_helper_started = False
         self._restart_command_source: Optional[SessionSource] = None

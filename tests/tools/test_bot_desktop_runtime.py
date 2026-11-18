@@ -431,15 +431,15 @@ def test_a_root_host_without_a_package_manager_is_told_the_truth(tmp_path, monke
     assert "unprivileged" not in message and "sudo" not in message, f"wrong diagnosis: {message}"
 
 
-def test_an_unprivileged_host_is_pointed_at_the_image(tmp_path, monkeypatch):
-    """The published image: a package manager exists but there is no way to reach root."""
+def test_unprivileged_host_requires_an_administrator(tmp_path, monkeypatch):
+    """A package manager exists but the process has no way to reach root."""
     _startable_host(monkeypatch, tmp_path)
     monkeypatch.setattr(runtime, "missing_binaries", lambda: ["Xvnc"])
     monkeypatch.setattr(runtime, "package_manager", lambda: "apt")
     monkeypatch.setattr(runtime, "is_root", lambda: False)
     monkeypatch.setattr(runtime.shutil, "which", lambda name: None if name == "sudo" else "/usr/bin/" + name)
     assert runtime.installable() is False
-    with pytest.raises(RuntimeError, match="baked in"):
+    with pytest.raises(RuntimeError, match="Ask the gateway host administrator"):
         runtime.start()
 
 

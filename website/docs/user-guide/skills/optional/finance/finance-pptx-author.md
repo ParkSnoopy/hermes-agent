@@ -44,8 +44,8 @@ For the broader, already-shipped PowerPoint authoring skill (slides, speaker not
 
 ## Setup
 
-Use `python` when it already imports `pptx` (the Hermes Docker image ships
-it). Otherwise, when `hermes` is on PATH, let Hermes build its shared, pinned
+Use `python` when it already imports `pptx`. Otherwise, when `hermes` is on
+PATH, let Hermes build its shared, pinned
 documents environment under the Hermes home (safe to run from several agents
 at once); in a Docker sandbox without Hermes the block builds a venv in the
 sandbox home with the same pinned versions. It is the same block as the

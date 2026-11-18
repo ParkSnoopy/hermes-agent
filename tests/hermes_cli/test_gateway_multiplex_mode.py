@@ -42,7 +42,7 @@ def fleet(tmp_path, monkeypatch):
     pids: dict[str, int] = {}
     monkeypatch.setattr(gm, "_installed_services", lambda home: services.get(_name(home), []))
     monkeypatch.setattr(gm, "_live_gateway_pid", lambda home: pids.get(_name(home)))
-    monkeypatch.setattr(gm, "_host_supports_migration", lambda: None)
+
     return root, services, pids
 
 

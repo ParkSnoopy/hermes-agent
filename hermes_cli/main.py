@@ -95,23 +95,13 @@ def _exit_after_oneshot(rc: object) -> None:
 
 
 def _warn_if_unsupervised_pid1(pid: int | None = None) -> None:
-    """Warn when this process is PID 1 with nothing above it to reap orphans.
-
-    The official image's ENTRYPOINT (``docker/entrypoint-dispatch.sh`` -> s6-overlay's
-    ``/init``) is the reaper for orphaned grandchildren (browser tooling, MCP servers, shell
-    children). A Compose service that overrides ``entrypoint:`` to invoke hermes directly makes
-    hermes itself PID 1 — nothing then ``wait()``s on those orphans and they accumulate as
-    zombies without bound (#111577). Outside a container a user process is never PID 1, so
-    this is quiet everywhere else; it mirrors the dispatcher's own non-PID-1 warning.
-    """
+    """Warn when this process is PID 1 with nothing above it to reap orphans."""
     if (pid if pid is not None else os.getpid()) != 1:
         return
     print(
         "[hermes] WARNING: this process is PID 1 with no init above it "
-        "(entrypoint override?). Orphaned child processes will not be "
-        "reaped and will accumulate as zombies. Use the image's default "
-        "ENTRYPOINT (docker/entrypoint-dispatch.sh) instead of overriding "
-        "it, or run with `docker run --init` / `init: true` in Compose.",
+        "to reap orphaned child processes; they may accumulate as zombies. "
+        "Run Hermes under an init process or another child reaper.",
         file=sys.stderr,
     )
 
@@ -443,7 +433,7 @@ def _under_gateway_supervisor(argv: list) -> bool:
 
     Markers (see gateway/restart.py ``is_gateway_supervisor_process``):
     HERMES_SUPERVISED_CHILD (systemd unit / launchd plist / Windows task),
-    HERMES_S6_SUPERVISED_CHILD (legacy s6 container), INVOCATION_ID (systemd
+    INVOCATION_ID (systemd
     service children only — consulted ONLY for gateway commands because it is
     inherited by every descendant of a systemd-launched process, e.g.
     self-hosted CI runners), HERMES_GATEWAY_EXTERNAL_SUPERVISOR (explicit
@@ -451,31 +441,13 @@ def _under_gateway_supervisor(argv: list) -> bool:
     no supervisor claim). XPC_SERVICE_NAME is deliberately NOT consulted:
     interactive macOS terminals set it too.
     """
-    if os.environ.get("HERMES_SUPERVISED_CHILD") or os.environ.get("HERMES_S6_SUPERVISED_CHILD"):
+    if os.environ.get("HERMES_SUPERVISED_CHILD"):
         return True
     is_gateway_cmd = next((a for a in argv if not a.startswith("-")), None) == "gateway"
     if is_gateway_cmd and os.environ.get("INVOCATION_ID"):
         return True
     return any(os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
                for name in ("HERMES_GATEWAY_EXTERNAL_SUPERVISOR", "HERMES_GATEWAY_PROFILE_PIN"))
-
-
-def _s6_supervised_gateway_run(argv: list) -> bool:
-    """A bare ``gateway run`` inside the s6 image names the ``gateway-default`` slot too.
-
-    ``_maybe_redirect_run_to_s6_supervision`` turns it into a start of the supervised slot for the
-    current profile, and it is the image's own CMD. Following the sticky ``active_profile`` there
-    started that profile's named slot on every container boot: the one the boot reconciler just
-    registered down, because a started named slot is a second gateway beside the multiplexer.
-    ``--no-supervise`` keeps the foreground run, which follows ``active_profile`` as before (#22502).
-    """
-    words = [a for a in argv if not a.startswith("-")]
-    if words[:2] != ["gateway", "run"] or "--no-supervise" in argv:
-        return False
-    if os.environ.get("HERMES_GATEWAY_NO_SUPERVISE", "").lower() in ("1", "true", "yes"):
-        return False
-    from hermes_cli.service_manager import _s6_running
-    return _s6_running()
 
 
 def explicit_cli_profile() -> str | None:
@@ -505,8 +477,7 @@ def _apply_profile_override() -> None:
         return
 
     if (profile_name is None and not _under_gateway_supervisor(argv)
-            and not _startup_fast.is_desktop_ssh_backend_argv(argv)
-            and not _s6_supervised_gateway_run(argv)):
+            and not _startup_fast.is_desktop_ssh_backend_argv(argv)):
         try:
             from hermes_constants import get_default_hermes_root
 
@@ -2603,13 +2574,7 @@ def _try_fast_chat_launch() -> bool:
     argv = sys.argv[1:]
     if "-h" in argv or "--help" in argv:
         return False
-    # Container routing must win: NixOS container mode forwards EVERY invocation.
-    try:
-        from hermes_cli.config import get_container_exec_info
-        if get_container_exec_info():
-            return False
-    except Exception:
-        return False
+
     # TUI launches keep full dispatch outside Termux (own startup path).
     if _wants_tui_early(argv):
         return False
@@ -2990,17 +2955,6 @@ def main():
 
     parser, subparsers = _build_cli_parser()
 
-    # NixOS container mode routes ALL invocations into the managed container.
-    # MUST run before parse_args() so --help, unrecognised flags and every
-    # subcommand are forwarded instead of intercepted by argparse on the host.
-    from hermes_cli.config import get_container_exec_info
-
-    container_info = get_container_exec_info()
-    if container_info:
-        from hermes_cli.main_container import exec_in_container
-
-        exec_in_container(container_info, sys.argv[1:])
-        sys.exit(1)  # unreachable: execvp replaces the process or raises
 
     args = _parse_cli_args(parser, subparsers, sys.argv[1:])
     _enable_cpu_profile(args)

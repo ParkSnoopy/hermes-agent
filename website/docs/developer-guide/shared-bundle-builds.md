@@ -11,7 +11,7 @@ interfaces, not proof that every distribution passed native acceptance.
 |---|---|---|
 | Dependency providers | Prepare tools, Python environments, JavaScript dependencies, and native bindings | PM (`pm.build_environment`), `scripts/build/node-deps.mjs`, Nix, and Termux |
 | Product builders | Compile icons/TUI or assemble a runnable agent from prepared inputs | `scripts/generate_icons.py` and `scripts/build/` |
-| Distribution adapters | Select products and package them for their target | `scripts/bundles/`, `Dockerfile`, `nix/`, and `scripts/termux/` |
+| Distribution adapters | Select products and package them for their target | `scripts/bundles/`, `nix/`, and `scripts/termux/` |
 
 Providers retain their package managers and locks. Product builders do not
 install missing dependencies or download inputs. The Node dependency provider
@@ -81,7 +81,7 @@ The CLI contracts are in `scripts/bundles/native_build.py`,
 `AgentInputs` supplies explicit paths and a placement mode:
 
 - `contained` keeps runtime inputs inside the native payload.
-- `fixed` retains the Docker or Termux installation prefix.
+- `fixed` retains the Termux installation prefix.
 - `references` keeps installed code and dependencies in separate Nix store paths.
 
 The assembler derives console commands from `[project.scripts]`. It copies
@@ -105,7 +105,7 @@ PM dependencies come from `pm/pyproject.toml` and `pm/uv.lock`, not the
 application dependency graph. The application environment and `pm-runtime`
 are separate inputs to agent assembly.
 
-Native and Docker preparation use `pm.runtime_stage.stage_runtime`. Termux
+Native preparation uses `pm.runtime_stage.stage_runtime`. Termux
 uses that function with its offline wheelhouse. Nix uses the independent
 `nix/pm-runtime.nix` derivation. Native sealing records the payload interpreter
 and PM-only site directory in `pm-runtime.json`.
@@ -113,7 +113,7 @@ and PM-only site directory in `pm-runtime.json`.
 Resident PM workers run the declared interpreter with `-I -S -B`. They add
 only the declared PM dependency directory before the worker script. They do
 not borrow application dependencies or add PM packages to the caller's
-interpreter. Docker and Nix stamps point to their declared PM runtime.
+interpreter. Nix stamps point to their declared PM runtime.
 These contracts live in `pm/runtime.py:55–88,171–182` and
 `scripts/bundles/payload.py:58–90`.
 
@@ -127,7 +127,6 @@ admission, generation selection, and transaction state. Both paths use
 
 | Distribution | Selected products | Current output layout |
 |---|---|---|
-| Docker | TUI and agent | Agent at `/opt/hermes`, dependencies at `.venv`, PM at `pm-runtime`, generated commands at `libexec` |
 | Nix TUI | TUI | `$out/lib/hermes-tui/{dist/entry.js,package.json}` |
 | Nix agent | Agent with TUI references | `$out/bin`, `$out/share/hermes-agent`, `$out/ui-tui`, `manifest.json`, and `command-map.json` |
 | Termux | TUI and agent | `OUT/hermes-agent_<version>_aarch64.deb`, installed at `$PREFIX/lib/hermes-agent/` |
@@ -137,15 +136,6 @@ Native payloads contain `hermes-agent`, `tools`, `venv`, `pm-runtime`, `bin`,
 `hermes-agent/hermes_cli/tui_dist/`.
 The TUI asset directory contains `entry.js` and module-mode package metadata.
 
-Docker keeps its TUI product at `/opt/hermes/ui-tui`. The assembler also plants its shared TUI
-asset layout beneath `hermes_cli/tui_dist`. Venv command symlinks preserve the
-paths used by s6 and the privilege-drop shim.
-
-The Docker frontend stage owns pnpm workspace dependencies and compilation. The
-runtime stage copies only the frontend products and the locked TypeScript package for
-runtime linting. Node/npm and Photon's separately installed sidecar dependencies
-remain runtime inputs. Python dependency preparation precedes the application
-source copy. Actual cache-hit and layer-size claims require build evidence.
 
 Nix retains `fetchPnpmDeps`, uv2nix, platform overrides, and store references.
 Its builders run during derivation builds, not evaluation. Per-product source
@@ -208,7 +198,7 @@ consumers. They are not interchangeable cleanup targets.
   Plain `uv cache prune` removes dangling entries without discarding offline
   wheel inputs. It does not remove all historical versions or enforce a size cap.
 - Frontend `node_modules` is a provider input, not a frontend product.
-  Docker's runtime TypeScript and Photon selections are separate exceptions.
+
 
 The native cache behavior is in `scripts/bundles/native.py`.
 Removing all caches from a payload can break offline environment reconstruction.
@@ -255,11 +245,10 @@ Focused helper tests cannot establish all of these requirements:
 - Standalone TUI interaction.
 - PM isolation after native payload relocation.
 - Retained-cache offline reconstruction of a mutable application environment.
-- Docker non-root CLI/TUI/browser behavior and every image layer's contents.
+
 - Actual Nix package execution through reference-based wrappers.
 - Fresh network-disabled Termux package installation and Android device behavior.
 
 Use the existing acceptance checks in `tests/install/README.md`,
-`tests/docker/`, Nix checks, and `scripts/termux/check_deb.sh` plus
-`validate_installed.py`. Container acceptance does not substitute for Android
-device acceptance. No build-pass claim follows from this document.
+Nix checks, and `scripts/termux/check_deb.sh` plus
+`validate_installed.py`. No build-pass claim follows from this document.

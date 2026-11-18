@@ -54,10 +54,7 @@ on:
         description: detect's `uv_lock` lane (uv.lock in sync with pyproject.toml).
         type: boolean
         default: false
-      docker_meta:
-        description: detect's `docker_meta` lane (hadolint + shellcheck of the container inputs).
-        type: boolean
-        default: false
+
 
 permissions:
   contents: read
@@ -277,26 +274,6 @@ jobs:
           overwrite: true
           if-no-files-found: ignore
 
-      # ── docker_meta lane: Dockerfile and docker/ shell lint ───────────────────────────────
-
-      # Catches what the behavioural docker smoke test can't: unquoted expansions, silently
-      # failing RUN commands. Rules and ignores live in .hadolint.yaml at the repo root.
-      # `docker run`, not hadolint/hadolint-action: the runner builds a Dockerfile action's image
-      # before the first step of every run, whatever the step's `if:`. Same hadolint, by digest.
-      - name: Lint Dockerfiles (hadolint)
-        if: ${{ !cancelled() && inputs.docker_meta }}
-        run: scripts/ci/lint_docker.sh hadolint
-
-      - name: Lint shell scripts (shellcheck)
-        if: ${{ !cancelled() && inputs.docker_meta }}
-        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # v2.0.0
-        env:
-          # Severity = error: SC1091 (can't follow sourced script) is info-
-          # level and would otherwise fail when the venv activate script
-          # doesn't exist at lint time.
-          SHELLCHECK_OPTS: --severity=error
-        with:
-          scandir: ./docker
 
       # ── Always: icon assets freshness (needs a Hermes runtime interpreter) ────────────────
 
@@ -314,8 +291,7 @@ jobs:
 
       # ── uv_lock lane: uv.lock in sync with pyproject.toml ─────────────────────────────────
 
-      # Blocking: the Docker build's `uv sync --frozen` fails on a stale lockfile, so catch it
-      # here rather than in docker.yml on main. On PRs this runs against the MERGED state
+      # Blocking: frozen installs fail on a stale lockfile. On PRs this runs against the MERGED state
       # (refs/pull/<N>/merge): main's pyproject.toml plus the PR's changes. A branch that passes
       # `python -m pm.build_env --source . --check-lock` locally but fails here is usually behind
       # main; fix with `git fetch origin main && git rebase origin/main && hermes pm lock`.

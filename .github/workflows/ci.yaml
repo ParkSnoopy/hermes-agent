@@ -87,7 +87,7 @@ jobs:
       bootstrap: ${{ steps.gate-lanes.outputs.bootstrap }}
 
       catalog: ${{ steps.gate-lanes.outputs.catalog }}
-      docker_meta: ${{ steps.gate-lanes.outputs.docker_meta }}
+
       e2e: ${{ steps.gate-lanes.outputs.e2e }}
       e2e_upgrade: ${{ steps.gate-lanes.outputs.e2e_upgrade }}
 
@@ -205,7 +205,7 @@ jobs:
 
   # Every cheap repository guard (infographics, profile archives, case collisions, large blobs,
   # lazy_deps imports, stale icons, unrelated histories, contributor attribution, uv.lock,
-  # prompt-surface and JS lockfile diffs, supply-chain scan, Docker lint) as steps of ONE job.
+  # prompt-surface and JS lockfile diffs, supply-chain scan) as steps of ONE job.
   # Each used to be its own job on the same runner: a full billed minute for 0-13s of work.
   # Each step keeps its own lane gate, so the detect outputs it needs are passed down.
   repo-guards:
@@ -221,7 +221,7 @@ jobs:
       deps: ${{ needs.detect.outputs.deps == 'true' }}
       npm_lock: ${{ needs.detect.outputs.npm_lock == 'true' }}
       uv_lock: ${{ needs.detect.outputs.uv_lock == 'true' }}
-      docker_meta: ${{ needs.detect.outputs.docker_meta == 'true' }}
+
 
   # ─────────────────────────────────────────────────────────────────────
   # Gate: runs after everything. ``if: always()`` ensures it reports a
@@ -265,10 +265,7 @@ jobs:
       # every PR was reporting the same repo-wide baseline of pinned-dep CVEs
       # in its review comment, and the SARIF upload tripped GitHub's
       # per-installation API rate limit during merge trains.
-      # The image build runs in its own workflow (docker.yml) and reports
-      # its own check. It was never required here, because it is too slow
-      # to block a merge. A separate run also stops it from holding this
-      # run open. That is what blocked ``gh run rerun``.
+
     if: always()
     # actions: read is for the timing report steps below (completed jobs' cache transfer logs).
     permissions:

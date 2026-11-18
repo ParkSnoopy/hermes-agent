@@ -471,7 +471,6 @@ def test_gateway_status_skips_pending_source_update_completion(tmp_path, monkeyp
 
 @pytest.mark.parametrize("marker,value,owed_by_cli", [
     ("HERMES_SUPERVISED_CHILD", "1", True),
-    ("HERMES_S6_SUPERVISED_CHILD", "true", True),
     ("HERMES_SUPERVISED_CHILD", "0", False),
     ("HERMES_SUPERVISED_CHILD", "false", False),
 ])
@@ -480,7 +479,7 @@ def test_supervised_launch_leaves_a_pending_tail_to_the_cli(
 ):
     """A supervised start leaves a pending tail to the CLI; its manager restarts it every boot (#123340).
 
-    systemd/launchd/s6 restart the gateway under a policy; with a marker that never
+    systemd/launchd restart the gateway under a policy; with a marker that never
     clears, each boot would rebuild the completion environment until the disk fills.
     The obligation stays with `hermes update`. An off value (`0`/`false`) is not a
     supervised launch and still repays the tail.
@@ -495,7 +494,6 @@ def test_supervised_launch_leaves_a_pending_tail_to_the_cli(
     monkeypatch.setattr(pm, "venv_is_current", lambda **kw: True)
     monkeypatch.setattr(_launchers, "resolve_store_python", lambda _, **__: Path(sys.executable))
     monkeypatch.delenv("HERMES_SUPERVISED_CHILD", raising=False)
-    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
     monkeypatch.setenv(marker, value)
 
     assert venv_sync.prepare_launch(root, ["gateway", "run"]) is None

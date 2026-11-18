@@ -457,8 +457,7 @@ class _NonRetryableFailureAdapter(BasePlatformAdapter):
 @pytest.mark.asyncio
 async def test_runner_exits_with_ex_config_on_nonretryable_startup_error(monkeypatch, tmp_path):
     """Non-retryable ownership conflicts (such as token collision) must
-    set exit_code to 78 (EX_CONFIG) so the s6 finish script can translate
-    it to exit 125 (permanent failure).  See #51228."""
+    set exit_code to 78 (EX_CONFIG) so supervisors can stop retrying."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     config = GatewayConfig(
         platforms={
@@ -483,12 +482,11 @@ async def test_runner_exits_with_ex_config_on_nonretryable_startup_error(monkeyp
 async def test_start_gateway_propagates_fatal_config_exit_code(monkeypatch, tmp_path):
     """A clean exit carrying GATEWAY_FATAL_CONFIG_EXIT_CODE must surface as a
     process-level SystemExit(78) — NOT a truthy return — so main() exits 78
-    and the s6 finish script can translate it to 125 (no restart).
+    and the supervisor can honor its fatal-exit policy.
 
     This guards the propagation gap: runner.start() stamps exit_code=78 and
     requests a clean exit, but start_gateway()'s clean-exit branch used to
-    `return True` before the SystemExit(exit_code) site, so main() exited 0
-    and s6 crash-looped anyway (#51228)."""
+    `return True` before the SystemExit(exit_code) site, so main() exited 0."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
 
     class _FatalConfigRunner:

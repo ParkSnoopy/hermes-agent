@@ -35,19 +35,18 @@ pull_request / push main
  │                             ├─ repo-guards.yml (one job: every cheap guard as a lane-gated step)
  │                             └─ all-checks-pass  ← the ONLY required branch-protection check
  │                                                   (+ the CI timing report steps)
- ├─ docker.yml   (own run; build/test, push :main on main)
  ├─ nix.yml      (own run; nix flake check)
  └─ path-filtered: pm-bundle, termux-verify, plugin-catalog-ci
 
 workflow_run CI started  → ci-review-comment.yml (live PR comment)
-PR labeled run-e2e       → label-rerun.yml (reruns CI, Docker, Nix)
+PR labeled run-e2e       → label-rerun.yml (reruns CI and Nix)
 
 schedule daily 06:41 UTC → canary-release.yml → (release.py dispatches) termux-release.yml
                                                                          └─ APT checks → GitHub prerelease
 
 release.py release       → stable-release.yml ─┬─ ci.yaml (release: true, strict gate)
- (pushes rc.N-vX.Y.Z,                          ├─ docker.yml (release-phase test → publish)
-  dispatches on main)                          ├─ nix.yml, pm-bundle.yml, termux-verify.yml
+ (pushes rc.N-vX.Y.Z,                          ├─ nix.yml, pm-bundle.yml, termux-verify.yml
+  dispatches on main)                          │
                                                ├─ windows-venv-e2e.yml, install-e2e.yml
                                                └─ termux-release.yml (candidate / publish)
 Stable Release completed (failed) → stable-release-publication.yml (rerun failed jobs / publish)
@@ -61,9 +60,9 @@ Stable Release completed (failed) → stable-release-publication.yml (rerun fail
 
 | Kind | What starts it | Files |
 |---|---|---|
-| Entry point | `pull_request`, `push`, `schedule`, `workflow_run`, `workflow_dispatch`, `release` | `ci.yaml`, `docker.yml`, `nix.yml`, `canary-release.yml`, `stable-release.yml`, and the others under the headings below |
+| Entry point | `pull_request`, `push`, `schedule`, `workflow_run`, `workflow_dispatch`, `release` | `ci.yaml`, `nix.yml`, `canary-release.yml`, `stable-release.yml`, and the others under the headings below |
 | Reusable only | Another workflow's `uses: ./.github/workflows/<file>` | Most `ci.yaml` children (`tests.yml`, `lint.yml`, …), `install-e2e-run.yml` |
-| Both | Its own triggers **and** a caller | `nix.yml`, `docker.yml`, `pm-bundle.yml`, `termux-release.yml`, `termux-verify.yml`, `windows-venv-e2e.yml`, `windows-install-update-e2e.yml`, `install-e2e.yml`, `ci.yaml`, `archive-inputs.yml` |
+| Both | Its own triggers **and** a caller | `nix.yml`, `pm-bundle.yml`, `termux-release.yml`, `termux-verify.yml`, `windows-venv-e2e.yml`, `windows-install-update-e2e.yml`, `install-e2e.yml`, `ci.yaml`, `archive-inputs.yml` |
 
 A reusable workflow does not show up as its own run in the Actions tab. Its
 jobs appear inside the caller's run, under the caller's job name (for example
@@ -112,7 +111,7 @@ did not select it. In release mode a skipped required job **fails** the gate
 - `ci.yaml` runs PR-controlled code. It never gets `secrets: inherit` or
   GitHub App credentials. Do not add them.
 - Jobs that need secrets either run only on `main` pushes or dispatches
-  (`docker.yml` publish, `archive-inputs.yml`, `deploy-site.yml`) or check the
+  (`archive-inputs.yml`, `deploy-site.yml`) or check the
   repo (`github.repository == 'NousResearch/hermes-agent'`). On a fork they
   skip.
 - Jobs that need R2 read the secret into job `env` and skip their steps when
@@ -143,9 +142,7 @@ events made with the default `GITHUB_TOKEN`. `workflow_dispatch` and
 `blacksmith-*` labels are Blacksmith runners (`4vcpu` for small jobs,
 `32vcpu` for test suites and builds, `-arm` for native arm64). `macos-15`,
 `windows-latest-32-core` and `windows-latest-32-arm-core` are GitHub-hosted.
-No workflow runs on Intel macOS. Some publish jobs run on `ubuntu-latest` on purpose:
-`docker buildx imagetools` cannot commit manifest lists to Docker Hub from
-Blacksmith.
+No workflow runs on Intel macOS.
 
 ---
 
@@ -174,7 +171,7 @@ The classifier fails **open**:
 - An empty diff (push, dispatch, or a compare-API failure) turns every lane on.
 - Any change under `.github/` turns every lane on.
 - `python` is a denylist. It is off only when every changed file is provably
-  prose, frontend-only, Docker meta, Nix-only, or catalog entry data.
+  prose, frontend-only, Nix-only, or catalog entry data.
 
 Then a gate step in `ci.yaml` rewrites the result:
 
@@ -196,8 +193,7 @@ Then a gate step in `ci.yaml` rewrites the result:
 | `deps` | `pyproject.toml` |
 | `scan` | Python files, `.pth`, setup hooks |
 | `npm_lock` | `pnpm-lock.yaml` or any `package-lock.json` |
-| `docker_meta` | Dockerfiles and Docker scripts |
-| `docker`, `nix` | slow lanes, read by `docker.yml` and `nix.yml` (not by `ci.yaml`) |
+| `nix` | slow lane read by `nix.yml` (not by `ci.yaml`) |
 | `e2e`, `e2e_upgrade`, `e2e_desktop_core`, `e2e_desktop_update` | computed, then forced off except on release or dispatch |
 
 A cross-language fixture (`_SHARED_FIXTURE_CONSUMERS`) also turns on the lanes
@@ -235,7 +231,6 @@ of every suite that reads it.
 | ↳ Check uv.lock (step) | | `uv_lock` | neither lockfile nor pyproject changed |
 | ↳ JS lockfile diff, `pnpm-lock.yaml` and `package-lock.json` (advisory steps) | | PR and `npm_lock` | push, or no lockfile change |
 | ↳ Prompt surface diff (advisory steps) | | PR and `python` | push, or no Python change |
-| ↳ Lint Docker scripts (steps) | | `docker_meta` | no Docker meta change |
 | ↳ Supply-chain scan / PyPI upper bounds (steps) | | PR and `scan` / `deps` | push, or neither lane |
 | All required checks pass (v2) | inline | `always()` | never |
 | ↳ CI timing report (advisory steps of the gate job) | | `always()`. Saves a baseline on `main`; makes a diff report on PRs | never |
@@ -246,8 +241,8 @@ step fails the job, and the `review-status-*` artifacts the live PR comment read
 their names. The jobs were split only by history: each paid its own checkout and a
 full billed minute for a few seconds of work.
 
-Not part of `ci.yaml`: the Docker image build, `nix flake check`, and the OSV
-scan. Docker and Nix run in their own workflows. A reusable-workflow call
+Not part of `ci.yaml`: `nix flake check` and the OSV scan.
+Nix runs in its own workflow. A reusable-workflow call
 keeps the caller run "in progress", and GitHub refuses `gh run rerun` on a run
 that is in progress, so one slow job would block reruns of the fast required
 ones. OSV runs on a weekly schedule.
@@ -293,7 +288,7 @@ gh workflow run ci.yaml --ref my-branch -f release=true
 gh workflow run ci.yaml --ref my-branch -f strict_acceptance=upd-txn
 ```
 
-To get the Docker and Nix slow lanes on a PR without a dispatch, add the
+To get the Nix slow lane on a PR without a dispatch, add the
 `run-e2e` label (see [`label-rerun.yml`](#pr-helpers)). The label does **not**
 turn on the E2E suites. Only a release or a dispatch runs them.
 
@@ -306,7 +301,6 @@ branch protection.
 
 | Workflow | Triggers | Runs / skips | Manual trigger |
 |---|---|---|---|
-| `docker.yml`, **Docker Build, Test, and Publish** | `pull_request`, `push: main`, `workflow_call` (stable) | **PR:** `mode` (phase + classification, one job) → `build` only when the `docker` slow lane is on (Docker meta, dependency manifests, `pm/`, `tests/docker/`, webapp build recipe, or the `run-e2e` label). Builds slim+desktop × amd64+arm64 and runs the docker integration tests. Never pushes. **Push to `main` on the upstream repo:** always builds, then `publish` (env `container-publish`) and `merge` push `:main` / `:main-desktop` only (never `:latest`). **Stable `release-phase: test`:** builds the claim commit, tests it (unless the claim has no `docker-tests` lane), and archives the exact image. **`release-phase: publish`:** pushes the archived bytes under the attempt ref and returns the manifest digest. No `release: published` trigger, on purpose. | none (`gh run rerun`) |
 | `nix.yml`, **Nix flake check** | `pull_request`, `push: main`, `workflow_call` | `flake-check` runs when the `nix` lane is on (`nix/`, `flake.*`, dependency/npm manifests, `.github/`, `run-e2e` label). Every push to `main` turns it on. `release: true` forces it. | none |
 | `pm-bundle.yml`, **PM Bundle** | `pull_request` on `pm/**` (not `*.md`), `scripts/bundles/**`, desktop build cache inputs, `uv.lock`, `pyproject.toml`, itself; `workflow_dispatch`; `workflow_call` (stable) | Stages and smoke-tests `hermes pm bundle` on linux-x64 and linux-arm64. | `gh workflow run pm-bundle.yml [-f ref=<sha>]` |
 | `termux-verify.yml`, **Termux verification** | `push: main` / `pull_request` on `scripts/termux/**`, `pm/**` (not `*.md`), `tests/scripts/test_termux*`, itself; `workflow_dispatch`; `workflow_call` (stable) | `contracts` and `tui` always run. `r2-provisioned` is skipped on PRs. `native-runtime` (arm64) runs only when R2 secrets exist or `release: true`. A release run fails loudly without R2. | `gh workflow run termux-verify.yml` |
@@ -319,8 +313,8 @@ branch protection.
 
 | Workflow | Trigger | What it does / skip conditions |
 |---|---|---|
-| `ci-review-comment.yml`, **CI review comment** | `workflow_run` of `CI`, `types: [in_progress]` | Polls the CI run and the sibling Docker run for up to ~50 min. Keeps one live review comment on the PR up to date. Always runs scripts from the default branch. **Skips** non-PR runs and PRs from forks. A first-time contributor's run starts it only after a maintainer approves it, because `in_progress` fires then. One poller per head repo+branch; a newer CI run cancels the old poller. |
-| `label-rerun.yml`, **Label rerun** | `pull_request: labeled` | Only for the `run-e2e` label. Cancels the head commit's `ci.yaml`, `docker.yml` and `nix.yml` runs if they are still going, then reruns them. Their `detect` reads the live labels, so Docker and Nix build. Exits if the PR head moved. The E2E suites stay off. |
+| `ci-review-comment.yml`, **CI review comment** | `workflow_run` of `CI`, `types: [in_progress]` | Polls the CI run for up to ~50 min. Keeps one live review comment on the PR up to date. Always runs scripts from the default branch. **Skips** non-PR runs and PRs from forks. A first-time contributor's run starts it only after a maintainer approves it, because `in_progress` fires then. One poller per head repo+branch; a newer CI run cancels the old poller. |
+| `label-rerun.yml`, **Label rerun** | `pull_request: labeled` | Only for the `run-e2e` label. Cancels the head commit's `ci.yaml` and `nix.yml` runs if they are still going, then reruns them. Their `detect` reads the live labels. Exits if the PR head moved. The E2E suites stay off. |
 
 ---
 
@@ -355,8 +349,8 @@ There are three release paths, and none of them starts from a tag push:
 |---|---|---|---|
 | Entry | `canary-release.yml` (daily cron or dispatch) → `termux-release.yml` | `python scripts/release.py release …` → `stable-release.yml` | `python scripts/release.py --build-commit REV --publish` → `termux-release.yml` |
 | Identity | `v<stable>+canary.<UTC>` annotated tag | `rc.<N>-vX.Y.Z` attempt ref, then a `vX.Y.Z` receipt at publish | exact pushed commit |
-| Tests | Termux payload and public APT checks | source CI + Docker + Nix + PM bundle + install/update acceptance, per the claim's lanes | Termux payload build |
-| Publishes | canary APT repository, then the exact GitHub prerelease | selected Docker aliases and Termux APT artifacts, GitHub release | Termux handoffs under R2; no channel movement or release |
+| Tests | Termux payload and public APT checks | source CI + Nix + PM bundle + install/update acceptance, per the claim's lanes | Termux payload build |
+| Publishes | canary APT repository, then the exact GitHub prerelease | selected Termux APT artifacts, GitHub release | Termux handoffs under R2; no channel movement or release |
 
 Long-form reference: `website/docs/developer-guide/stable-releases.md`.
 
@@ -391,7 +385,7 @@ Long-form reference: `website/docs/developer-guide/stable-releases.md`.
 
   ```sh
   python scripts/release.py release --commit "$(git rev-parse origin/main)" --bump patch --remote origin
-  python scripts/release.py release … --only docker             # lane subset
+  python scripts/release.py release … --only nix                # lane subset
   python scripts/release.py release … --with termux --without install-e2e
   python scripts/release.py publish --version X.Y.Z --remote origin
   python scripts/release.py abandon --version X.Y.Z --remote origin
@@ -411,7 +405,6 @@ Long-form reference: `website/docs/developer-guide/stable-releases.md`.
   | Lane (default) | Jobs it controls |
   |---|---|
   | `ci` (on) | `ci` → `ci.yaml` with `release: true` |
-  | `docker` (on), `docker-tests` (on) | `docker` (test phase), `publish-docker` |
   | `nix` (on) | `nix` → `nix.yml` with `release: true` |
   | `pm-bundle` (on) | `pm-bundle` |
   | `termux` (off), `termux-checks` (on, only with `termux`) | `candidates-termux`, `termux-checks` |
@@ -421,7 +414,7 @@ Long-form reference: `website/docs/developer-guide/stable-releases.md`.
 
 - **Order:** every gate and candidate starts right after `admit`. CI does not
   block the signed builds. `acceptance` is the single join that blocks
-  publication. Then `publish-docker` and `publish-bundles` (Termux workflow,
+  publication. Then `publish-bundles` (Termux workflow,
   `release-phase: publish`), `publication`, and finally `complete`
   ("Stable release is green").
 - **Concurrency:** group `stable-release`, queued, shared with publication.
@@ -493,7 +486,6 @@ gh workflow run install-e2e-red.yml -f run-id=<id> -f dry-run=false
 | `ci-review-comment.yml` | CI review comment | workflow_run(CI in_progress) | none |
 | `ci.yaml` | CI | PR, main, dispatch, call | stable |
 | `deploy-site.yml` | Deploy Site | main (paths), release published, dispatch | skills-index (dispatch) |
-| `docker.yml` | Docker Build, Test, and Publish | PR, main, call | stable |
 | `docs-search-monitor.yml` | Docs Search Monitor | cron 6 h, workflow_run(Deploy Site), dispatch | none |
 | `docs-site-checks.yml` | Docs Site Checks | R | ci |
 | `install-e2e-red.yml` | Install & Update E2E red tracker | workflow_run(Install & Update E2E), dispatch | none |

@@ -14,7 +14,7 @@ User data normally lives outside the application:
 | Host | Default data location |
 |---|---|
 | Linux, Termux | `~/.hermes/` |
-| Official Docker container | `/opt/data/`, mapped to host storage |
+| Legacy Hermes Docker container | `/opt/data/`, mapped to host storage |
 
 `HERMES_HOME` and the selected profile can override these defaults. Record the
 actual source and destination homes before changing installations.
@@ -101,17 +101,6 @@ the environment variable moves data or copies runtime state.
 To build a source desktop, run `hermes desktop` from the prepared
 checkout. Opening the old packaged app still starts its packaged backend.
 
-## Docker users
-
-`/opt/data` is a container path, not necessarily a usable host path. For a bind
-mount, use the host-side directory as the source process's `HERMES_HOME`.
-For a named volume or Docker Desktop VM storage, stop the old gateway first.
-Then export/import a backup or copy data through a controlled mount.
-Check ownership and permissions on the destination.
-
-A local `docker build -t hermes-agent .` produces another image-managed install.
-It does not turn the running container into a self-updating source checkout.
-Recreate the container to use that image. See [Docker](./docker.md).
 
 ## Nix and Termux users
 

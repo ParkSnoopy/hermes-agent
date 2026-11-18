@@ -1790,7 +1790,7 @@ class CLICommandsMixin(CLICommandsSessionToolsMixin):
             level = ('medium (default)' if rc is None else 'none (disabled)'
                      if rc.get("enabled") is False else effort_display_label(rc.get("effort", "medium"), *_route))
             display_state = 'on ✓' if self.show_reasoning else 'off'
-            full_state = ('full' if getattr(self, "reasoning_full", False)
+            full_state = ('full' if getattr(self, "reasoning_full", True)
                           else 'clamped to 10 lines')
             return _cp(_accent_line(f'Reasoning effort:  {level}'),
                        _accent_line(f'Reasoning display: {display_state} ({full_state})'),

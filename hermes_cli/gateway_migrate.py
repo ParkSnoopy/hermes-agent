@@ -91,15 +91,11 @@ def _service_label(service: tuple[str, bool]) -> str:
     kind, system = service
     if kind == "systemd":
         return f"systemd ({'system' if system else 'user'})"
-    if kind == "s6":
-        return "s6 slot"
     return kind
 
 
 def _remove_verb(service: tuple[str, bool]) -> str:
-    """An s6 slot is parked down (it stays registered as the `hermes -p X gateway start` target), every
-    other unit is uninstalled."""
-    return "park" if service[0] == "s6" else "uninstall"
+    return "uninstall"
 
 
 def _service_dict(service: tuple[str, bool]) -> dict:
@@ -296,22 +292,9 @@ def _gateway_identity(home: Path, pid: Optional[int], services: list[tuple[str, 
 
 
 def _installed_services(home: Path) -> list[tuple[str, bool]]:
-    """Every installed service for ``home``'s gateway, user scope first.
-
-    Under s6 the footprint is the SLOT: the root slot always (it is what a restart goes through),
-    a named profile's slot only while it is UP — a registered-down slot is what the container's
-    boot leaves behind for every named profile and is not a gateway."""
+    """Every installed service for ``home``'s gateway, user scope first."""
     from hermes_cli import gateway as gw
     found: list[tuple[str, bool]] = []
-    if gw._running_under_s6():
-        from hermes_cli.gateway_multiplex_s6 import named_slot_name, slot_is_up
-        from hermes_cli.service_manager import S6ServiceManager
-        from hermes_constants import profile_name_for_home
-        name = profile_name_for_home(home) or "default"
-        slot_dir = S6ServiceManager().scandir / named_slot_name(name)
-        if slot_dir.is_dir() and (name == "default" or slot_is_up(name)):
-            found.append(("s6", False))
-        return found
     with _home_env(home):
         if gw.supports_systemd_services():
             found.extend(("systemd", system) for system in (False, True) if gw.get_systemd_unit_path(system=system).exists())
@@ -329,8 +312,6 @@ def _systemd_service_user(home: Path, services: list[tuple[str, bool]]) -> Optio
 
 def _service_op(kind: str, system: bool, verb: str, home: Path, *, run_as_user: Optional[str] = None) -> None:
     """``stop`` / ``uninstall`` / ``start`` / ``restart`` / ``install`` / ``enable`` on ``home``'s service."""
-    if kind == "s6":
-        return _s6_slot_op(verb, home)
     from hermes_cli import gateway as gw
     with _home_env(home):
         if verb == "install":
@@ -358,21 +339,6 @@ def _service_op(kind: str, system: bool, verb: str, home: Path, *, run_as_user: 
 def _stop_gateway_process(home: Path) -> None:
     from hermes_cli.profiles import _stop_gateway_process
     _stop_gateway_process(home)
-
-
-def _s6_slot_op(verb: str, home: Path) -> None:
-    """The s6 leg of :func:`_service_op`. A named profile's slot is never uninstalled: it stays
-    registered DOWN (``down`` file) as the target of a later ``hermes -p X gateway start``, exactly
-    the shape the container's boot produces. The root slot is (re)started so it re-reads its config."""
-    from hermes_cli.gateway_multiplex_s6 import bring_root_slot_up, park_named_slot
-    from hermes_constants import profile_name_for_home
-    name = profile_name_for_home(home) or "default"
-    if name == "default":
-        if verb in ("start", "restart"):
-            bring_root_slot_up()
-        return  # install/uninstall/stop of the root slot are not migration steps
-    if verb == "stop":
-        park_named_slot(name)
 
 
 def _spawn_detached_gateway(home: Path) -> bool:
@@ -924,8 +890,7 @@ def _remove_secondary_gateways(plan: MigrationPlan) -> None:
         for kind, system in p.services:
             _service_op(kind, system, "stop", p.home)
             _service_op(kind, system, "uninstall", p.home)
-            done = "parked (down file)" if kind == "s6" else "removed"
-            print(f"  ✓ {p.name}: stopped and {done} its {_service_label((kind, system))}")
+            print(f"  ✓ {p.name}: stopped and removed its {_service_label((kind, system))}")
         if p.pid is not None:
             _stop_gateway_process(p.home)
             print(f"  ✓ {p.name}: stopped standalone gateway (pid {p.pid})")
@@ -1182,32 +1147,9 @@ def rollback_migration(default_home: Optional[Path] = None) -> bool:
 # --------------------------------------------------------------------------- CLI + update hook
 
 
-def _host_supports_migration() -> Optional[str]:
-    """Reason the host cannot be converged by this command, else None.
-
-    s6 is handled in-process: a named profile's slot that is UP is
-    parked (``s6-svc -d`` + ``down`` file) and its autostart intent folded into the root slot the
-    same way the container's boot does it (``hermes_cli.gateway_multiplex_s6``). What cannot be
-    done from here is register a slot the boot never created — that is the one refusal left.
-    """
-    from hermes_cli import gateway as gw
-    if not gw._running_under_s6():
-        return None
-    from hermes_cli.gateway_multiplex_s6 import named_slot_name
-    from hermes_cli.service_manager import S6ServiceManager
-    scandir = S6ServiceManager().scandir
-    if not (scandir / named_slot_name("default")).is_dir():
-        return (f"s6-supervised container without a root gateway slot ({scandir / named_slot_name('default')}); "
-                "the container's boot registers it — restart the container.")
-    return None
-
-
 def cmd_migrate(args) -> None:
     """``hermes gateway migrate [--multiplex] [--dry-run] [--yes]``."""
-    reason = _host_supports_migration()
-    if reason:
-        print(f"✗ {reason}")
-        sys.exit(1)
+
     plan = build_migration_plan()
     dry_run = getattr(args, "dry_run", False)
     _print(format_plan(plan, dry_run=dry_run))
@@ -1237,7 +1179,7 @@ def maybe_auto_migrate_after_update() -> None:
     ``gateway.auto_multiplex_migration: false`` on the default profile opts out; a secondary behind a
     service-domain / UNIX-user / HERMES_HOME boundary blocks this path only (the explicit command decides)."""
     from hermes_cli.gateway_migrate_guards import auto_migration_blockers, auto_migration_opted_out
-    if _host_supports_migration() is not None or auto_migration_opted_out(_default_home()):
+    if auto_migration_opted_out(_default_home()):
         return
     plan = build_migration_plan()
     if plan.already_multiplexed or len(plan.profiles) < 2:

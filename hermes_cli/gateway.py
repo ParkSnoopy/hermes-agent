@@ -1179,34 +1179,6 @@ def _recover_pending_systemd_restart(system: bool = False, previous_pid: int | N
 
 
 
-def _s6_gateway_snapshot(gateway_pids: tuple[int, ...]) -> GatewayRuntimeSnapshot | None:
-    """Snapshot for an s6-supervised container gateway, or None when s6 isn't the service manager."""
-    from hermes_cli.service_manager import detect_service_manager, get_service_manager
-    if detect_service_manager() != "s6":
-        return None
-    service_name = f"gateway-{_current_profile_name()}"
-    mgr = get_service_manager()
-    service_installed = service_running = False
-    try:
-        service_dir = getattr(mgr, "scandir", None)
-        if service_dir is not None:
-            service_installed = (service_dir / service_name).is_dir()
-    except Exception:
-        service_installed = False
-    if service_installed:
-        try:
-            service_running = bool(mgr.is_running(service_name))
-        except Exception:
-            service_running = False
-    return GatewayRuntimeSnapshot(
-        manager="s6 (container supervisor)",
-        service_installed=service_installed,
-        service_running=service_running,
-        gateway_pids=gateway_pids,
-        service_scope="s6",
-    )
-
-
 def get_gateway_runtime_snapshot(system: bool = False) -> GatewayRuntimeSnapshot:
     """Return a unified view of gateway liveness for the current profile."""
     gateway_pids = tuple(find_gateway_pids())
@@ -1215,13 +1187,6 @@ def get_gateway_runtime_snapshot(system: bool = False) -> GatewayRuntimeSnapshot
 
     from hermes_constants import is_container
     if is_linux() and is_container():
-        # Report s6 supervision under our /init; other container runtimes keep "docker (foreground)".
-        try:
-            snapshot = _s6_gateway_snapshot(gateway_pids)
-            if snapshot is not None:
-                return snapshot
-        except Exception:
-            pass  # Fall through to the legacy label on any detection error.
         return GatewayRuntimeSnapshot(manager="docker (foreground)", gateway_pids=gateway_pids)
 
     if supports_systemd_services():
@@ -1727,8 +1692,8 @@ def _bare_unit_pinned_home() -> Path | None:
     unit's ``Restart=always`` looped on the instance lock (#109476). A unit pinning THIS home is this
     home's service, whatever it is named.
 
-    Linux-gated: a systemd unit is not an identity authority for launchd labels, Windows scheduled tasks,
-    or s6 slots, which share ``_profile_suffix()``. ``is_linux()`` is a plain ``sys.platform`` test;
+    Linux-gated: a systemd unit is not an identity authority for other supervisors, which share
+    ``_profile_suffix()``. ``is_linux()`` is a plain ``sys.platform`` test;
     ``supports_systemd_services()`` would be wrong here, since it can shell out to ``systemctl
     is-system-running`` on WSL/containers and this runs on every name resolution.
     """
@@ -1779,8 +1744,8 @@ def _profile_suffix() -> str:
 
 def _current_profile_name() -> str:
     """Profile id relative to the profile ROOT: ``default`` for the root itself (Docker's ``/opt/data``
-    included), ``<name>`` for ``<root>/profiles/<name>``, else the service hash. s6 slots and the
-    multiplexer ask which PROFILE this is; ``_profile_suffix()`` answers which HOST SERVICE this is."""
+    included), ``<name>`` for ``<root>/profiles/<name>``, else the service hash. The multiplexer asks
+    which PROFILE this is; ``_profile_suffix()`` answers which HOST SERVICE this is."""
     from hermes_constants import profile_name_for_home
     return profile_name_for_home(get_hermes_home()) or _profile_suffix()
 
@@ -3403,14 +3368,10 @@ def _truthy_env(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _is_official_docker_checkout() -> bool:
-    return str(PROJECT_ROOT) == "/opt/hermes" and (PROJECT_ROOT / "docker" / "entrypoint.sh").is_file()
-
-
 def _running_under_gateway_supervisor() -> bool:
     """True when this process IS the supervisor-launched gateway, so the conflict guard never wedges
     the service into a respawn/refuse loop. Markers: systemd INVOCATION_ID, launchd XPC_SERVICE_NAME
-    (shells inherit "0"), s6 HERMES_S6_SUPERVISED_CHILD, or ``--external-supervisor``."""
+    (shells inherit "0"), or ``--external-supervisor``."""
     return is_gateway_supervisor_process()
 
 
@@ -3618,16 +3579,14 @@ def _guard_named_profile_under_multiplexer(force: bool = False) -> None:
         return
     # EX_CONFIG, not 1: the refusal is decided purely by config, so it is permanent. The systemd unit
     # (Restart=always, StartLimitIntervalSec=0) relies on RestartPreventExitStatus=78 as its only
-    # backstop — exit 1 turned a correct refusal into an unbounded restart loop; s6 maps 78 to
-    # "permanent failure" too.
+    # backstop — exit 1 turned a correct refusal into an unbounded restart loop.
     # This refusal is decided entirely by configuration (multiplex_profiles plus the allowlist), so it is
     # permanent: no number of retries can change the answer. Exiting 1 made it look transient to a service
     # manager -- and the systemd unit this module generates pairs Restart=always/RestartSec=5 with
     # StartLimitIntervalSec=0, deliberately trading systemd's generic start-rate limiter for the specific
     # RestartPreventExitStatus=GATEWAY_FATAL_CONFIG_EXIT_CODE backstop declared beside it. Returning 1 left
     # that backstop unarmed with the limiter already off, so a correct refusal became an unbounded restart
-    # loop. 78 also reaches the s6 finish script's 125 "permanent failure" translation (see #51228), the
-    # same path the other fatal-config exits take.
+    # loop.
     sys.exit(GATEWAY_FATAL_CONFIG_EXIT_CODE)
 
 
@@ -3635,14 +3594,13 @@ def _host_decision_exit_code(decision) -> int:
     """Exit code for a host-attach verdict a supervisor may be watching.
 
     ``GATEWAY_FATAL_CONFIG_EXIT_CODE`` (78) is the PERMANENT refusal: systemd parks the unit on it
-    (``RestartPreventExitStatus``), the s6 finish script maps it to 125, launchd maps it to a
+    (``RestartPreventExitStatus``), and launchd maps it to a
     deliberate stop. That is right for a config-derived refusal and wrong for a runtime one — "some
     other process serves me right now" ends the moment that process goes away, and parking the unit
     on it strands the profile until a human notices. Transient verdicts therefore use
     ``GATEWAY_SERVICE_RESTART_EXIT_CODE`` (75, EX_TEMPFAIL), which every supervisor we generate
-    already retries: systemd has ``RestartForceExitStatus=75`` with ``RestartSec=5``, the s6 finish
-    script passes it through, and launchd relaunches a non-78 failure. Exit 0 would NOT do: s6
-    parks a clean exit too.
+    already retries: systemd has ``RestartForceExitStatus=75`` with ``RestartSec=5``, and launchd
+    relaunches a non-78 failure.
     """
     if getattr(decision, "transient", False):
         return GATEWAY_SERVICE_RESTART_EXIT_CODE
@@ -3758,27 +3716,6 @@ def _guard_existing_gateway_process_conflict(replace: bool = False) -> None:
     sys.exit(1)
 
 
-def _guard_official_docker_root_gateway() -> None:
-    """Refuse gateway startup when the official Docker privilege drop was bypassed."""
-    if not hasattr(os, "geteuid") or os.geteuid() != 0 or _truthy_env(os.getenv("HERMES_ALLOW_ROOT_GATEWAY")):
-        return
-    if not _is_official_docker_checkout():
-        return
-
-    print_error("Refusing to run the Hermes gateway as root inside the official Docker image.")
-    print(
-        "  The image entrypoint normally drops privileges to the 'hermes' user. "
-        "If you override entrypoint in Docker Compose, include "
-        "/opt/hermes/docker/entrypoint.sh before the Hermes command."
-    )
-    print(
-        "  Running the gateway as root can leave root-owned files in "
-        "$HERMES_HOME and break later non-root dashboard/gateway runs."
-    )
-    print("  Set HERMES_ALLOW_ROOT_GATEWAY=1 only if you intentionally accept this risk.")
-    sys.exit(1)
-
-
 def _apply_startup_watchdog_config() -> None:
     """Idempotent backstop arming of the startup-liveness watchdog. Must run AFTER the conflict guards (a
     --replace loser must not arm one). config.yaml gateway.startup_watchdog* is the user surface; env
@@ -3888,7 +3825,7 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
     kill an existing instance first (avoids systemd restart loops); force: skip the supervised guard;
     idle_exit: a client auto-started this unsupervised gateway, so it exits once idle
     (``gateway.unmanaged_idle_exit_seconds``)."""
-    _guard_official_docker_root_gateway()
+
     _attach_to_host_gateway_or_guard(force=force, replace=replace)
     _guard_supervised_gateway_conflict(force=force)
     _guard_existing_gateway_process_conflict(replace=replace)
@@ -4047,11 +3984,6 @@ def _print_info_lines(*lines: str) -> None:
 # WhatsApp/DingTalk/WeCom/Feishu setup flows live in their plugins' adapter.py::interactive_setup.
 
 
-def _running_under_s6() -> bool:
-    from hermes_cli.service_manager import detect_service_manager
-    return detect_service_manager() == "s6"
-
-
 def _systemd_unit_installed() -> bool:
     """A unit at either scope that serves THIS home. A unit pinned to another install's home is not
     ours, so stop/restart/start fall through to this home's own gateway (PID path) instead of
@@ -4099,67 +4031,6 @@ def _service_call(backend: str, verb: str, system: bool | None = False) -> None:
 # Main Command Handler
 # =============================================================================
 
-def _dispatch_via_service_manager_if_s6(action: str, profile: str | None = None) -> bool:
-    """Dispatch start/stop/restart via s6 inside an s6 container; True iff dispatched (caller returns).
-    Profile defaults to the current one; missing slot / s6 errors become actionable CLI messages."""
-    from hermes_cli.service_manager import (
-        GatewayNotRegisteredError, detect_service_manager, get_service_manager,
-        register_unregistered_profile_gateway,
-    )
-
-    if detect_service_manager() != "s6":
-        return False
-    if profile is None:
-        profile = _current_profile_name()  # root home (Docker /opt/data included) is gateway-default
-    mgr = get_service_manager()
-    if action not in ("start", "stop", "restart"):
-        return False
-    service = f"gateway-{profile}"
-    try:
-        try:
-            getattr(mgr, action)(service)
-        except GatewayNotRegisteredError:
-            # A profile created from the HOST against a bind-mounted home has a directory but no
-            # slot (`profile create` cannot reach the container's /run/hermes-service). Only `start`
-            # repairs that; stop/restart on a missing slot stay an error.
-            if action != "start" or not register_unregistered_profile_gateway(mgr, profile):
-                raise
-            print(f"✓ registered the s6 gateway slot for profile {profile!r}")
-            mgr.start(service)
-    except (RuntimeError, ValueError, OSError) as exc:  # S6Error is a RuntimeError
-        print(f"✗ {exc}")
-        sys.exit(1)
-    return True
-
-
-def _dispatch_all_via_service_manager_if_s6(action: str) -> bool:
-    """Dispatch ``--all`` stop/restart to every registered profile gateway under s6; True iff dispatched.
-    A bare pkill is seen by s6-supervise as a crash and restarted ~1s later; the service manager flips
-    ``want up``/``want down`` correctly. ``start --all`` is not a CLI surface."""
-    from hermes_cli.service_manager import (detect_service_manager, get_service_manager)
-    if detect_service_manager() != "s6" or action not in ("stop", "restart"):
-        return False
-    mgr = get_service_manager()
-    profiles = mgr.list_profile_gateways()
-    if not profiles:
-        print("✗ No profile gateways registered under s6")
-        return True
-    fn = mgr.stop if action == "stop" else mgr.restart
-    errors: list[tuple[str, Exception]] = []
-    for profile in profiles:
-        try:
-            fn(f"gateway-{profile}")
-        except Exception as exc:
-            errors.append((profile, exc))
-    succeeded = len(profiles) - len(errors)
-    verb = "stopped" if action == "stop" else "restarted"
-    if succeeded:
-        print(f"✓ {verb.capitalize()} {succeeded} profile gateway(s) under s6")
-    for profile, exc in errors:
-        print(f"✗ Could not {action} gateway-{profile}: {exc}")
-    return True
-
-
 def gateway_command(args):
     """Handle gateway subcommands."""
     try:
@@ -4182,83 +4053,6 @@ def gateway_command(args):
         print_error(lines[0])
         _print_indented("\n".join(lines[1:]))
         sys.exit(1)
-
-
-def _maybe_redirect_run_to_s6_supervision(args) -> bool:
-    """Inside an s6 container, upgrade bare ``gateway run`` to the supervised s6 longrun; True iff dispatched.
-    ``HERMES_S6_SUPERVISED_CHILD`` (set by ``S6ServiceManager._render_run_script``) marks the supervised
-    child, which must run in foreground or we'd recurse run → start → run; ``--no-supervise`` /
-    HERMES_GATEWAY_NO_SUPERVISE=1 opts out (CI smoke, debugging)."""
-    no_supervise = getattr(args, "no_supervise", False) or \
-        os.environ.get("HERMES_GATEWAY_NO_SUPERVISE", "").lower() in ("1", "true", "yes")
-    # HERMES_S6_SUPERVISED_CHILD: we ARE the supervised child; fall through so the gateway starts.
-    if (no_supervise or getattr(args, "external_supervisor", False)
-            or os.environ.get("HERMES_S6_SUPERVISED_CHILD")):
-        return False
-    if not _dispatch_via_service_manager_if_s6("start"):
-        return False
-    # This process never reaches a GatewayRunner, so the watchdog armed by hermes_cli.main's argv
-    # fast-path has no other disarm site: the in-process heartbeat below parks with zero CPU and no
-    # progress lease, which the watchdog reads as a startup deadlock and os._exit(75)s the CMD process.
-    from hermes_startup_watchdog import disarm_startup_watchdog
-
-    disarm_startup_watchdog()
-    # Breadcrumb on stderr (keep stdout clean for scripts); gateway logs follow via s6-log.
-    print(
-        "→ gateway is now running under s6 supervision (auto-restart on crash,\n"
-        "  dashboard supervised alongside if HERMES_DASHBOARD is set).\n"
-        "  This is the recommended setup for the s6 container image — the\n"
-        "  gateway will keep running even if it crashes.\n"
-        "  Use `--no-supervise` (or HERMES_GATEWAY_NO_SUPERVISE=1) to opt out\n"
-        "  and get the pre-s6 foreground behavior instead.",
-        file=sys.stderr,
-        flush=True,
-    )
-    # Keep the CMD process alive as a heartbeat so the container survives gateway flaps (`docker stop`
-    # SIGTERMs it). Prefer `sleep infinity` (frees the interpreter); execvp only returns by raising
-    # (ENOENT with a clobbered PATH / no `sleep`), which used to crash containers.
-    try:
-        # The supervised gateway's lifetime is independent of this process — s6-supervise restarts it on
-        # crash, and we don't want the container to exit when the gateway flaps. The CMD process keeps /init
-        # alive until `docker stop` sends SIGTERM, at which point /init runs stage 3 shutdown (which tears
-        # down the supervised gateway cleanly). Prefer `sleep infinity` (matches the static main-hermes
-        # service's pattern in docker/s6-rc.d/main-hermes/run, and frees the Python interpreter — the
-        # heartbeat is a tiny `sleep` process, not a resident interpreter). But `os.execvp` does a PATH
-        # lookup for the `sleep` binary and historically crashed the whole container with FileNotFoundError
-        # when PATH was empty/truncated/clobbered at this point — e.g. after user customizations rewrote
-        # PATH, or on minimal images without `sleep` on PATH (issue #36208). Fall back to an in-process
-        # block (no external binary, can't fail on PATH) so the container keeps running instead of dying
-        # during boot.
-        os.execvp("sleep", ["sleep", "infinity"])
-    except OSError:
-        print(
-            "→ `sleep` is unavailable; keeping the s6 CMD process alive "
-            "in-process until the container is stopped.",
-            file=sys.stderr,
-            flush=True,
-        )
-        _block_until_terminated()
-    return True  # unreachable on the execvp success path
-
-
-def _block_until_terminated() -> None:
-    """Heartbeat when ``execvp("sleep")`` fails. SIGTERM exits 128+signum so ``docker stop`` is clean;
-    ``Event().wait()`` covers platforms without ``signal.pause()``.
-
-    Fallback heartbeat for when ``os.execvp("sleep", ...)`` can't run (``sleep`` missing from PATH — issue
-    #36208). Installs a SIGTERM handler that exits with the conventional 128+signum code so ``docker stop``
-    produces a clean, expected exit, then blocks on ``signal.pause()``. Windows) — although this path only
-    runs inside the s6 Linux container image, the fallback keeps the helper safe to import and unit-test
-    anywhere.
-    """
-    signal.signal(signal.SIGTERM, lambda signum, _frame: sys.exit(128 + signum))
-    pause = getattr(signal, "pause", None)
-    if pause is not None:
-        while True:
-            pause()
-    else:  # pragma: no cover - non-Unix fallback, not exercised in the s6 image
-        import threading
-        threading.Event().wait()
 
 
 def _installed_service_kind() -> str | None:
@@ -4325,8 +4119,6 @@ def _setup_service_action(action: str, *, failed_label: str, system: bool = Fals
 
 
 def _cmd_run(args):
-    if _maybe_redirect_run_to_s6_supervision(args):
-        return  # unreachable; execvp doesn't return
     if getattr(args, "external_supervisor", False):
         os.environ[EXTERNAL_GATEWAY_SUPERVISOR_ENV] = "1"
     run_gateway(
@@ -4342,7 +4134,7 @@ _WSL_FOREGROUND_HINT = (
     "  nohup hermes gateway run > ~/.hermes/logs/gateway.log 2>&1 &  # background",
 )
 # ``(exit_code, *lines)`` when a subcommand has no service backend, keyed by (subcommand, reason).
-# Reasons in check order: "termux", "wsl" (no operational systemd), "s6" / "container", "unsupported".
+# Reasons in check order: "termux", "wsl", "container", "unsupported".
 # ``None`` exit code means plain return.
 _NO_BACKEND_MESSAGES = {
     ("install", "termux"): (1,
@@ -4351,11 +4143,7 @@ _NO_BACKEND_MESSAGES = {
         "WSL detected but systemd is not running.",
         "Either enable systemd (add systemd=true to /etc/wsl.conf and restart WSL)",
         "or run the gateway in foreground mode:", *_WSL_FOREGROUND_HINT),
-    ("install", "s6"): (None,
-        "Per-profile gateways are auto-registered when you create a profile.", "",
-        "  hermes profile create <name>     # creates the s6 service slot",
-        "  hermes -p <name> gateway start   # bring it up via s6",
-        "  hermes status                    # see currently-supervised gateways"),
+
     ("install", "container"): (0,
         "Service installation is not needed inside a Docker container.",
         "The container runtime is your service manager — use Docker restart policies instead:", "",
@@ -4367,10 +4155,7 @@ _NO_BACKEND_MESSAGES = {
     ("uninstall", "termux"): (1,
         "Gateway service uninstall is not supported on Termux because there is no managed service to remove.",
         "Stop manual runs with: hermes gateway stop"),
-    ("uninstall", "s6"): (None,
-        "Per-profile gateways are auto-unregistered when you delete the profile.", "",
-        "  hermes profile delete <name>     # tears down the s6 service slot",
-        "  hermes -p <name> gateway stop    # stop without deleting the profile"),
+
     ("uninstall", "container"): (0,
         "Service uninstall is not applicable inside a Docker container.",
         "To stop the gateway, stop or remove the container:", "",
@@ -4429,14 +4214,12 @@ def _service_mgmt_blocked() -> bool:
     return is_termux() or _is_apt_termux_install()
 
 
-def _handle_no_backend(subcommand: str, *, wsl: bool, s6: bool) -> None:
-    """Fallthrough when no service backend matched. Predicate order: WSL (only when ``wsl``) ->
-    container (s6 slot hint only when ``s6``; ``start`` reaches here only when s6 isn't running) ->
-    unsupported."""
+def _handle_no_backend(subcommand: str, *, wsl: bool) -> None:
+    """Fall through to WSL, container, or unsupported guidance."""
     if wsl and is_wsl():
         reason = "wsl"
     elif is_container():
-        reason = "s6" if s6 and _running_under_s6() else "container"
+        reason = "container"
     else:
         reason = "unsupported"
     _no_backend_exit(subcommand, reason)
@@ -4490,7 +4273,7 @@ def _cmd_install(args):
             sys.exit(1)
         _install_systemd_from_cli(args, force=force, system=system, run_as_user=run_as_user)
     else:
-        _handle_no_backend("install", wsl=True, s6=True)
+        _handle_no_backend("install", wsl=True)
     if backend is not None and _is_service_installed():
         from hermes_cli.gateway_setup_service import record_service_choice
         record_service_choice("install")
@@ -4508,7 +4291,7 @@ def _cmd_uninstall(args):
     if backend is not None:
         _service_call(backend, "uninstall", system)
     else:
-        _handle_no_backend("uninstall", wsl=False, s6=True)
+        _handle_no_backend("uninstall", wsl=False)
 
 
 def _host_multiplexer_for_all_verb():
@@ -4569,8 +4352,6 @@ def _cmd_start(args):
         start_scope = host_scope_for_all_verb(owner)
     else:
         _guard_named_profile_under_multiplexer(force=force)
-        if _dispatch_via_service_manager_if_s6("start"):
-            return
         start_scope = contextlib.nullcontext()
 
     with start_scope:
@@ -4585,7 +4366,7 @@ def _cmd_start(args):
         if backend is not None:
             _service_call(backend, "start", system)
         else:
-            _handle_no_backend("start", wsl=True, s6=False)
+            _handle_no_backend("start", wsl=True)
 
 
 def _cmd_stop(args):
@@ -4613,11 +4394,6 @@ def _cmd_stop(args):
         sys.exit(GATEWAY_FATAL_CONFIG_EXIT_CODE)
     from hermes_cli.gateway_lifecycle_guards import refuse_while_sessions_live
     refuse_while_sessions_live("stop", args)
-    # Under s6 a bare pkill is seen as a crash and restarted; go through the supervisor.
-    if stop_all and _dispatch_all_via_service_manager_if_s6("stop"):
-        return
-    if not stop_all and _dispatch_via_service_manager_if_s6("stop"):
-        return
 
     if stop_all:
         # Stop the HOST's installed service (a bare pkill under a supervisor is a restart, not a
@@ -4727,10 +4503,7 @@ def _cmd_restart(args):
         _guard_named_profile_under_multiplexer(force=force)
     from hermes_cli.gateway_lifecycle_guards import refuse_while_sessions_live
     refuse_while_sessions_live("restart", args)
-    if restart_all and _dispatch_all_via_service_manager_if_s6("restart"):
-        return
-    if not restart_all and _dispatch_via_service_manager_if_s6("restart"):
-        return
+
     if restart_all:
         _restart_all(system, getattr(args, "detach", False))
         return
@@ -4878,8 +4651,7 @@ def _cmd_status(args):
             print()
             _print_lines(*_STATUS_RUNNING_HINTS[_status_host_kind()])
         elif snapshot.service_running:
-            # s6 container: the service is up but the scan finds no PID (the `python -c` launcher
-            # argv is deliberately unmatched, #123881, and there is no gateway.pid) — #125390.
+            # A supervisor can report a running service without a scannable PID.
             print(f"✓ Gateway is running (supervised by {snapshot.manager})")
             _print_runtime_health()
             _print_multiplex_standalone_reason()

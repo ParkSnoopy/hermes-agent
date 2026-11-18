@@ -107,8 +107,7 @@ def test_stable_release_calls_pass_the_admitted_commit():
 
 # Groups that name the run keep a stable run away from pushes to the same branch.
 RUN_SCOPED = ("github.run_id", ("inputs.commit", "inputs.release"))
-# docker.yml keys its group on the release phase, which a push never uses.
-PHASE_SCOPED = {"docker.yml": "inputs.release-phase"}
+PHASE_SCOPED = {}
 
 
 def test_no_lane_shares_a_concurrency_group_with_pushes_to_the_default_branch():

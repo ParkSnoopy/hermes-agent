@@ -12,19 +12,14 @@ from hermes_cli.tools_config_post_setup import _run_post_setup
 
 
 @pytest.mark.platforms('linux')
-@pytest.mark.parametrize('provider,docker_image,playwright', [
-    ('browserbase', False, False), ('chromium', False, True),
-    ('chromium', False, False), ('chromium', True, False),
+@pytest.mark.parametrize('provider,playwright', [
+    ('browserbase', False), ('chromium', True), ('chromium', False),
 ])
-def test_browser_setup_respects_provider_and_native_owner(monkeypatch, capsys, tmp_path, provider, docker_image,
-                                                          playwright):
-    baked = tmp_path / 'chromium-executable-path'
-    if docker_image:
-        baked.write_text('/opt/hermes/chromium/chrome', encoding='utf-8')
-    found = iter([None, None if docker_image else '/pm/chromium/chrome'])
+def test_browser_setup_respects_provider_and_native_owner(capsys, provider, playwright):
+    found = iter([None, '/pm/chromium/chrome'])
     with (
         patch('tools.browser_use_cli._find_cli', return_value=['harness']) as install,
-        patch('hermes_cli.browser_runtime.BAKED_EXECUTABLE_FILE', baked),
+
         patch('hermes_cli.browser_runtime.chromium_executable', side_effect=lambda **_kw: next(found)) as chromium,
         patch('hermes_constants.is_termux', return_value=False),
         patch('hermes_platform.host.runtime.is_termux', return_value=False),
@@ -39,14 +34,11 @@ def test_browser_setup_respects_provider_and_native_owner(monkeypatch, capsys, t
     run.assert_not_called()
     if provider == 'browserbase':
         chromium.assert_not_called()
-    if provider == 'browserbase' or docker_image:
         ensure.assert_not_called()
     else:
         ensure.assert_called_once_with('chromium', explicit=True)
     output = capsys.readouterr().out
-    if docker_image:
-        assert 'image' in output
-    elif provider == 'chromium':
+    if provider == 'chromium':
         assert '/pm/chromium/chrome' in output
         assert 'system' in output and 'npx' not in output
         if playwright:

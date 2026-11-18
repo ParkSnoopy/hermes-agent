@@ -1156,8 +1156,8 @@ def test_fresh_profile_creation_succeeds_against_a_healthy_plane(profile_plane):
 def test_rename_is_refused_before_anything_moves(profile_plane, monkeypatch):
     """F7: the plane keys settings by profile name and has no rename."""
     from hermes_cli import profiles
-    for name in ("_check_gateway_running", "_cleanup_gateway_service", "_maybe_unregister_gateway_service",
-                 "_stop_bot_desktop", "_live_default_multiplexer", "_maybe_register_gateway_service"):
+    for name in ("_check_gateway_running", "_cleanup_gateway_service",
+                 "_stop_bot_desktop", "_live_default_multiplexer"):
         monkeypatch.setattr(profiles, name, lambda *a, **k: False)
     old = profile_plane.home / "profiles" / "old"
     old.mkdir(parents=True)

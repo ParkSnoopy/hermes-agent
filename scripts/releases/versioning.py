@@ -52,7 +52,7 @@ def published_stable_identity(repository: str, *, run=None) -> tuple[str, str | 
     """The newest published stable ``(version, commit)``, or the seed before one exists.
 
     GitHub publication is authoritative for every stable release, whether it
-    shipped Termux packages, Docker images, or only source.
+    shipped Termux packages or only source.
     """
     return published_release_identity(repository, run) or (SEED, None)
 

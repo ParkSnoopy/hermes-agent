@@ -155,8 +155,8 @@ _runtime_status_state: Optional[dict[str, Any]] = None
 
 def _merge_over_on_disk(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     """Lay the canonical snapshot over whatever is on disk right before writing. Out-of-process
-    writers (the migration's compensator clearing multiplex-owned status, container_boot
-    seeding ``desired_state``) stamp this file directly; the gateway's fields win, theirs survive."""
+    writers (such as the migration's compensator clearing multiplex-owned status) stamp this
+    file directly; the gateway's fields win, theirs survive."""
     existing = _read_json_file(path)
     return {**existing, **payload} if isinstance(existing, dict) else payload
 

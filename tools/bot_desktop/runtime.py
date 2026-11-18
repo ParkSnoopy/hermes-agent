@@ -98,9 +98,7 @@ def install_command() -> Optional[str]:
     prefixed with ``sudo`` unless Hermes already runs as root, so it is both what the pane shows and what
     :mod:`tools.bot_desktop.install` runs. ``None`` when no package manager is present.
 
-    Not a promise that it can run here: see :func:`installable`. The published Docker image supervises
-    every service under ``s6-setuidgid hermes`` (UID 10000 by default) and ships no ``sudo`` binary, so an
-    install on a hosted instance is impossible no matter what this returns."""
+    See :func:`installable` for whether the current process has a way to install the packages."""
     pm = package_manager()
     if pm is None:
         return None
@@ -120,11 +118,8 @@ def is_root() -> bool:
 def installable() -> bool:
     """Whether :func:`install_command` could actually succeed on this host.
 
-    False on an unprivileged process with no ``sudo`` to reach for, which is exactly the published Docker
-    image: services drop to the ``hermes`` user and no ``sudo`` binary is installed. The packages can only
-    arrive in the image there, so :func:`start` says that instead of printing a sudo line the user has no
-    way to run. ``status()`` still reports ``install_command`` for the pane; surfacing this there needs a
-    wire-contract change and is deliberately out of scope.
+    False on an unprivileged process with no ``sudo``. ``status()`` still reports
+    ``install_command`` for the pane.
     """
     if package_manager() is None:
         return False
@@ -313,8 +308,7 @@ def _kill_group_then_wait(pgid: Optional[int], pid: int, grace: float = 2.0) -> 
 
 
 # Host-wide (every profile allocates from one band), so it lives outside any profile home. A predictable
-# name must not be squattable: XDG_RUNTIME_DIR is the boundary — 0700 from logind, or from
-# docker/stage2-hook.sh in containers, which have none.
+# name must not be squattable: use the private XDG runtime directory or the user's cache.
 _ALLOC_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR") or Path.home() / ".cache") / "hermes-bot-desktop-alloc.lock"
 
 
@@ -593,8 +587,7 @@ def start(*, wait_seconds: float = 15.0) -> DesktopStatus:
         if not installable():
             raise RuntimeError(
                 f"{need}, and this host cannot install them: the process is unprivileged and there is no "
-                "sudo. On the published Docker image the packages have to be baked in, so this needs a "
-                "newer image rather than an install.")
+                "sudo. Ask the gateway host administrator to install the packages.")
         raise RuntimeError(f"{need}. Install: {install_command()}")
     sd = state_dir()
     sd.mkdir(parents=True, exist_ok=True)

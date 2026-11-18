@@ -51,11 +51,7 @@ reverse proxy's access log may record an already-spent ticket.
   runs as root — the usual case in a container — the installer runs the package
   manager directly, with no sudo and no password card. When it is not root and
   the host has no `sudo` at all, the pane and the CLI print the exact install
-  command for you to run on the host instead of showing a card. The official
-  Docker image (`nousresearch/hermes-agent`, which also powers Hermes Cloud) is
-  that second case: the gateway runs as an unprivileged user and the image has no
-  `sudo`, so the pane shows the `apt-get` line and an operator runs it once as
-  root in the container (`docker exec -u 0 <container> apt-get install -y …`).
+  command for you to run on the host instead of showing a card.
   Add `chromium` to that line if you want the dock's Browser icon; see
   [Browser sessions](#browser-sessions-that-survive-the-handoff) below. From a shell,
   `hermes screen status` prints the exact line and
@@ -72,7 +68,7 @@ reverse proxy's access log may record an already-spent ticket.
   Deliberately **not** the `xfce4` metapackage: it pulls in the screensaver,
   power manager and polkit agent that lock or prompt a headless desktop.
 
-- Memory. Measured in the official image: the gateway idles at ~300 MB, Xvnc +
+- Memory. In one deployment, the gateway idles at ~300 MB, Xvnc +
   Xfce add ~220 MB, and the headed Chromium a human opens during a takeover adds
   0.5–1 GB (one page: ~550 MB). Plan on **~1.1–1.5 GB per open screen with a
   browser**; the desktop alone is cheap, the browser is the cost. CPU is not a
@@ -95,32 +91,6 @@ reverse proxy's access log may record an already-spent ticket.
   for small instances: 4 GB runs the desktop, 8 GB is where a takeover with a
   browser is comfortable.
 
-### Baking the packages into a container image
-
-An image for a hosted or unprivileged deployment cannot install anything at run
-time, so the packages have to be built in. CI publishes two variants of every
-version: the unsuffixed tags (`:latest`, `:v*`) without them, and the
-**`-desktop` tags** (`:latest-desktop`, `:v*-desktop`) with them. A hosted
-deployment (Fly Machines, Azure container instances) gets Bot Screen by pulling
-the suffixed tag; a build argument could not reach it anyway, since it never
-runs a build. Nothing in the provisioner selects `-desktop` yet, so a hosted
-instance still comes up slim; pulling the suffixed tag yourself works today.
-
-Build your own only if you want the packages in a custom image. The official
-`Dockerfile` has an opt-in build argument, off by default so a plain
-`docker build .` stays lean:
-
-```bash
-docker build --build-arg HERMES_BOT_DESKTOP=1 -t hermes-agent:screen .
-```
-
-It adds TigerVNC, the Xfce components and the distro `chromium` (the sandbox
-fallback described under [Browser
-sessions](#browser-sessions-that-survive-the-handoff)) — the apt layer measured
-~930 MB on Debian 13. It adds no second Playwright browser: every image, slim
-or `-desktop`, already carries PM's pinned full Chromium, which can open a
-window. Nothing starts at boot; an image built this way costs no memory until a
-screen is started.
 
 ## Using it
 
@@ -201,12 +171,7 @@ user on a host with `kernel.apparmor_restrict_unprivileged_userns=1` (Ubuntu
 set up its sandbox and exits with `FATAL: No usable sandbox!`, while the
 distro's Chromium ships with an AppArmor profile that allows it. If the pick is
 wrong for your host, set `browser.executable_path: /usr/bin/chromium` (or
-your Chrome path) in the bot's `config.yaml`. The official Docker image
-records PM's pinned full Chromium in `/etc/hermes/chromium-executable-path`;
-that build can draw a window, so the dock's Browser icon uses it. The
-`-desktop` tags also carry the distro `chromium` — set
-`browser.executable_path: /usr/bin/chromium` on hosts that refuse the pinned
-build's sandbox. A Playwright *headless shell* is never used for the
+your Chrome path) in the bot's `config.yaml`. A Playwright *headless shell* is never used for the
 icon: when it is the only browser, the pane / `screen status` report **no
 headed browser** until you install a headed one (`apt-get install chromium`).
 The dock icon starts the browser with the same sandbox settings Hermes's

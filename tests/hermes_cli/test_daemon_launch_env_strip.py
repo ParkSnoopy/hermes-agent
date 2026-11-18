@@ -84,7 +84,7 @@ def test_daemon_started_below_a_launchd_gateway_is_unsupervised(tmp_path, monkey
     monkeypatch.setattr(sys, 'executable', str(executable))
     for key, value in SUPERVISOR_LEAKS.items():
         monkeypatch.setenv(key, value)
-    for key in ('INVOCATION_ID', 'HERMES_DESKTOP_MANAGED', 'HERMES_S6_SUPERVISED_CHILD'):
+    for key in ('INVOCATION_ID', 'HERMES_DESKTOP_MANAGED'):
         monkeypatch.delenv(key, raising=False)
     child = start.spawn_unmanaged_gateway(home, deadline=time.monotonic() + 5, idle_exit=True)
     try:

@@ -217,13 +217,6 @@ def _supervisor_markers(pid: int) -> str | None:
     from hermes_cli.gateway import _capture_gateway_argv
     if "--external-supervisor" in (_capture_gateway_argv(pid) or []):
         return "--external-supervisor"
-    try:
-        import psutil  # type: ignore
-        env = psutil.Process(pid).environ()
-    except Exception:  # health: allow BLE001 -- unreadable environment: no marker proven
-        return None
-    if env.get("HERMES_S6_SUPERVISED_CHILD"):
-        return "s6"
     if unit := _respawning_service(pid):
         return f"systemd unit {unit}"
     return None

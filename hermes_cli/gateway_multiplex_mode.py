@@ -148,8 +148,7 @@ def implicit_multiplex_blocker() -> Optional[str]:
     """Why THIS process must not multiplex right now, or None when it may.
 
     Mirrors what makes ``hermes gateway migrate --multiplex`` refuse or leave a per-profile gateway
-    in place: hosts whose per-profile gateways the preflight cannot see (s6 slots) stay standalone;
-    a secondary that still runs its own gateway (live process or installed service) or a preflight
+    in place: a secondary that still runs its own gateway (live process or installed service) or a preflight
     blocker (duplicate bot credential, port binder without a ``/p/<profile>/`` ingress) keeps this
     gateway standalone.
 
@@ -171,10 +170,7 @@ def implicit_multiplex_blocker() -> Optional[str]:
     # Parking is reversible without a host restart, so keep the reconcile watcher alive.
     if len(profiles_to_serve(multiplex=True, include_parked=True)) < 2:
         return SINGLE_PROFILE_REASON
-    from hermes_cli.gateway_migrate import MIGRATE_COMMAND, _host_supports_migration, build_migration_plan
-    host_reason = _host_supports_migration()
-    if host_reason:
-        return host_reason
+    from hermes_cli.gateway_migrate import MIGRATE_COMMAND, build_migration_plan
     plan = build_migration_plan()
     if plan.standalone_secondaries:
         owned = ", ".join(
@@ -256,7 +252,7 @@ def resolve_multiplex_mode(config) -> MultiplexDecision:
     The key still parses and still drives the runtime mode this function writes back, but an
     explicit ``false`` no longer pins a per-profile fleet: it is warned about and resolved exactly
     like an unset key. That is safe because the unset path is not optimistic — it refuses to
-    multiplex while any real blocker holds (an s6 container, a secondary that still owns a gateway,
+    multiplex while any real blocker holds (a secondary that still owns a gateway,
     a duplicate bot credential), so a host that genuinely cannot fold still comes up standalone and
     says why, and it converges by itself once ``hermes gateway migrate --multiplex`` has run.
     """

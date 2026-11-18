@@ -88,7 +88,7 @@ class TestDoctorPlatformHints:
 
         hint = doctor_platform._sqlite_upgrade_hint()
 
-        assert "docker pull nousresearch/hermes-agent:latest" in hint
+        assert "Use a native Hermes installation" in hint
         assert "hermes update" not in hint
 
 

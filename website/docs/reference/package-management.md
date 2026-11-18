@@ -69,10 +69,9 @@ See [shared bundle builds](../developer-guide/shared-bundle-builds.md#native-age
 A packaged application's base payload is immutable.
 Additional pinned tools and Python dependency generations use writable installation state rather than modifying that payload.
 
-Termux uses a separate bionic build and a sealed APT package. Docker bakes its
-runtime into the image and disables on-demand dependency installation. Nix
+Termux uses a separate bionic build and a sealed APT package. Nix
 provides its runtime through derivations. See the
-[Termux](../getting-started/termux.md), [Docker](../user-guide/docker.md), and
+[Termux](../getting-started/termux.md) and
 [Nix](../getting-started/nix-setup.md) guides for their limits.
 
 ## Writable state
@@ -199,7 +198,7 @@ a bundle's frozen feature list still restricts requested Python extra names
 when lazy installs are disabled. Explicit plugin admission is a separate
 operation, not an on-demand feature request. Do not treat this setting as a
 sandbox or a blanket prohibition on manual package installation.
-Docker additionally sets the internal lazy-install disable flag in the image.
+
 
 PM is a dependency manager, not a sandbox for plugin code. Installing a plugin
 requires trust in that plugin and its dependencies.
@@ -301,7 +300,7 @@ installs are disabled. It never bootstraps PM for a probe. If the manager
 runtime is unavailable, it returns false without downloading tools or
 dependencies. Run an explicit `hermes pm install` to prepare PM first.
 
-Native bundles and Docker images stage this same PM lock through the shared
+Native bundles stage this same PM lock through the shared
 runtime builder. Termux supplies its verified offline wheelhouse to that
 builder. Nix builds the PM lock as a separate derivation. Packaged workers use
 only their recorded PM dependency directory, never the application's libraries.
@@ -417,7 +416,7 @@ refusal.
 `npx`, `npm exec` and `npm run` keep working, so MCP servers and tools still start.
 But `engine-strict` applies anywhere in the checkout: in these folders, and through
 the root `.npmrc` in every folder without a `package.json` of its own (`agent/`,
-`tools/`, the Docker image's `/opt/hermes`). There `npx` refuses to install a package
+`tools/`). There `npx` refuses to install a package
 when it or any non-optional dependency it pulls in declares `engines` the current Node
 or npm does not satisfy, where it would only warn outside the checkout.
 
@@ -647,7 +646,7 @@ comment on the same line, then run the update again. The update drops an entry
 once the lockfile no longer holds that version, in the same change as the lock.
 pnpm's own `minimumReleaseAgeExcludePrune` stays off, because it would rewrite
 `pnpm-workspace.yaml` on every install, users' builds included. CI enforces the
-policy when it installs `pnpm-lock.yaml`; source, bundle and Docker installs
+policy when it installs `pnpm-lock.yaml`; source and bundle installs
 trust the committed lock.
 
 PM's own npm-hosted tools (pnpm and npm) are pinned to `registry.npmjs.org`

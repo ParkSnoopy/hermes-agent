@@ -266,7 +266,7 @@ def detect_install_method(project_root: Optional[Path] = None) -> str:
     Source installers clone a git checkout and publish ``install-stamp.json``;
     the ``.git`` fallback identifies it as a source install. Older installations
     may carry ``.install_method``, which remains authoritative for compatibility.
-    The published image bakes a ``docker`` marker into ``/opt/hermes``. A manual
+    Legacy images baked a ``docker`` marker into their install tree. A manual
     clone in a container still resolves via ``.git``, not container presence alone.
     See issue #34397.
     """
@@ -319,7 +319,7 @@ def is_nix_install_method(method: str) -> bool:
 
 
 _UPDATE_COMMAND_BY_METHOD = {
-    "docker": "docker pull nousresearch/hermes-agent:latest",
+    "docker": "Use a native Hermes installation for this fork.",
     "apt": "pkg upgrade hermes-agent",  # "apt" == Termux APT by contract; uses Termux's `pkg`.
 }
 
@@ -339,42 +339,13 @@ def recommended_update_command() -> str:
         detect_install_method(get_project_root()))
 
 
-# Shared by ``cmd_update`` and ``_cmd_update_check`` (hermes_cli/main.py) so the wording never
-# forks. The published image excludes ``.git``, so the git update path can never succeed there
-# and the generic "reinstall via install.sh" fallback would install a NEW host-side Hermes.
-_DOCKER_UPDATE_MESSAGE = """\
-✗ ``hermes update`` doesn't apply inside the Docker container.
-
-Hermes Agent runs as a published image (nousresearch/hermes-agent), not a
-git checkout — the container has no working tree to pull into.  Update by
-pulling a fresh image and restarting your container instead:
-
-  docker pull nousresearch/hermes-agent:latest
-  # then restart whatever started the container, e.g.:
-  docker compose up -d --force-recreate hermes-agent
-  # or, for ad-hoc runs, exit the current container and `docker run` again
-
-Verify the new version after restart:
-  docker run --rm nousresearch/hermes-agent:latest --version
-
-Notes:
-  • If you pinned a specific tag (e.g. ``:v0.14.0``) the ``:latest`` tag
-    won't move your container — pull the newer tag you actually want, or
-    switch to ``:latest`` / ``:main`` for rolling updates.  See available
-    tags at https://hub.docker.com/r/nousresearch/hermes-agent/tags
-  • On a ``-desktop`` tag (the one carrying Bot Screen)?  Keep the suffix:
-    the unsuffixed image has no Xvnc/Xfce and no sudo to add them, so
-    pulling it stops the bots' screens from starting.
-  • Your config and session history live under ``$HERMES_HOME`` (``/opt/data``
-    in the container, typically bind-mounted from the host) and persist
-    across image upgrades — re-pulling doesn't lose any state.
-  • Running a fork?  Build your own image with this repo's ``Dockerfile``
-    and replace the ``docker pull`` step with your build/push pipeline."""
-
-
 def format_docker_update_message() -> str:
-    """Return the user-facing message for ``hermes update`` inside Docker."""
-    return _DOCKER_UPDATE_MESSAGE
+    """Explain why an older image-managed install cannot update itself."""
+    return (
+        "✗ In-place updates are disabled for image-managed installations.\n"
+        "  This fork does not publish container images. "
+        + recommended_update_command_for_method("docker")
+    )
 
 
 def format_managed_message(action: str = "modify this Hermes installation") -> str:
@@ -388,37 +359,6 @@ def format_managed_message(action: str = "modify this Hermes installation") -> s
 def managed_error(action: str = "modify configuration"):
     """Print user-friendly error for managed mode."""
     print(format_managed_message(action), file=sys.stderr)
-
-
-def get_container_exec_info() -> Optional[dict]:
-    """Read container mode metadata from HERMES_HOME/.container-mode.
-    Written by the NixOS activation script when container.enable = true; tells the host CLI to
-    exec into the container instead of running locally. None when container mode is off, when
-    already inside the container, or when HERMES_DEV=1 is set. Only FileNotFoundError is
-    swallowed; other errors (permissions, malformed data) propagate."""
-    if os.environ.get("HERMES_DEV") == "1":
-        return None
-
-    from hermes_constants import is_container
-    if is_container():
-        return None
-
-    try:
-        info = {}
-        with open(get_hermes_home() / ".container-mode", "r", encoding="utf-8-sig") as f:
-            for line in f:
-                line = line.strip()
-                if "=" in line and not line.startswith("#"):
-                    key, _, value = line.partition("=")
-                    info[key.strip()] = value.strip()
-    except FileNotFoundError:
-        return None
-
-    return {
-        "backend": info.get("backend", "docker"),
-        "container_name": info.get("container_name", "hermes-agent"),
-        "exec_user": info.get("exec_user", "hermes"),
-        "hermes_bin": info.get("hermes_bin", "/data/current-package/bin/hermes")}
 
 
 # ---- Config paths / HERMES_HOME skeleton ----

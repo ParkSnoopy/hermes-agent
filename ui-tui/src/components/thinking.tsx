@@ -18,6 +18,7 @@ import {
 } from '../lib/subagentTree.js'
 import {
   boundedLiveRenderText,
+  cleanThinkingText,
   compactPreview,
   estimateTokensRough,
   formatToolCall,
@@ -636,10 +637,15 @@ export const Thinking = memo(function Thinking({
   t: Theme
 }) {
   const preview = useMemo(() => {
-    const raw = thinkingPreview(reasoning, mode, THINKING_COT_MAX)
+    if (mode !== 'full') {
+      return thinkingPreview(reasoning, mode, THINKING_COT_MAX)
+    }
 
-    return mode === 'full' ? boundedLiveRenderText(raw) : raw
-  }, [mode, reasoning])
+    // Bound redraw work during streaming, not the settled transcript.
+    return active || streaming
+      ? boundedLiveRenderText(thinkingPreview(reasoning, 'full', THINKING_COT_MAX))
+      : cleanThinkingText(reasoning)
+  }, [active, mode, reasoning, streaming])
 
   const lines = useMemo(() => preview.split('\n').map(line => line.replace(/\t/g, '  ')), [preview])
 
@@ -691,7 +697,6 @@ export const ToolTrail = memo(function ToolTrail({
   commandOverride = false,
   detailsMode = 'collapsed',
   outcome = '',
-  preferExpandedThinking = false,
   reasoningActive = false,
   reasoning = '',
   reasoningAlwaysVisible = false,
@@ -709,7 +714,6 @@ export const ToolTrail = memo(function ToolTrail({
   commandOverride?: boolean
   detailsMode?: DetailsMode
   outcome?: string
-  preferExpandedThinking?: boolean
   reasoningActive?: boolean
   reasoning?: string
   // MoA reference blocks (see Msg.isMoaReference) stay visible even when
@@ -738,8 +742,7 @@ export const ToolTrail = memo(function ToolTrail({
     [commandOverride, detailsMode, sections]
   )
 
-  const thinkingDefaultExpanded =
-    visible.thinking === 'expanded' && (preferExpandedThinking || commandOverride || sections?.thinking === 'expanded')
+  const thinkingDefaultExpanded = visible.thinking === 'expanded'
 
   const [now, setNow] = useState(() => Date.now())
   // Local toggles own the open state once mounted.  Init from the resolved
@@ -1089,7 +1092,7 @@ export const ToolTrail = memo(function ToolTrail({
           branch="last"
           mode="full"
           rails={rails}
-          reasoning={busy ? reasoning : cot}
+          reasoning={reasoning}
           streaming={busy && reasoningStreaming}
           t={t}
         />

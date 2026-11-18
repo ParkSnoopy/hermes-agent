@@ -9,7 +9,6 @@ from hermes_cli import gateway
 
 def _clear_native_supervisor_markers(monkeypatch):
     monkeypatch.delenv("INVOCATION_ID", raising=False)
-    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
     monkeypatch.setenv("XPC_SERVICE_NAME", "0")
 
 
@@ -22,9 +21,7 @@ def test_external_marker_identifies_supervisor_process(monkeypatch):
 
 def test_gateway_run_external_supervisor_flag_marks_process(monkeypatch):
     monkeypatch.delenv(gateway.EXTERNAL_GATEWAY_SUPERVISOR_ENV, raising=False)
-    monkeypatch.setattr(
-        gateway, "_maybe_redirect_run_to_s6_supervision", lambda _args: False
-    )
+
     observed = []
     monkeypatch.setattr(
         gateway,

@@ -114,23 +114,8 @@ def _runner_scratch_root() -> str:
 # Default test discovery roots.
 _DEFAULT_ROOTS = ["tests"]
 
-# Directories to skip during discovery — these suites require real
-# external services (a model gateway, a docker daemon with a prebuilt
-# image, etc.) and are run in their own dedicated CI jobs:
-#
-#   tests/e2e/         — .github/workflows/tests.yml :: e2e job
-#   tests/integration/ — historical; legacy --ignore flags
-#   tests/docker/      — .github/workflows/docker.yml ::
-#                        build-amd64 job (runs against the freshly-loaded
-#                        nousresearch/hermes-agent:test image, via
-#                        ``HERMES_TEST_IMAGE`` so the fixture skips
-#                        rebuild). The full pytest-shard runner can't
-#                        host these because the session-scoped
-#                        ``built_image`` fixture would do a 3-7min
-#                        ``docker build``,
-#                        so the build is guaranteed to die in fixture
-#                        setup. The dedicated job sidesteps both costs.
-_SKIP_PARTS = {"integration", "e2e", "docker"}
+# Dedicated acceptance suites are not part of default discovery.
+_SKIP_PARTS = {"integration", "e2e"}
 
 # Per-file wall-clock cap. Override
 # via --file-timeout or HERMES_TEST_FILE_TIMEOUT.
@@ -140,9 +125,7 @@ _SKIP_PARTS = {"integration", "e2e", "docker"}
 # large-collection file pays N × (interpreter startup + import) of
 # overhead before any test logic runs — and that overhead dilates under
 # load on shared CI runners, producing false "no tests ran" timeouts on
-# files that finish in ~100s on a quiet box. The Docker build matrix jobs
-# take 7-10 min anyway, so this headroom costs nothing on total CI wall
-# time while keeping a genuinely hung file bounded.
+# files that finish in ~100s on a quiet box. Keep genuinely hung files bounded.
 _DEFAULT_FILE_TIMEOUT_SECONDS = 300.0
 
 # One-shot retry of failing test FILES. A file that exits non-zero is re-run
@@ -377,10 +360,8 @@ def _discover_files(roots: list[Path]) -> list[Path]:
 
     Exclude any file whose path contains a component in ``_SKIP_PARTS``,
     UNLESS the user explicitly named it as a root (in which case the
-    user's intent overrides the skip filter). This makes
-    ``scripts/run_tests.sh tests/docker/`` work locally the same way
-    ``pytest tests/docker/`` does — the CI-level skip exists to keep
-    the sharded matrix from blowing up, not to block targeted runs.
+    user's intent overrides the skip filter). This allows targeted runs
+    such as ``scripts/run_tests.sh tests/e2e/``.
     """
     seen: set[Path] = set()
     out: list[Path] = []
@@ -396,7 +377,7 @@ def _discover_files(roots: list[Path]) -> list[Path]:
                 out.append(root)
             continue
         # If the explicit root itself sits inside a skipped dir (e.g.
-        # the user said ``tests/docker``), the user has overridden the
+        # the user said ``tests/e2e``), the user has overridden the
         # skip for that subtree. Compute the set of skip-parts the user
         # opted into, and only filter files whose path crosses a
         # skip-part *outside* that opt-in.

@@ -52,7 +52,7 @@ def test_gateway_run_subprocess_preserves_daemon_exit_codes(
         setattr(fake_run, "_exit_after_graceful_shutdown", sys.exit)
         sys.modules["gateway.run"] = fake_run
 
-        gateway_cli._guard_official_docker_root_gateway = lambda: None
+
         gateway_cli._guard_named_profile_under_multiplexer = lambda force=False: None
         gateway_cli._attach_to_host_gateway_or_guard = lambda **kwargs: None
         gateway_cli._guard_supervised_gateway_conflict = lambda force=False: None
@@ -107,30 +107,16 @@ def test_gateway_run_subprocess_preserves_daemon_exit_codes(
 
 
 
-def test_s6_runtime_snapshot_reports_supervised_service(monkeypatch, tmp_path):
-    service_dir = tmp_path / "gateway-default"
-    service_dir.mkdir()
-
-    class FakeS6Manager:
-        scandir = tmp_path
-
-        def is_running(self, name):
-            assert name == "gateway-default"
-            return True
-
+def test_container_runtime_snapshot_reports_foreground_process(monkeypatch):
     monkeypatch.setattr(gateway, "is_linux", lambda: True)
     monkeypatch.setattr("hermes_constants.is_container", lambda: True)
-    monkeypatch.setattr("hermes_cli.service_manager.detect_service_manager", lambda: "s6")
-    monkeypatch.setattr("hermes_cli.service_manager.get_service_manager", lambda: FakeS6Manager())
     monkeypatch.setattr(gateway, "find_gateway_pids", lambda: [123])
-    monkeypatch.setattr(gateway, "_profile_suffix", lambda: "")
 
     snapshot = gateway.get_gateway_runtime_snapshot()
 
-    assert snapshot.manager == "s6 (container supervisor)"
-    assert snapshot.service_installed is True
-    assert snapshot.service_running is True
-    assert snapshot.service_scope == "s6"
+    assert snapshot.manager == "docker (foreground)"
+    assert snapshot.service_installed is False
+    assert snapshot.service_running is False
     assert snapshot.gateway_pids == (123,)
 
 
@@ -154,13 +140,12 @@ def _run_status_with_snapshot(monkeypatch, snapshot) -> str:
     return buf.getvalue()
 
 
-def test_s6_supervised_gateway_without_scannable_pid_reports_running(monkeypatch):
-    """#125390: s6 service up, process scan empty (`python -c` launcher argv is unmatched per
-    #123881 and containers have no gateway.pid) — the default profile must not report an outage."""
+def test_supervised_gateway_without_scannable_pid_reports_running(monkeypatch):
+    """A native supervisor can report a running service without a scannable PID."""
     snapshot = gateway.GatewayRuntimeSnapshot(
-        manager="s6 (container supervisor)", service_installed=True, service_running=True, gateway_pids=())
+        manager="systemd (user)", service_installed=True, service_running=True, gateway_pids=())
     out = _run_status_with_snapshot(monkeypatch, snapshot)
-    assert out.startswith("✓ Gateway is running (supervised by s6 (container supervisor))")
+    assert out.startswith("✓ Gateway is running (supervised by systemd (user))")
     assert "not running" not in out
 
 

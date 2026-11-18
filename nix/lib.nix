@@ -153,7 +153,6 @@ let
             "docs"
             "website"
             # CI/infra
-            "docker"
             ".github"
             # Content/examples
             "infographic"
@@ -181,9 +180,6 @@ let
           "package.json"
           "pnpm-lock.yaml"
           "pnpm-workspace.yaml"
-          # Docker files
-          "Dockerfile"
-          "docker-compose.yml"
           # Nix build definitions — editing the flake shouldn't rebuild
           # the venv.  (Input changes rebuild regardless, via the lock.)
           "flake.nix"

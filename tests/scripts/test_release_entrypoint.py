@@ -101,7 +101,7 @@ def test_release_claims_the_first_attempt_creates_a_draft_and_dispatches(source)
         return ""
 
     result = _release(source, commit, execute=execute, autopublish=True,
-                     lanes=lane_set.select(only=["docker", "ci"], with_=["termux"]))
+                     lanes=lane_set.select(only=["ci"], with_=["termux"]))
 
     assert result["version"] == "0.21.5"
     assert result["tag"] == "rc.1-v0.21.5"
@@ -118,11 +118,11 @@ def test_release_claims_the_first_attempt_creates_a_draft_and_dispatches(source)
         "autopublish": True,
         "commit": commit,
         "schema": 1,
-        "lanes": ["ci", "docker", "termux"],
+        "lanes": ["ci", "termux"],
         "lanesRevision": lane_set.LANES_REVISION,
         "version": "0.21.5",
     }
-    assert result["lanes"] == frozenset({"ci", "docker", "termux"})
+    assert result["lanes"] == frozenset({"ci", "termux"})
     create = calls[0]
     assert create[:4] == ["gh", "release", "create", "rc.1-v0.21.5"]
     assert "--verify-tag" in create and "--draft" in create
@@ -190,9 +190,9 @@ def test_release_output_names_the_ci_run_and_the_publish_step():
     assert "Autopublish is on" in automatic
     assert "publish --version" not in automatic
 
-    lean = next_steps({**result, "lanes": lane_set.select(only=["termux", "docker"])})
+    lean = next_steps({**result, "lanes": lane_set.select(only=["termux"])})
     assert "Not built" not in lean
-    assert "Not tested: ci, nix, docker-tests, pm-bundle, windows-live, install-e2e, termux-checks" in lean
+    assert "Not tested: ci, nix, pm-bundle, install-e2e, termux-checks" in lean
     assert "\033[" not in lean
     assert "\033[1mNot tested" in next_steps({**result, "lanes": lane_set.select(without=["ci"])}, bold=True)
 
@@ -1078,4 +1078,4 @@ def test_release_refuses_an_unknown_lane_before_touching_git(tmp_path):
     assert "--with and --without both name ci" in both.stderr
     helped = subprocess.run([sys.executable, "scripts/release.py", "release", "--help"], cwd=ROOT,
                             capture_output=True, text=True, encoding="utf-8", check=False)
-    assert "termux (off)" in helped.stdout and "docker-tests" in helped.stdout
+    assert "termux (off)" in helped.stdout and "docker-tests" not in helped.stdout

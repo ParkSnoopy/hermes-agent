@@ -214,7 +214,7 @@ def test_parked_profile_keeps_implicit_host_multiplexed(homes, monkeypatch):
     from hermes_cli.gateway_multiplex_mode import resolve_multiplex_mode
     _, secondary = homes
     (secondary / 'gateway.parked').touch()
-    monkeypatch.setattr(gateway_migrate, '_host_supports_migration', lambda: None)
+
     monkeypatch.setattr(gateway_migrate, 'build_migration_plan', lambda: SimpleNamespace(
         standalone_secondaries=[], blocked=False))
     config = GatewayConfig()
@@ -247,7 +247,9 @@ def test_start_unparks_without_host_rendezvous(homes, monkeypatch, capsys, host_
 
     monkeypatch.setattr(control_socket, 'request_serve_profile_hot', serve)
     monkeypatch.setattr(gw, '_guard_named_profile_under_multiplexer', normal_start)
-    monkeypatch.setattr(gw, '_dispatch_via_service_manager_if_s6', lambda *a: True)
+    monkeypatch.setattr(gw, '_service_backend', lambda: 'systemd')
+    monkeypatch.setattr(gw, '_service_call', lambda *args: None)
+
     gw._cmd_start(SimpleNamespace())
     assert not marker.exists()
     assert calls == (['serve'] if host_running else ['normal'])
@@ -446,7 +448,7 @@ def test_cli_stop_reports_unconfirmed_separately_from_absent(homes, monkeypatch,
     monkeypatch.setattr(gw, 'find_gateway_pids', lambda **kw: [])
     monkeypatch.setattr(gw, '_served_by_another_host_gateway', lambda: None)
     monkeypatch.setattr(gw, 'named_profile_served_by_running_multiplexer', lambda: False)
-    monkeypatch.setattr(gw, '_dispatch_via_service_manager_if_s6', lambda *a: False)
+
     monkeypatch.setattr(gw, '_stop_installed_service', lambda *a: False)
     monkeypatch.setattr(gw, 'stop_profile_gateway', lambda: False)
 

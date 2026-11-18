@@ -41,21 +41,20 @@ def test_admit_can_read_the_claim_draft():
     assert jobs["admit"]["permissions"]["contents"] == "write"
 
 
-def test_release_reuses_whole_ci_and_docker_before_publication():
+def test_release_reuses_whole_ci_before_publication():
     jobs = workflow("stable-release.yml")["jobs"]
     assert jobs["ci"]["uses"] == "./.github/workflows/ci.yaml"
     assert jobs["ci"]["with"]["release"] == "true"
     assert "secrets" not in jobs["ci"]
-    assert jobs["docker"]["uses"] == jobs["publish-docker"]["uses"]
-    assert jobs["docker"]["with"]["release-phase"] == "test"
+    assert "docker" not in jobs and "publish-docker" not in jobs
     # Every gate and the retained package candidate starts straight after admit.
     # The acceptance join requires CI, so a slow gate cannot delay a build.
-    for parallel in ("docker", "nix", "pm-bundle", "termux-checks", "install-e2e"):
+    for parallel in ("nix", "pm-bundle", "termux-checks", "install-e2e"):
         assert direct_needs(jobs, parallel) == ["admit"], parallel
     candidate_calls = ["candidates-termux"]
     for call in candidate_calls:
         assert direct_needs(jobs, call) == ["admit"], call
-    required = {"ci", "docker", "nix", "pm-bundle", "install-e2e", "termux-checks",
+    required = {"ci", "nix", "pm-bundle", "install-e2e", "termux-checks",
                 "candidate-manifest", *candidate_calls}
     assert required <= ancestors(jobs, "acceptance")
     assert "candidates" not in jobs
@@ -70,13 +69,8 @@ def test_release_reuses_whole_ci_and_docker_before_publication():
     assert set(jobs["candidate-manifest"]["needs"]) == \
         {"admit", *candidate_calls}
 
-    # B5: publish-docker starts when the docker tests pass; it does not wait
-    # for the acceptance join. publish-bundles still does.
-    assert jobs["publish-docker"]["needs"] == ["admit", "docker"]
-    assert {"admit", "docker"} <= ancestors(jobs, "publish-docker")
-    assert "acceptance" not in ancestors(jobs, "publish-docker")
     assert required <= ancestors(jobs, "publish-bundles")
-    assert {"publish-docker", "publish-bundles", "publication"} <= ancestors(jobs, "complete")
+    assert {"publish-bundles", "publication"} <= ancestors(jobs, "complete")
     assert "promote-docker" not in jobs and "promote-bundles" not in jobs
     # The gates must run to judge a failed or skipped prerequisite, not skip with it.
     for name in ("acceptance", "publication", "complete"):
@@ -130,9 +124,7 @@ def test_termux_phase_gate_requires_every_selected_job(tmp_path, phase, canary, 
 LANE_SETS = {
     "default": lane_set.DEFAULT,
     "everything": frozenset(lane_set.NAMES),
-    "termux and docker, untested": lane_set.select(only=["termux", "docker"]),
-    "docker only": lane_set.select(only=["docker"]),
-    "no tests": lane_set.select(only=["docker", "termux"]),
+    "termux only": lane_set.select(only=["termux"]),
     "nothing": frozenset(),
     # Each lane alone and each lane missing, so no job's condition can borrow another lane's flag.
     **{f"only {name}": frozenset({name}) for name in lane_set.NAMES},
@@ -167,8 +159,7 @@ def test_every_lane_controlled_job_runs_exactly_when_the_lane_table_says(lanes):
 
 def test_lane_inputs_reach_the_workflows_they_configure():
     jobs = workflow("stable-release.yml")["jobs"]
-    # Image tests follow their own lane; Termux acceptance is intrinsic to its build.
-    assert jobs["docker"]["with"]["skip-tests"] == "${{ !fromJSON(needs.admit.outputs.lanes)['docker-tests'] }}"
+    # Termux acceptance is intrinsic to its build.
     assert "skip-tests" not in jobs["candidates-termux"]["with"]
     assert {"lanes", "jobs"} <= set(jobs["admit"]["outputs"])
     for name in ("acceptance", "publication", "complete"):
@@ -188,7 +179,7 @@ def test_admit_emits_the_same_lanes_and_jobs_the_gate_reads(tmp_path):
     summary = tmp_path / "summary"
     admitted = {"claim_tag": "rc.1-v1.2.3", "claim_object": "a" * 40, "tag": "v1.2.3", "commit": "b" * 40,
                 "version": "1.2.3", "attempt": 1, "claim_epoch": 1, "autopublish": False,
-                "lanes": lane_set.select(only=["termux", "docker"])}
+                "lanes": lane_set.select(only=["termux"])}
     env = {"GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary), "GITHUB_REPOSITORY": "o/r"}
     from unittest import mock
     with mock.patch.object(stable, "check_claim", return_value=admitted), \
@@ -198,7 +189,7 @@ def test_admit_emits_the_same_lanes_and_jobs_the_gate_reads(tmp_path):
     emitted = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
     assert lane_set.from_flags(json.loads(emitted["lanes"])) == admitted["lanes"]
     assert json.loads(emitted["jobs"]) == lane_set.jobs_to_run(admitted["lanes"])
-    assert "on: docker, termux" in summary.read_text(encoding="utf-8")
+    assert "on: termux" in summary.read_text(encoding="utf-8")
 
 
 def test_all_applicable_ci_jobs_are_aggregated_without_retired_desktop_e2e():
@@ -224,13 +215,12 @@ def test_claim_custody_and_final_payload_identity_reach_every_privileged_phase()
         assert call["claim-object"] == "${{ needs.admit.outputs.claim-object }}"
     termux = workflow("termux-release.yml")
     assert "HERMES_RELEASE_EPOCH" not in termux["jobs"]["termux-deb"]["env"]
-    for name in ("docker", "nix"):
-        assert jobs[name]["with"]["version"] == "${{ needs.admit.outputs.version }}"
+    assert jobs["nix"]["with"]["version"] == "${{ needs.admit.outputs.version }}"
     assert "version" not in jobs["pm-bundle"]["with"]
-    assert "release-epoch" not in jobs["docker"]["with"]
+
     assert "release-epoch" not in jobs["nix"]["with"]
     assert "release-epoch" not in jobs["pm-bundle"]["with"]
-    assert "release-epoch" not in jobs["publish-docker"]["with"]
+
     complete = jobs["complete"]["steps"]
     # A6: the green workflow validates the accepted candidate archive; the
     # final tag and the retarget move to the publication pass.
@@ -248,22 +238,7 @@ def test_claim_custody_and_final_payload_identity_reach_every_privileged_phase()
     assert not any("Create the final tag" in step.get("name", "") for step in complete)
 
 
-def test_docker_dev_stamp_checkout_has_release_history():
-    build = workflow("docker.yml")["jobs"]["build"]
-    checkout = next(step for step in build["steps"] if is_checkout(step))
-
-    assert checkout["with"]["fetch-depth"] == "0"
-
-
 def test_release_gates_extract_consumer_facing_versions():
-
-    docker = workflow("docker.yml")["jobs"]
-    image_check = next(
-        step["run"] for step in docker["build"]["steps"]
-        if step.get("name") == "Verify release image identity"
-    )
-    assert '["baseVersion"]' in image_check and "$RELEASE_VERSION" in image_check
-
     nix = workflow("nix.yml")["jobs"]
     nix_check = next(
         step["run"] for step in nix["flake-check"]["steps"]
@@ -278,20 +253,7 @@ def test_release_gates_extract_consumer_facing_versions():
     assert "release-source?rev={1}" in flake_check and "env.CANDIDATE_COMMIT" in flake_check
 
 
-def test_versioned_docker_images_belong_to_one_attempt():
-    # The final vX.Y.Z does not exist until publish; a second attempt pushing
-    # under it collides with the first attempt's immutable manifest list.
-    jobs = workflow("stable-release.yml")["jobs"]
-    for name in ("docker", "publish-docker"):
-        assert jobs[name]["with"]["tag"] == "${{ needs.admit.outputs.claim-tag }}"
-
-
 def test_packaged_stamp_writers_receive_versions_without_rewriting_python_metadata():
-    docker_steps = workflow("docker.yml")["jobs"]["build"]["steps"]
-    assert not any(step.get("name") == "Stamp release build context" for step in docker_steps)
-    write = next(step["run"] for step in docker_steps if step.get("name") == "Write install stamp")
-    assert "--base-version" in write and "--display-version" in write
-
     nix_steps = workflow("nix.yml")["jobs"]["flake-check"]["steps"]
     prepare = next(step["run"] for step in nix_steps if step.get("name") == "Prepare isolated release source")
     assert "scripts/releases/stamping.py" in prepare
@@ -327,44 +289,6 @@ def test_publication_reconciler_has_every_recovery_trigger_and_shared_lock():
     assert checkout["with"]["persist-credentials"] == "false"
     assert not any(step.get("run", "").startswith("sleep ") for step in reconcile["steps"])
 
-
-def test_docker_recovery_refuses_to_replace_a_divergent_version_tag(tmp_path):
-    publish = workflow("docker.yml")["jobs"]["release-publish-manifest"]
-    step = next(item for item in publish["steps"] if item.get("name") == "Create both immutable versioned manifest lists")
-    digest_dir = tmp_path / "digests"
-    digest_dir.mkdir()
-    for variant in ("slim", "desktop"):
-        for arch, digest in (("amd64", "a" * 64), ("arm64", "b" * 64)):
-            artifact = digest_dir / f"docker-publish-digest-{variant}-{arch}-0.21.5"
-            artifact.mkdir()
-            (artifact / f"{arch}.digest").write_text(f"sha256:{digest}\n", encoding="utf-8")
-
-    marker = tmp_path / "create-called"
-    bindir = tmp_path / "bin"
-    bindir.mkdir()
-    docker = bindir / "docker"
-    docker.write_text(
-        "#!/usr/bin/env python3\n"
-        "import json, os, pathlib, sys\n"
-        "if 'create' in sys.argv:\n"
-        "    pathlib.Path(os.environ['CREATE_MARKER']).write_text('called')\n"
-        "    raise SystemExit(0)\n"
-        "print(json.dumps({'manifests': [{'digest': 'sha256:' + 'c' * 64}]}))\n",
-        encoding="utf-8",
-    )
-    docker.chmod(0o755)
-    result = subprocess.run(
-        ["bash", "-e", "-o", "pipefail", "-c",
-         step["run"].replace("/tmp/digests", str(digest_dir))], cwd=tmp_path,
-        env={**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}",
-             "IMAGE_NAME": "owner/repo", "RELEASE_TAG": "0.21.5",
-             "CREATE_MARKER": str(marker)},
-        capture_output=True, text=True, encoding="utf-8",
-        check=False,
-    )
-    assert result.returncode != 0
-    assert "versioned Docker manifest differs" in result.stderr
-    assert not marker.exists()
 
 
 def test_every_run_step_receives_the_variables_it_reads():

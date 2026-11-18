@@ -330,6 +330,8 @@ def check_claim(env: dict, run=output) -> dict:
     raw_metadata = run(["git", "tag", "-l", claim_tag, "--format=%(contents)"])
     metadata = _claim_metadata(raw_metadata, version=admitted["version"],
                                attempt=admitted["attempt"], commit=commit)
+    if metadata["lanesRevision"] != lane_set.LANES_REVISION:
+        raise ValueError("Historical stable claims cannot be admitted; create a new claim")
     claim_epoch = tagger_epoch(local_object, run)
     if metadata["claimEpoch"] != claim_epoch:
         raise ValueError("Stable claim epoch differs from its annotated tagger timestamp")
@@ -646,17 +648,16 @@ def publish_attempt(record: dict, *, repository: str, run=output, read_archive) 
     the receipt binds (candidate manifest and Docker manifest), so the head
     advance that follows in the same pass checks the receipt it just wrote.
     """
-    from scripts.releases import docker
-
+    if "docker" in record["lanes"] or "docker-tests" in record["lanes"]:
+        raise ValueError("Historical Docker claims cannot be published")
     claim = {"claim_tag": record["claim_tag"], "claim_object": record["claim_object"],
              "autopublish": record["autopublish"], "lanes": record["lanes"],
              "claim_epoch": record["claim_epoch"]}
-    # A claim that built no bundle staged no archive, so its receipt binds no manifest. One that
-    # built no image pushed none, so it binds no digest.
+    # A claim that built no bundle staged no archive, so its receipt binds no manifest.
     manifest_sha256 = hashlib.sha256(
         read_archive(f"releases/tag/{record['claim_tag']}/release-candidates.json")
     ).hexdigest() if lane_set.has_bundles(record["lanes"]) else None
-    docker_digest = docker.published_digest(record["claim_tag"], run) if "docker" in record["lanes"] else None
+    docker_digest = None
     ensure_final_tag(record["tag"], record["commit"], claim,
                      candidate_manifest_sha256=manifest_sha256,
                      docker_manifest_digest=docker_digest,

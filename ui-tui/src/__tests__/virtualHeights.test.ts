@@ -95,7 +95,7 @@ describe('virtual height estimates', () => {
     ).toBe(estimatedMsgHeight(toolsOnly, 80, { compact: false, details: false }))
   })
 
-  it('treats historical thinking blocks as collapsed unless explicitly expanded', () => {
+  it('reserves fewer rows when reasoning is explicitly collapsed', () => {
     const msg: Msg = { role: 'assistant', text: 'ok', thinking: 'line 1\nline 2\nline 3' }
 
     expect(
@@ -110,7 +110,6 @@ describe('virtual height estimates', () => {
       estimatedMsgHeight(msg, 80, {
         compact: false,
         details: true,
-        thinkingExpanded: true,
         thinkingVisible: true,
         toolsVisible: false
       })

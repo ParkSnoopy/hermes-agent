@@ -70,7 +70,7 @@ def stranded(tmp_path, monkeypatch):
     monkeypatch.setattr(status, "_read_process_cmdline", lambda pid: "hermes gateway run")
     monkeypatch.setattr(gm, "_installed_services", lambda home: [])
     monkeypatch.setattr(gm, "_service_op", _service_op)
-    monkeypatch.setattr(gm, "_host_supports_migration", lambda: None)
+
     monkeypatch.setattr(gm, "_preflight_apply", lambda plan, target, run_as_user: None)
     # raising=False so this same file runs against a tree without the constant (A/B).
     monkeypatch.setattr(gm, "_COMPENSATOR_WAIT_SECONDS", 1.0, raising=False)

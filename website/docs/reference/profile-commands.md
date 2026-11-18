@@ -232,8 +232,7 @@ hermes profile rename <old-name> <new-name>
 Renames a profile. Updates the directory and shell alias. A gateway service installed under the
 old name (`hermes -p <old-name> gateway install`) is removed, whether or not the gateway is
 running, because it would start the old name at the next login; reinstall it with
-`hermes -p <new-name> gateway install`. Inside the Docker image the s6 gateway slot moves to the
-new name.
+`hermes -p <new-name> gateway install`.
 
 | Argument | Description |
 |----------|-------------|

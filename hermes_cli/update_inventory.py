@@ -329,7 +329,7 @@ def _serve_unit_matches_profile(profile: str, unit: object) -> bool:
 
 
 def _gateway_service_matches_profile(profile: str, service: object) -> bool:
-    """Match an exact gateway service/label (systemd/launchd/s6 shapes) to a profile.
+    """Match an exact gateway service/label (systemd/launchd shapes) to a profile.
 
     Never substring-match: ``foo`` must not claim ``hermes-gateway-foobar.service``.
     Launchd labels are ``ai.hermes.gateway`` / ``ai.hermes.gateway-<profile>`` — they do
@@ -345,7 +345,7 @@ def _gateway_service_matches_profile(profile: str, service: object) -> bool:
 
 def _gateway_named_in(r: RuntimeRecord, names: set) -> bool:
     # Gateway-only vocabulary: a serve/dashboard that merely shares the profile is a
-    # different process. Exact label match (systemd + launchd + s6), not substring.
+    # different process. Exact service or label match, not substring.
     return any(_gateway_service_matches_profile(r.profile, name) for name in names)
 
 

@@ -61,8 +61,8 @@ def _restore_backups(backups: dict) -> list:
 def step_migrate_config() -> dict:
     """Migrate config.yaml to the current schema, non-interactively.
 
-    Same shape as scripts/docker_config_migrate.py: back up config + .env,
-    migrate, verify the version advanced, restore the backups on failure.
+    Back up config and .env, migrate, verify the version advanced, and restore
+    the backups on failure.
     No-op when the on-disk version is current (the 99% case).
     """
     from hermes_cli.config import (

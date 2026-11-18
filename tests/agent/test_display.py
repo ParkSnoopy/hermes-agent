@@ -52,6 +52,11 @@ class TestBuildToolPreview:
 
 
 
+    @pytest.mark.parametrize(("tool", "key"), (("terminal", "command"), ("execute_code", "code")))
+    def test_default_shell_preview_keeps_each_segment(self, tool, key):
+        text = "cd work && printf 'a; b' | sort > output\nwc -l output; pwd"
+        assert build_tool_preview(tool, {key: text}) == text.replace("\n", r"\n")
+
     def test_memory_patch_preview_shows_the_span_being_edited(self):
         args = {"action": "patch", "target": "memory", "old_text": "port 8080", "content": "port 9090"}
         assert build_tool_preview("memory", args) == '~memory: "port 8080"'

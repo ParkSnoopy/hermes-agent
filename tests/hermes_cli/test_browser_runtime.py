@@ -33,7 +33,7 @@ def homes(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("HERMES_RUNTIME_DIR", str(tmp_path / "tools"))
     (tmp_path / "home").mkdir()
-    monkeypatch.setattr(browser_runtime, "BAKED_EXECUTABLE_FILE", tmp_path / "etc" / "chromium-executable-path")
+
     return tmp_path
 
 
@@ -86,25 +86,6 @@ def test_override_is_read_from_the_active_profile(homes):
             assert browser_runtime.chromium_executable() == expected
         finally:
             reset_hermes_home_override(token)
-
-
-def test_baked_docker_path_after_pm(homes):
-    baked_binary = homes / "opt" / "chrome"
-    baked_binary.parent.mkdir()
-    baked_binary.write_bytes(b"x")
-    browser_runtime.BAKED_EXECUTABLE_FILE.parent.mkdir()
-    browser_runtime.BAKED_EXECUTABLE_FILE.write_text(f"{baked_binary}\n", encoding="utf-8")
-    assert browser_runtime.chromium_executable() == str(baked_binary)
-
-    binary, _ = _fake_pm_chromium(homes / "tools")
-    assert browser_runtime.chromium_executable() == str(binary)
-
-
-def test_baked_path_to_a_missing_binary_is_ignored_and_hinted(homes):
-    browser_runtime.BAKED_EXECUTABLE_FILE.parent.mkdir()
-    browser_runtime.BAKED_EXECUTABLE_FILE.write_text(str(homes / "gone"), encoding="utf-8")
-    assert browser_runtime.chromium_executable() is None
-    assert "pull the current Hermes image" in browser_runtime.chromium_missing_hint()
 
 
 @pytest.mark.platforms("posix")

@@ -299,7 +299,7 @@ def _on_tool_start(sid: str, tool_call_id: str, name: str, args: dict):
         payload: dict[str, object] = {"tool_id": tool_call_id, "name": name, "context": _tool_ctx(name, args)}
         if (labels := _tool_labels(name, args)) is not None:
             payload["labels"] = labels
-        # Full args (not just the 80-char `context` preview) so the desktop's expanded tool row is complete
+        # Full args (not just the `context` preview) so the desktop's expanded tool row is complete
         # while the tool runs. args.todos may be a partial merge — tool.complete is the truth.
         if args:
             payload["args"] = args

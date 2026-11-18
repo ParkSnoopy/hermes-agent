@@ -104,7 +104,6 @@ def _live_gateway(monkeypatch, work):
     monkeypatch.setattr(control_socket, "query_gateway_control",
                         lambda home, verb, **kw: work if verb == "active-work" else None)
     monkeypatch.setattr(gw, "_host_multiplexer_for_all_verb", lambda: None)
-    monkeypatch.setattr(gw, "_dispatch_via_service_manager_if_s6", lambda *a, **k: False)
     monkeypatch.setattr(gw, "find_gateway_pids", lambda *a, **k: [4242])
 
 
@@ -144,7 +143,6 @@ def test_restart_refuses_on_the_published_active_agents_of_an_older_gateway(monk
     monkeypatch.setattr(control_socket, "query_gateway_control", lambda *a, **k: None)
     monkeypatch.setattr(gw, "_host_multiplexer_for_all_verb", lambda: None)
     monkeypatch.setattr(gw, "_guard_named_profile_under_multiplexer", lambda force=False: None)
-    monkeypatch.setattr(gw, "_dispatch_via_service_manager_if_s6", lambda *a, **k: False)
     monkeypatch.setattr(gw, "_installed_service_kind_for", lambda probe: "systemd")
     service: list = []
     monkeypatch.setattr(gw, "_service_call", lambda *a: service.append(a))

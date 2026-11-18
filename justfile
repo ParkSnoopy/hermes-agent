@@ -60,10 +60,6 @@ check-repo-guards:
 check-uv-lock:
     scripts/ci/local_step.sh scripts/ci/verify_uv_lock.py
 
-# Lint the Dockerfiles (pinned hadolint image) and docker/ shell scripts (shellcheck on PATH)
-[group('check')]
-lint-docker:
-    scripts/ci/lint_docker.sh
 
 # Validate every plugin-catalog entry's structure (no clone, no install)
 [group('check')]

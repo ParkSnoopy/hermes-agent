@@ -56,7 +56,6 @@ def _run_apply_profile_override(
     # CI runners export INVOCATION_ID) so each test controls them explicitly.
     for var in (
         "HERMES_SUPERVISED_CHILD",
-        "HERMES_S6_SUPERVISED_CHILD",
         "INVOCATION_ID",
         "HERMES_GATEWAY_EXTERNAL_SUPERVISOR",
     ):
@@ -192,16 +191,7 @@ class TestApplyProfileOverrideHermesHomeGuard:
 
 
 class TestSupervisedChildIgnoresStickyProfile:
-    """The reserved default gateway s6 slot must not follow active_profile.
-
-    Inside the Docker s6 image the ``gateway-default`` service slot runs a
-    bare ``hermes gateway run`` (no ``-p``) to mean "the root HERMES_HOME
-    profile". The run-script exports ``HERMES_S6_SUPERVISED_CHILD=1``.
-    Without a guard, ``_apply_profile_override`` would read the sticky
-    ``active_profile`` file (set by e.g. the dashboard profile switcher) and
-    redirect the reserved default gateway into that profile — producing a
-    duplicate gateway for the active profile and no real default gateway.
-    """
+    """Supervision must not override explicit or interactive profile selection."""
 
 
     def test_non_supervised_run_still_follows_active_profile(
@@ -234,7 +224,7 @@ class TestSupervisedChildIgnoresStickyProfile:
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.delenv("HERMES_HOME", raising=False)
-        monkeypatch.setenv("HERMES_S6_SUPERVISED_CHILD", "1")
+        monkeypatch.setenv("HERMES_SUPERVISED_CHILD", "1")
         monkeypatch.setattr(sys, "argv", ["hermes", "-p", "coder", "gateway", "run"])
 
         from hermes_cli.main import _apply_profile_override
@@ -368,34 +358,6 @@ class TestGeneralizedSupervisorMarkers:
 
         plist = generate_launchd_plist()
         assert "<key>HERMES_SUPERVISED_CHILD</key>" in plist
-
-
-class TestS6ContainerGatewayRun:
-    """Inside the s6 image a bare ``gateway run`` (the image's CMD) redirects to the supervised
-    ``gateway-default`` slot. It must keep that root identity whatever ``active_profile`` says;
-    otherwise every container boot starts the named slot the reconciler registered down."""
-
-    def test_the_redirected_run_keeps_the_root_home_despite_the_active_profile(
-        self, tmp_path, monkeypatch
-    ):
-        monkeypatch.setattr("hermes_cli.service_manager._s6_running", lambda: True)
-        root = tmp_path / ".hermes"
-        result = _run_apply_profile_override(
-            tmp_path, monkeypatch, hermes_home=str(root), active_profile="coder",
-            argv=["hermes", "gateway", "run"],
-        )
-        assert result == str(root)
-
-    def test_a_foreground_run_and_other_verbs_still_follow_the_active_profile(
-        self, tmp_path, monkeypatch
-    ):
-        monkeypatch.setattr("hermes_cli.service_manager._s6_running", lambda: True)
-        root = tmp_path / ".hermes"
-        for argv in (["hermes", "gateway", "run", "--no-supervise"], ["hermes", "chat"]):
-            result = _run_apply_profile_override(
-                tmp_path, monkeypatch, hermes_home=str(root), active_profile="coder", argv=argv,
-            )
-            assert result == str(root / "profiles" / "coder"), argv
 
 
 def test_module_entry_keeps_an_explicit_default_profile_over_the_sticky_one(tmp_path):

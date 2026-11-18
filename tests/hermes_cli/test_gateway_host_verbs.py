@@ -88,7 +88,7 @@ def test_start_all_never_sweeps_a_live_host_multiplexer(host_owner, monkeypatch,
         gw, "_guard_named_profile_under_multiplexer",
         lambda **k: pytest.fail("the generic profile guard pre-empted start --all"),
     )
-    monkeypatch.setattr(gw, "_dispatch_via_service_manager_if_s6", lambda verb: False)
+
     monkeypatch.setattr(gw, "_service_backend", lambda: None)
     monkeypatch.setattr(gw, "find_gateway_pids", lambda **k: [])
 
@@ -270,7 +270,7 @@ def test_restart_all_does_not_attach_to_the_process_it_just_stopped(
 def test_named_profile_restart_all_reaches_the_all_aware_branch(monkeypatch):
     """The generic guard ran first and printed a bare `gateway restart` (no --all)."""
     monkeypatch.setattr(gw, "_refuse_from_inside_gateway", lambda *a, **k: None)
-    monkeypatch.setattr(gw, "_dispatch_all_via_service_manager_if_s6", lambda verb: False)
+
     monkeypatch.setattr(gw, "_guard_named_profile_under_multiplexer",
                         lambda **k: pytest.fail("the generic guard pre-empted the --all branch"))
     called: list[bool] = []

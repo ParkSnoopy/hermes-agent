@@ -23,7 +23,6 @@ def test_cli_restart_reaps_after_the_refusal_guard(monkeypatch):
     monkeypatch.setattr(gw, "_refuse_from_inside_gateway", lambda *a, **k: None)
     monkeypatch.setattr(gw, "_guard_named_profile_under_multiplexer", lambda **k: order.append("guard"))
     monkeypatch.setattr(gateway_lifecycle_guards, "refuse_while_sessions_live", lambda *a: order.append("drain"))
-    monkeypatch.setattr(gw, "_dispatch_via_service_manager_if_s6", lambda *a, **k: False)
     monkeypatch.setattr(gw, "_installed_service_kind", lambda: "systemd")
     monkeypatch.setattr(gw, "_reap_unsupervised_gateway_orphans", lambda *a, **k: order.append("reap"))
     monkeypatch.setattr(gw, "_service_call", lambda *a, **k: order.append("restart"))
@@ -41,7 +40,6 @@ def test_cli_restart_reap_failure_does_not_block_restart(monkeypatch):
     monkeypatch.setattr(gw, "_refuse_from_inside_gateway", lambda *a, **k: None)
     monkeypatch.setattr(gw, "_guard_named_profile_under_multiplexer", lambda **k: None)
     monkeypatch.setattr(gateway_lifecycle_guards, "refuse_while_sessions_live", lambda *a: None)
-    monkeypatch.setattr(gw, "_dispatch_via_service_manager_if_s6", lambda *a, **k: False)
     monkeypatch.setattr(gw, "_installed_service_kind", lambda: "systemd")
 
     def _boom(*a, **k):

@@ -1786,7 +1786,7 @@ tool_loop_guardrails:
     max_subagents: 50          # max subagents spawned per turn (0 = unlimited)
 ```
 
-`hard_stop_enabled` explicitly enables hard stops on every platform. When it remains `false`, `non_interactive_hard_stop_enabled` still enables them for unattended gateway platforms while preserving warning-only behavior for CLI, TUI, Desktop, ACP, subagents, and `api_server` runs (supervised task loops with a live parent or client). Set `non_interactive_hard_stop_enabled: false` to opt an unattended deployment out. See also [Docker / unattended deployments](docker.md).
+`hard_stop_enabled` explicitly enables hard stops on every platform. When it remains `false`, `non_interactive_hard_stop_enabled` still enables them for unattended gateway platforms while preserving warning-only behavior for CLI, TUI, Desktop, ACP, subagents, and `api_server` runs (supervised task loops with a live parent or client). Set `non_interactive_hard_stop_enabled: false` to opt an unattended deployment out.
 
 Hard stops are designed to catch **replays** — the same call, unchanged, with nothing happening in between — not legitimate iteration:
 
@@ -2282,8 +2282,7 @@ browser:
 
 **Executable resolution.** Hermes launches the first Chromium it finds:
 `browser.executable_path` → the Chromium installed by Hermes's package manager
-(`hermes pm install chromium`) → `/etc/hermes/chromium-executable-path` (official
-Docker image) → a system `chromium` / `chromium-browser` on `PATH` (Termux and
+(`hermes pm install chromium`) → a system `chromium` / `chromium-browser` on `PATH` (Termux and
 platforms without a packaged build). With none, the browser tool reports a hint
 instead of failing silently.
 
@@ -2544,7 +2543,7 @@ See also:
 |---------|---------|
 | **CLI (`hermes`)** | Current directory where you run the command |
 | **Gateway** | `terminal.cwd` from `~/.hermes/config.yaml`; if unset, home directory `~` |
-| **Docker / Singularity / SSH** | User's home directory inside the container or remote machine |
+
 
 Override the working directory:
 ```yaml

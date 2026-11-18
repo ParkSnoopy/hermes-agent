@@ -82,7 +82,7 @@ def test_restart_with_a_warm_probe_does_not_attach_to_the_stopped_gateway(manual
 
     monkeypatch.setattr(gw, "_refuse_from_inside_gateway", lambda *a, **k: None)
     monkeypatch.setattr(gw, "_guard_named_profile_under_multiplexer", lambda **k: None)
-    monkeypatch.setattr(gw, "_dispatch_via_service_manager_if_s6", lambda *a, **k: False)
+
     monkeypatch.setattr(gw, "_reap_unsupervised_gateway_orphans", lambda *a, **k: None)
     monkeypatch.setattr(gw, "_installed_service_kind_for", lambda windows: None)
     monkeypatch.setattr(gateway_status, "get_running_pid", lambda *a, **k: child.pid)
@@ -93,7 +93,7 @@ def test_restart_with_a_warm_probe_does_not_attach_to_the_stopped_gateway(manual
     monkeypatch.setattr(gw, "_wait_for_api_server_port_free", lambda *a, **k: None)
     # The real run_gateway runs up to the host attach decision; the first guard past it stands in
     # for the launch.
-    monkeypatch.setattr(gw, "_guard_official_docker_root_gateway", lambda: None)
+
     monkeypatch.setattr(gw, "_guard_supervised_gateway_conflict", reached_start)
 
     with pytest.raises(_ReachedStart):

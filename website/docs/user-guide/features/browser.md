@@ -121,8 +121,7 @@ and it works on headless servers with no desktop browser at all.
 1. `browser.executable_path`, when set.
 2. The Chromium (Chrome for Testing) installed by Hermes's package manager — the
    installers and `hermes update` install it by default.
-3. `/etc/hermes/chromium-executable-path` in the official Docker image.
-4. A system `chromium` / `chromium-browser` on `PATH` (Android/Termux, and
+3. A system `chromium` / `chromium-browser` on `PATH` (Android/Termux, and
    platforms the package manager has no Chromium build for).
 
 If none is found, the browser tool reports a clear hint instead of failing

@@ -129,7 +129,6 @@ def _detect_docker() -> bool:
 
 _ENV_DETECTORS: dict[str, Callable[[], bool]] = {
     "docker": _detect_docker,
-    "s6": lambda: os.path.isdir("/run/s6") or os.path.isdir("/package/admin/s6-overlay"),  # s6-overlay is PID 1 in the image
 }
 
 

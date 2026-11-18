@@ -439,9 +439,12 @@ def _preview_todo_list(args: dict, _max_len: int) -> str:
 def _preview_shell(key: str):
     def _build(args: dict, max_len: int) -> str | None:
         command = args.get(key)
-        # Sanitize before summarizing: the spinner sits under the approval prompt and must not hide what it does.
-        return None if command is None else _tail_trunc(
-            summarize_shell_command(sanitize_command_for_display(str(command))), max_len) or None
+        if command is None:
+            return None
+        # Keep command boundaries visible without turning a tool row into raw terminal output.
+        safe = sanitize_command_for_display(redact_sensitive_text(str(command)))
+        preview = summarize_shell_command(safe) if max_len > 0 else safe.strip().replace("\n", r"\n")
+        return _tail_trunc(preview, max_len) or None
     return _build
 
 
@@ -1212,8 +1215,7 @@ def _cute_skill_view(a: dict, _r) -> str:
 
 
 def _cute_execute_code(a: dict, _r) -> str:
-    code = a.get("code", "").strip()
-    return _cute_row("🐍", "exec", _cute_trunc(code.split(chr(10))[0] if code else ""))
+    return _cute_row("🐍", "exec", build_tool_preview("execute_code", a) or "")
 
 
 def _cute_browser_exec(a: dict, _r) -> str:

@@ -44,7 +44,7 @@ def candidates(tag, commit, digest, archive=None):
 
 
 def test_gate_requires_every_success_including_real_cli(tmp_path):
-    required = ["ci", "docker", "acceptance", "publication"]
+    required = ["ci", "nix", "acceptance", "publication"]
     success = {name: {"result": "success"} for name in required}
     require_success(success, required)
     with pytest.raises(ValueError, match="required-job list"):
@@ -74,7 +74,7 @@ def test_gate_requires_every_success_including_real_cli(tmp_path):
 
 @pytest.mark.parametrize("lanes", [
     lane_set.select(without=lane_set.BUNDLES),
-    lane_set.select(only=["docker"]),
+    lane_set.select(only=["ci"]),
     lane_set.select(only=["termux"]),
     lane_set.select(only=[]),
 ])
@@ -354,7 +354,7 @@ def test_claim_object_movement_and_lightweight_tags_fail_closed(tmp_path, monkey
     final_object = ensure_final_tag(
         "v1.2.3", actual, claim,
         candidate_manifest_sha256=None,
-        docker_manifest_digest="sha256:" + "d" * 64,
+        docker_manifest_digest=None,
         release_id=123,
     )
     remote_final = subprocess.check_output(
@@ -374,11 +374,13 @@ def test_claim_requires_the_exact_current_format():
     commit = "a" * 40
     base = {"schema": 1, "version": "0.21.7", "attempt": 11, "commit": commit,
             "autopublish": True, "claimEpoch": 1_790_000_000}
-    current = {**base, "lanes": ["docker", "termux"], "lanesRevision": lane_set.LANES_REVISION}
-    assert validate_claim(current, version="0.21.7", attempt=11, commit=commit)["lanes"] == {"docker", "termux"}
+    current = {**base, "lanes": ["ci", "termux"], "lanesRevision": lane_set.LANES_REVISION}
+    assert validate_claim(current, version="0.21.7", attempt=11, commit=commit)["lanes"] == {"ci", "termux"}
+    historical = {**base, "lanes": ["docker", "termux"], "lanesRevision": 3}
+    assert validate_claim(historical, version="0.21.7", attempt=11, commit=commit)["lanes"] == {"docker", "termux"}
     for wrong in ({**base, "skipBundles": False, "skipTests": False},
                   {**base, "lanes": ["docker"]}, {**current, "extra": True},
-                  {**current, "lanesRevision": 1}, {**current, "lanes": ["termux", "docker"]}):
+                  {**current, "lanesRevision": 1}, {**current, "lanes": ["termux", "ci"]}):
         with pytest.raises(ValueError, match="metadata is invalid"):
             validate_claim(wrong, version="0.21.7", attempt=11, commit=commit)
 
@@ -494,24 +496,17 @@ def test_publish_attempt_writes_the_receipt_retargets_and_copies_no_bytes(tmp_pa
         text=True, encoding="utf-8"))["claimEpoch"]
     manifest_bytes = b'{"schema":3}\n'
     manifest_digest = hashlib.sha256(manifest_bytes).hexdigest()
-    docker_digest = "sha256:" + "d" * 64
-    docker_desktop_digest = "sha256:" + "e" * 64
+
     release = {"id": 42, "tag_name": "rc.2-v1.2.3", "draft": True, "prerelease": False,
                "body": _fenced_body(), "published_at": None}
     patches = []
     requested_keys = []
-    inspected_images = []
+
 
     def run(argv):
         if argv[0] == "git":
             return subprocess.check_output(argv, text=True, encoding="utf-8").strip()
-        if argv[:3] == ["docker", "buildx", "imagetools"]:
-            inspected_images.append(argv[4])
-            assert argv[4] in {
-                "nousresearch/hermes-agent:rc.2-v1.2.3",
-                "nousresearch/hermes-agent:rc.2-v1.2.3-desktop",
-            }
-            return json.dumps(docker_desktop_digest if argv[4].endswith("-desktop") else docker_digest)
+
         if argv[:3] == ["gh", "api", "--method"]:
             fields = {}
             for _flag, value in zip(argv[5::2], argv[6::2]):
@@ -539,18 +534,14 @@ def test_publish_attempt_writes_the_receipt_retargets_and_copies_no_bytes(tmp_pa
     )
 
     assert digests == {"candidate_manifest_sha256": manifest_digest,
-                       "docker_manifest_digest": docker_digest}
+                       "docker_manifest_digest": None}
     receipt = tag_record(subprocess.check_output(
         ["git", "tag", "-l", "v1.2.3", "--format=%(contents)"],
         text=True, encoding="utf-8"))
     assert receipt["claimTag"] == "rc.2-v1.2.3"
     assert receipt["archive"] == "releases/tag/rc.2-v1.2.3/"
     assert receipt["candidateManifestSha256"] == manifest_digest
-    assert receipt["dockerManifestDigest"] == docker_digest
-    assert inspected_images == [
-        "nousresearch/hermes-agent:rc.2-v1.2.3",
-        "nousresearch/hermes-agent:rc.2-v1.2.3-desktop",
-    ]
+    assert receipt["dockerManifestDigest"] is None
     assert receipt["releaseId"] == 42
     remote = subprocess.check_output(
         ["git", "ls-remote", "origin", "refs/tags/v1.2.3", "refs/tags/v1.2.3^{}"],
@@ -566,10 +557,9 @@ def test_publish_attempt_writes_the_receipt_retargets_and_copies_no_bytes(tmp_pa
     assert release["body"] == "## What's changed\n- x"
 
 
-@pytest.mark.parametrize("lanes,binds_manifest,binds_docker", [
-    (["termux"], True, False), (["docker"], False, True), ([], False, False)])
+@pytest.mark.parametrize("lanes,binds_manifest", [(["termux"], True), ([], False)])
 def test_the_final_receipt_binds_only_what_the_claims_lanes_built(
-        tmp_path, monkeypatch, lanes, binds_manifest, binds_docker):
+        tmp_path, monkeypatch, lanes, binds_manifest):
     from scripts.releases import stable
 
     commit, tag_object = _claim_fixture(tmp_path, tag="rc.2-v1.2.3", version="1.2.3", lanes=lanes)
@@ -584,9 +574,7 @@ def test_the_final_receipt_binds_only_what_the_claims_lanes_built(
     def run(argv):
         if argv[0] == "git":
             return subprocess.check_output(argv, text=True, encoding="utf-8").strip()
-        if argv[:3] == ["docker", "buildx", "imagetools"]:
-            assert binds_docker, "a claim without the docker lane reads no image"
-            return json.dumps("sha256:" + "d" * 64)
+
         if argv[:3] == ["gh", "api", "--method"]:
             fields = dict(value.partition("=")[::2] for value in argv[6::2])
             release.update({key: (raw == "true") if key in {"draft", "prerelease"} else raw
@@ -602,17 +590,17 @@ def test_the_final_receipt_binds_only_what_the_claims_lanes_built(
         _publish_record(commit, tag_object, epoch=epoch, lanes=lanes), repository="example/project",
         run=run, read_archive=lambda key: archive_reads.append(key) or b"{}")
     assert (digests["candidate_manifest_sha256"] is not None) == binds_manifest == bool(archive_reads)
-    assert (digests["docker_manifest_digest"] is not None) == binds_docker
+
     final = tag_record(subprocess.check_output(["git", "tag", "-l", "v1.2.3", "--format=%(contents)"],
                                                text=True, encoding="utf-8"))
     claim = {"autopublish": False, "claimEpoch": epoch, "lanes": frozenset(lanes)}
     stable.validate_final(final, version="1.2.3", commit=commit, claim_tag="rc.2-v1.2.3",
                           claim_object=tag_object, claim=claim)
-    # The receipt of a different lane set is refused: a Docker digest the claim never built.
+    # The receipt is invalid if the claim disagrees about whether Termux was built.
     with pytest.raises(ValueError, match="differs from its claim"):
         stable.validate_final(final, version="1.2.3", commit=commit, claim_tag="rc.2-v1.2.3",
                               claim_object=tag_object,
-                              claim={**claim, "lanes": frozenset({"termux", "docker"} - set(lanes)) or frozenset({"docker"})})
+                              claim={**claim, "lanes": claim["lanes"] ^ {"termux"}})
 
 
 def test_publish_attempt_refuses_a_release_that_is_no_longer_a_draft(tmp_path, monkeypatch):
@@ -629,8 +617,7 @@ def test_publish_attempt_refuses_a_release_that_is_no_longer_a_draft(tmp_path, m
     def run(argv):
         if argv[0] == "git":
             return subprocess.check_output(argv, text=True, encoding="utf-8").strip()
-        if argv[:3] == ["docker", "buildx", "imagetools"]:
-            return json.dumps("sha256:" + "d" * 64)
+
         if argv[:2] == ["gh", "api"]:
             return json.dumps(release)
         raise AssertionError(argv)

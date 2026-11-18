@@ -482,7 +482,7 @@ def _scan_skill_md(skill_md: Path, disabled: set, seen_names: set, commands: dic
     if any(part in _SCAN_SKIP_PARTS for part in skill_md.parts):
         return
     frontmatter, body = _parse_frontmatter(skill_md.read_text(encoding='utf-8-sig'))
-    # OS gate is hard; environment gate (kanban/docker/s6) is offer-time only.
+    # OS gate is hard; environment gates are offer-time only.
     if not skill_matches_platform(frontmatter) or not skill_matches_environment(frontmatter) or not skill_matches_apps(frontmatter):
         return
     name = frontmatter.get('name', skill_md.parent.name)

@@ -160,7 +160,7 @@ terminal(command="tmux send-keys -t agent1 'Add rate limiting middleware' && sle
 terminal(command="tmux send-keys -t agent1 '/exit' && sleep 0.5 && tmux send-keys -t agent1 Enter && sleep 2 && tmux kill-session -t agent1", timeout=10)
 ```
 
-**No tmux** (`command -v tmux` prints nothing, e.g. an older Hermes Docker image): run Hermes as a PTY background process and drive it with `process_manage`. Stdin only exists with `pty=true`. `submit` sends the text plus the Enter key a keyboard sends, and Hermes submits it the same way as a one-call tmux `send-keys`. The recipe below instead `write`s the text, pauses, and `write`s the Enter (`"\r"`) on its own, which does not depend on burst timing. Wait for the input prompt before the first write: during startup Hermes queries the terminal's colours and then flushes its input, so text written before the prompt appears is silently dropped.
+**No tmux** (`command -v tmux` prints nothing): run Hermes as a PTY background process and drive it with `process_manage`. Stdin only exists with `pty=true`. `submit` sends the text plus the Enter key a keyboard sends, and Hermes submits it the same way as a one-call tmux `send-keys`. The recipe below instead `write`s the text, pauses, and `write`s the Enter (`"\r"`) on its own, which does not depend on burst timing. Wait for the input prompt before the first write: during startup Hermes queries the terminal's colours and then flushes its input, so text written before the prompt appears is silently dropped.
 
 ```
 terminal(command="hermes", background=true, pty=true)   # returns session_id

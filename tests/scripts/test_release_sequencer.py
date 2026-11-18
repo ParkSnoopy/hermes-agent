@@ -232,7 +232,7 @@ def _final_message(version, attempt, commit, *, release_id, epoch=1_790_000_000)
         "schema": 1, "version": version, "commit": commit,
         "autopublish": False, "claimEpoch": epoch, "claimTag": claim_tag,
         "claimTagObject": "1" * 40, "releaseId": release_id,
-        "candidateManifestSha256": "a" * 64, "dockerManifestDigest": "sha256:" + "b" * 64,
+        "candidateManifestSha256": "a" * 64, "dockerManifestDigest": None,
         "archive": f"releases/tag/{claim_tag}/",
     }
 
@@ -396,8 +396,8 @@ def test_two_outstanding_attempts_are_refused_across_versions():
         discover("example/project", _discover_run(tags))
 
 
-def _sequencer_fixture(*versions, manifest_digest, docker_digest: str | None = "sha256:" + "b" * 64,
-                       drafts_on_claim_tag=False, final_tags=True, lanes=None):
+def _sequencer_fixture(*versions, manifest_digest, drafts_on_claim_tag=False,
+                       final_tags=True, lanes=None):
     """Two green claims with their final tags; releases start as drafts.
 
     final_tags=False is a fresh green claim: no receipt tag yet, the draft on
@@ -423,7 +423,7 @@ def _sequencer_fixture(*versions, manifest_digest, docker_digest: str | None = "
             "claimTag": claim_tag, "claimTagObject": claim_object,
             "releaseId": index,
             "candidateManifestSha256": manifest_digest,
-            "dockerManifestDigest": docker_digest,
+            "dockerManifestDigest": None,
             "archive": f"releases/tag/{claim_tag}/",
         }
         tags[claim_tag] = (claim_object, commit, claim)
@@ -487,8 +487,6 @@ def _sequencer_fixture(*versions, manifest_digest, docker_digest: str | None = "
             return create_tag(argv)
         if argv[0] == "git" and "push" in argv:
             return ""
-        if argv[:3] == ["docker", "buildx", "imagetools"]:
-            return json.dumps(docker_digest)
         if argv[:4] == ["gh", "api", "--paginate", "--slurp"]:
             if "/releases?" in argv[-1]:
                 return json.dumps([releases])
@@ -566,16 +564,14 @@ def test_a_fresh_flip_advances_the_head_with_the_receipt_it_just_wrote():
     from scripts.releases.sequencer import reconcile
 
     manifest_digest = hashlib.sha256(b"m").hexdigest()
-    docker_digest = "sha256:" + "c" * 64
     tags, releases, run = _sequencer_fixture(
-        "0.21.5", manifest_digest=manifest_digest, docker_digest=docker_digest, final_tags=False)
+        "0.21.5", manifest_digest=manifest_digest, final_tags=False)
     assert "v0.21.5" not in tags
     head = ["0.21.4"]
     advanced = []
 
     def advance(record):
-        advanced.append({key: record[key] for key in (
-            "tag", "candidate_manifest_sha256", "docker_manifest_digest")})
+        advanced.append((record["tag"], record["candidate_manifest_sha256"]))
         head[0] = record["version"]
 
     steps = reconcile(
@@ -585,8 +581,7 @@ def test_a_fresh_flip_advances_the_head_with_the_receipt_it_just_wrote():
     )
 
     assert steps == [{"flip": "0.21.5"}, {"advance": "0.21.5"}]
-    assert advanced == [{"tag": "v0.21.5", "candidate_manifest_sha256": manifest_digest,
-                         "docker_manifest_digest": docker_digest}]
+    assert advanced == [("v0.21.5", manifest_digest)]
     assert tags["v0.21.5"][2]["candidateManifestSha256"] == manifest_digest
     assert releases[0]["tag_name"] == "v0.21.5" and releases[0]["draft"] is False
 
@@ -618,63 +613,16 @@ def test_a_publish_that_died_before_the_retarget_is_repaired():
     assert releases[0]["tag_name"] == "v0.21.5" and releases[0]["draft"] is False
 
 
-def test_a_release_that_skipped_bundles_ships_only_its_tag_release_and_docker_aliases(monkeypatch):
-    """Its receipt binds no manifest; the APT channel stays put."""
-    from scripts.releases import termux, docker, sequencer
+@pytest.mark.parametrize("lanes", [["termux"], ["nix"]])
+def test_a_release_advances_apt_only_when_termux_was_built(monkeypatch, lanes):
+    from scripts.releases import sequencer, termux
 
-    docker_digest = "sha256:" + "b" * 64
-    _tags, releases, run = _sequencer_fixture(
-        "0.21.5", manifest_digest=None, docker_digest=docker_digest, final_tags=False,
-        lanes=lane_set.select(only=["docker"]))
-    alias = [None]
-    events = []
-
-    def promote(claim_tag, digest, release_tag):
-        events.append(("aliases", claim_tag, release_tag))
-        alias[0] = digest
-
-    monkeypatch.setattr(termux, "advance_stable",
-                        lambda *_args: pytest.fail("the APT channel moved"))
-    monkeypatch.setattr(termux, "stable_head_version", lambda _env: "0.21.4")
-    monkeypatch.setattr(docker, "promote_stable", promote)
-    monkeypatch.setattr(docker, "stable_alias_digest", lambda: alias[0])
-    env = {"GITHUB_REPOSITORY": "example/project", "REQUESTED_VERSION": "0.21.5"}
-
-    def no_archive(_key):
-        pytest.fail("a release that skipped bundles has no archive to read")
-
-    steps = sequencer.reconcile(env, run=run, read_archive=no_archive)
-
-    assert steps == [{"flip": "0.21.5"}, {"advance": "0.21.5"}]
-    assert events == [("aliases", "rc.1-v0.21.5", "v0.21.5")]
-    assert releases[0]["tag_name"] == "v0.21.5" and releases[0]["draft"] is False
-    # The R2 head still names 0.21.4, but the stable alias carries the 0.21.5
-    # receipt digest, so the next pass has nothing left to advance.
-    assert sequencer.reconcile(env, run=run, read_archive=no_archive) == []
-    assert events == [("aliases", "rc.1-v0.21.5", "v0.21.5")]
-
-
-@pytest.mark.parametrize("lanes,interrupted", [
-    (["termux", "docker"], False), (["termux", "docker"], True), (["termux"], False), ([], False),
-])
-def test_a_release_moves_only_the_channels_it_built(monkeypatch, lanes, interrupted):
-    from scripts.releases import termux, docker, sequencer
-
-    docker_digest = "sha256:" + "b" * 64 if "docker" in lanes else None
     archived = b"accepted candidate transport fixture"
     manifest = hashlib.sha256(archived).hexdigest() if "termux" in lanes else None
     _tags, releases, run = _sequencer_fixture(
-        "0.21.5", manifest_digest=manifest, docker_digest=docker_digest, lanes=lanes, final_tags=False)
-    alias = [None]
+        "0.21.5", manifest_digest=manifest, lanes=lanes, final_tags=False)
     apt_head = ["0.21.4"]
     events = []
-
-    def promote(claim_tag, digest, release_tag):
-        assert "docker" in lanes and digest == docker_digest
-        events.append(("aliases", claim_tag, release_tag))
-        alias[0] = digest
-        if interrupted:
-            raise KeyboardInterrupt("cancelled after aliases moved")
 
     def advance_apt(env, record, root):
         assert "termux" in lanes and record["candidate_manifest_sha256"] == manifest
@@ -688,21 +636,12 @@ def test_a_release_moves_only_the_channels_it_built(monkeypatch, lanes, interrup
 
     monkeypatch.setattr(termux, "advance_stable", advance_apt)
     monkeypatch.setattr(termux, "stable_head_version", lambda _env: apt_head[0])
-    monkeypatch.setattr(docker, "promote_stable", promote)
-    monkeypatch.setattr(docker, "stable_alias_digest", lambda: alias[0])
     env = {"GITHUB_REPOSITORY": "example/project", "REQUESTED_VERSION": "0.21.5"}
-
-    if interrupted:
-        with pytest.raises(KeyboardInterrupt, match="after aliases moved"):
-            sequencer.reconcile(env, run=run, read_archive=read_archive)
-    else:
-        steps = sequencer.reconcile(env, run=run, read_archive=read_archive)
-        assert steps == [{"flip": "0.21.5"}, {"advance": "0.21.5"}]
-    expected = ([("apt", "v0.21.5")] if "termux" in lanes else []) + \
-        ([("aliases", "rc.1-v0.21.5", "v0.21.5")] if "docker" in lanes else [])
+    steps = sequencer.reconcile(env, run=run, read_archive=read_archive)
+    assert steps == [{"flip": "0.21.5"}, {"advance": "0.21.5"}]
+    expected = [("apt", "v0.21.5")] if "termux" in lanes else []
     assert events == expected
     assert releases[0]["tag_name"] == "v0.21.5" and releases[0]["draft"] is False
-    # Finished: the alias carries the receipt's digest, or the release moves no channel at all.
     assert sequencer.reconcile(env, run=run, read_archive=read_archive) == []
     assert events == expected
 

@@ -30,7 +30,7 @@ DAEMON_STRIPPED_ENV = (
     "INVOCATION_ID", "JOURNAL_STREAM",
     # Same for any process below a launchd/--external-supervisor gateway (its agents' tools, scripts they
     # run): the daemon would identify as "launchd", never arm --idle-exit, and outlive every client.
-    # HERMES_S6_SUPERVISED_CHILD stays: without it `gateway run` in an s6 container redirects to s6.
+
     "XPC_SERVICE_NAME", "LAUNCHD_SOCKET", "HERMES_LAUNCHD_LABEL",
     "HERMES_GATEWAY_EXTERNAL_SUPERVISOR", "HERMES_SUPERVISED_CHILD",
     # systemd's notify socket and watchdog name the unit's main process: the daemon would feed them.

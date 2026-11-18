@@ -1,7 +1,7 @@
 """The stable release lanes, defined once.
 
 A stable release is a set of lanes. A build lane produces something users get
-(a package or an image); a test lane is a suite that gates the release. The
+(a package); a test lane is a suite that gates the release. The
 claim records the set, ``admit`` turns it into one flag per lane and one run
 flag per workflow job, and every gate judges each job against that same set.
 
@@ -25,12 +25,11 @@ class Lane:
 
 
 LANES = (
-    Lane("docker", True, "build and publish the Docker image"),
 
     Lane("termux", False, "Termux (Android aarch64) APT package"),
     Lane("ci", True, "the full CI pipeline"),
     Lane("nix", True, "Nix checks"),
-    Lane("docker-tests", True, "tests of the Docker image before it is published"),
+
     Lane("pm-bundle", True, "PM bundle acceptance"),
     Lane("install-e2e", True, "install and update E2E"),
 
@@ -49,8 +48,7 @@ DERIVED = ("bundles",)
 JOB_LANES: dict[str, frozenset[str]] = {name: frozenset(needs) for name, needs in {
     "ci": ("ci",),
     "nix": ("nix",),
-    "docker": ("docker",),
-    "publish-docker": ("docker",),
+
     "pm-bundle": ("pm-bundle",),
     "termux-checks": ("termux-checks", "termux"),
     "install-e2e": ("install-e2e",),
@@ -67,7 +65,6 @@ CANDIDATE_CALLS = tuple(job for job in JOB_LANES if job.startswith("candidates-"
 HANDOFF_LANE = {"termux": "termux"}
 TARGET_LANE = {"termux/aarch64": "termux"}
 LEFT_OUT = {
-    "docker": "the Docker image keeps its previous stable tag",
 
     "termux": "the Termux APT channel stays on its previous release",
 }
@@ -142,29 +139,31 @@ def has_bundles(lanes: Iterable[str]) -> bool:
 def moves_channels(lanes: Iterable[str]) -> bool:
     """Whether publication moves a channel head. A release that moves none is finished once public."""
     on = frozenset(lanes)
-    return bool(on & {"docker", "termux"})
+    return bool(on & {"termux"})
 
 
 # Claims must describe the current lane contract explicitly.
-LANES_REVISION = 3
+LANES_REVISION = 4
+HISTORICAL_LANES = frozenset(NAMES) | {"docker", "docker-tests"}
 
 
 def claim_lanes(metadata: Mapping) -> frozenset[str]:
-    """Read only a canonical, current-revision claim; never translate old policy."""
+    """Read canonical current or revision-3 historical claims without translation."""
     lanes = metadata.get("lanes")
     if (type(metadata.get("lanesRevision")) is not int
-            or metadata["lanesRevision"] != LANES_REVISION
+            or metadata["lanesRevision"] not in (3, LANES_REVISION)
             or not isinstance(lanes, list)
             or any(not isinstance(name, str) for name in lanes)
             or lanes != sorted(set(lanes))):
         raise ValueError("Stable claim metadata is invalid")
-    try:
-        return _known(lanes)
-    except ValueError as error:
-        raise ValueError("Stable claim metadata is invalid") from error
+    known = HISTORICAL_LANES if metadata["lanesRevision"] == 3 else frozenset(NAMES)
+    if set(lanes) - known:
+        raise ValueError("Stable claim metadata is invalid")
+    return frozenset(lanes)
 
 
 def describe(lanes: Iterable[str]) -> str:
     on = frozenset(lanes)
     off = [name for name in NAMES if name not in on]
-    return f"on: {', '.join(name for name in NAMES if name in on) or 'none'}; off: {', '.join(off) or 'none'}"
+    active = [name for name in NAMES if name in on] + sorted(on - set(NAMES))
+    return f"on: {', '.join(active) or 'none'}; off: {', '.join(off) or 'none'}"

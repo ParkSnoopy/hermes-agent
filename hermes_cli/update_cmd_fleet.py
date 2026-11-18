@@ -29,7 +29,7 @@ logger = logging.getLogger("hermes_cli.update_cmd")
 # this one is the fleet-restart obligation after a git pull that advanced HEAD (#95294).
 _FLEET_RESTART_PENDING_NAME = PROFILE_MARKER_NAME
 
-_FRESH_RESTART_SUPERVISORS = frozenset({"systemd", "service", "s6"})
+_FRESH_RESTART_SUPERVISORS = frozenset({"systemd", "service"})
 
 _SYSTEMD_SCOPES = (("user", ["systemctl", "--user"]), ("system", ["systemctl"]))
 _LIST_GATEWAY_UNITS = [

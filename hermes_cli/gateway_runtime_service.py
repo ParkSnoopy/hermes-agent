@@ -86,10 +86,7 @@ def _exists(path: Path) -> bool:
 
 def _systemd(home: Path, deadline: float) -> ExistingService | None:
     from hermes_cli import gateway as gw
-    from hermes_cli.service_manager import _s6_running
     from hermes_cli.gateway_runtime_service_identity import ForeignRoot, SYSTEMD_IDENTITY_PROPERTIES, verify_systemd
-    if _s6_running():
-        raise RuntimeStartError("external_supervisor")
     suffix = service_suffix(home)
     unit = f"hermes-gateway{'-' + suffix if suffix else ''}.service"
     paths = (Path.home() / ".config/systemd/user" / unit, Path("/etc/systemd/system") / unit)
@@ -144,46 +141,9 @@ def _systemd(home: Path, deadline: float) -> ExistingService | None:
     return found[0] if found else None
 
 
-def _s6(home: Path, deadline: float) -> ExistingService | None:
-    """Find the container gateway slot that owns ``home``.
-
-    TUI clients call ``ensure_gateway_runtime`` inside the Docker image too.
-    They must request that s6 starts the registered slot, rather than falling
-    through the Linux systemd probe and treating s6 as inaccessible.
-    """
-    from hermes_cli.service_manager import S6ServiceManager
-    from hermes_cli.gateway_runtime_multiplex import implied_host_root
-
-    # with-contenv is also the service run script's authority. The initiating
-    # client may have selected a named profile or a different install root.
-    try:
-        container_home = Path("/run/s6/container_environment/HERMES_HOME").read_text(encoding="utf-8-sig").strip()
-    except (OSError, UnicodeError):
-        raise RuntimeStartError("service_identity_unverified") from None
-    if not container_home:
-        raise RuntimeStartError("service_identity_unverified")
-    root = Path(container_home).resolve()
-    home = home.resolve()
-    if home != root and home.parent != root / "profiles":
-        raise RuntimeStartError("profile_mismatch")
-    # A normal named profile belongs to the root multiplexer. Returning None
-    # lets ensure select its host, including a first boot with no saved verdict.
-    if home != root and implied_host_root(home) == root:
-        return None
-    profile = "default" if home == root else home.name
-    manager = S6ServiceManager()
-    service_name = f"gateway-{profile}"
-    if not (manager.scandir / service_name).is_dir():
-        raise RuntimeStartError("service_manager_unavailable")
-    return ExistingService("s6", (service_name,), manager.is_running(service_name))
-
-
 def discover_existing_gateway_service(home: Path, *, deadline: float) -> ExistingService | None:
-    from hermes_cli.service_manager import _s6_running
-
-    backend = _s6 if _s6_running() else _systemd
     try:
-        return backend(home, deadline)
+        return _systemd(home, deadline)
     except subprocess.TimeoutExpired:
         raise TimeoutError from None
     except (OSError, ValueError) as exc:
@@ -194,15 +154,7 @@ def start_existing_gateway_service(service: ExistingService, *, deadline: float)
     """Request start once; only live control readiness can establish success."""
     if service.running:
         return
-    if service.backend == "s6":
-        from hermes_cli.service_manager import S6ServiceManager
-        try:
-            S6ServiceManager().start(service.start_argv[0])
-        except subprocess.TimeoutExpired:
-            raise TimeoutError from None
-        except (OSError, RuntimeError, ValueError) as exc:
-            raise RuntimeStartError("service_start_failed") from exc
-        return
+
     try:
         result = _run(service.start_argv, deadline, encoding=None)
     except subprocess.TimeoutExpired:

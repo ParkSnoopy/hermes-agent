@@ -1,7 +1,7 @@
 """Renaming a profile removes the gateway service registered under its old name.
 
-The launchd/systemd unit and the s6 slot are named after the profile and start ``--profile
-<old>``. A rename that kept them left a service that the next login or container boot would
+The launchd/systemd unit is named after the profile and starts ``--profile
+<old>``. A rename that kept it left a service that the next login would
 start for a profile that no longer exists, while the renamed profile had none.
 """
 from __future__ import annotations
@@ -61,27 +61,3 @@ def test_rename_removes_the_old_names_service_while_the_gateway_is_stopped(profi
 
     assert not unit.exists()
     assert not _host_unit_path(new_dir).exists()
-
-
-def test_rename_moves_the_s6_slot_to_the_new_name(profile_env, monkeypatch):
-    class _S6:
-        def __init__(self):
-            self.slots = {"coder"}
-
-        def supports_runtime_registration(self):
-            return True
-
-        def register_profile_gateway(self, name, *, start_now=True):
-            self.slots.add(name)
-
-        def unregister_profile_gateway(self, name):
-            self.slots.discard(name)
-
-    s6 = _S6()
-    monkeypatch.setattr("hermes_cli.service_manager.detect_service_manager", lambda: "s6")
-    monkeypatch.setattr("hermes_cli.service_manager.get_service_manager", lambda: s6)
-    profiles.create_profile("coder", no_alias=True)
-
-    profiles.rename_profile("coder", "dev")
-
-    assert s6.slots == {"dev"}

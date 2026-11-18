@@ -1509,16 +1509,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
             self._exit_code = GATEWAY_SERVICE_RESTART_EXIT_CODE
             self._exit_reason = self._exit_reason or "Gateway restart requested"
         self._draining = False
-        # Terminal gateway_state: "stopped", or "running" on an UNEXPECTED signal (docker restart,
-        # OOM) — container_boot.py only auto-starts gateways last seen "running".
-        if getattr(self, "_signal_initiated_shutdown", False) and not self._restart_requested:
-            logger.info(
-                "Gateway stopped by an unexpected signal — persisting "
-                "gateway_state=running so container_boot auto-starts on the next boot (issue #42675)"
-            )
-            self._update_runtime_status("running", self._exit_reason)
-        else:
-            self._update_runtime_status("stopped", self._exit_reason)
+        self._update_runtime_status("stopped", self._exit_reason)
         try:
             from gateway.status import flush_runtime_status_async
             # Never outlive the launchd exit budget (``_launchd_exit_timeout_s`` is set by the

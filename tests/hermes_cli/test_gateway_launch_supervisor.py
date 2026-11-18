@@ -38,12 +38,12 @@ def test_identify_payload_carries_the_launch_supervisor(monkeypatch):
     assert payload["supervisor"] == payload["launch_supervisor"] == "desktop"
 
 
-def test_s6_marker_declares_external_owner(monkeypatch):
-    for key in ("INVOCATION_ID", "HERMES_DESKTOP_MANAGED", "HERMES_S6_SUPERVISED_CHILD"):
+def test_external_flag_declares_external_owner(monkeypatch):
+    for key in ("INVOCATION_ID", "HERMES_DESKTOP_MANAGED"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(control_socket.sys, "argv", ["hermes", "gateway", "run"])
     assert control_socket._detect_supervisor() == "manual"
-    monkeypatch.setenv("HERMES_S6_SUPERVISED_CHILD", "1")
+    monkeypatch.setattr(control_socket.sys, "argv", ["hermes", "gateway", "run", "--external-supervisor"])
     assert control_socket._detect_supervisor() == "external"
 
 
@@ -65,7 +65,7 @@ def test_restart_of_a_manual_gateway_stops_it_and_runs_a_new_one(monkeypatch):
     calls = {"sigusr1": False, "stopped": False, "started": False}
     monkeypatch.setattr(gw, "_refuse_from_inside_gateway", lambda *a, **k: None)
     monkeypatch.setattr(gw, "_guard_named_profile_under_multiplexer", lambda **k: None)
-    monkeypatch.setattr(gw, "_dispatch_via_service_manager_if_s6", lambda *a, **k: False)
+
     monkeypatch.setattr(gw, "_installed_service_kind_for", lambda windows: None)
     monkeypatch.setattr(gateway_status, "get_running_pid", lambda *a, **k: 4321)
     monkeypatch.setattr(gw, "_capture_gateway_argv", lambda pid: PLAIN_ARGV)

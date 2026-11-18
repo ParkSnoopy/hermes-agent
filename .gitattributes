@@ -6,9 +6,7 @@ uv.lock text eol=lf
 
 # Enforce LF for scripts and container entrypoints.
 *.sh        text eol=lf
-Dockerfile  text eol=lf
 *.dockerfile text eol=lf
-docker/entrypoint.sh text eol=lf
 
 # Enforce LF for maintained source and text files.
 *.py    text eol=lf

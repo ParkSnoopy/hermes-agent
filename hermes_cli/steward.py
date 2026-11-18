@@ -89,8 +89,7 @@ _STEWARD_UNINSTALL_MESSAGES = {
     STEWARD_DOCKER: (
         "✗ This Hermes runs from a Docker image.\n"
         "\n"
-        "There is no code to uninstall — remove the container and image:\n"
-        "  docker rm <container> && docker rmi nousresearch/hermes-agent\n"
+        "Remove the container through the tool that created it.\n"
         "\n" +
         _STEWARD_DELETE_DATA_PREAMBLE +
         _STEWARD_DELETE_DATA_CLI

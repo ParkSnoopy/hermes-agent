@@ -38,7 +38,7 @@ def restart_calls(monkeypatch):
 
     monkeypatch.setattr(gw, "_refuse_from_inside_gateway", lambda *a, **k: None)
     monkeypatch.setattr(gw, "_guard_named_profile_under_multiplexer", lambda **k: None)
-    monkeypatch.setattr(gw, "_dispatch_via_service_manager_if_s6", lambda *a, **k: False)
+
     monkeypatch.setattr(gw, "_installed_service_kind_for", lambda windows: None)
     monkeypatch.setattr(gw, "_get_restart_exit_wait_budget", lambda: 7.0)
     monkeypatch.setattr(gateway_status, "get_running_pid", _running_pid)

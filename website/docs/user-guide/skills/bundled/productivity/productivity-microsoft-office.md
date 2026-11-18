@@ -59,10 +59,9 @@ Deeper notes: `references/revisions-and-comments.md` (Word review markup) and
 - Python 3.10+ with `python-docx`, `python-pptx`, and `openpyxl` (import names
   `docx`, `pptx`, `openpyxl`).
 - Pick the interpreter with `terminal`. Use `python` when it already imports
-  the libraries (the Hermes Docker image ships them). Otherwise, when `hermes`
-  is on PATH, let Hermes build its shared, pinned documents environment under
-  the Hermes home: it survives container restarts, never touches the Hermes
-  install itself, and is safe to run from several agents at once. When it is
+  the libraries. Otherwise, when `hermes` is on PATH, let Hermes build its
+  shared, pinned documents environment under the Hermes home: it never touches
+  the Hermes install itself and is safe to run from several agents at once. When it is
   not (the terminal runs in a Docker sandbox, which has no Hermes), the block
   builds a venv in the sandbox home with the same pinned versions. Use this
   exact block in every document skill so they all share one environment:

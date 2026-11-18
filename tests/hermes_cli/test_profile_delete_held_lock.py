@@ -27,8 +27,8 @@ def profile(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
-    for name in ("_cleanup_gateway_service", "_maybe_unregister_gateway_service", "_stop_profile_backends",
-                 "_notify_multiplexer", "_stop_gateway_process", "_maybe_register_gateway_service"):
+    for name in ("_cleanup_gateway_service", "_stop_profile_backends",
+                 "_notify_multiplexer", "_stop_gateway_process"):
         monkeypatch.setattr(profiles, name, lambda *_a, **_k: None)
     return profiles.create_profile("owned-delete", no_alias=True)
 

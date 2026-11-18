@@ -321,7 +321,7 @@ class TestCreateProfile:
     @pytest.mark.parametrize("clone_kwargs", [{"clone_config": True}, {"clone_all": True}])
     def test_clone_preserves_skill_symlinks(self, profile_env, monkeypatch, clone_kwargs):
         """Linked skills remain links rather than being copied into a second candidate."""
-        monkeypatch.setattr(profiles, "_maybe_register_gateway_service", lambda *_: None)
+
         monkeypatch.setattr(profiles, "_notify_multiplexer", lambda *_: None)
         monkeypatch.setattr("hermes_cli.profile_memory_config.notify_memory_provider", lambda *_: None)
         default_home, external = self._home_with_linked_skill(profile_env)

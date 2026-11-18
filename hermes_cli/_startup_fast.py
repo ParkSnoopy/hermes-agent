@@ -8,18 +8,13 @@ imports this module and fails if any heavy module sneaks into sys.modules.
 
 Why this module exists (the bug class it kills): version-printing kept being
 reimplemented as ``*_fast()`` copies at the top of main.py, each duplicating
-canonical logic — project-root resolution, container detection, profile
-detection. The copies drifted: eb4040242 changed the canonical output and
+canonical project-root resolution. The copies drifted: eb4040242 changed the canonical output and
 referenced ``PROJECT_ROOT`` inside the fast function, which doesn't exist
 yet on the fast path → the fast path NameError'd on --version and nobody
 noticed. One implementation, imported by both the fast path and the module
 constants, makes that drift structurally impossible; the parity guard test
 would have caught eb4040242 the day it landed.
 
-``hermes_cli/config.py``'s ``get_container_exec_info()`` reads the same
-``.container-mode`` file; keep the file-format assumptions here and there in
-sync (this module deliberately only PROBES existence/typos cheaply and errs
-toward the slow path, which then does the authoritative parse).
 """
 
 from __future__ import annotations
@@ -28,10 +23,7 @@ import os
 import sys
 
 __all__ = [
-    "active_profile_may_override_home",
-    "container_mode_may_be_active",
     "ensure_project_root_on_path",
-    "is_container_startup_environment",
     "is_desktop_ssh_backend_argv",
     "is_global_fast_version_argv",
     "normalize_hermes_home_env",
@@ -114,46 +106,12 @@ def is_desktop_ssh_backend_argv(argv: list[str]) -> bool:
     return "--ssh-session-token-file" in argv
 
 
-def is_container_startup_environment() -> bool:
-    """True when we're already INSIDE a container (fast path is then safe)."""
-    if os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv"):
-        return True
-    cgroup = _read_text("/proc/1/cgroup") or ""
-    return "docker" in cgroup or "podman" in cgroup or "/lxc/" in cgroup
-
-
-def active_profile_may_override_home(hermes_root: str) -> bool:
-    """Cheap probe: does an active non-default profile redirect HERMES_HOME?"""
-    active = (_read_text(os.path.join(hermes_root, "active_profile")) or "").strip()
-    return bool(active and active != "default")
-
-
 def _default_home() -> str:
     return os.path.join(os.path.expanduser("~"), ".hermes")
 
 
 def _resolved_home() -> str:
     return os.environ.get("HERMES_HOME", "").strip() or _default_home()
-
-
-def container_mode_may_be_active() -> bool:
-    """Conservative probe for NixOS container-mode routing.
-
-    False positives are fine (the slow path does the authoritative check). False negatives are NOT —
-    they'd print the host's version instead of the container's — so any profile ambiguity means "may
-    be active".
-    """
-    if os.environ.get("HERMES_DEV") == "1" or is_container_startup_environment():
-        return False
-    hermes_home = os.environ.get("HERMES_HOME", "").strip()
-    if hermes_home:
-        if os.path.exists(os.path.join(hermes_home, ".container-mode")):
-            return True
-        parent_name = os.path.basename(os.path.dirname(os.path.normpath(hermes_home)))
-        return parent_name != "profiles" and active_profile_may_override_home(hermes_home)
-    default_home = _default_home()
-    return active_profile_may_override_home(default_home) or os.path.exists(
-        os.path.join(default_home, ".container-mode"))
 
 
 def read_openai_version() -> str | None:
@@ -244,16 +202,11 @@ def try_fast_version(argv: list[str] | None = None) -> bool:
     """Handle ``hermes --version`` before the heavy import wall.
 
     Only ``--version``/``-V`` (the ``version`` subcommand was removed —
-    ``--version`` now carries the full output incl. update status), and
-    never when container mode may need to route the command into the
-    container.
+    ``--version`` now carries the full output incl. update status).
     """
     if argv is None:
         argv = sys.argv[1:]
     if not is_global_fast_version_argv(argv):
         return False
-    if container_mode_may_be_active():
-        return False
-
     print_fast_version_info()
     return True

@@ -25,8 +25,7 @@ def standalone_host(tmp_path, monkeypatch):
     monkeypatch.setattr(hermes_constants, "_default_hermes_root_memo", None)
     monkeypatch.setattr(gm, "_installed_services", lambda _home: [])
     monkeypatch.setattr(gm, "_live_gateway_pid", lambda _home: None)
-    monkeypatch.setattr(gm, "_host_supports_migration", lambda: None)
-    # Provider key injected by the service manager (docker -e / systemd Environment=), no .env line.
+    # Provider key injected by the service manager, no .env line.
     monkeypatch.setenv("OPENROUTER_API_KEY", "launch-env-key")
     runner = GatewayRunner(GatewayConfig(multiplex_profiles=False))
     runner._running = True

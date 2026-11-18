@@ -32,7 +32,6 @@ def standalone_host(tmp_path, monkeypatch):
     # The migration preflight's service-manager probes: nothing else on this host runs a gateway.
     monkeypatch.setattr(gm, "_installed_services", lambda _home: [])
     monkeypatch.setattr(gm, "_live_gateway_pid", lambda _home: None)
-    monkeypatch.setattr(gm, "_host_supports_migration", lambda: None)
     monkeypatch.setenv("OPENAI_API_KEY", "launch-key")
     runner = GatewayRunner(GatewayConfig(multiplex_profiles=False))
     runner._running = True

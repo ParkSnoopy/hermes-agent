@@ -95,7 +95,6 @@
       # is on both modules.
       nixosOnlyOptions = [
         "addToSystemPackages"
-        "container"
         "createUser"
         "group"
         "stateDir"

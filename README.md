@@ -17,5 +17,6 @@ The first activation may need network access and a native compiler. Use `hermes 
 ## Differences from upstream
 
 - Focuses on terminal chat. The local gateway still owns sessions and runs the agent without a messaging adapter.
-- Uses system `uv` and defaults to the Slate skin and ASCII busy indicator.
+- Runs natively without a bundled container deployment. The Docker management skill is still available.
+- Uses system `uv` and defaults to the ASCII busy indicator.
 - Omits the native computer-use driver, A2A, X Search, and the bundled email, YouTube, and X skills.

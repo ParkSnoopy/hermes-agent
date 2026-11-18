@@ -142,7 +142,7 @@ describe('MessageLine', () => {
     expect(renderedLine).toContain('Ψ > Okay')
   })
 
-  it('keeps historical thinking blocks collapsed by default', () => {
+  it('keeps historical thinking blocks collapsed when explicitly requested', () => {
     const stdout = new PassThrough()
     const stdin = new PassThrough()
     const stderr = new PassThrough()
@@ -159,6 +159,7 @@ describe('MessageLine', () => {
       React.createElement(MessageLine, {
         cols: 80,
         msg: { kind: 'trail', role: 'system', text: '', thinking: 'step one\nstep two' },
+        sections: { thinking: 'collapsed' },
         t: DEFAULT_THEME
       }),
       {
@@ -178,7 +179,7 @@ describe('MessageLine', () => {
     expect(rendered).not.toContain('step two')
   })
 
-  it('keeps live thinking blocks expanded while streaming', () => {
+  it('shows the full settled reasoning block by default', () => {
     const stdout = new PassThrough()
     const stdin = new PassThrough()
     const stderr = new PassThrough()
@@ -194,8 +195,12 @@ describe('MessageLine', () => {
     const instance = renderSync(
       React.createElement(MessageLine, {
         cols: 80,
-        liveDetails: true,
-        msg: { kind: 'trail', role: 'system', text: '', thinking: 'step one\nstep two' },
+        msg: {
+          kind: 'trail',
+          role: 'system',
+          text: '',
+          thinking: `step one\n${'middle\n'.repeat(250)}step two`
+        },
         t: DEFAULT_THEME
       }),
       {

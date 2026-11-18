@@ -143,11 +143,8 @@ _EXCLUDED_PREFIXES = (
 )
 
 # Files ``hermes import`` must never overwrite, matched by basename so root and named profiles are
-# both covered. They hold runtime state namespaced to the SOURCE machine: ``gateway_state.json``
-# drives the container-boot reconciler (a foreign value leaves the gateway stuck "starting" and
-# disconnected from the Nous portal); PID/lock/registry files reference source PIDs. Mirrors
-# ``container_boot._STALE_RUNTIME_FILES``; import filters too because older backups predate the
-# backup-side exclusions.
+# both covered. They describe the source machine's runtime and PIDs, not portable
+# user data. Older archives may include them despite current backup-side exclusions.
 _IMPORT_SKIP_NAMES = {"gateway_state.json", "gateway.pid", "cron.pid", "gateway.lock", "processes.json"}
 
 try:  # zipfile already imports lzma (free); it is absent only from Pythons built without liblzma

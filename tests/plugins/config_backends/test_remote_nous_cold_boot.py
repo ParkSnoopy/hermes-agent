@@ -4,7 +4,7 @@ In Cloud mode (no ``GATEWAY_RELAY_IDP_*``) the plane bearer is the Nous Portal a
 profile's ``auth.json``. Resolving it imports ``hermes_cli.auth`` inside the profile's first fetch;
 that import discovers model providers, and provider discovery reads config (the gate on
 pip-installed provider plugins). That read used to wait on the fetch's own lock forever, so a Cloud
-agent never booted (stage2's ``refresh_dependencies`` hung). These tests run real imports in a
+agent never booted. These tests run real imports in a
 fresh interpreter, as the boot does; the in-process suites stub the credential and cannot see it.
 """
 from __future__ import annotations
@@ -23,15 +23,13 @@ from .stub_plane import INSTANCE, NOUS_TOKEN, StubPlane
 REPO = Path(__file__).resolve().parents[3]
 HARD_TIMEOUT_S = 60  # a healthy run takes about a second; the deadlock never ends
 
-# What docker/stage2-hook.sh runs before the gateway starts: refresh_dependencies() first reads the
-# plugin selection through pm.workspace (the read that hung), then the CLI reads a value.
-STAGE2_SNIPPET = """
+# Before startup, PM reads the plugin selection (the read that hung), then the CLI reads a value.
+COLD_START_SNIPPET = """
 import json, os, sys
 from pathlib import Path
-from pm.recovery import refresh_dependencies  # stage2-hook.sh's import
 assert "hermes_cli.auth" not in sys.modules and "hermes_cli.config" not in sys.modules  # cold
 from pm.workspace import enabled_member_dirs
-enabled_member_dirs()  # refresh_dependencies -> venv_is_current -> expected_stamp reads this first
+enabled_member_dirs()
 import providers
 if os.environ.get("PROBE_PROVIDER"):  # a $HERMES_HOME provider plugin loads once config is loaded
     assert providers.get_provider_profile("probe-provider") is not None
@@ -97,7 +95,7 @@ def test_cloud_agent_first_remote_read_completes_cold(tmp_path, expired, layout)
                    HERMES_CONFIG_INSTANCE_ID=INSTANCE, PROBE_PROVIDER="1" if layout else "")
         assert not any(k.startswith("GATEWAY_RELAY_IDP_") for k in env)  # Cloud: the Nous credential
 
-        assert _value(_run([sys.executable, "-c", STAGE2_SNIPPET], env)) == "ares"
+        assert _value(_run([sys.executable, "-c", COLD_START_SNIPPET], env)) == "ares"
         cli = _run([sys.executable, "-m", "hermes_cli.main", "config", "get", "display.skin"], env)
         assert cli.returncode == 0, cli.stderr[-3000:]
         assert cli.stdout.strip().splitlines()[-1] == "ares"

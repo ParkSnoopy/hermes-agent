@@ -35,7 +35,7 @@ def quiet_host(tmp_path, monkeypatch):
     monkeypatch.setattr(gw, "supports_systemd_services", lambda: True)
     monkeypatch.setattr(gw, "_service_backend", lambda: "systemd")
     monkeypatch.setattr(gw, "refuses_container_user_scope_install", lambda system: False)
-    monkeypatch.setattr(gw, "_dispatch_via_service_manager_if_s6", lambda v: False)
+
     monkeypatch.setattr(gw, "is_managed", lambda: False)
     monkeypatch.setattr(gw, "is_termux", lambda: False)
     calls: list[str] = []

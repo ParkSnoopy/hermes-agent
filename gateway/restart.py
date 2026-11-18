@@ -11,16 +11,14 @@ from hermes_cli.config import DEFAULT_CONFIG
 
 # EX_TEMPFAIL (sysexits.h): ask the service manager to restart after a graceful drain/reload.
 GATEWAY_SERVICE_RESTART_EXIT_CODE = 75
-# EX_CONFIG (sysexits.h): fatal configuration error (for example, token collision);
-# the s6 finish script maps it to exit 125 so the supervisor stops restarting.
-# See #51228.
+# EX_CONFIG (sysexits.h): fatal configuration error (for example, token collision).
 GATEWAY_FATAL_CONFIG_EXIT_CODE = 78
 
 
 def map_fatal_config_exit_for_launchd(returncode: int) -> int:
     """Translate gateway EX_CONFIG so launchd can park the job.
 
-    systemd uses ``RestartPreventExitStatus=78``; s6 maps 78→125. launchd cannot
+    systemd uses ``RestartPreventExitStatus=78``. launchd cannot
     gate on a specific status, and unconditional ``KeepAlive=true`` respawns 78
     forever (#89477). The generated plist uses ``KeepAlive.SuccessfulExit=false``;
     mapping 78→0 is a deliberate stop. Exit 75 (please restart) and other
@@ -239,14 +237,14 @@ def is_gateway_supervisor_process(environ: Mapping[str, str] | None = None) -> b
 
     Selects the exit-75 restart route, so only markers of a manager with a restart policy count:
     systemd ``INVOCATION_ID``, launchd ``XPC_SERVICE_NAME`` (or the wrapper-forwarded
-    ``HERMES_LAUNCHD_LABEL`` the grandchild sees), the s6 sentinel, or the explicit
+    ``HERMES_LAUNCHD_LABEL`` the grandchild sees), or the explicit
     ``--external-supervisor`` opt-in. The generalized ``HERMES_SUPERVISED_CHILD`` launcher marker is
     deliberately NOT read here: the Windows Scheduled-Task launcher sets it without a restart policy
     (#113670), and routing its ``/restart`` through exit 75 would leave the gateway dead.
     """
     env = os.environ if environ is None else environ
     xpc_service = env.get("XPC_SERVICE_NAME", "")
-    return bool(env.get("INVOCATION_ID") or env.get("HERMES_S6_SUPERVISED_CHILD") or (xpc_service and xpc_service != "0")
+    return bool(env.get("INVOCATION_ID") or (xpc_service and xpc_service != "0")
                 or launchd_job_label(env)
                 or str(env.get(EXTERNAL_GATEWAY_SUPERVISOR_ENV, "")).strip().lower() in _TRUTHY)
 
@@ -255,7 +253,7 @@ def is_supervised_gateway_launch(environ: Mapping[str, str] | None = None) -> bo
     """Return whether this gateway was launched by a generated service/launcher rather than a shell.
 
     Superset of :func:`is_gateway_supervisor_process` that also honours ``HERMES_SUPERVISED_CHILD``,
-    the marker every generated launcher exports (systemd unit, launchd plist, s6 run script, Windows
+    the marker every generated launcher exports (systemd unit, launchd plist, Windows
     Scheduled Task — see ``hermes_cli.main._apply_profile_override``). This is the identity the
     self-targeting guards key on: a kill or lifecycle command issued from inside such a gateway takes
     down the process hosting the caller with nobody at a terminal to bring it back (#113667).

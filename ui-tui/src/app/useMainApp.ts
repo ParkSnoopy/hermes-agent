@@ -56,7 +56,7 @@ import { createServerRequestHandler } from './createServerRequestHandler.js'
 import { createSlashHandler } from './createSlashHandler.js'
 import { planGatewayRecovery } from './gatewayRecovery.js'
 import { getInputSelection } from './inputSelectionStore.js'
-import { type GatewayRpc, type SlashHandler, type StateSetter, type TranscriptRow, type UiState } from './interfaces.js'
+import { type GatewayRpc, type SlashHandler, type StateSetter, type TranscriptRow } from './interfaces.js'
 import { applyLiveSessionRoster, requestLiveSessions } from './liveSessions.js'
 import { applyControlSnapshot } from './loopStatus.js'
 import { $overlayState, capturePromptResponseGuard, hasSensitivePrompt, patchOverlayState } from './overlayStore.js'
@@ -155,13 +155,12 @@ const statusColorOf = (status: string, t: { error: string; muted: string; ok: st
 type SubmitLiteral = (value: string, attachments?: Array<{ path: string; mime: string }>) => void
 
 /** Which transcript detail sections render, derived from the `thinking:tools` layout key. */
-const detailsVisibility = (detailsLayoutKey: string, ui: Pick<UiState, 'detailsModeCommandOverride' | 'sections'>) => {
+const detailsVisibility = (detailsLayoutKey: string) => {
   const [thinkingDetailsMode, toolsDetailsMode] = detailsLayoutKey.split(':')
   const thinkingDetailsVisible = thinkingDetailsMode !== 'hidden'
   const toolsDetailsVisible = toolsDetailsMode !== 'hidden'
 
-  const historyThinkingExpanded =
-    thinkingDetailsVisible && (ui.detailsModeCommandOverride || ui.sections.thinking === 'expanded')
+  const historyThinkingExpanded = thinkingDetailsMode === 'expanded'
 
   const detailsVisible = thinkingDetailsVisible || toolsDetailsVisible
 
@@ -499,10 +498,8 @@ export function useMainApp(gw: GatewayClient) {
     return `${thinking}:${tools}`
   }, [ui.detailsMode, ui.detailsModeCommandOverride, ui.sections])
 
-  const { detailsVisible, historyThinkingExpanded, thinkingDetailsVisible, toolsDetailsVisible } = detailsVisibility(
-    detailsLayoutKey,
-    ui
-  )
+  const { detailsVisible, historyThinkingExpanded, thinkingDetailsVisible, toolsDetailsVisible } =
+    detailsVisibility(detailsLayoutKey)
 
   const heightCacheKey = heightCacheBucket(ui, cols, detailsLayoutKey)
 

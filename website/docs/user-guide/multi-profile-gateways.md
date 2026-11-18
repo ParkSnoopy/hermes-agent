@@ -27,7 +27,7 @@ be online at the same time. Common reasons:
 Every profile already gets its own per-platform supervisor entry: a systemd user service
 (`hermes-gateway-<name>.service`), a systemd **system** service when installed with
 `sudo hermes gateway install --system` (runs as the invoking user via `User=`),
-or an s6/Docker service — and the Desktop app spawns its own
+and the Desktop app spawns its own
 per-profile `hermes serve` backend. This guide adds the patterns for managing them
 collectively.
 
@@ -87,7 +87,7 @@ stop or restart just their own bots without stopping the host:
   now remove that file. `hermes gateway run --force` starts a separate gateway
   without asking the host process at all (the escape hatch when it is wedged or
   answering wrongly).
-- Under a service supervisor the attach exits 75, not 0 — systemd, s6 and
+- Under a service supervisor the attach exits 75, not 0 — systemd and
   launchd all restart a 75 after a short delay, so the unit keeps retrying and
   takes over by itself the moment the host process goes away.
 - Two units started at once can both see no host process yet; the host lock
@@ -101,7 +101,7 @@ settles at boot, never a verdict. Each start it runs the same preflight as
 [`hermes gateway migrate --multiplex`](#migrating-from-per-profile-gateways) and
 multiplexes only when the fold would have been safe — two
 or more profiles, no secondary still running its own gateway (live process or
-installed service, or under s6 a per-profile slot that is actually *up*), no
+installed service), no
 duplicate bot credential, and no port-binding platform without a `/p/<profile>/`
 ingress. **Unset means on**: when nothing blocks, the gateway multiplexes and
 writes `gateway.multiplex_profiles: true` into the default profile's
@@ -1056,19 +1056,6 @@ the host gateway with `gateway.standalone: true` (see
 [No new per-profile gateways](#no-new-per-profile-gateways)), which
 `hermes gateway migrate --multiplex` respects.
 
-### Docker / Hermes Cloud (s6-supervised container)
-
-Inside the official image every profile has an s6 slot
-(`/run/hermes-service/gateway-<profile>`). The container's boot registers every *named*
-slot down and folds its autostart intent into the root slot, so a fresh boot
-already multiplexes. An **in-place** update no longer needs a container restart
-to converge either: `hermes gateway migrate --multiplex` (and the hook `hermes
-update` runs) parks any named slot that is still up (`s6-svc -d` plus a `down`
-file so a supervisor restart does not revive it), folds its intent into the root
-slot through the same rule the boot uses, and restarts the root slot. A
-registered-down slot is never a blocker — only a slot that is actually up is.
-The one thing the command still cannot do from inside is create a root slot the
-boot never registered; that case names itself and asks for a container restart.
 
 ### What `hermes update` does
 
@@ -1216,10 +1203,7 @@ of reporting "already multiplexed". A manifest on disk always means
 `--standalone` reverse, and the compensator above only ever runs inside a
 single failed apply so that no profile is left without a gateway.
 
-Not covered automatically: s6-supervised containers — they converge on the next
-container start (the per-profile slots are registered down and the root gateway
-multiplexes; a `gateway.standalone: true` profile boots its own slot from its own
-run intent instead). The dashboard's
+The dashboard's
 System page offers the same migration as a button when the preflight finds an
 eligible install.
 

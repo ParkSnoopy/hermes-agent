@@ -92,7 +92,7 @@ def fleet(tmp_path, monkeypatch):
     # returns without producing a gateway (the ExecMainStatus=75 respawn loop) is NOT "restored".
     monkeypatch.setattr(gm, "_wait_for_live_gateway",
                         lambda home, timeout: _pid_of_started_gateway(home))
-    monkeypatch.setattr(gm, "_host_supports_migration", lambda: None)
+
     # Part of the faked service layer: the real check asks systemd's questions (root, NSS user).
     monkeypatch.setattr(gm, "_preflight_apply", lambda plan, target, run_as_user: None)
     # Identity inputs are pinned too, or the verdict depends on the HOST: the fake pids 4101/4102 may
@@ -962,15 +962,6 @@ def test_plan_names_every_process_it_will_sigterm_before_it_signals_anything(fle
 
 
 
-def test_migration_host_predicate_handles_systemd_and_s6(monkeypatch):
-    """A missing root s6 slot is refused; an ordinary Linux host can migrate."""
-    from hermes_cli import gateway as gw
-    monkeypatch.setattr(gw, "_running_under_s6", lambda: False)
-    assert gm._host_supports_migration() is None
-
-    monkeypatch.setattr(gw, "_running_under_s6", lambda: True)
-    reason = gm._host_supports_migration()
-    assert reason is not None
 
 
 def test_standalone_profile_is_listed_left_alone_and_not_a_fold_target(fleet):
