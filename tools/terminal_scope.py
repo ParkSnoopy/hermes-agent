@@ -25,10 +25,7 @@ _terminal_scope_var: ContextVar = ContextVar("hermes_terminal_scope", default=No
 # Keys whose default lives in terminal_tool.py, not DEFAULT_CONFIG (which wins on overlap);
 # without them the projection is not total.
 _TOOL_LEVEL_DEFAULTS: dict[str, Any] = {
-    "cwd": ".", "ssh_host": "", "ssh_user": "", "ssh_port": 22, "ssh_key": "",
-    "docker_orphan_reaper": True, "docker_persist_across_processes": True,
-    "sandbox_dir": "", "lifetime_seconds": 300, "docker_shared_container_key": "",
-    "home_mode": "auto",
+    "cwd": ".", "lifetime_seconds": 300, "home_mode": "auto",
 }
 
 
@@ -123,18 +120,18 @@ def build_profile_terminal_scope(
 
     *env_overlay* is a TRUSTED ``TERMINAL_*`` mapping captured from the launch process before
     multiplexing began (``tui_gateway/launch_profile_policy.py``): the launch profile's
-    env-only policy (``TERMINAL_ENV=ssh`` from systemd, ``op run``, a launcher bridge) has no
+    env-only policy (``TERMINAL_TIMEOUT`` from systemd, ``op run``, a launcher bridge) has no
     file to rebuild it from, and reading live ``os.environ`` here is the leak this module
     closes. It sits where the process env sits in the standalone bridge — explicit YAML keys
     still win (``apply_terminal_config_to_env``).
     """
     from hermes_cli import managed_scope
-    from hermes_cli.config import _deep_merge
+    from hermes_cli.config import TERMINAL_CONFIG_ENV_MAP, _deep_merge
     from hermes_cli.config_backend import config_exists
 
     home = Path(hermes_home)
     scope = default_terminal_scope()
-    default_image = scope.get("TERMINAL_DOCKER_IMAGE")
+    allowed_env = set(TERMINAL_CONFIG_ENV_MAP.values())
     env_path = home / ".env"
     if env_path.exists():
         # load_env_file swallows OSError by design (secret scope fails soft); an unreadable
@@ -148,20 +145,9 @@ def build_profile_terminal_scope(
         from agent.secret_scope import load_env_file
 
         profile_env = load_env_file(env_path)
-        scope.update((k, str(v)) for k, v in profile_env.items() if k.startswith("TERMINAL_"))
-        # Provenance, not value: an image WRITTEN in the profile's .env is the user's choice even when
-        # it spells the default (same rule apply_terminal_config_to_env applies to a set env var).
-        image_pinned = "TERMINAL_DOCKER_IMAGE" in profile_env
-    else:
-        image_pinned = False
+        scope.update((k, str(v)) for k, v in profile_env.items() if k in allowed_env)
     if env_overlay:
-        scope.update((k, str(v)) for k, v in env_overlay.items()
-                     if k.startswith("TERMINAL_") and k != "TERMINAL_DOCKER_IMAGE_PINNED")
-        # The overlay is the LAUNCHER's environment: its pin verdict is about the launcher's profile and
-        # is never inherited, and the bridge backfills TERMINAL_DOCKER_IMAGE for defaults too, so only a
-        # value that differs from the default can prove a choice made there.
-        if env_overlay.get("TERMINAL_DOCKER_IMAGE") not in (None, default_image):
-            image_pinned = True
+        scope.update((k, str(v)) for k, v in env_overlay.items() if k in allowed_env)
     # Read config.yaml directly, not via read_raw_config() (which collapses "missing" and
     # "unparseable" into {}): present-but-unparseable must fail closed.
     config_path = home / "config.yaml"
@@ -180,40 +166,34 @@ def build_profile_terminal_scope(
             raise TerminalPolicyUnavailable(f"cannot parse {config_path}: {exc}") from exc
         raw_terminal = raw.get("terminal") if isinstance(raw, dict) else None
         if isinstance(raw_terminal, dict):
+            _validate_config_backend(raw_terminal)
             _apply_terminal_mapping(scope, raw_terminal)
-            image_pinned = image_pinned or "docker_image" in raw_terminal
     managed_terminal = managed_scope.apply_managed_overlay({}).get("terminal")
     if isinstance(managed_terminal, dict):
-        # Managed scope applies last, merged per key into the profile's mapping as load_config() merges
-        # them, so a managed docker_env entry keeps the profile's other entries. A null value pins nothing.
+        _validate_config_backend(managed_terminal)
         _apply_terminal_mapping(
             scope, _deep_merge(raw_terminal if isinstance(raw_terminal, dict) else {}, managed_terminal))
-        image_pinned = image_pinned or managed_terminal.get("docker_image") is not None
-    scope["TERMINAL_DOCKER_IMAGE_PINNED"] = "1" if image_pinned else "0"
     _resolve_scope_cwd_placeholder(scope)
     return scope
 
 
-def _resolve_scope_cwd_placeholder(scope: dict[str, str]) -> None:
-    """Give a scope with no explicit ``terminal.cwd`` the same resolved ``TERMINAL_CWD`` a standalone
-    gateway computes at import (``gateway/run.py``: local backend → ``$HOME``; docker with the
-    workspace mount → the host cwd signal; other backends → unset). Without it a routed turn's
-    ``resolve_agent_cwd()`` falls back to the multiplexer PROCESS cwd (wherever ``hermes gateway``
-    was launched), so the system prompt, context-file discovery and the local terminal all run in
-    a directory the profile's standalone gateway would never have used."""
-    if scope.get("TERMINAL_CWD"):
+def _validate_config_backend(terminal: dict[str, Any]) -> None:
+    backend = terminal.get("backend")
+    if backend is None or not str(backend).strip():
         return
-    from gateway.cwd_placeholder import resolve_placeholder_terminal_cwd
+    from tools.terminal_tool_config import require_local_environment
+    try:
+        require_local_environment(str(backend))
+    except ValueError as exc:
+        raise TerminalPolicyUnavailable(str(exc)) from exc
 
-    resolved = resolve_placeholder_terminal_cwd(
-        configured_cwd="", terminal_backend=scope.get("TERMINAL_ENV", ""),
-        messaging_cwd=None,
-        docker_mount_cwd_to_workspace=scope.get(
-            "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE", "false").strip().lower() in {"true", "1", "yes"},
-        home_fallback=str(Path.home()),
-    )
-    if resolved:
-        scope["TERMINAL_CWD"] = resolved
+
+def _resolve_scope_cwd_placeholder(scope: dict[str, str]) -> None:
+    """Use the host home for an unspecified local working directory."""
+    if not scope.get("TERMINAL_CWD"):
+        scope["TERMINAL_CWD"] = str(Path.home())
+    else:
+        scope["TERMINAL_CWD"] = os.path.expanduser(scope["TERMINAL_CWD"])
 
 
 def prepare_profile_terminal_scope(

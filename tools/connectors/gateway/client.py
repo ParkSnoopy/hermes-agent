@@ -25,7 +25,7 @@ from tools.connectors.gateway.errors import (
 )
 
 from tools.connectors.gateway.merge import PlannedCall
-from tools.managed_gateway_identity import CallRef, connector_headers, log_connector_outcome, response_request_id
+from tools.managed_gateway_identity import connector_headers, log_connector_outcome, response_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ class ConnectorClient:
         transport: Optional[Transport] = None,
         endpoint_resolver: Optional[Callable[[], Optional[str]]] = None,
         header_provider: Optional[Callable[[str], dict]] = None,
-        call: Optional[CallRef] = None,
+
         initiator: Optional[str] = None,
         sleep: Callable[[float], None] = time.sleep,
         storage: Optional[StorageTransport] = None,
@@ -125,8 +125,7 @@ class ConnectorClient:
         self._storage = storage or requests
         self._endpoint_resolver = endpoint_resolver or _default_endpoint_resolver
         self._header_provider = header_provider or _default_header_provider
-        # The model call this client serves, and who asked for a connect; both go on the wire.
-        self._call = call
+
         self._initiator = initiator
         self._sleep = sleep
 
@@ -209,11 +208,11 @@ class ConnectorClient:
             response = self._storage.request("PUT", url, headers=dict(headers), data=body,
                                              timeout=STORAGE_TIMEOUT_SECONDS)
         except requests.RequestException as exc:
-            log_connector_outcome(_STORAGE_PUT_ROUTE, None, code="TRANSPORT_ERROR", call=self._call)
+            log_connector_outcome(_STORAGE_PUT_ROUTE, None, code="TRANSPORT_ERROR")
             raise ToolGatewayError(f"storage upload failed: {type(exc).__name__}", code="TRANSPORT_ERROR") from exc
         status = int(getattr(response, "status_code", 0))
         failed = not 200 <= status < 300
-        log_connector_outcome(_STORAGE_PUT_ROUTE, status, code=f"HTTP_{status}" if failed else None, call=self._call)
+        log_connector_outcome(_STORAGE_PUT_ROUTE, status, code=f"HTTP_{status}" if failed else None)
         if failed:
             raise ToolGatewayError(f"storage upload answered {status}", code=f"HTTP_{status}", status=status)
 
@@ -222,27 +221,27 @@ class ConnectorClient:
         try:
             response = self._storage.request("GET", url, headers={}, timeout=STORAGE_TIMEOUT_SECONDS, stream=True)
         except requests.RequestException as exc:
-            log_connector_outcome(_STORAGE_GET_ROUTE, None, code="TRANSPORT_ERROR", call=self._call)
+            log_connector_outcome(_STORAGE_GET_ROUTE, None, code="TRANSPORT_ERROR")
             raise ToolGatewayError(f"download failed: {type(exc).__name__}", code="TRANSPORT_ERROR") from exc
         status = int(getattr(response, "status_code", 0))
         try:
             if not 200 <= status < 300:
-                log_connector_outcome(_STORAGE_GET_ROUTE, status, code=f"HTTP_{status}", call=self._call)
+                log_connector_outcome(_STORAGE_GET_ROUTE, status, code=f"HTTP_{status}")
                 raise ToolGatewayError(f"download answered {status}", code=f"HTTP_{status}", status=status)
             received = 0
             for chunk in response.iter_content(chunk_size=_STORAGE_CHUNK_BYTES):
                 received += len(chunk)
                 if received > max_bytes:
-                    log_connector_outcome(_STORAGE_GET_ROUTE, status, code="TOO_LARGE", call=self._call)
+                    log_connector_outcome(_STORAGE_GET_ROUTE, status, code="TOO_LARGE")
                     raise ToolGatewayError(f"file is larger than {max_bytes // (1024 * 1024)} MiB",
                                            code="TOO_LARGE", status=status)
                 sink(chunk)
         except requests.RequestException as exc:
-            log_connector_outcome(_STORAGE_GET_ROUTE, status, code="TRANSPORT_ERROR", call=self._call)
+            log_connector_outcome(_STORAGE_GET_ROUTE, status, code="TRANSPORT_ERROR")
             raise ToolGatewayError(f"download failed: {type(exc).__name__}", code="TRANSPORT_ERROR") from exc
         finally:
             response.close()
-        log_connector_outcome(_STORAGE_GET_ROUTE, status, call=self._call)
+        log_connector_outcome(_STORAGE_GET_ROUTE, status)
 
     def _checked(self, model: Any, reply: _Reply, what: str) -> Any:
         """Parse a 2xx body and write its outcome line: a body that does not parse is a failure,
@@ -263,7 +262,7 @@ class ConnectorClient:
         return parsed
 
     def _log(self, reply: _Reply, code: Optional[str] = None) -> None:
-        log_connector_outcome(reply.route, reply.status, code=code, request_id=reply.request_id, call=self._call)
+        log_connector_outcome(reply.route, reply.status, code=code, request_id=reply.request_id)
 
     @staticmethod
     def _parse(model: Any, payload: Any, what: str) -> Any:
@@ -324,7 +323,7 @@ class ConnectorClient:
             failure = _call_failure(payload)
             code = failure.code if failure else parse_gateway_error(status, payload, headers).code
             log_connector_outcome(_EXECUTE_ROUTE, status, code=code,
-                                  request_id=(failure.request_id if failure else None) or request_id, call=self._call)
+                                  request_id=(failure.request_id if failure else None) or request_id)
             if status == 400 and _rejects_single_call_form(payload):
                 return None
             wait = _retry_wait(status, headers) if attempt < _MAX_RETRIES else None
@@ -393,7 +392,7 @@ class ConnectorClient:
         try:
             return self._transport.request(method, url, headers=headers, json=body, timeout=timeout)
         except Exception as exc:
-            log_connector_outcome(_route_key(url.split("/", 3)[-1]), None, code="TRANSPORT_ERROR", call=self._call)
+            log_connector_outcome(_route_key(url.split("/", 3)[-1]), None, code="TRANSPORT_ERROR")
             if retry_transport:
                 return None
             raise ToolGatewayError(
@@ -426,7 +425,7 @@ class ConnectorClient:
 
             error = parse_gateway_error(status, _safe_json(response), getattr(response, "headers", None))
             error.request_id = error.request_id or request_id
-            log_connector_outcome(route, status, code=error.code, request_id=error.request_id, call=self._call)
+            log_connector_outcome(route, status, code=error.code, request_id=error.request_id)
             if error.retryable and attempt < retries:
                 logger.debug(
                     "Connector %s attempt %d got %d; retrying with same key",
@@ -445,7 +444,7 @@ class ConnectorClient:
             raise GatewayAuthError(
                 "no portal access token available", code="NO_TOKEN", status=401
             )
-        headers.update(connector_headers(self._call))
+        headers.update(connector_headers())
         headers["Content-Type"] = "application/json"
         if idempotency_key:
             headers["x-idempotency-key"] = idempotency_key

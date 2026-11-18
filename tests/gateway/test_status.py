@@ -669,50 +669,26 @@ class TestGetProcessStartTime:
 
 
 class TestTerminatePid:
-    @pytest.mark.platforms("windows")
-    def test_force_uses_taskkill_on_windows(self, monkeypatch):
-        # Faking _IS_WINDOWS on POSIX could not reproduce the real
-        # CREATE_NO_WINDOW creationflags value that windows_hide_flags()
-        # returns only on Windows (it is 0 elsewhere).
-        calls = []
-
-        def fake_run(cmd, capture_output=False, text=False, timeout=None, creationflags=0, **kwargs):
-            calls.append((cmd, capture_output, text, timeout, creationflags))
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr(status.subprocess, "run", fake_run)
+    @pytest.mark.parametrize("force", [False, True])
+    def test_uses_requested_signal_after_identity_matches(self, monkeypatch, force):
+        import signal
 
         monkeypatch.setattr(status, "_get_process_start_time", lambda pid: 456)
-
-        status.terminate_pid(123, force=True, expected_start_time=456)
-
-        # taskkill is spawned with the no-window flag so the windowless
-        # pythonw.exe backend doesn't flash a conhost window on force-kill.
-        from hermes_cli._subprocess_compat import windows_hide_flags
-
-        assert calls == [
-            (["taskkill", "/PID", "123", "/T", "/F"], True, True, 10, windows_hide_flags())
-        ]
-
-    @pytest.mark.platforms("windows")
-    def test_windows_force_refuses_pid_without_start_time_guard(self, monkeypatch):
         calls = []
-        monkeypatch.setattr(status.subprocess, "run", lambda *args, **kwargs: calls.append(args))
+        monkeypatch.setattr(status.os, "kill", lambda *args: calls.append(args))
+        status.terminate_pid(123, force=force, expected_start_time=456)
+        assert calls == [(123, signal.SIGKILL if force else signal.SIGTERM)]
 
-        with pytest.raises(OSError, match="without a process start-time guard"):
-            status.terminate_pid(123, force=True)
-
-        assert calls == []
-
-    @pytest.mark.platforms("windows")
-    def test_windows_force_refuses_reused_pid(self, monkeypatch):
-        monkeypatch.setattr(status, "_get_process_start_time", lambda pid: 999)
+    @pytest.mark.parametrize("current,reason", [
+        (999, "process identity changed"),
+        (None, "process start time is unavailable"),
+    ])
+    def test_force_refuses_unverifiable_identity(self, monkeypatch, current, reason):
+        monkeypatch.setattr(status, "_get_process_start_time", lambda pid: current)
         calls = []
-        monkeypatch.setattr(status.subprocess, "run", lambda *args, **kwargs: calls.append(args))
-
-        with pytest.raises(OSError, match="process identity changed"):
+        monkeypatch.setattr(status.os, "kill", lambda *args: calls.append(args))
+        with pytest.raises(OSError, match=reason):
             status.terminate_pid(123, force=True, expected_start_time=456)
-
         assert calls == []
 
 
@@ -1797,7 +1773,7 @@ def test_strict_gateway_identity_adopts_held_lock_when_pid_file_is_gone(tmp_path
     monkeypatch.setattr(status, "_pid_exists", lambda _pid: True)
     monkeypatch.setattr(status, "_get_process_start_time", lambda _pid: 10.0)
     monkeypatch.setattr(status, "_read_process_cmdline", lambda _pid: "python -m hermes_cli.main gateway run --replace")
-    monkeypatch.setattr(status, "_IS_WINDOWS", False)
+
 
     assert status.get_running_pid_identity_strict(pid_path) == (123, 10.0)
     # The lock alone is still held to the full proof: a recycled PID is refused, not adopted.

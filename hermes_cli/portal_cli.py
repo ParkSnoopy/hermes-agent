@@ -14,9 +14,8 @@ DOCS_URL = "https://hermes-agent.nousresearch.com/docs/user-guide/features/tool-
 _CATALOG = [
     ("web", "Web search & extract", "Nous-managed"),
     ("image_gen", "Image generation", "FAL"),
-    ("tts", "Text-to-speech", "OpenAI TTS"),
     ("browser", "Browser automation", "Browser Use"),
-    ("modal", "Cloud terminal", "Modal"),
+
 ]
 
 

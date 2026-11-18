@@ -116,7 +116,7 @@ def test_only_managed_search_may_use_billed_fallback(
             managed = path == "/perplexity/search"
             assert body.get("search_type") == ("fast" if managed else None)
             assert body["search_context_size"] == "low"
-            assert headers.get("X-Pplx-Integration") == (None if managed else "hermes-agent")
+            assert "X-Pplx-Integration" not in headers
 
 
 def test_managed_search_without_identity_names_the_gateway(monkeypatch, tmp_path, local_gateway):

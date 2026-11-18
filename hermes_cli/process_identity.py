@@ -19,6 +19,7 @@ import logging
 import os
 import platform
 import signal
+import shlex
 import subprocess
 import sys
 import threading
@@ -51,6 +52,104 @@ _IS_WINDOWS = platform.system() == "Windows"
 # kernel closes it (and kills the job) when we die. Never close it manually.
 _JOB_HANDLE = None
 _LEDGER_LOCK = threading.Lock()
+
+
+def _pid_environ(pid: int) -> dict[str, str] | None:
+    with suppress(Exception):
+        import psutil
+        return dict(psutil.Process(pid).environ())
+    try:
+        raw = Path(f"/proc/{pid}/environ").read_bytes()
+    except OSError:
+        return None
+    env = {}
+    for part in raw.split(b"\x00"):
+        key, sep, value = part.partition(b"=")
+        if sep:
+            env[key.decode("utf-8", errors="replace")] = value.decode("utf-8", errors="replace")
+    return env
+
+
+def _pid_passwd_home(pid: int) -> str | None:
+    uid = None
+    with suppress(Exception):
+        import psutil
+        uid = psutil.Process(pid).uids().real
+    if uid is None:
+        with suppress(OSError):
+            uid = os.stat(f"/proc/{pid}").st_uid
+    if uid is not None:
+        with suppress(Exception):
+            import pwd
+            return pwd.getpwuid(uid).pw_dir or None
+    return None
+
+
+def _pid_cmdline(pid: int) -> list[str] | None:
+    with suppress(Exception):
+        import psutil
+        return psutil.Process(pid).cmdline() or None
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+        return [part.decode("utf-8", errors="replace") for part in raw.split(b"\x00") if part] or None
+    except OSError:
+        return None
+
+
+def _hermes_home_for_pid(pid: int, *, require_launch_identity: bool = False) -> str | None:
+    """Resolve a target home; destructive callers require pinned launch identity."""
+    env = _pid_environ(pid)
+    if env is None:
+        return None
+    from hermes_cli.profiles import get_active_profile, normalize_profile_name, profile_root_for_env_home
+
+    argv = _pid_cmdline(pid)
+    if require_launch_identity and not argv:
+        return None
+    argv = argv or []
+    profile = None
+    for i, token in enumerate(argv):
+        if token in ("--profile", "-p") and i + 1 < len(argv):
+            profile = str(argv[i + 1])
+            break
+        if token.startswith("--profile="):
+            profile = token.split("=", 1)[1]
+            break
+    env_home = env.get("HERMES_HOME", "").strip()
+    if require_launch_identity:
+        anchor = (env.get("LOCALAPPDATA") or env.get("USERPROFILE")) if sys.platform == "win32" else env.get("HOME")
+        if (env_home and not Path(env_home).is_absolute()) or (not env_home and (not anchor or not Path(anchor).is_absolute())):
+            return None
+    if profile is None and env_home and (
+        Path(env_home).parent.name == "profiles" or env.get("HERMES_UPDATE_POST_SWAP") == "1"
+    ):
+        return env_home
+    if sys.platform == "win32":
+        base = Path(env["LOCALAPPDATA"].strip()) if env.get("LOCALAPPDATA", "").strip() else Path(env.get("USERPROFILE") or Path.home()) / "AppData" / "Local"
+        default_home = base / "hermes"
+    else:
+        default_home = Path(env.get("HOME") or _pid_passwd_home(pid) or Path.home()) / ".hermes"
+    root = profile_root_for_env_home(env_home, default_home)
+    fixed = any(env.get(k) for k in ("HERMES_SUPERVISED_CHILD", "HERMES_S6_SUPERVISED_CHILD", "HERMES_GATEWAY_EXTERNAL_SUPERVISOR", "HERMES_GATEWAY_PROFILE_PIN"))
+    if profile is None and not fixed:
+        if require_launch_identity:
+            return None
+        profile = get_active_profile(root)
+    canon = normalize_profile_name(profile) if profile else "default"
+    return str(root) if canon == "default" else str(root / "profiles" / canon)
+
+
+def _normalized_home_for_compare(home: str) -> str:
+    try:
+        path = Path(home).resolve()
+    except (OSError, RuntimeError, ValueError):
+        path = Path(home)
+    return os.path.normcase(str(path))
+
+
+def _process_age_seconds(pid: int) -> float:
+    import psutil
+    return max(0.0, time.time() - psutil.Process(pid).create_time())
 
 
 def install_id(project_root: Optional[Path] = None) -> str:
@@ -601,43 +700,15 @@ def _terminate_then_kill(pid: int, create_time: Optional[float], boot: Optional[
         return False
 
 
-def _reparented_orphan(pid: int) -> bool:
-    """Null-spawner owner with no live supervisor: reparented to init, old, lock-unclaimed.
-
-    Mirrors ``_reap_orphaned_desktop_local_serves``: operator-managed remote backends legitimately
-    sit at ppid 1 (systemd, an exited sshd), so ppid alone is never proof — the SSH-lock claim
-    and the 180 s lock-write grace exclude live-supervised backends. Windows: the ppid probe is
-    unavailable there, so this rung never fires (desktop tree-kill reaps instead).
-    """
-    try:
-        from hermes_cli.dashboard_procs import (
-            _REAP_MIN_AGE_SECONDS, _lock_owned_serve_pids, _process_ppid)
-        if _process_ppid(pid) not in (0, 1):
-            return False
-        if pid in (_lock_owned_serve_pids() or ()):
-            return False
-        import time as _time
-
-        import psutil
-        return max(0.0, _time.time() - psutil.Process(pid).create_time()) >= _REAP_MIN_AGE_SECONDS
-    except Exception:
-        return False  # unprovable → never touch
-
-
 def reap_orphaned_backend_owner(
     pid: int, create_time: Optional[float], *, kill_fn=None) -> Optional[int]:
     """Kill the conflicting host owner when the ledger PROVES it is a dead session's orphan.
 
     HELD_BY_OTHER rung for #121964: the owner PID is alive (re-parented to init), so
     ``record_is_stale()`` never fires and a fresh backend would loop observe-only against the
-    same orphan forever. Reaped only with a live ``serve``/``dashboard``/``gateway`` entry for
-    THIS install whose spawner is provably dead — or whose spawner was never recorded and which
-    is reparented to init, old, and claimed by no Desktop SSH lock. Live-spawned, lock-claimed,
-    young, interactive, self, or unprovable owners are never touched. Returns the reaped pid,
-    else ``None``; never raises.
-
-    # ponytail: a dead session's surviving backend.lock.json still shields its orphan (the lock
-    # has no session liveness); clearing stale locks is a Desktop-side lifecycle job, not this rung.
+    same orphan forever. Reap only a live ledger entry for THIS install whose spawner is provably dead.
+    Live-spawned, interactive, self, or unprovable owners are never touched. Returns the
+    reaped pid, else ``None``; never raises.
     """
     try:
         pid = int(pid)
@@ -657,8 +728,7 @@ def reap_orphaned_backend_owner(
         return None
     if entry is None:
         return None
-    if spawner_is_dead(entry) is not True and not (
-            entry.get("spawner_pid") is None and _reparented_orphan(pid)):
+    if spawner_is_dead(entry) is not True:
         return None  # live or unprovable spawner → never touch
     try:
         if kill_fn is not None:
@@ -1140,3 +1210,82 @@ def _update_supervised_pgids(verb: str, pgids) -> None:
             # command owns and releases its group every time, and a supervisor per command costs a
             # /bin/sh spawn (~11 ms) under this lock.
             _release_when_idle_locked(proc)
+
+
+_HOLDER_VALUE_FLAGS_FALLBACK = frozenset({
+    "--profile", "-p", "--config", "--model", "-m", "--provider", "--reasoning", "--toolsets", "-t",
+    "--skills", "-s", "--continue", "-c", "--resume", "-r", "--oneshot", "-z", "--in", "--usage-file", "--cpu-profile",
+})
+_holder_value_flags_cache: frozenset | None = None
+
+
+def _holder_value_flags() -> frozenset:
+    """Top-level CLI flags that consume a value, from the REAL parser (nargs != 0); cached per process.
+
+    Derived so the holder classifier can't drift from argparse (a handwritten subset misparsed ``--reasoning high
+    serve``). Pre-argparse profile selectors are added explicitly (stripped before argparse sees argv). Falls back
+    to a static snapshot when the parser can't import — the updater must classify holders even on a broken tree.
+
+    Introspects ``build_top_level_parser()`` (every option with nargs != 0) so the holder classifier can
+    never drift from the argparse surface (#91869 review: a handwritten subset misparsed ``--reasoning high
+    serve`` as subcommand ``high`` and ``-m dashboard serve`` as ``dashboard`` — recreating the wrong-hint
+    class).
+    """
+    global _holder_value_flags_cache
+    if _holder_value_flags_cache is not None:
+        return _holder_value_flags_cache
+    flags: set[str] = {"--profile", "-p", "--config"}
+    try:
+        from hermes_cli._parser import build_top_level_parser
+        for action in build_top_level_parser()[0]._actions:
+            if action.option_strings and action.nargs != 0:
+                flags.update(action.option_strings)
+        _holder_value_flags_cache = frozenset(flags)
+    except Exception:
+        _holder_value_flags_cache = _HOLDER_VALUE_FLAGS_FALLBACK
+    return _holder_value_flags_cache
+
+
+def _hermes_holder_subcommand(cmdline: str) -> str | None:
+    """The actual Hermes SUBCOMMAND a venv-holder argv runs, or None (callers must NOT guess a label).
+
+    Token-based, never substring (``kanban --preserve-cache`` contains "serve"): find the ``hermes_cli.main`` /
+    ``hermes(.exe)`` entry token, return the first following token that isn't a flag or a flag's value.
+
+    Profile selectors (``--profile X``, ``-p X``) are skipped like the canonical gateway matcher does. See
+    #90778.
+    """
+    try:
+        tokens = shlex.split(cmdline, posix=False)
+    except Exception:
+        tokens = cmdline.split()
+    # ``python -c <src> … -m hermes_cli.main <subcommand>``: the entry token belongs to the argv the
+    # inline source carries for a LATER spawn, not to this holder (#107002) -- unless the source is a
+    # Hermes bootstrap running the entry point in this process (#124318).
+    from gateway.status_inline_source import command_line_runs_inline_source, inline_bootstrap_argv
+    normalized = [t.strip("\"'").replace("\\", "/") for t in tokens]
+    if command_line_runs_inline_source(normalized):
+        tokens = inline_bootstrap_argv(normalized)
+        if tokens is None:
+            return None
+
+    def _is_entry(i: int, token: str) -> bool:
+        low = token.lower().strip("\"'").replace("\\", "/")
+        return (low.endswith("hermes_cli.main") and i > 0 and tokens[i - 1] == "-m") or (
+            low.rsplit("/", 1)[-1] in ("hermes", "hermes.exe")) or low.endswith("hermes_cli/main.py")
+
+    entry_idx = next((i for i, token in enumerate(tokens) if _is_entry(i, token)), None)
+    if entry_idx is None:
+        return None
+    value_flags = _holder_value_flags()
+    i = entry_idx + 1
+    while i < len(tokens):
+        token = tokens[i]
+        if token in value_flags or token.split("=", 1)[0] in value_flags:
+            i += 1 if "=" in token else 2  # --flag value consumes two tokens; --flag=value one.
+        elif token.startswith("-"):
+            i += 1
+        else:
+            return token.lower()
+    return None
+

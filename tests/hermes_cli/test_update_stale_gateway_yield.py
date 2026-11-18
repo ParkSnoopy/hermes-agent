@@ -1,5 +1,4 @@
-"""#117275: a stale-code ticker that yields every tick must never read as healthy, and the
-updater must hand a proven-stale survivor to the request_restart path."""
+"""The updater hands proven-stale gateway survivors to the restart path."""
 
 import io
 import contextlib
@@ -7,64 +6,31 @@ import os
 import signal
 import subprocess
 import sys
-import time
+
 
 import pytest
 
 
 @pytest.fixture
-def cron_home(tmp_path, monkeypatch):
+def gateway_home(tmp_path, monkeypatch):
     home = tmp_path / "home"
     (home / ".hermes").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("HERMES_HOME", str(home / ".hermes"))
     for name in list(sys.modules):
-        if name.split(".")[0] in ("cron", "gateway", "hermes_cli", "hermes_constants"):
+        if name.split(".")[0] in ("gateway", "hermes_cli", "hermes_constants"):
             monkeypatch.delitem(sys.modules, name, raising=False)
     return home / ".hermes"
 
 
-def _status_block(pids):
-    from hermes_cli.cron import _print_ticker_health
-
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        _print_ticker_health(pids)
-    return buf.getvalue()
 
 
-@pytest.mark.parametrize("had_success_before_update", [False, True])
-def test_cron_status_reports_stale_code_yield_as_unhealthy(cron_home, had_success_before_update):
-    """Fresh heartbeat + persisted CronTickYielded == outage, whatever the success marker says."""
-    from cron.jobs import _current_cron_store, ensure_dirs, record_ticker_error, record_ticker_heartbeat
-    from cron.scheduler import CronTickYielded
-
-    ensure_dirs()
-    if had_success_before_update:
-        (_current_cron_store().cron_dir / "ticker_last_success").write_text(str(time.time() - 600))
-    exc = CronTickYielded("5eb99eb284", "2ed6387d87")
-    record_ticker_error(f"{type(exc).__name__}: {exc}")
-    record_ticker_heartbeat(success=False)
-
-    out = _status_block([4242])
-
-    assert "cron jobs will fire automatically" not in out
-    assert "5eb99eb284" in out and "2ed6387d87" in out
 
 
-def test_cron_status_still_green_after_a_clean_tick(cron_home):
-    """Control: a ticker whose last cycle succeeded reads healthy."""
-    from cron.jobs import clear_ticker_error, ensure_dirs, record_ticker_heartbeat
-
-    ensure_dirs()
-    record_ticker_heartbeat(success=True)
-    clear_ticker_error()
-
-    assert "cron jobs will fire automatically" in _status_block([4242])
 
 
 @pytest.mark.skipif(not hasattr(signal, "SIGUSR1"), reason="POSIX drain-first restart signal")
-def test_update_signals_proven_stale_gateway_survivor(cron_home, tmp_path):
+def test_update_signals_proven_stale_gateway_survivor(gateway_home, tmp_path):
     """A `stale` fleet-matrix row gets SIGUSR1 (request_restart); a `current` row is untouched."""
     from hermes_cli.update_cmd_fleet import _GatewayRestartOutcome
     from hermes_cli.update_cmd_stale_survivors import signal_stale_fleet_survivors

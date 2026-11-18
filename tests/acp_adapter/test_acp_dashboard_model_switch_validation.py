@@ -1,11 +1,7 @@
-"""ACP ``session/set_model`` and the dashboard main slot validate through ``switch_model``.
+"""ACP ``session/set_model`` validates through ``switch_model``.
 
-Both surfaces used to accept any string (``parse_model_input`` + ``detect_provider_for_model``
-for ACP; bare provider/model normalization for ``POST /api/model/set``), so a model no catalog
-knew — or a provider with no credentials — was handed to the session / written to config.yaml
-and only failed at inference time. They now share the CLI/gateway/TUI ``/model`` pipeline: a
-rejection from ``switch_model`` is a rejection on these surfaces too, and an acceptance carries
-the resolved (provider, model) — an explicit ``provider:model`` prefix is honoured as
+ACP now shares the CLI/gateway/TUI ``/model`` pipeline: a rejection from ``switch_model``
+leaves the session untouched, and an explicit ``provider:model`` prefix is honoured as
 ``--provider`` (#59089), never re-detected.
 """
 
@@ -42,7 +38,7 @@ def _state(**agent_attrs):
             provider="anthropic", base_url="https://api.anthropic.com", api_key="k", **agent_attrs))
 
 
-def test_acp_and_dashboard_reject_what_switch_model_rejects(monkeypatch):
+def test_acp_rejects_what_switch_model_rejects(monkeypatch):
     rejected = ModelSwitchResult(success=False, error_message="Unknown provider 'notaprovider'.")
     monkeypatch.setattr("hermes_cli.model_switch.switch_model", lambda **_kw: rejected)
 
@@ -51,12 +47,6 @@ def test_acp_and_dashboard_reject_what_switch_model_rejects(monkeypatch):
     with pytest.raises(ValueError, match="Unknown provider"):
         agent._switch_model(state, "notaprovider:whatever")
     assert made == {} and state.model == "claude-sonnet-5"  # session untouched
-
-    from fastapi import HTTPException
-    from hermes_cli.web_server_config import _apply_model_assignment_sync
-    with pytest.raises(HTTPException) as exc:
-        _apply_model_assignment_sync("main", "notaprovider", "whatever", "", "")
-    assert exc.value.status_code == 400 and "Unknown provider" in exc.value.detail
 
 
 def test_acp_explicit_provider_prefix_becomes_explicit_provider(monkeypatch):

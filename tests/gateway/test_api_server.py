@@ -2852,8 +2852,7 @@ class TestApiKeyStartupGuardFailsClosed:
     key is remote code execution".
 
     So "the strength check could not be run" must never resolve to "start
-    anyway" — the same posture ``tools/credential_files.py`` takes when its
-    deny-list cannot be consulted.
+    anyway" — an unavailable security check is not permission to proceed.
     """
 
     class _Stub:

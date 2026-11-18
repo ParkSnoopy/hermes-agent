@@ -6,14 +6,7 @@ import { setInputSelection, takeInputCursor } from '../app/inputSelectionStore.j
 import { highlightMask, highlightsStable } from '../domain/composerHighlights.js'
 import { readClipboardText, writeClipboardText } from '../lib/clipboard.js'
 import { cursorLayout, offsetFromPosition } from '../lib/inputMetrics.js'
-import {
-  DEFAULT_VOICE_RECORD_KEY,
-  isActionMod,
-  isMac,
-  isMacActionFallback,
-  isVoiceToggleKey,
-  type ParsedVoiceRecordKey
-} from '../lib/platform.js'
+import { isActionMod, isMac, isMacActionFallback } from '../lib/platform.js'
 import { isTermuxTuiMode } from '../lib/termux.js'
 
 type InkExt = typeof Ink & {
@@ -796,7 +789,6 @@ export function TextInput({
   mouseApiRef,
   cursorSnapshotRef,
   ignoreVerticalArrows = false,
-  voiceRecordKey = DEFAULT_VOICE_RECORD_KEY,
   placeholder = '',
   placeholderColor,
   accentColor,
@@ -1440,12 +1432,7 @@ export function TextInput({
     queueAfterSubmit((inp: string, k: Key, event: InputEvent) => {
       const eventRaw = event.keypress.raw
 
-      // Configured voice shortcut wins over composer-level defaults like
-      // paste/copy so users who bind voice to ctrl+v / alt+v / cmd+v
-      // actually get voice toggled instead of a paste (Copilot round-7
-      // follow-up on #19835). The pass-through predicate is a no-op for
-      // ordinary typing and plain paste when voice is unbound to 'v'.
-      if (event.keypress.name === 'f7' || shouldPassThroughToGlobalHandler(inp, k, voiceRecordKey)) {
+      if (event.keypress.name === 'f7' || shouldPassThroughToGlobalHandler(inp, k)) {
         flushKeyBurst()
 
         return
@@ -1898,7 +1885,6 @@ interface TextInputProps {
   /** Hex color for placeholder text (theme muted); SGR dim when omitted. */
   placeholderColor?: string
   value: string
-  voiceRecordKey?: ParsedVoiceRecordKey
 }
 
 export type RightClickDecision = { action: 'copy'; text: string } | { action: 'paste' }
@@ -1931,8 +1917,7 @@ export function decideRightClickAction(
 
 export const shouldPassThroughToGlobalHandler = (
   input: string,
-  key: Key,
-  voiceRecordKey: ParsedVoiceRecordKey = DEFAULT_VOICE_RECORD_KEY
+  key: Key
 ): boolean =>
   (key.ctrl && input === 'c') ||
   (key.ctrl && input === 'x') ||
@@ -1942,8 +1927,7 @@ export const shouldPassThroughToGlobalHandler = (
   (key.shift && key.tab) ||
   key.pageUp ||
   key.pageDown ||
-  key.escape ||
-  isVoiceToggleKey(key, input, voiceRecordKey)
+  !!key.escape
 
 export interface TextInputMouseApi {
   dragAt: (row: number, col: number) => void

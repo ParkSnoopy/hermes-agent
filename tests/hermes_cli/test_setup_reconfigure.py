@@ -63,7 +63,6 @@ def _enter_existing_install_patches(stack, **extra):
         ("hermes_cli.setup.get_env_value", {"return_value": None}),
         ("hermes_cli.auth.get_active_provider", {"return_value": "openrouter"}),
         ("hermes_cli.setup._print_setup_summary", {}),
-        ("hermes_cli.setup.offer_agent_import", {"return_value": ""}),
     ]:
         stack.enter_context(patch(target, **kwargs))
 
@@ -83,7 +82,6 @@ def _enter_fresh_install_patches(stack, **extra):
         ("hermes_cli.setup.save_config", {}),
         ("hermes_cli.auth.get_active_provider", {"return_value": None}),
         ("hermes_cli.setup.get_env_value", {"return_value": None}),
-        ("hermes_cli.setup.offer_agent_import", {"return_value": ""}),
     ]:
         stack.enter_context(patch(target, **kwargs))
 
@@ -112,7 +110,6 @@ class TestExistingInstallDefault:
                 model="hermes_cli.setup.setup_model_provider",
                 terminal="hermes_cli.setup.setup_terminal_backend",
                 agent="hermes_cli.setup.setup_agent_settings",
-                gateway="hermes_cli.setup.setup_gateway",
                 tools="hermes_cli.setup.setup_tools",
             )
             from hermes_cli.setup import run_setup_wizard
@@ -127,7 +124,6 @@ class TestExistingInstallDefault:
         m["model"].assert_called_once()
         m["terminal"].assert_called_once()
         m["agent"].assert_not_called()
-        m["gateway"].assert_called_once()
         m["tools"].assert_called_once()
 
 
@@ -144,7 +140,6 @@ class TestQuickFlag:
                 model="hermes_cli.setup.setup_model_provider",
                 terminal="hermes_cli.setup.setup_terminal_backend",
                 agent="hermes_cli.setup.setup_agent_settings",
-                gateway="hermes_cli.setup.setup_gateway",
                 tools="hermes_cli.setup.setup_tools",
             )
             from hermes_cli.setup import run_setup_wizard
@@ -162,7 +157,6 @@ class TestQuickFlag:
         m["model"].assert_not_called()
         m["terminal"].assert_not_called()
         m["agent"].assert_not_called()
-        m["gateway"].assert_not_called()
         m["tools"].assert_not_called()
 
 

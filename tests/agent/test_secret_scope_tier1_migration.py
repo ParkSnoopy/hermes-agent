@@ -136,34 +136,33 @@ class TestAuthzAuthEnv:
         monkeypatch.setenv("GATEWAY_ALLOWED_USERS", "42")
         assert _auth_env("GATEWAY_ALLOWED_USERS") == "42"
 
-# ── Cluster B: matrix startup reads (Slack pattern) ────────────────────────
+# ── Cluster B: scoped startup secret reads ────────────────────────────────
 
-class TestMatrixStartupSecret:
+class TestStartupSecret:
     def _helper(self):
-        pytest.importorskip("plugins.platforms.matrix.adapter")
         from gateway.platforms._shared import get_scoped_secret
 
         return lambda name: (get_scoped_secret(name, "") or "").strip()
 
     def test_scoped_value_wins(self, monkeypatch):
         helper = self._helper()
-        monkeypatch.setenv("MATRIX_ACCESS_TOKEN", "env-token")
+        monkeypatch.setenv("STARTUP_ACCESS_TOKEN", "env-token")
         ss.set_multiplex_active(True)
-        with _Scope({"MATRIX_ACCESS_TOKEN": "scoped-token"}):
-            assert helper("MATRIX_ACCESS_TOKEN") == "scoped-token"
+        with _Scope({"STARTUP_ACCESS_TOKEN": "scoped-token"}):
+            assert helper("STARTUP_ACCESS_TOKEN") == "scoped-token"
 
     def test_scoped_miss_no_borrow(self, monkeypatch):
         helper = self._helper()
-        monkeypatch.setenv("MATRIX_ACCESS_TOKEN", "other-profile")
+        monkeypatch.setenv("STARTUP_ACCESS_TOKEN", "other-profile")
         ss.set_multiplex_active(True)
         with _Scope({"UNRELATED": "x"}):
-            assert helper("MATRIX_ACCESS_TOKEN") == ""
+            assert helper("STARTUP_ACCESS_TOKEN") == ""
 
     def test_unscoped_multiplex_falls_back(self, monkeypatch):
         helper = self._helper()
-        monkeypatch.setenv("MATRIX_PASSWORD", "own-env-pass")
+        monkeypatch.setenv("STARTUP_PASSWORD", "own-env-pass")
         ss.set_multiplex_active(True)
-        assert helper("MATRIX_PASSWORD") == "own-env-pass"
+        assert helper("STARTUP_PASSWORD") == "own-env-pass"
 
 # ── Cluster C: managed tool gateway token override ─────────────────────────
 

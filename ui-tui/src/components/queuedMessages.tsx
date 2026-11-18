@@ -1,6 +1,6 @@
 import { Box, Text } from '@hermes/ink'
 
-import { useT } from '../i18n/useT.js'
+import { chatBitsEn } from '../copy/chatBits.js'
 import { compactPreview } from '../lib/text.js'
 import type { Theme } from '../theme.js'
 
@@ -16,7 +16,7 @@ export function getQueueWindow(queueLen: number, queueEditIdx: number | null) {
 }
 
 export function QueuedMessages({ cols, queueEditIdx, queued, t }: QueuedMessagesProps) {
-  const T = useT().chatBits.queued
+  const T = chatBitsEn.chatBits.queued
 
   if (!queued.length) {
     return null

@@ -79,7 +79,7 @@ def _run_prerequisites(tmp_path: Path, *, git: str = "stub", interactive: bool =
         f"NON_INTERACTIVE={'false' if interactive else 'true'}\n"
         f"JSON={'true' if json else 'false'}\n"
         f"has_terminal() {{ {'return 0' if interactive else 'return 1'}; }}\n"
-        "uv_bootstrap_target() { echo darwin-arm64; }\n"
+        "uv_bootstrap_target() { echo linux-arm64; }\n"
         "stage_prerequisites\n"
     )
     # System dirs only: a host's real Homebrew must never run from a test.
@@ -92,77 +92,6 @@ def _run_prerequisites(tmp_path: Path, *, git: str = "stub", interactive: bool =
     return result, (calls.read_text().splitlines() if calls.is_file() else [])
 
 
-@pytest.mark.platforms("macos")
-@pytest.mark.parametrize("opts", [
-    pytest.param({"interactive": True}, id="terminal"),
-    # Hermes-Setup runs stages with --non-interactive --json and no terminal.
-    pytest.param({"json": True}, id="hermes-setup-json"),
-    # After a macOS upgrade `-p` names a folder that exists but holds no git.
-    pytest.param({"dev": "damaged", "interactive": True}, id="upgrade-leftover-folder"),
-])
-def test_macos_stub_opens_clt_dialog_waits_then_continues(tmp_path, opts):
-    result, calls = _run_prerequisites(tmp_path, **opts)
-
-    assert result.returncode == 0, result.stderr
-    assert "click Install" in result.stdout
-    assert "prerequisites ok" in result.stdout
-    assert calls == ["xcode-select --install", "sleep 5"]
-
-
-@pytest.mark.platforms("macos")
-def test_macos_stub_shows_why_clt_install_failed_before_waiting(tmp_path):
-    result, calls = _run_prerequisites(tmp_path, install_rc=1, interactive=True)
-
-    assert result.returncode == 0, result.stderr
-    assert _INSTALL_ERR in result.stdout
-    assert result.stdout.index(_INSTALL_ERR) < result.stdout.index("click Install")
-    assert calls == ["xcode-select --install", "sleep 5"]
-
-
-@pytest.mark.platforms("macos")
-def test_macos_stub_prefers_homebrew_without_dialog(tmp_path):
-    result, calls = _run_prerequisites(tmp_path, interactive=True, brew=True)
-
-    assert result.returncode == 0, result.stderr
-    assert "prerequisites ok" in result.stdout
-    assert calls == ["brew install git auto_update_off=1"]
-
-
-@pytest.mark.platforms("macos")
-def test_macos_stub_wait_gives_up_after_fifteen_minutes(tmp_path):
-    result, calls = _run_prerequisites(tmp_path, interactive=True, clt_finishes=False)
-
-    assert result.returncode != 0
-    assert "did not finish within 15 minutes" in result.stderr
-    assert calls.count("sleep 5") == 180
-    assert "Still waiting for the Command Line Tools install (15m)" in result.stdout
-
-
-@pytest.mark.platforms("macos")
-@pytest.mark.parametrize(("opts", "expect", "forbid", "expected_calls"), [
-    pytest.param({}, ["xcode-select --install"], [], ["xcode-select --install"], id="headless-non-interactive"),
-    # An unaccepted Xcode license: the tools hold git, so no brew, dialog or wait,
-    # and git's own remedy rather than the Command Line Tools one.
-    pytest.param({"git": "license", "dev": "complete", "brew": True, "interactive": True},
-                 ["git is installed but cannot run", "sudo xcodebuild -license"], ["Command Line Tools"], [],
-                 id="tools-present-git-fails"),
-    # `--install` refuses over a leftover folder: no dialog opens, so no wait.
-    pytest.param({"dev": "damaged", "install_rc": 1, "interactive": True},
-                 ["sudo rm -rf /Library/Developer/CommandLineTools"], [], ["xcode-select --install"],
-                 id="install-refused-over-leftover-folder"),
-])
-def test_macos_fails_fast_with_remedy(tmp_path, opts, expect, forbid, expected_calls):
-    result, calls = _run_prerequisites(tmp_path, **opts)
-
-    assert result.returncode != 0
-    for text in expect:
-        assert text in result.stderr
-    for text in forbid:
-        assert text not in result.stderr
-    assert "prerequisites ok" not in result.stdout
-    assert calls == expected_calls
-
-
 @pytest.mark.platforms("linux")
 def test_broken_git_on_linux_names_git_error_without_xcode(tmp_path):
     result, calls = _run_prerequisites(tmp_path)
@@ -173,7 +102,7 @@ def test_broken_git_on_linux_names_git_error_without_xcode(tmp_path):
     assert calls == []
 
 
-@pytest.mark.platforms("posix")
+@pytest.mark.platforms("linux")
 def test_working_git_passes_prerequisites(tmp_path):
     result, calls = _run_prerequisites(tmp_path, git="working")
 

@@ -200,46 +200,7 @@ def _migrate_to_13(results: dict[str, Any], quiet: bool) -> None:
             pass
 
 
-_LOCAL_WHISPER_MODELS = frozenset({
-    "tiny.en", "tiny", "base.en", "base", "small.en", "small",
-    "medium.en", "medium", "large-v1", "large-v2", "large-v3",
-    "large", "distil-large-v2", "distil-medium.en",
-    "distil-small.en", "distil-large-v3", "distil-large-v3.5",
-    "large-v3-turbo", "turbo"})
 
-
-def _migrate_to_14(results: dict[str, Any], quiet: bool) -> None:
-    # 13 → 14: legacy flat stt.model → provider section. A provider-agnostic `stt.model` fed
-    # OpenAI names to faster-whisper ("Invalid model size"). Only the raw (user-written) config
-    # decides; a nested model the user already set is never overwritten.
-    raw_stt = read_raw_config().get("stt", {})
-    if not (isinstance(raw_stt, dict) and "model" in raw_stt):
-        return
-    legacy_model = raw_stt["model"]
-    provider = raw_stt.get("provider", "local")
-    if not isinstance(provider, str):  # a mapping/int provider has no valid target section
-        provider = "local"
-    config = read_raw_config()
-    stt = config.get("stt", {})
-    stt.pop("model", None)
-
-    def _place(section: str) -> None:
-        existing = raw_stt.get(section, {})
-        if not isinstance(existing, dict) or "model" not in existing:
-            target = stt.get(section)
-            if not isinstance(target, dict):  # stt.<section>: 5 — replace, don't index a scalar
-                target = stt[section] = {}
-            target["model"] = legacy_model
-
-    if provider in {"local", "local_command"}:
-        # An OpenAI model name is dropped; the local section already defaults to "base".
-        if isinstance(legacy_model, str) and legacy_model in _LOCAL_WHISPER_MODELS:
-            _place("local")
-    else:
-        _place(provider)
-    config["stt"] = stt
-    _commit(
-        config, results, quiet, None, "  ✓ Migrated legacy stt.model to provider-specific config")
 
 
 def _migrate_to_16(results: dict[str, Any], quiet: bool) -> None:
@@ -585,6 +546,7 @@ def _migrate_to_45(results: dict[str, Any], quiet: bool) -> None:
     # already records `connections` (a decline) or `agent.disabled_toolsets` names it (the
     # resolver subtracts that list last, so the append would have no effect).
     from agent.skill_utils import parse_config_string_list
+    from hermes_cli.platforms import PLATFORMS
     from hermes_cli.tools_config import _configurable_keys, _get_plugin_toolset_keys
     from hermes_cli.toolset_scope import toolset_allowed_for_platform
 
@@ -599,6 +561,9 @@ def _migrate_to_45(results: dict[str, Any], quiet: bool) -> None:
     explicit_keys = _configurable_keys() | _get_plugin_toolset_keys()
     enabled_for: list[str] = []
     for platform, toolsets in saved.items():
+        # Leave saved selections for retired/unknown integrations untouched.
+        if platform not in PLATFORMS:
+            continue
         if not isinstance(toolsets, list) or "connections" in toolsets:
             continue
         if not toolset_allowed_for_platform("connections", platform):
@@ -652,29 +617,6 @@ def _migrate_to_46(results: dict[str, Any], quiet: bool) -> None:
         f"  ✓ Turned off MCP servers the profile editor had marked disabled: {names}.")
 
 
-def _migrate_to_48(results: dict[str, Any], quiet: bool) -> None:
-    # 47 → 48: the container sandbox default gains a display stack (nousresearch/hermes-sandbox:
-    # desktop) so Bot Screen / computer_use / the browser run inside the sandbox. A saved value
-    # still equal to the OLD default is the template copied, not a choice: the key is DROPPED so
-    # the file follows the default. It is not rewritten to the new image, because a written image
-    # is a pin and a pin recreates a persisted Docker container without asking; unpinned, the
-    # runtime keeps an existing sandbox and the CLI / Screen pane ask first. A pinned image stays.
-    from hermes_cli.config_defaults import DEFAULT_SANDBOX_IMAGE, LEGACY_SANDBOX_IMAGES
-    for legacy in LEGACY_SANDBOX_IMAGES:
-        for key, old in (
-            ("docker_image", legacy),
-            ("modal_image", legacy),
-            ("daytona_image", legacy),
-            ("singularity_image", f"docker://{legacy}"),
-        ):
-            _rewrite_stale_default(
-                section="terminal", key=key, old=old, new=None,
-                added=f"terminal.{key} unset (follows the default, {DEFAULT_SANDBOX_IMAGE})",
-                message=f"  ✓ terminal.{key}: was the old default; now follows the default sandbox image "
-                        f"({DEFAULT_SANDBOX_IMAGE})",
-            )(results, quiet)
-
-
 #: Registry of (target_version, step), strictly ascending; simple default-flip steps are
 #: declared inline via _rewrite_stale_default / _rewrite_key partials. Later steps observe
 #: earlier steps' writes via read_raw_config() (filesystem state). v12 is the support floor:
@@ -682,29 +624,6 @@ def _migrate_to_48(results: dict[str, Any], quiet: bool) -> None:
 #: floor gate in run_migrations()'s caller. Versions absent here (15, 18-20, 22, 24, 26-28, 30)
 #: only added a schema default that runtime merging supplies without a write. When adding a step,
 #: decide whether it belongs in LEGACY_KEY_STEPS below (the only steps an unversioned file gets).
-
-def _migrate_to_49(results: dict[str, Any], quiet: bool) -> None:
-    # 48 → 49: Vercel deprecated sandbox runtimes in favour of images; the default moves from the
-    # `node24` runtime to `vercel/sandbox/universal:latest`. A saved runtime still equal to the old
-    # seeded default (config.yaml AND the .env mirror the setup wizard wrote) is the template copied,
-    # not a choice, so both are dropped and fresh sandboxes follow terminal.vercel_image. A runtime
-    # the user chose (node22, python3.13) stays and keeps overriding the image, as before. Persisted
-    # sandboxes are unaffected either way: a snapshot restore never sends a runtime or an image.
-    from hermes_cli.config_defaults import DEFAULT_VERCEL_IMAGE, LEGACY_VERCEL_RUNTIME
-    _rewrite_stale_default(
-        section="terminal", key="vercel_runtime", old=LEGACY_VERCEL_RUNTIME, new=None,
-        added=f"terminal.vercel_runtime unset (fresh sandboxes use terminal.vercel_image, {DEFAULT_VERCEL_IMAGE})",
-        message=f"  ✓ terminal.vercel_runtime: was the old default; fresh sandboxes now use the managed image "
-                f"({DEFAULT_VERCEL_IMAGE})",
-    )(results, quiet)
-    _c = _cfg()
-    if not _local_files_allowed():
-        return  # the .env mirror is a local file
-    if (_c.get_env_value_prefer_dotenv("TERMINAL_VERCEL_RUNTIME") or "").strip() == LEGACY_VERCEL_RUNTIME:
-        _c.remove_env_value("TERMINAL_VERCEL_RUNTIME")
-        if not quiet:
-            print("  ✓ Cleared TERMINAL_VERCEL_RUNTIME from .env (was the old default; the image is used instead)")
-
 
 _RETIRED_TIRITH_KEYS = ("tirith_enabled", "tirith_path", "tirith_timeout", "tirith_fail_open")
 
@@ -728,7 +647,6 @@ def _migrate_to_50(results: dict[str, Any], quiet: bool) -> None:
 MIGRATIONS: tuple[tuple[int, Callable[[dict[str, Any], bool], None]], ...] = (
     (12, _migrate_to_12),
     (13, _migrate_to_13),
-    (14, _migrate_to_14),
     (16, _migrate_to_16),
     (17, _migrate_to_17),
     (21, _migrate_to_21),
@@ -852,11 +770,6 @@ MIGRATIONS: tuple[tuple[int, Callable[[dict[str, Any], bool], None]], ...] = (
             "  ✓ Removed compression.threshold_tokens: 256000 — the old default. Compaction "
             "follows compression.threshold (50% of the window) again. Set threshold_tokens "
             "to a token count to cap it on purpose."))),
-    # 47 → 48: a saved old-default sandbox image is dropped so the file follows the new default (see _migrate_to_48).
-    (48, _migrate_to_48),
-    # 48 → 49: the seeded Vercel runtime pin is dropped so fresh sandboxes use the managed image (see _migrate_to_49).
-    (49, _migrate_to_49),
-    # 49 → 50: security.tirith_* dropped; the bundled scanner is gone (see _migrate_to_50).
     (50, _migrate_to_50),
     # 50 → 51: cron.bot_chat_delivery_timeout_seconds is gone with the local `hermes chat`
     # fallback lane it bounded. Bot Chat deliveries are admitted to the running gateway and

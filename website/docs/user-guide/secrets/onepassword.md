@@ -6,7 +6,7 @@ Resolve provider API keys from [1Password](https://1password.com/) at process st
 
 1. You install the official [1Password CLI](https://developer.1password.com/docs/cli/get-started/) (`op`) and authenticate it — either with a **service-account token** (headless servers) or an **interactive/desktop session** (your laptop).
 2. You map environment-variable names to `op://` references in `~/.hermes/config.yaml`.
-3. Every time `hermes` (or the gateway, or a cron job) starts, after `~/.hermes/.env` has loaded, Hermes runs `op read` for each reference and sets the resolved values into `os.environ`.
+3. Every time `hermes` or the gateway starts, after `~/.hermes/.env` has loaded, Hermes runs `op read` for each reference and sets the resolved values into `os.environ`.
 4. By default Hermes **overrides** values already in your environment, so 1Password is the source of truth — rotate a credential once and every Hermes process picks it up on next start. Flip `override_existing: false` if you want `.env` to win instead.
 
 Hermes never authenticates on your behalf and never downloads `op`: it shells out to your already-installed, already-trusted CLI. If `op` is missing, your session is locked, or a reference is wrong, Hermes prints a one-line warning and continues with whatever credentials `.env` already had — it never blocks startup.
@@ -20,7 +20,7 @@ Hermes never authenticates on your behalf and never downloads `op`: it shells ou
 
 ## Bootstrap token
 
-When you authenticate with a **service-account token**, that token is itself the bootstrap credential Hermes needs *before* it can resolve any `op://` reference. It must be present in `os.environ` of every process that resolves secrets — including cron jobs (`kanban.dispatch_in_gateway: false`), subprocess invocations, CLI runs, macOS launchd agents, and Docker containers — not just the interactive gateway. There are three ways to make it available, in order of precedence:
+When you authenticate with a **service-account token**, that token is itself the bootstrap credential Hermes needs *before* it can resolve any `op://` reference. It must be present in `os.environ` of every process that resolves secrets — including subprocess invocations, CLI runs, and Docker containers — not just the interactive gateway. There are three ways to make it available, in order of precedence:
 
 1. **In `~/.hermes/.env` (recommended).** `hermes secrets onepassword setup --token <token>` writes the token to `~/.hermes/.env`, exactly like Bitwarden's `BWS_ACCESS_TOKEN`. Because `load_hermes_dotenv()` always loads `.env`, the token is available everywhere with zero extra setup. This is the simplest reliable option.
 
@@ -42,7 +42,7 @@ When you authenticate with a **service-account token**, that token is itself the
 
    A token injected this way takes precedence — Hermes detects that `OP_SERVICE_ACCOUNT_TOKEN` is already set and skips loading `.op.env` entirely.
 
-If the token is reachable only through an interactive shell (`op signin`, `OP_SESSION_*` exports in `.bashrc`, etc.), it will **not** be inherited by cron jobs or freshly spawned subprocesses, and those contexts will log a warning and fall back to whatever credentials `.env` already held. Use one of the three options above for any non-interactive workload.
+If the token is reachable only through an interactive shell (`op signin`, `OP_SESSION_*` exports in `.bashrc`, etc.), freshly spawned subprocesses may not inherit it, and those contexts will log a warning and fall back to whatever credentials `.env` already held. Use one of the three options above for any non-interactive workload.
 
 ## Setup
 

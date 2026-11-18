@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 import shlex
 
-from gateway.session_cron_commands import cron_read
 from hermes_state_runtime import RuntimeStoreError
 
 logger = logging.getLogger(__name__)
@@ -20,21 +19,21 @@ logger = logging.getLogger(__name__)
 # run through its real handler against a local session (website/docs/developer-guide/
 # gateway-command-parity.md); a handler that reads messaging-only state or writes config is not here.
 _READ_COMMANDS = frozenset({'help', 'commands', 'status', 'context', 'version', 'whoami',
-                            'usage', 'insights', 'profile', 'diff', 'memory', 'kanban', 'topup',
-                            'suggestions', 'bundles', 'skills'})
+                            'usage', 'insights', 'profile', 'diff', 'memory', 'topup',
+                            'bundles', 'skills'})
 _CONTROL_COMMANDS = frozenset({'title'})
 # Authoring/workflow commands whose messaging handler (``_command_handler_table``) runs as-is for a
 # local session: goal/loop/heartbeat state on the session's row, the review/refine forks of its
-# cached agent, the /debug summary upload, /blueprint's job creation. A turn the handler would have
+# cached agent and the /debug summary upload. A turn the handler would have
 # pushed onto the adapter FIFO comes back as a ``send`` directive (gateway/session_command_sink.py).
 _HANDLER_CONTROLS = frozenset({'goal', 'subgoal', 'loop', 'heartbeat', 'review', 'refine', 'debug', 'curator',
                                'login', 'autoprune'})
 # Idle-path commands the messaging gateway answers by rewriting the turn (``_hm_cmd_<name>``,
 # gateway/run_inbound.py): the rewritten text is returned as the client's ``send`` directive.
-_PROMPT_COMMANDS = frozenset({'plan', 'learn', 'init', 'moa', 'blueprint', 'egress'})
+_PROMPT_COMMANDS = frozenset({'plan', 'learn', 'init', 'moa', 'egress'})
 # Per-session settings: the messaging handler itself, made session-correct for a local session
 # (gateway/session_setting_commands.py). Admission-fenced like any control.
-_SETTING_COMMANDS = frozenset({'reasoning', 'voice', 'approvals', 'codex-runtime', 'footer', 'busy', 'verbose',
+_SETTING_COMMANDS = frozenset({'reasoning', 'approvals', 'codex-runtime', 'footer', 'busy', 'verbose',
                                'yolo', 'fast', 'personality'})
 # Typed `/approve` / `/deny`: the messaging handler resolves THIS session's waiting approval (its
 # route is the session key), the same waiter `approval.respond` answers by prompt id.
@@ -42,22 +41,8 @@ _APPROVAL_COMMANDS = frozenset({'approve', 'deny'})
 # Reports with no messaging handler: the classic CLI's own text, built by the owner for this
 # session (gateway/session_info_reads.py).
 _INFO_READS = frozenset({'toolsets', 'platforms'})
-# The classic CLI's own handler, run by the owner (gateway/session_cron_commands.py): the profile's cron store
-# belongs to the gateway whose ticker fires its jobs, so no client writes it. Bare ``/cron`` and ``list``
-# read; every other form (add/edit/pause/resume/run/remove) is a control that writes the store. A write runs
-# only on a connection that is not attached to the session: the classic CLI's command socket
-# (GatewayConnection.call_until), which waits with no deadline. A viewer's own connection (Ink, Desktop, ACP
-# send /cron there) answers its reads, prompts and interrupts one request at a time with a deadline, and a
-# /cron run lasts as long as its job, so it keeps main's refusal whichever surface created the session.
-_OWNER_COMMANDS = frozenset({'cron'})
 # Commands that move the session's goal/loop/heartbeat state: every viewer's cards repaint after them.
 _AUTOMATION_COMMANDS = frozenset({'goal', 'subgoal', 'loop', 'heartbeat'})
-
-# Kanban verbs that only read the board. ``create`` would also subscribe the LOCAL chat to
-# messaging notifications, and every other verb mutates the board.
-_KANBAN_READS = frozenset({'', 'help', '--help', '-h', '?', 'list', 'ls', 'show', 'stats', 'assignees',
-                           'context', 'runs', 'log', 'diagnostics', 'diag'})
-
 
 def _split(arg):
     """``arg`` as a shlex-splitting handler parses it: an unclosed quote can't run there either, so it is
@@ -68,17 +53,6 @@ def _split(arg):
         raise RuntimeStoreError('invalid_params', field='arg', detail=str(exc)) from None
 
 
-def _first_token(arg):
-    """/kanban's verb as its handler parses it (shlex, hermes_cli/kanban.py ``run_slash``)."""
-    tokens = iter(_split(arg))
-    for token in tokens:
-        if token == '--board':
-            next(tokens, None)
-        elif not token.startswith('--board='):
-            return token.lower()
-    return ''
-
-
 def _first_word(arg):
     """The first whitespace-separated word, as main's CLI and the messaging /memory and /skills
     handlers split it: a quote later in the line belongs to the argument (`/memory pending it's`)."""
@@ -87,14 +61,11 @@ def _first_word(arg):
 
 
 # The read-only argument forms of a read command whose other subcommands write: ``/usage reset``
-# redeems a credit, ``/suggestions accept|catalog`` schedules cron jobs delivering to this
-# (non-messaging) chat. The review queues read like main's CLI: only the first word counts.
+# redeems a credit. The review queues read like main's CLI: only the first word counts.
 _READ_ARGUMENTS = {
     'skills': lambda arg: _first_word(arg) in {'', 'pending', 'diff'},
     'usage': lambda arg: not arg.strip(),
     'memory': lambda arg: _first_word(arg) in {'', 'pending'},
-    'suggestions': lambda arg: not arg.strip(),
-    'kanban': lambda arg: _first_token(arg) in _KANBAN_READS,
 }
 
 
@@ -106,13 +77,6 @@ _CONTROL_ARGUMENTS = {
     'memory': lambda arg: _first_word(arg) in {'approve', 'apply', 'reject', 'deny', 'drop', 'approval', 'mode'},
 }
 
-
-# The setting forms a local session cannot deliver: `/voice tts` asks the owner to voice every reply,
-# and a local session's audio plays only in its client. Read like the handler reads it (no shlex): an
-# unbalanced quote in any other `/voice` argument still reaches the handler.
-_REFUSED_ARGUMENTS = {
-    'voice': lambda arg: arg.strip().lower() == 'tts',
-}
 
 
 # What to use instead, for the client-local commands a shared-gateway session cannot run: they act
@@ -132,10 +96,7 @@ REFUSAL_HINTS = {
 
 def command_verdict(name, arg=''):
     """``read`` / ``control`` / ``refused`` for a canonical registry command on a local session."""
-    if _REFUSED_ARGUMENTS.get(name, lambda _a: False)(arg):
-        return 'refused'
-    if name in _OWNER_COMMANDS:
-        return 'read' if cron_read(_split(arg)) is not None else 'control'  # main's /cron handler shlex-splits
+
     if (name in _CONTROL_COMMANDS or name in _HANDLER_CONTROLS or name in _PROMPT_COMMANDS
             or name in _SETTING_COMMANDS or name in _APPROVAL_COMMANDS
             or _CONTROL_ARGUMENTS.get(name, lambda _a: False)(arg)):
@@ -196,11 +157,10 @@ async def _run_runner_command(runner, live, name, arg, kind, shell):
     """The messaging gateway's own quick-command / plugin-command dispatch for this session
     (``run_inbound_hooks``): the operator's slash access policy, the 30 s sanitized-env exec with
     redacted output, the plugin handler under this session's env scope."""
-    from agent.i18n import t
     from gateway.platforms.base import MessageEvent
     if kind == 'exec':
         if not shell:
-            return t('gateway.quick_command.no_command', command=name)
+            return (f"Quick command '/{name}' has no command defined.")
         refused = runner._check_slash_access(live.source, name)
         if refused:
             return refused
@@ -227,13 +187,12 @@ async def _run_runner_command(runner, live, name, arg, kind, shell):
         return await runner._hm_run_plugin_handler(handler, event, live.source, entry, args=arg)
     except Exception as e:  # main's CLI printed it; messaging (run_inbound_hooks) still only logs it
         logger.warning("Plugin command dispatch failed: %s", e, exc_info=True)
-        return t('cli.plugin.command_error', error=str(e) or type(e).__name__)
+        return (f'Plugin command error: {str(e) or type(e).__name__}')
 
 
 def _skill_directive(name, arg, route):
     """A local session's ``/skill`` (its plugin skills included, as on main's interactive surfaces),
     stacked ``/skill-a /skill-b do X`` too: built here, so no client loads plugins to resolve one."""
-    from agent.i18n import t
     from agent.skill_commands import (
         build_skill_invocation_message, build_stacked_skill_invocation_message, describe_skill_invocation,
         get_interactive_skill_commands, resolve_slash_key, split_stacked_skill_commands,
@@ -250,7 +209,7 @@ def _skill_directive(name, arg, route):
     missing = stacked[2] if stacked else []
     return {'type': 'skill', 'name': ', '.join(stacked[1]) if stacked else skills[key]['name'], 'message': message,
             'display': describe_skill_invocation(message, separator=' '),
-            **({'notice': t('cli.skills.skipped_missing', names=', '.join(missing))} if missing else {})}
+            **({'notice': ('Skipped missing skills: {names}').format(names=', '.join(missing))} if missing else {})}
 
 
 async def _tui_read(authority, actor, ref, name, arg, before):
@@ -453,8 +412,7 @@ async def execute_command(connection, ref, params, *, dispatch=False):
                   'session:control' if definition or runner_command else 'session:submit')
     authority.authorize(actor, ref, capability)
     live = authority.sessions[ref.session_id]
-    if verdict == 'refused' or (verdict == 'control' and canonical in _OWNER_COMMANDS
-                                and ref.session_id in connection.subscriptions):
+    if verdict == 'refused':
         raise RuntimeStoreError('unsupported_command', detail=REFUSAL_HINTS.get(canonical))
     from gateway.session_history_mount import is_history_mount, read_only
     if is_history_mount(live):
@@ -464,7 +422,7 @@ async def execute_command(connection, ref, params, *, dispatch=False):
         raise RuntimeStoreError('permission_denied')
     if capability != 'session:read':
         authority._require_admission_open()
-    if definition is not None and (canonical in _INFO_READS or canonical in _OWNER_COMMANDS
+    if definition is not None and (canonical in _INFO_READS
                                    or authority._handle(ref).execution_state == 'idle'):
         await before()  # mid-run the busy dispatcher fires it once it accepts the command (``BUSY_ACCEPTED``)
     if runner_command is not None:
@@ -482,9 +440,6 @@ async def execute_command(connection, ref, params, *, dispatch=False):
     if canonical in _INFO_READS:
         from gateway.session_info_reads import run_info_read
         return await run_info_read(authority, live, canonical)
-    if canonical in _OWNER_COMMANDS:
-        from gateway.session_cron_commands import run_cron
-        return await run_cron(authority, arg)
 
     from gateway.platforms.base import MessageEvent
     from gateway.session_command_sink import capture

@@ -1,9 +1,7 @@
 """Tool result persistence -- preserves large outputs instead of truncating. Layers against
 context overflow: (1) per-tool caps inside each tool; (2) ``maybe_persist_tool_result`` —
 output over the tool's threshold is persisted and replaced by a preview + path; canonical home
-is ALWAYS host-side ``$HERMES_HOME/cache/spillover/{id}.txt`` (works for sessions that never
-ran a terminal), remote backends get the translated in-sandbox path (probed for readability)
-else a copy in the sandbox temp dir; (3) ``enforce_turn_budget``."""
+is ``$HERMES_HOME/cache/spillover/{id}.txt``; (3) ``enforce_turn_budget``."""
 
 import hashlib
 import json
@@ -11,9 +9,7 @@ import logging
 import math
 import os
 import re
-import shlex
 import sqlite3
-import tempfile
 import threading
 import time
 
@@ -22,7 +18,6 @@ from tools.budget_config import DEFAULT_PREVIEW_SIZE_CHARS, BudgetConfig, DEFAUL
 logger = logging.getLogger(__name__)
 PERSISTED_OUTPUT_TAG = "<persisted-output>"
 PERSISTED_OUTPUT_CLOSING_TAG = "</persisted-output>"
-STORAGE_DIR = os.path.join(tempfile.gettempdir(), "hermes-results")
 SPILLOVER_SUBDIR = "cache/spillover"
 # Fallback spillover age only (unreadable config); the real default is the session
 # retention window — see _spillover_retention_hours().
@@ -66,11 +61,8 @@ def _spillover_retention_hours() -> int:
     return max(SPILLOVER_MAX_AGE_HOURS, int(days * 24))
 
 
-# How a spill archive is named inside transcript text: every pointer form — the host path,
-# the ``~``-relative translation, the in-container mounted path — carries the ``spillover/<name>``
-# segment. Sandbox-fallback pointers (``…/hermes-results/<name>``) do not, so their host-side
-# original stays unreferenced and is reclaimed by the orphan sweep, never by ownership.
-# Either separator: Windows host paths are backslashed (JSON-escaped as ``\\`` inside structured content).
+# Match archive basenames in local paths and retained historical transcript prefixes.
+# Either separator: Windows paths are backslashed (JSON-escaped as ``\\`` inside structured content).
 _SPILLOVER_NAME_RE = re.compile(r"spillover(?:/|\\+)([A-Za-z0-9_.-]+)")
 # instr(), not LIKE: structured content is stored behind a NUL sentinel and LIKE stops at NUL.
 SPILLOVER_SQL_FILTER = "(instr(content, 'spillover') > 0 OR instr(api_content, 'spillover') > 0)"
@@ -182,16 +174,6 @@ def _prune_spillover_once() -> None:
         logger.debug("Spillover prune failed: %s", exc)
 
 
-def _is_host_side_env(env) -> bool:
-    """True when this process should write the spill file directly: ``env=None`` (no sandbox
-    yet) or a backend whose files are the host's. Others resolve ``read_file`` inside the sandbox."""
-    if env is None:
-        return True
-    from tools.environments.base import env_uses_host_filesystem
-
-    return env_uses_host_filesystem(env)
-
-
 def _write_to_spillover(content: str, filename: str):
     """Write host-side to $HERMES_HOME/cache/spillover; returns path str or None.
 
@@ -222,42 +204,6 @@ def _write_to_spillover(content: str, filename: str):
         return None
     _prune_spillover_once()
     return str(path)
-
-
-def _sandbox_visible_spillover_path(host_path: str, env) -> str | None:
-    """Path where a remote backend can read *host_path*, or None. Translates via the image
-    tools' helper, forces a sync for synced backends, then PROBES readability — a persistent
-    container created before spillover joined the mount list lacks the bind mount and must
-    fall back to the in-sandbox write."""
-    try:
-        from tools.credential_files import to_agent_visible_cache_path
-        visible = to_agent_visible_cache_path(host_path)
-    except Exception as exc:
-        logger.debug("Spillover path translation failed: %s", exc)
-        return None
-    try:
-        if (sync_manager := getattr(env, "_sync_manager", None)) is not None:
-            sync_manager.sync(force=True)
-    except Exception as exc:
-        logger.debug("Spillover sync failed: %s", exc)
-    try:
-        if env.execute(f"test -r {shlex.quote(visible)}", timeout=15).get("returncode", 1) == 0:
-            return visible
-    except Exception as exc:
-        logger.debug("Spillover readability probe failed: %s", exc)
-    return None
-
-
-def _resolve_storage_dir(env) -> str:
-    """Return the best temp-backed storage dir for this environment."""
-    get_temp_dir = getattr(env, "get_temp_dir", None)
-    temp_dir = None
-    if callable(get_temp_dir):
-        try:
-            temp_dir = get_temp_dir()
-        except Exception as exc:
-            logger.debug("Could not resolve env temp dir: %s", exc)
-    return f"{temp_dir.rstrip('/') or '/'}/hermes-results" if temp_dir else STORAGE_DIR
 
 
 def _safe_result_filename(tool_use_id: str) -> str:
@@ -347,47 +293,6 @@ def _pageable_text(content: str) -> str:
     return f"{text}\n\n{_ENVELOPE_METADATA_TAG}\n{metadata}\n{_ENVELOPE_METADATA_CLOSING_TAG}\n"
 
 
-def _write_to_sandbox(content: str, remote_path: str, env) -> bool:
-    """Write content into the sandbox via env.execute(); True on success. Content goes through
-    stdin, not the command string: Linux ``MAX_ARG_STRLEN`` caps one argv element at 128 KB,
-    so a heredoc-in-command silently failed for exactly the oversized results this handles.
-
-    The write is round-trip verified with ``wc -c`` (one extra exec RTT per oversized result):
-    a zero exit from ``cat`` does not prove the bytes landed (quota/ENOSPC races, API-body
-    truncation on payload backends). A measured mismatch removes the archive and fails closed;
-    an unprobeable backend (no ``wc``, exec error, unparseable output) stays best-effort success."""
-    storage_dir = os.path.dirname(remote_path)
-    # Private dir: archived results carry tool output (can hold secrets) under a
-    # shared temp root on remote backends. The umask also covers the cat redirect.
-    from tools.code_execution_rpc import _private_dirs_cmd
-    cmd = (f"{_private_dirs_cmd(storage_dir)} "
-           f"&& cat > {shlex.quote(remote_path)}")
-    if env.execute(cmd, timeout=30, stdin_data=content).get("returncode", 1) != 0:
-        return False
-
-    expected = len(content.encode("utf-8", errors="replace"))
-    try:
-        probe = env.execute(f"wc -c < {shlex.quote(remote_path)}", timeout=15)
-    except Exception as exc:
-        logger.debug("Sandbox size probe failed for %s: %s", remote_path, exc)
-        return True
-    if probe.get("returncode", 1) != 0:
-        return True
-    raw = str(probe.get("output", "") or "").strip().split()
-    if not raw or not raw[-1].isdigit():
-        return True
-    persisted_size = int(raw[-1])
-    if persisted_size == expected:
-        return True
-    logger.warning("Sandbox spill for %s is not lossless (%d bytes in sandbox, expected %d) — discarding archive",
-                   remote_path, persisted_size, expected)
-    try:
-        env.execute(f"rm -f {shlex.quote(remote_path)}", timeout=15)
-    except Exception:
-        pass
-    return False
-
-
 def _build_persisted_message(preview: str, has_more: bool, original_size: int,
                              file_path: str) -> str:
     """Build the <persisted-output> replacement block."""
@@ -440,27 +345,13 @@ def maybe_persist_tool_result(content: str, tool_name: str, tool_use_id: str, en
                     tool_name, tool_use_id, len(persisted_content), path, host_suffix)
         return _build_persisted_message(preview, has_more, len(persisted_content), path)
 
-    # Always persist host-side first: cache/spillover is the single canonical home.
     host_path = _write_to_spillover(persisted_content, filename)
-    host_side = _is_host_side_env(env)
-    if host_side and host_path is not None:
+    if host_path is not None:
         return _persisted(host_path)
-    if not host_side:
-        # Remote backend: reference the mounted/synced path when the sandbox can actually read
-        # it, else write into the sandbox temp dir (containers without the spillover mount).
-        visible = _sandbox_visible_spillover_path(host_path, env) if host_path else None
-        if visible is not None:
-            return _persisted(visible, f" [host: {host_path}]")
-        remote_path = f"{_resolve_storage_dir(env)}/{filename}"
-        try:
-            if _write_to_sandbox(persisted_content, remote_path, env):
-                return _persisted(remote_path)
-        except Exception as exc:
-            logger.warning("Sandbox write failed for %s: %s", tool_use_id, exc)
-    logger.info("Inline-truncating large tool result: %s (%d chars, no sandbox write)",
+    logger.info("Inline-truncating large tool result: %s (%d chars, write failed)",
                 tool_name, len(content))
     return (f"{preview}\n\n[Truncated: tool response was {len(content):,} chars. "
-            "Full output could not be saved to sandbox.]")
+            "Full output could not be saved.]")
 
 
 def _content_text_size(content) -> int:

@@ -18,7 +18,7 @@ import sqlite3
 import stat
 import tempfile
 import threading
-from hermes_dir_acl import make_user_dir
+from hermes_user_dirs import make_user_dir
 
 from hermes_state_runtime import ADMITTED_REQUEST_CONFLICT, RuntimeStoreError
 from utils import fsync_directory
@@ -99,9 +99,7 @@ async def release_abandoned_capture(scope):
 
 
 def native_inputs_store():
-    """The store's path as the profile names it, unresolved. The one value ``make_user_dir`` gets:
-    ``resolve()`` erases a link planted below the Hermes home (``cache/documents`` -> elsewhere),
-    and an elevated grant on the resolved path would land outside the home with no home fence."""
+    """The store path as the profile names it, before resolution for identity checks."""
     from gateway.platforms.base import get_document_cache_dir
     return get_document_cache_dir() / 'native-inputs'
 
@@ -517,9 +515,8 @@ def _history_mentions(conn, references, after_id=0):
     """Candidate paths any transcript row (id > after_id) mentions raw or JSON-escaped, in ONE
     messages pass. Rows are prefiltered in SQL on the literal text before each candidate's digest
     directory, so only rows that could name a candidate reach Python's exact substring test."""
-    # Matched by the content-addressed tail ``<sha256>/<name>`` with either separator, so every
-    # spelling a note can carry (the host path, a sandbox backend's ``to_agent_visible_cache_path``)
-    # counts as a mention.
+    # Match the content-addressed tail ``<sha256>/<name>`` with either separator, so retained
+    # historical prefixes and current local profile paths both count as mentions.
     needles = {}
     for reference in references:
         raw = reference['path']

@@ -460,22 +460,17 @@ def local_authority_gateway_id() -> str:
 
 
 def _store_ready(conn: sqlite3.Connection, db_path: Path) -> bool:
-    """The store can serve rooms once its schema is current and the pre-isolation import has run."""
-    from gateway.hosted_rooms_legacy_import import settled
-
-    return _schema_is_current(conn) and settled(conn, db_path)
+    """The store can serve rooms once its schema is current."""
+    return _schema_is_current(conn)
 
 
 def _initialize_store(conn: sqlite3.Connection, db_path: Path) -> None:
-    """Create or migrate the schema, then copy the pre-isolation rows in (#109775)."""
-    from gateway.hosted_rooms_legacy_import import import_legacy_rooms
-
+    """Create or migrate the hosted-room schema."""
     _initialize_schema(conn)
-    import_legacy_rooms(conn, db_path)
 
 
 def _connect(db_path: DbPath) -> sqlite3.Connection:
-    """Open the shared room store; ``initialize`` carries the path so the one-shot import can find it."""
+    """Open the shared room store."""
     path = Path(db_path)
     return connect(
         path, db_label="shared-state.db (hosted_rooms)", ready=partial(_store_ready, db_path=path),

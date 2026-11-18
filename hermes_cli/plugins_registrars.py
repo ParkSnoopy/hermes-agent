@@ -58,14 +58,6 @@ _SCOPED_PROVIDER_REGISTRARS: tuple[tuple[str, str, str, str, str, str, dict[str,
      "Register an :class:`agent.browser_provider.BrowserProvider`; "
      "``provider.name`` is matched by ``browser.cloud_provider`` (consulted by "
      "``tools.browser_session_cloud.get_cloud_provider``).", {}),
-    ("register_terminal_environment_provider", "terminal_environment_provider",
-     "agent.terminal_env_registry", "agent.terminal_env_provider:TerminalEnvironmentProvider",
-     "terminal environment provider",
-     "Register a :class:`agent.terminal_env_provider.TerminalEnvironmentProvider`; ``provider.name`` "
-     "is matched by ``terminal.backend`` when no built-in backend has that name. Built-in names (local, "
-     "docker, modal, daytona, vercel_sandbox, ssh) are rejected — plugins never shadow "
-     "in-tree backends.",
-     {"normalize": "lower", "reject_message": "Plugin '%s' terminal environment provider rejected: %s"}),
     ("register_secret_source", "secret_source", "agent.secret_sources.registry",
      "agent.secret_sources.base:SecretSource", "secret source",
      "Register a :class:`agent.secret_sources.base.SecretSource`, run by ``load_hermes_dotenv()`` "
@@ -73,17 +65,6 @@ _SCOPED_PROVIDER_REGISTRARS: tuple[tuple[str, str, str, str, str, str, dict[str,
      "orchestrator owns ordering/precedence/provenance; the source only fetches. Since dotenv usually "
      "loads before discovery, the manager re-pulls enabled plugin sources afterwards.",
      {"normalize": None, "register": "register_source", "param": "source"}),
-    ("register_tts_provider", "tts_provider", "agent.tts_registry",
-     "agent.tts_provider:TTSProvider", "TTS provider",
-     "Register an :class:`agent.tts_provider.TTSProvider`; ``provider.name`` is matched by "
-     "``tts.provider`` unless it is a built-in name (rejected with a warning) or a "
-     "``tts.providers.<name>: type: command`` entry shares it (command-providers win).",
-     {"normalize": "lower"}),
-    ("register_transcription_provider", "transcription_provider", "agent.transcription_registry",
-     "agent.transcription_provider:TranscriptionProvider", "transcription provider",
-     "Register an :class:`agent.transcription_provider.TranscriptionProvider`; ``provider.name`` is "
-     "matched by ``stt.provider`` unless it is a built-in name (rejected) or a ``stt.providers.<name>: "
-     "type: command`` entry shares it (command-providers win).", {"normalize": "lower"}),
     ("register_delegation_provider", "delegation_provider", "agent.delegation_registry",
      "agent.delegation_provider:DelegationProvider", "delegation provider",
      "Register an :class:`agent.delegation_provider.DelegationProvider`; ``provider.name`` is matched by "

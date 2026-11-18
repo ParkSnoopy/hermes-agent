@@ -27,6 +27,14 @@ def _accepts_keyword_argument(callable_obj: Any, name: str) -> bool:
 
 
 class SummaryDispatchMixin:
+    def _note_aux_route_fallback(self, route: dict[str, str]) -> None:
+        """Warn when the main model answered instead of the broken compression model."""
+        failed_model = route.get("failed_model")
+        if failed_model and str(route.get("fallback_label") or "").startswith("main-agent("):
+            self._last_aux_model_failure_model = failed_model
+            failure = route.get("failure") or "unknown error"
+            self._last_aux_model_failure_error = failure if len(failure) <= 220 else failure[:217].rstrip() + "..."
+
     def _apply_summary_route(self, call_kwargs: dict, pinned: Optional[dict[str, Any]] = None) -> None:
         """Pin the summary route onto ``call_kwargs`` for both compression entry points.
 
@@ -71,8 +79,8 @@ class SummaryDispatchMixin:
         fallback summary, or abort under ``abort_on_summary_failure`` exactly like a failed summary call."""
         from agent.context_compressor import take_deterministic_summary_pin
         if take_deterministic_summary_pin():
-            # A detached stale attempt must not stamp error state or mutate the shared telemetry dict
-            # the fallback owns; unwind as a cancellation before any write lands.
+            # A detached stale attempt must not stamp error state the fallback owns;
+            # unwind as a cancellation before any write lands.
             from agent.conversation_compression import _raise_if_stale_attempt
 
             _raise_if_stale_attempt(self)
@@ -80,9 +88,6 @@ class SummaryDispatchMixin:
             self._last_summary_error = (
                 "summary model stalled on every route; deterministic fallback summary inserted"
             )
-            telemetry = getattr(self, "_active_compression_telemetry", None)
-            if isinstance(telemetry, dict):
-                telemetry["failure_class"] = "stall_deterministic_fallback"
             return None
         # Focus-topic derivation scans user turns; only pay when a summary is generated.
         summary_kwargs: dict[str, Any] = {

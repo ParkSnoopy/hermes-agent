@@ -20,12 +20,12 @@ from pathlib import Path
 from hermes_constants import get_process_hermes_home
 from tools.environments.base import BaseEnvironment
 from tools.environments.base_output import _pipe_stdin
-from hermes_cli._subprocess_compat import windows_hide_flags
+
 from hermes_cli.process_identity import own_process_groups, release_process_groups
 from tools.environments.local_env_policy import (
     _ALWAYS_STRIP_FOLDED, _ALWAYS_STRIP_KEYS, _HERMES_PROVIDER_ENV_BLOCKLIST, _HERMES_PROVIDER_ENV_FORCE_PREFIX,
     _is_hermes_internal_secret, _is_provider_env_blocklisted, _is_terminal_first_party_env,
-    _home_adapter_secret_env, _matches_terminal_first_party_prefix, _plugin_terminal_env_strip_keys,
+    _home_adapter_secret_env, _matches_terminal_first_party_prefix,
     _registered_adapter_secret_env, _registry_adapter_secret_env,
     strip_profile_gate_env, strip_supervised_process_identity)
 from tools.environments.local_pythonpath import (
@@ -345,7 +345,7 @@ def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = Non
     """Filter Hermes-managed secrets from a subprocess environment (background/PTY
     spawn path, search workers, computer-use driver, user-script runners)."""
     return _scrubbed_env([(base_env or {}, False), (extra_env or {}, True)],
-                         _plugin_terminal_env_strip_keys(), lambda p: p)
+                         frozenset(), lambda p: p)
 
 
 def _terminal_env(env: dict) -> dict:
@@ -378,7 +378,7 @@ def _scrub_credentials(env: dict, *, inherit_credentials: bool) -> dict:
     # Credential names fold to uppercase for membership: on Windows the env block
     # itself is case-insensitive, so a lowercase-stored ``gh_token`` IS GH_TOKEN.
     home_secrets = _home_adapter_secret_env()  # one manifest stamp per scrub
-    strip_folded = _ALWAYS_STRIP_FOLDED | {k.upper() for k in _plugin_terminal_env_strip_keys()} | home_secrets
+    strip_folded = _ALWAYS_STRIP_FOLDED | home_secrets
     registered = _registry_adapter_secret_env()  # home_secrets already strip above
     for key in list(env):
         if (key.upper() in strip_folded
@@ -502,8 +502,8 @@ def _is_routed_home(target_home: str | Path) -> bool:
 def strip_launch_profile_env(env: dict, target_home: str | Path | None = None) -> dict:
     """Drop the LAUNCH profile's residue from a child env built for another served profile.
     ``os.environ`` holds the default profile's ``.env`` and its bridged ``TERMINAL_*`` settings;
-    the secret scrub removes credentials but not settings (``HERMES_MODEL``, ``TERMINAL_ENV``,
-    ``HERMES_LANGUAGE``...), so a standalone ``hermes -p X`` worker and a served one saw different
+    the secret scrub removes credentials but not settings (``HERMES_MODEL``, ``TERMINAL_ENV``),
+    so a standalone ``hermes -p X`` worker and a served one saw different
     envs. The child re-loads X's own ``.env`` and bridges X's config itself. ``target_home``
     defaults to the active home override; no-op when there is no target or the target IS the
     launch profile. The authority test is "does this task serve a routed home", not "is the
@@ -1052,6 +1052,7 @@ class LocalEnvironment(BaseEnvironment):
     the session snapshot preserves exported env vars across calls (unless
     ``persistent=False``); CWD persists via the stdout marker."""
 
+    env_type = "local"
     _passwordless_sudo_probe_supported = True
     _profile_scoped_passthrough = True
     # Commands run on the Hermes host itself — controller-side platform behavior
@@ -1165,8 +1166,7 @@ class LocalEnvironment(BaseEnvironment):
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             stdin=subprocess.PIPE if stdin_data is not None else subprocess.DEVNULL,
             # detached-spawn: ok — owned via own_process_groups right below
-            start_new_session=True, cwd=self.cwd,
-            **({"creationflags": windows_hide_flags()} if _IS_WINDOWS else {}))
+            start_new_session=True, cwd=self.cwd)
         if not _IS_WINDOWS:
             # The command dies with this process however it dies: a SIGKILLed / OOM-killed host left a
             # running `npm run dev` or `sleep` on init. Released once the wait returns (see below).

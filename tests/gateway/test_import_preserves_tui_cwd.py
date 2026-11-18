@@ -40,20 +40,16 @@ assert Path(server._completion_cwd({})) == launch, (
 
 
 @pytest.mark.parametrize(
-    "backend,mount,configured,legacy,expected",
+    "configured,legacy,expected",
     [
-        ("local", "false", ".", None, "home"),
-        ("", "false", "", None, "home"),
-        ("docker", "false", ".", None, None),
-        ("docker", "true", ".", None, None),
-        ("docker", "true", ".", "legacy", "legacy"),
-        ("ssh", "false", ".", None, None),
-        ("local", "false", "explicit", None, "explicit"),
-        ("local", "false", ".", "legacy", "legacy"),
+        (".", None, "home"),
+        ("", None, "home"),
+        ("explicit", None, "explicit"),
+        (".", "legacy", "legacy"),
     ],
 )
 def test_gateway_start_keeps_messaging_cwd_defaults(
-    monkeypatch, tmp_path, backend, mount, configured, legacy, expected,
+    monkeypatch, tmp_path, configured, legacy, expected,
 ):
     import asyncio
     from gateway.run import start_gateway
@@ -66,8 +62,7 @@ def test_gateway_start_keeps_messaging_cwd_defaults(
         raise StopBeforeStartup
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    monkeypatch.setenv("TERMINAL_ENV", backend)
-    monkeypatch.setenv("TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE", mount)
+
     monkeypatch.setenv("TERMINAL_CWD", configured)
     if legacy is None:
         monkeypatch.delenv("MESSAGING_CWD", raising=False)

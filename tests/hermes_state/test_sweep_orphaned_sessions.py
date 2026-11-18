@@ -539,10 +539,10 @@ class TestSweepOrphanedSessions:
     def test_auto_prune_reports_closed_count_and_deletes_after_second_window(
         self, db
     ):
-        """#54189 end-to-end: leaky producers (cron/kanban/subagent) never set
+        """#54189 end-to-end: leaky producers (cron/subagent) never set
         ``ended_at``; pass 1 closes them (reported via ``closed``), pass 2 —
         after a further retention window — deletes them, and a messaging row
-        is never touched by either pass."""
+        and retired automation rows are never touched by either pass."""
         stale = time.time() - 200 * 86400
         for sid, source in (
             ("cron-0", "cron"),
@@ -556,9 +556,9 @@ class TestSweepOrphanedSessions:
         first = db.maybe_auto_prune_and_vacuum(
             retention_days=90, min_interval_hours=0, vacuum=False
         )
-        assert first["closed"] == 3
+        assert first["closed"] == 2
         assert first["pruned"] == 0
-        for sid in ("cron-0", "kanban-1", "subagent-2"):
+        for sid in ("cron-0", "subagent-2"):
             assert db.get_session(sid)["end_reason"] == "startup_orphan_reap"
         assert db.get_session("telegram-3")["ended_at"] is None
 
@@ -572,9 +572,9 @@ class TestSweepOrphanedSessions:
             retention_days=90, min_interval_hours=0, vacuum=False
         )
         assert second["closed"] == 0
-        assert second["pruned"] == 3
+        assert second["pruned"] == 2
         remaining = [r["id"] for r in db._conn.execute("SELECT id FROM sessions")]
-        assert remaining == ["telegram-3"]
+        assert set(remaining) == {"telegram-3", "kanban-1"}
 
     def test_auto_prune_closes_and_later_deletes_recovered_placeholders(self, db):
         """#114730: ``sessions recover`` synthesizes ``source='recovered'`` placeholder

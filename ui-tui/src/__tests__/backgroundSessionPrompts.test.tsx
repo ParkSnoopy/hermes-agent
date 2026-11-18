@@ -31,7 +31,7 @@ function mount(gw: any) {
     lifecycle = useSessionLifecycle({
       colsRef: { current: 80 }, composerActions: { setComposerTokens: noop }, gw, rpc: gw.request,
       scrollRef: { current: null }, panel: noop, sys: noop, setHistoryItems: noop, setLastUserMsg: noop,
-      setSessionStartedAt: noop, setStickyPrompt: noop, setVoiceProcessing: noop, setVoiceRecording: noop
+      setSessionStartedAt: noop, setStickyPrompt: noop,
     } as any)
 
     return <Text>probe</Text>

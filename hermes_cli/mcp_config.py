@@ -648,21 +648,12 @@ def cmd_mcp_add(args):
         _info('  hermes mcp add myserver --preset mypreset')
         return
 
-    # Overwriting an existing server is a re-add, not an install; cancels are not recorded either.
-    fresh = name not in _get_mcp_servers()
-    if not fresh and not _confirm(
+    if name in _get_mcp_servers() and not _confirm(
         f"Server '{name}' already exists. Overwrite?", default=False
     ):
         _info("Cancelled.")
         return
 
-    def _record(saved: bool, failure_class: str = "config_rejected") -> None:
-        # A save only fails on a suspicious configuration (_save_mcp_server returns False).
-        if fresh:
-            from hermes_cli.mcp_catalog import record_mcp_install
-
-            record_mcp_install("url" if url else "local", None, "success" if saved else "failed",
-                               failure_class=None if saved else failure_class)
 
     if url:
         server_config["url"] = url
@@ -676,7 +667,6 @@ def cmd_mcp_add(args):
         server_config["connect_timeout"] = raw_connect_timeout
 
     if not _validate_or_warn(name, server_config):
-        _record(False)
         return
     if url and not _configure_http_auth(name, url, auth_type, server_config):
         return
@@ -695,14 +685,12 @@ def cmd_mcp_add(args):
             if saved:
                 _success(f"Saved '{name}' to config (disabled)")
                 _info("Fix the issue, then: hermes mcp test " + name)
-        _record(saved, probe_failure_class(exc))
         return
 
     if not tools:
         _warning("Server connected but reported no tools.")
         if _confirm("Save config anyway?", default=True):
             saved = _save_mcp_server(name, server_config)
-            _record(saved)
             if saved:
                 _success(f"Saved '{name}' to config")
         return
@@ -712,7 +700,6 @@ def cmd_mcp_add(args):
         return
     server_config["enabled"] = True
     saved = _save_mcp_server(name, server_config)
-    _record(saved)
     if saved:
         print()
         _success(
@@ -798,9 +785,10 @@ def probe_failure_class(exc: BaseException) -> str:
     """Extension-install class for a failed MCP probe, from the exception TYPE (the same tests
     :func:`_probe_failure_next_step` uses), never its message. Never raises: an exception whose own
     attribute hooks raise reads ``connect_failed`` instead of replacing the user's error."""
-    from hermes_cli.observability.shared_metrics_fields import tagged_failure_class
+    from inspect import getattr_static
 
-    if tagged := tagged_failure_class(exc):
+    tagged = getattr_static(exc, "failure_class", None)
+    if isinstance(tagged, str) and tagged:
         return tagged
     from tools.mcp_tool_errors import InvalidMcpUrlError, _is_auth_error, _iter_exception_nodes, _unwrap_exception_group
     from tools.mcp_tool_node_abi import NodeAbiMismatchError

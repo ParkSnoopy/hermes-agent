@@ -59,15 +59,11 @@ def _manifest_name(data: dict[str, Any]) -> Optional[str]:
 _AGENT_PAYLOAD_FILES = ("__init__.py", "dashboard/manifest.json")
 
 
-def _yaml_ships_agent_payload(root: Path, manifest: dict[str, Any]) -> bool:
+def _yaml_ships_agent_payload(root: Path) -> bool:
     """Whether a ``plugin.yaml`` folder has something for the agent side to load. A manifest alone is not
     enough: desktop-only plugins ship one beside ``desktop/plugin.js`` for metadata, and installing those
     into the backend's ``plugins/`` puts down a package that loads nothing."""
-    if any((root / rel).is_file() for rel in _AGENT_PAYLOAD_FILES):
-        return True
-    # The loader's manifest-only language pack (``_is_manifest_only_language_pack``), judged the way
-    # ``hermes plugins validate`` does: declared locales plus the folder that holds them.
-    return bool(manifest.get("provides_locales")) and (root / "locales").is_dir()
+    return any((root / rel).is_file() for rel in _AGENT_PAYLOAD_FILES)
 
 
 def detect_components(root: Path, fallback_name: str) -> dict[str, Any]:
@@ -78,7 +74,7 @@ def detect_components(root: Path, fallback_name: str) -> dict[str, Any]:
     yaml_path = next((root / n for n in ("plugin.yaml", "plugin.yml") if (root / n).is_file()), None)
     yaml_manifest = _read_manifest(yaml_path, yaml.safe_load)
     portable = root / "plugin.json"
-    agent = (yaml_path is not None and _yaml_ships_agent_payload(root, yaml_manifest)) or portable.is_file()
+    agent = (yaml_path is not None and _yaml_ships_agent_payload(root)) or portable.is_file()
     desktop = (root / "plugin.js").is_file() or (root / "desktop" / "plugin.js").is_file()
     agent_name = None
     if agent:

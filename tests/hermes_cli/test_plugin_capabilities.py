@@ -125,7 +125,7 @@ class TestDeclarationParsing:
             load=load,
         )
         capability_ep = SimpleNamespace(
-            name="thread-namer.gateway.platform_actions",
+            name="thread-namer.tools.override",
             value="thread_namer.plugin:register",
             group="hermes_agent.plugin_capabilities",
             load=load,
@@ -142,7 +142,7 @@ class TestDeclarationParsing:
         assert manifests[0].name == "thread-namer"
         assert manifests[0].version == "1.2.3"
         assert manifests[0].description == "Names gateway threads"
-        assert manifests[0].capabilities == ["gateway.platform_actions"]
+        assert manifests[0].capabilities == ["tools.override"]
         load.assert_not_called()
 
 

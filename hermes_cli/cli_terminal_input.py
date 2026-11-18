@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Mapping
 from urllib.parse import unquote, urlparse
 
-from agent.i18n import t
+
 
 # Log-record parity with the origin module.
 logger = logging.getLogger("cli")
@@ -104,19 +104,13 @@ def _resolve_attachment_path(raw_path: str) -> Path | None:
             parsed = urlparse(token)
             if parsed.scheme == "file":
                 expanded = unquote(parsed.path or "")
-                if parsed.netloc and os.name == "nt":
-                    expanded = f"//{parsed.netloc}{expanded}"
-                elif os.name == "nt" and len(expanded) >= 3 and expanded[0] == "/" and expanded[1].isalpha() and expanded[2] == ":":
-                    # file:///C:/... parses to path "/C:/..." — drop the leading slash
-                    # so it resolves as a drive-letter path.
-                    expanded = expanded[1:]
+
         except Exception:
             expanded = token
     expanded = os.path.expandvars(os.path.expanduser(expanded))
-    if os.name != "nt":
-        normalized = expanded.replace("\\", "/")
-        if len(normalized) >= 3 and normalized[1] == ":" and normalized[2] == "/" and normalized[0].isalpha():
-            expanded = f"/mnt/{normalized[0].lower()}/{normalized[3:]}"
+    normalized = expanded.replace("\\", "/")
+    if len(normalized) >= 3 and normalized[1] == ":" and normalized[2] == "/" and normalized[0].isalpha():
+        expanded = f"/mnt/{normalized[0].lower()}/{normalized[3:]}"
     path = Path(expanded)
     if not path.is_absolute():
         base_dir = Path(os.getenv("TERMINAL_CWD", os.getcwd()))
@@ -193,7 +187,7 @@ def _format_image_attachment_badges(attached_images: list[Path], image_counter: 
     if width < 52:
         if len(attached_images) == 1:
             return f"[📎 {_trunc(attached_images[0].name, 20)}]"
-        return t("cli.terminal.image_badge_count", count=len(attached_images))
+        return (f'[📎 {len(attached_images)} images attached]')
 
     if width < 80:
         if len(attached_images) == 1:
@@ -201,7 +195,7 @@ def _format_image_attachment_badges(attached_images: list[Path], image_counter: 
         return f"[📎 {_trunc(attached_images[0].name, 20)}] [+{len(attached_images) - 1}]"
 
     base = image_counter - len(attached_images) + 1
-    return " ".join(t("cli.terminal.image_badge_numbered", index=base + i) for i in range(len(attached_images)))
+    return " ".join((f'[📎 Image #{base + i}]') for i in range(len(attached_images)))
 
 
 def _should_auto_attach_clipboard_image_on_paste(pasted_text: str) -> bool:
@@ -443,8 +437,7 @@ def _preserve_ctrl_enter_newline() -> bool:
     """
     env = os.environ
     if (
-        sys.platform == "win32"
-        or any(env.get(v) for v in ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY", "WT_SESSION",
+        any(env.get(v) for v in ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY", "WT_SESSION",
                                     "GHOSTTY_RESOURCES_DIR", "GHOSTTY_BIN_DIR"))
         or env.get("TERM", "").lower() == "xterm-ghostty" or env.get("TERM_PROGRAM", "").lower() == "ghostty"
         or "microsoft" in env.get("WSL_DISTRO_NAME", "").lower()
@@ -472,7 +465,7 @@ def _bind_prompt_submit_keys(kb, handler, *, multiline_shortcuts_enabled: Option
     if multiline_shortcuts_enabled is None:
         multiline_shortcuts_enabled = _cli_multiline_shortcuts_enabled()
     kb.add("enter")(handler)
-    if sys.platform != "win32" and not multiline_shortcuts_enabled and not _preserve_ctrl_enter_newline():
+    if not multiline_shortcuts_enabled and not _preserve_ctrl_enter_newline():
         kb.add("c-j")(handler)
 
 
@@ -483,13 +476,13 @@ def _disable_prompt_toolkit_cpr_warning(app) -> None:
 
 
 def _terminal_may_leak_cpr() -> bool:
-    """Suppress prompt_toolkit CPR queries (delayed replies leak into input); Windows keeps pt's default.
+    """Suppress prompt_toolkit CPR queries (delayed replies leak into input).
 
     Delayed CPR replies (``ESC[<row>;<col>R`` / visible ``^[[<row>;<col>R``) leak into the status line and
     can freeze input when the reply is slow (#13870 on SSH/slow PTYs). The same race hits local POSIX TTYs
-    under heavy subagent / status-line load — see ``tests/hermes_cli/test_cpr_local_leak.py``.
+    under heavy subagent / status-line load.
     """
-    return os.environ.get("PROMPT_TOOLKIT_NO_CPR", "") == "1" or sys.platform != "win32"
+    return True
 
 
 def _build_cpr_disabled_output(stdout):

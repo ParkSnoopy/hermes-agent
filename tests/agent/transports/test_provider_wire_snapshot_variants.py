@@ -38,8 +38,8 @@ from tests.agent.transports import test_provider_wire_snapshot as base
 SNAPSHOT = Path(__file__).resolve().parents[2] / "fixtures" / "provider_wire_snapshot_variants.json"
 offline = base.offline
 
-# The base rows plus the efforts clamp ladders and overrides treat specially. Effort ``none`` with
-# thinking enabled is a real request shape (voice turns), distinct from ``enabled: False``.
+# The base rows plus effort clamp ladders and overrides treat specially. Effort ``none`` with
+# thinking enabled is distinct from ``enabled: False``.
 REASONING_LADDER: dict[str, Any] = {
     **base.REASONING,
     "minimal": {"enabled": True, "effort": "minimal"},

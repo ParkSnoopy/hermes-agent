@@ -39,6 +39,23 @@ def _mutate(db, epoch, sid, operation, **extra):
         payload={}, **extra)
 
 
+def test_receipt_rejects_legacy_identity_without_changing_history(tmp_path):
+    from hermes_state_local import local_receipt
+    from hermes_state_local_lineage import validate_local_lineage
+
+    with closing(SessionDB(tmp_path / 'state.db')) as db:
+        epoch = rt.begin_runtime_epoch(db, instance_id='owner')
+        sid = _local_session(db, epoch, tmp_path)
+        receipt = local_receipt(db, sid)
+        with db._read_ctx() as conn:
+            assert validate_local_lineage(conn, receipt) == sid
+            receipt['legacy_session_id'] = sid
+            with pytest.raises(rt.RuntimeStoreError, match='storage_unavailable'):
+                validate_local_lineage(conn, receipt)
+        assert 'legacy_session_id' not in local_receipt(db, sid)
+        assert db.get_session(sid) is not None
+
+
 @pytest.mark.parametrize('operation', ['reset', 'compress'])
 def test_target_advance_allows_queued_follower_and_refuses_started_head(tmp_path, operation):
     prepare = {'_prepare_only': True} if operation == 'compress' else {}

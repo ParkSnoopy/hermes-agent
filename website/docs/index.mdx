@@ -41,7 +41,7 @@ The self-improving AI agent built by [Nous Research](https://nousresearch.com). 
     Get Started →
   </Link>
   <Link
-    to="/user-guide/bot-mode"
+    to="/user-guide/cli"
     style={{
       display: "inline-block",
       padding: "0.6rem 1.2rem",
@@ -50,20 +50,8 @@ The self-improving AI agent built by [Nous Research](https://nousresearch.com). 
       textDecoration: "none",
     }}
   >
-    Explore Bot Mode
+    Explore CLI Usage
   </Link>
-  <a
-    href="https://hermes-agent.nousresearch.com/"
-    style={{
-      display: "inline-block",
-      padding: "0.6rem 1.2rem",
-      border: "1px solid rgba(255,215,0,0.2)",
-      borderRadius: "8px",
-      textDecoration: "none",
-    }}
-  >
-    Download Desktop
-  </a>
   <a
     href="https://github.com/NousResearch/hermes-agent"
     style={{
@@ -80,57 +68,27 @@ The self-improving AI agent built by [Nous Research](https://nousresearch.com). 
 
 ## Install
 
-### Windows or macOS
-
-To easily install the command-line and desktop applications, [download the Hermes Desktop installer](https://hermes-agent.nousresearch.com/) from our website and run it.
-
-### Without Hermes Desktop:
-
-For a command-line only install without Hermes Desktop, run:
-
-For aarch64 Android devices, use the separate [Termux APT guide](./getting-started/termux.md).
-
-#### Linux / macOS / WSL2
-
-```bash
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
-```
-
-#### Windows (native)
-
-Run in powershell:
-
-```powershell
-iex (irm https://hermes-agent.nousresearch.com/install.ps1)
-```
-
-See the full **[Installation Guide](./getting-started/installation.md)** for what the installer does, installation ownership and data locations, and Windows-specific notes. For the complete platform support matrix, see **[Platform Support](./getting-started/platform-support.md)**.
-
-:::tip Fastest path to a working agent
-After installing, run `hermes setup --portal` — one OAuth covers a model plus all four Tool Gateway tools (web search, image generation, TTS, browser). See [Nous Portal](./integrations/nous-portal.md).
-:::
+From a local Linux source checkout, run `source ./activate`, then `hermes setup` and `hermes`. See [Installation](./getting-started/installation.md).
 
 ## What is Hermes Agent?
 
-It's not a coding copilot tethered to an IDE or a chatbot wrapper around a single API. It's an **autonomous agent** that gets more capable the longer it runs. It lives wherever you put it — a $5 VPS, a GPU cluster, or serverless infrastructure (Daytona, Modal) that costs nearly nothing when idle. Talk to it from Telegram while it works on a cloud VM you never SSH into yourself. It's not tied to your laptop.
+It's an **autonomous agent** that gets more capable the longer it runs. Use the CLI or TUI in a local Linux environment.
 
 ## Quick Links
 
 |                                                                         |                                                                       |
 | ----------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| 🚀 **[Installation](./getting-started/installation.md)**                    | Install in 60 seconds on Linux, macOS, WSL2, native Windows, Nix & NixOS or Android |
+| 🚀 **[Installation](./getting-started/installation.md)** | Install from a local Linux source checkout |
 | 📖 **[Quickstart Tutorial](./getting-started/quickstart.md)**               | Your first conversation and key features to try                       |
 | 🗺️ **[Learning Path](./getting-started/learning-path.md)**                  | Find the right docs for your experience level                         |
 | ⚙️ **[Configuration](./user-guide/configuration.md)**                       | Config file, providers, models, and options                           |
-| 💬 **[Messaging Gateway](./user-guide/messaging/index.md)**                       | Set up Telegram, Discord, Slack, WhatsApp, Teams, or more             |
-| 🤖 **[Bot Mode](./user-guide/bot-mode.md)**                                | Named Bots with their own model, memory, skills, routines, and chats  |
+| 🔗 **[A2A](./user-guide/messaging/a2a.md)** | Connect agents across processes and frameworks |
+| 💻 **[CLI Usage](./user-guide/cli.md)** | Conversations and commands in your terminal |
 | 🔧 **[Tools & Toolsets](./user-guide/features/tools.md)**                   | 60+ built-in tools and how to configure them                          |
 | 🧠 **[Memory System](./user-guide/features/memory.md)**                     | Persistent memory that grows across sessions                          |
 | 📚 **[Skills System](./user-guide/features/skills.md)**                     | Procedural memory the agent creates and reuses                        |
 | 🔌 **[MCP Integration](./user-guide/features/mcp.md)**                      | Connect to MCP servers, filter their tools, and extend Hermes safely  |
 | 🧭 **[Use MCP with Hermes](./guides/use-mcp-with-hermes.md)**               | Practical MCP setup patterns, examples, and tutorials                 |
-| 🎙️ **[Voice Mode](./user-guide/features/voice-mode.md)**                    | Real-time voice interaction in CLI, Telegram, Discord, and Discord VC |
-| 🗣️ **[Use Voice Mode with Hermes](./guides/use-voice-mode-with-hermes.md)** | Hands-on setup and usage patterns for Hermes voice workflows          |
 | 🎭 **[Personality & SOUL.md](./user-guide/features/personality.md)**        | Define Hermes' default voice with a global SOUL.md                    |
 | 📄 **[Context Files](./user-guide/features/context-files.md)**              | Project context files that shape every conversation                   |
 | 🔒 **[Security](./user-guide/security.md)**                                 | Command approval, authorization, container isolation                  |
@@ -141,14 +99,12 @@ It's not a coding copilot tethered to an IDE or a chatbot wrapper around a singl
 ## Key Features
 
 - **A closed learning loop** — Agent-curated memory with periodic nudges, autonomous skill creation, skill self-improvement during use, FTS5 cross-session recall with LLM summarization, and [Honcho](https://github.com/plastic-labs/honcho) dialectic user modeling
-- **Runs anywhere, not just your laptop** — 6 built-in terminal backends (local, Docker, SSH, Daytona, Modal, Vercel Sandbox) plus plugin backends such as Singularity. Daytona and Modal offer serverless persistence — your environment hibernates when idle, costing nearly nothing
-- **Lives where you do** — CLI, Telegram, Discord, Slack, WhatsApp, Signal, Matrix, Mattermost, Email, SMS, DingTalk, Feishu, WeCom, Weixin, QQ Bot, Yuanbao, BlueBubbles, Home Assistant, Microsoft Teams, Google Chat, and more — 20+ platforms from one gateway
+- **Runs anywhere, not just your laptop** — Commands run locally wherever Hermes itself runs.
+- **Terminal interfaces** — Use the CLI or TUI for local conversations
 - **Built by model trainers** — Created by [Nous Research](https://nousresearch.com), the lab behind Hermes, Nomos, and Psyche. Works with [Nous Portal](https://portal.nousresearch.com), [OpenRouter](https://openrouter.ai), OpenAI, or any endpoint
-- **Scheduled automations** — Built-in cron with delivery to any platform
-- **[Bot Mode](./user-guide/bot-mode.md)** — Build a durable team of specialist Bots that work together in group chats and through `@mentions`
 - **Delegates & parallelizes** — Spawn isolated subagents for parallel workstreams. Programmatic Tool Calling via `execute_code` collapses multi-step pipelines into single inference calls
 - **Open standard skills** — Compatible with [agentskills.io](https://agentskills.io). Skills are portable, shareable, and community-contributed via the Skills Hub
-- **Full web control** — Search, extract, browse, vision, image generation, TTS — one subscription via [Nous Portal](./integrations/nous-portal.md) bundles all of them
+- **Full web control** — Search, extract, browse, vision, image generation — one subscription via [Nous Portal](./integrations/nous-portal.md) bundles all of them
 - **MCP support** — Connect to any MCP server for extended tool capabilities
 - **Research-ready** — Batch processing, trajectory export, RL training with Atropos. Built by [Nous Research](https://nousresearch.com) — the lab behind Hermes, Nomos, and Psyche models
 

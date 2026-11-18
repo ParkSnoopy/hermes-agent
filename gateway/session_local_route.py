@@ -2,6 +2,24 @@
 from __future__ import annotations
 
 
+def resolve_local_target(authority, actor, sid):
+    """Resolve a canonical local transcript segment to its authorized owner."""
+    from gateway.session_contract import SessionRef
+    from hermes_state_local import local_lineage_owner
+    from hermes_state_runtime import RuntimeStoreError
+
+    row = authority.db.get_session(sid)
+    if row is None:
+        raise RuntimeStoreError('not_found')
+    with authority.db._read_ctx() as conn:
+        owner = local_lineage_owner(conn, sid)
+    if not owner or row.get('chat_id') != owner:
+        raise RuntimeStoreError('not_found')
+    ref = SessionRef(authority.profile_id, owner)
+    authority.authorize(actor, ref, 'session:read')
+    return ref
+
+
 def resolve_launch_route(params: dict, config: dict) -> dict:
     """Return ``params`` with an explicit launch model decoded the way every other startup path does.
 

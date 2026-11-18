@@ -290,13 +290,12 @@ class TestChatCompletionsBuildKwargs:
 
 
 
-    def test_nous_tags(self, transport):
-        from agent.portal_tags import nous_portal_tags
+    def test_nous_does_not_inject_attribution_tags(self, transport):
         from providers import get_provider_profile
         profile = get_provider_profile("nous")
         msgs = [{"role": "user", "content": "Hi"}]
         kw = transport.build_kwargs(model="gpt-4o", messages=msgs, provider_profile=profile)
-        assert kw["extra_body"]["tags"] == nous_portal_tags()
+        assert "tags" not in kw.get("extra_body", {})
 
 
     def test_nous_omits_disabled_reasoning_for_unknown_model(self, transport):

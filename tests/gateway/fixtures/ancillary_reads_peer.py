@@ -1,5 +1,6 @@
-"""Authenticated TCP fixture with owner-seeded state; no external inference."""
+"""Authority reads of owner-seeded state; no external inference."""
 import asyncio
+from contextlib import AsyncExitStack
 import json
 import os
 from pathlib import Path
@@ -12,27 +13,24 @@ import weakref
 async def probe(mode):
     from gateway.run import GatewayRunner
     from gateway.session_authority import initialize_session_authority
-    from gateway.run_api import start_gateway_api, stop_gateway_api
+    from gateway.session_controls import AuthorityConnection
     from gateway.session_contract import SessionRef
-    from hermes_cli import web_server
-    from hermes_cli.dashboard_auth.ws_tickets import mint_ticket
-    from tests.gateway.fixtures.local_recovery_probe import rpc
-    from websockets.asyncio.client import connect
+    from tests.gateway.fixtures.execution_frames_capture import Peer
 
     home = Path(os.environ['HERMES_HOME'])
     (home / 'config.yaml').write_text('gateway:\n  multiplex_profiles: false\nmodel:\n  provider: custom\n  default: no-inference\n  base_url: http://127.0.0.1:1/v1\nauxiliary:\n  title_generation:\n    enabled: false\n')
     runner = GatewayRunner()
     authority = await initialize_session_authority(runner, profile_id=str(home), instance_id='ancillary')
-    api = await start_gateway_api(runner)
-    web_server.app.state.auth_required = True
-
-    def socket(actor='owner'):
-        ticket = mint_ticket(user_id=actor, provider='fixture')
-        return connect(api.api_origin.replace('http:', 'ws:') + '/api/ws?ticket=' + ticket)
+    async def rpc(connection, method, **params):
+        return await connection.dispatch({'jsonrpc': '2.0', 'id': method, 'method': method, 'params': params})
 
     try:
-        async with socket() as ws, socket('peer_operator') as peer_operator:
-            created = await rpc(ws, 'session.create', request_id='read-owner', source='gui', toolsets=[])
+        async with AsyncExitStack() as stack:
+            ws = AuthorityConnection(authority, Peer(), {'user_id': 'owner'}, operator=True)
+            peer_operator = AuthorityConnection(authority, Peer(), {'user_id': 'peer_operator'}, operator=True)
+            stack.push_async_callback(ws.close)
+            stack.push_async_callback(peer_operator.close)
+            created = await rpc(ws, 'session.create', request_id='read-owner', source='tui', toolsets=[])
             assert 'result' in created, created
             sid = created['result']['session_id']
             ref = SessionRef(str(home), sid)
@@ -42,7 +40,7 @@ async def probe(mode):
                 args = {'subagent_id': 'unowned'} if method == 'subagent.tail' else {}
                 shared = await rpc(peer_operator, method, session_id=sid, **args)
                 original = await rpc(ws, method, session_id=sid, **args)
-                # Both tickets are verified dashboard operators; underlying child
+                # Both connections are trusted operators; underlying child
                 # membership checks still apply, including the absent tail target.
                 assert shared.get('result') == original.get('result'), (shared, original)
                 assert shared.get('error') == original.get('error'), (shared, original)
@@ -53,13 +51,12 @@ async def probe(mode):
             if mode == 'control':
                 from hermes_cli.goals import GoalState, GoalGate
                 from hermes_cli.loops import LoopState
-                from hermes_cli.heartbeat import HeartbeatState
+
                 # Owner writes fixture rows; reads must not call managers that clear barriers.
                 goal = GoalState('OWNER_GOAL', status='paused', created_at=10, waiting_on_pid=99999999,
                                  gates=[GoalGate(command='owned command', last_output_tail='PRIVATE_GATE_OUTPUT')])
                 loop = LoopState('OWNER_LOOP', status='paused', created_at=20, route={'token': 'PRIVATE_ROUTE'})
-                heartbeat = HeartbeatState('OWNER_HEARTBEAT', 600, status='paused', created_at=30)
-                for key, state in [('goal', goal), ('loop', loop), ('heartbeat', heartbeat)]:
+                for key, state in [('goal', goal), ('loop', loop)]:
                     authority.db.set_meta(key + ':' + sid, state.to_json())
                     authority.db.set_meta(key + ':' + live.route, state.to_json().replace('OWNER_', 'WRONG_ROUTE_'))
                 before = authority.db._conn.total_changes
@@ -68,7 +65,7 @@ async def probe(mode):
                 snap = responses[0]['result']['control']
                 assert responses[0] == responses[1]
                 assert snap['goal']['title'] == 'OWNER_GOAL' and snap['loop']['prompt'] == 'OWNER_LOOP'
-                assert snap['heartbeat']['prompt'] == 'OWNER_HEARTBEAT' and snap['updated_at'] == 30
+                assert snap['updated_at'] == 20
                 assert snap['goal']['wait_barrier']['target'] == 99999999
                 assert 'PRIVATE_' not in json.dumps(snap) and len(snap['revision']) == 64
                 assert authority.db._conn.total_changes == before
@@ -148,7 +145,7 @@ async def probe(mode):
                     # stays readable after its chat moved on (a messaging /new), as before the
                     # shared gateway; only the live owner objects above are fenced.
                     moved = await rpc(ws, 'session.control.read', session_id=sid)
-                    assert 'result' in moved and set(moved['result']['control']) >= {'goal', 'loop', 'heartbeat'}, moved
+                    assert 'result' in moved and set(moved['result']['control']) >= {'goal', 'loop'}, moved
                     with runner.session_store._lock:
                         entry.session_id = sid
                     # Identical durable session IDs cannot transfer old-object read authority.
@@ -174,10 +171,10 @@ async def probe(mode):
                         assert proc.exited and proc.exit_code == 0
                     for child in children:
                         _unregister_subagent(child._subagent_id, agent=child)
-            (home / 'receipt.json').write_text(json.dumps({'mode': mode, 'authenticated_ws': True,
-                'foreign_actor_denied': True, 'foreign_profile_denied': True, 'no_inference': True}))
+            (home / 'receipt.json').write_text(json.dumps({'mode': mode, 'authority_dispatch': True,
+                'peer_operator_allowed': True, 'foreign_profile_denied': True, 'no_inference': True}))
     finally:
-        await stop_gateway_api(api)
+        runner.session_store.close_all_db_handles()
 
 
 if __name__ == '__main__':

@@ -29,7 +29,6 @@ const buildCtx = (appended: Msg[]) =>
     submission: { submitRef: { current: vi.fn() } },
     system: { bellOnComplete: false, sys: vi.fn() },
     transcript: { appendMessage: (msg: Msg) => appended.push(msg), panel: vi.fn(), setHistoryItems: vi.fn() },
-    voice: { setProcessing: vi.fn(), setRecording: vi.fn(), setVoiceEnabled: vi.fn() }
   }) as any
 
 const streamThenComplete = (complete: Record<string, unknown>) => {

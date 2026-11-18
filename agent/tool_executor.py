@@ -33,7 +33,6 @@ from agent.display import (
 from agent.compression_marker import _COMPRESSION_MARKER_PREFIX
 from agent.interrupt_control import _REASON_USER_INTERRUPT, interrupt_skip_wording
 from agent.message_sanitization import coalesce_tool_call_id
-from agent.onboarding import observe_tool_result as observe_onboarding_result
 from agent import plugin_live_notes
 from agent.lsp import deferred as lsp_deferred
 from agent.prompt_cache_scope import conversation_id
@@ -64,7 +63,7 @@ from tools.tool_result_storage import (
     extract_persisted_path,
 )
 from tools.budget_config import BudgetConfig, DEFAULT_BUDGET, budget_for_context_window
-from hermes_cli.observability.shared_metrics_efficiency import note_tool_result, record_tool_batch
+
 
 # A tool result this large (raw stdout, file dumps) is the biggest allocation a turn ever drops.
 # The commit only flags it: the string is still referenced by the publish frames here, so the
@@ -97,15 +96,12 @@ def _record_persisted_path_for_stub(agent, tool_call_id: str, function_result) -
 
 def _ensure_file_checkpoint(agent, function_name: str, function_args: dict, effective_task_id: str) -> None:
     """Checkpoint the same workspace path that the file tool will mutate, resolved the way
-    file tools do (against the task's live cwd, which differs from the process cwd in Docker)."""
+    file tools do (against the task's live cwd, not the process cwd)."""
     file_path = function_args.get("path", "")
     if not file_path:
         return
     from agent.file_safety import is_nt_namespace_path
-    from tools.file_tools_paths import _resolve_path_for_task, container_backend_for_task
-
-    if container_backend_for_task(effective_task_id or "default") is not None:
-        return  # container paths: nothing to checkpoint on the host
+    from tools.file_tools_paths import _resolve_path_for_task
 
     # Resolving an NT-namespace path is itself the NTLM-leak trigger; leave the
     # tool's raw-string guard to refuse it without a checkpoint stat.
@@ -380,13 +376,6 @@ def _tool_search_scoped_names(agent) -> frozenset:
         return frozenset()
 
 
-def _canonical_tool_name(function_name: str) -> str:
-    """Map legacy tool-name aliases BEFORE agent-loop dispatch."""
-    from model_tools import _LEGACY_TOOL_ALIASES as _lta
-
-    return _lta.get(function_name, function_name)
-
-
 def _unwrap_tool_search_call(
     agent, function_name: str, function_args: dict, *, flatten_probe: bool = False
 ) -> tuple[str, dict, Optional[str]]:
@@ -449,7 +438,7 @@ class _ParsedCall:
 
 
 def _parse_tool_call(agent, tool_call, *, flatten_probe: bool = False) -> _ParsedCall:
-    name = _canonical_tool_name(tool_call.function.name)
+    name = tool_call.function.name
     args, parse_error = _parse_tool_arguments(tool_call.function.arguments)
     scope_block = None
     if parse_error is None:
@@ -1038,11 +1027,13 @@ def _begin_tool_execution(agent, ref: _ToolCallRef, display_index: int | None) -
         elif function_name == "terminal":
             command = function_args.get("command", "")
             if _is_destructive_command(command):
-                from tools.file_tools_paths import container_backend_for_task
-                if container_backend_for_task(effective_task_id or "default") is None:
-                    from agent.runtime_cwd import scope_terminal_cwd
-                    cwd = function_args.get("workdir") or scope_terminal_cwd() or os.getcwd()
-                    agent._checkpoint_mgr.ensure_checkpoint(cwd, f"before terminal: {command[:60]}")
+                from agent.file_safety import is_nt_namespace_path
+                from tools.file_tools_paths import _resolve_path_for_task
+                workdir = function_args.get("workdir") or "."
+                if is_nt_namespace_path(workdir):
+                    return
+                cwd = str(_resolve_path_for_task(workdir, effective_task_id or "default"))
+                agent._checkpoint_mgr.ensure_checkpoint(cwd, f"before terminal: {command[:60]}")
 
 
 def _emit_tool_complete_and_risk(agent, ref: _ToolCallRef, result, risk_metadata, blocked: bool) -> None:
@@ -1087,11 +1078,7 @@ def _commit_tool_result(
     pre-persist content for UI previews) or ``None`` when the flush failed (stop the batch).
     """
     function_name, function_args, tool_call_id, effective_task_id = ref.name, ref.args, ref.call_id, ref.task_id
-    from hermes_cli.observability.shared_metrics_harness import observe_tool_outcome
 
-    observe_tool_outcome(agent, function_name, is_error)
-    if not (blocked or is_error):
-        function_result = observe_onboarding_result(agent, function_name, function_args, function_result)
     if observed:
         if not blocked:
             function_result = agent._append_guardrail_observation(
@@ -1131,7 +1118,7 @@ def _commit_tool_result(
             config=budget,
         )
     _record_persisted_path_for_stub(agent, tool_call_id, persisted_result)
-    note_tool_result(agent, function_name, tool_call_id, function_result, persisted_result)
+
 
     subdir_hints = agent._subdirectory_hints.check_tool_call(function_name, function_args)
     if subdir_hints:
@@ -1218,7 +1205,7 @@ def _finalize_tool_batch(agent, messages: list, effective_task_id: str, num_tool
     enforce_turn_budget(batch, env=get_active_env(effective_task_id), config=budget)
     plugin_live_notes.keep_after_turn_budget(agent, batch)
     sync_rewritten_tool_rows(agent, batch, contents_before)
-    record_tool_batch(agent, batch, contents_before)
+
     agent._apply_pending_steer_to_tool_results(messages, num_tools)
 
 

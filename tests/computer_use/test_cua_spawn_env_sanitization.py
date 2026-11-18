@@ -9,15 +9,16 @@ full parent environment (provider API keys included):
   ``env=`` at all
 - ``cua_backend_driver.cua_driver_runtime_contract_status`` (``manifest``)
 - ``doctor._drive_health_report`` (``<binary> mcp``) — telemetry env only
-- ``permissions._run`` (every permission probe) — telemetry env only
+- ``readiness._run`` (driver health probes) — telemetry env only
 """
 
 import json
 import os
 from unittest.mock import MagicMock
 
+import pytest
+
 SECRET = "sk-super-secret-should-not-leak"
-CREATE_NO_WINDOW = 0x08000000
 
 
 def _fake_completed_process(stdout: str) -> MagicMock:
@@ -60,21 +61,6 @@ def _assert_path_preserved(env):
         assert path_val.startswith(hermes_bin + os.pathsep), path_val
 
 
-def _patch_windows_hide_flags(monkeypatch, module):
-    """Pin the ``windows_hide_flags()`` seam so the console-hiding assertion
-    is host-independent.
-
-    ``windows_hide_flags`` is our own platform probe (CREATE_NO_WINDOW on
-    Windows, ``0`` elsewhere). Patching that seam — rather than lying to the
-    interpreter about ``sys.platform`` — keeps the real subject of these
-    tests (does the spawn site forward its result to ``creationflags=``?)
-    covered on every host.
-    """
-    monkeypatch.setattr(
-        module, "windows_hide_flags", lambda: CREATE_NO_WINDOW, raising=False
-    )
-
-
 def test_resolve_mcp_invocation_sanitizes_env(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", SECRET)
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
@@ -84,7 +70,6 @@ def test_resolve_mcp_invocation_sanitizes_env(monkeypatch):
     from tools.computer_use import cua_backend_driver
 
     captured = {}
-    _patch_windows_hide_flags(monkeypatch, cua_backend)
     manifest = json.dumps({"mcp_invocation": {"command": "cua-driver", "args": ["mcp"]}})
     monkeypatch.setattr(
         cua_backend.subprocess, "run", _capture_run(captured, stdout=manifest)
@@ -93,7 +78,7 @@ def test_resolve_mcp_invocation_sanitizes_env(monkeypatch):
     cmd, _args = cua_backend_driver._resolve_mcp_invocation("cua-driver")
     assert cmd == "cua-driver"
     _assert_sanitized(captured)
-    assert captured["creationflags"] == CREATE_NO_WINDOW
+    assert captured["creationflags"] is None
 
 
 def test_runtime_contract_check_sanitizes_env(monkeypatch):
@@ -105,17 +90,16 @@ def test_runtime_contract_check_sanitizes_env(monkeypatch):
     from tools.computer_use import cua_backend_driver
 
     captured = {}
-    _patch_windows_hide_flags(monkeypatch, cua_backend)
     monkeypatch.setattr(
         cua_backend.subprocess, "run", _capture_run(captured, stdout="{}")
     )
 
     cua_backend_driver.cua_driver_runtime_contract_status("cua-driver")
     _assert_sanitized(captured)
-    assert captured["creationflags"] == CREATE_NO_WINDOW
+    assert captured["creationflags"] is None
 
 
-def test_cli_fallback_sanitizes_env_and_hides_console_on_windows(monkeypatch):
+def test_cli_fallback_sanitizes_env(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", SECRET)
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     monkeypatch.delenv("HERMES_CUA_TELEMETRY", raising=False)
@@ -123,7 +107,6 @@ def test_cli_fallback_sanitizes_env_and_hides_console_on_windows(monkeypatch):
     from tools.computer_use import cua_backend, cua_backend_driver, cua_backend_session
 
     captured = {}
-    _patch_windows_hide_flags(monkeypatch, cua_backend_session)
     # Hermetic CI has no cua-driver binary; pin the resolver so the test
     # exercises the spawn-env path instead of the install-hint early exit.
     monkeypatch.setattr(
@@ -140,28 +123,44 @@ def test_cli_fallback_sanitizes_env_and_hides_console_on_windows(monkeypatch):
 
     assert result["isError"] is False
     _assert_sanitized(captured)
-    assert captured["creationflags"] == CREATE_NO_WINDOW
+    assert captured["creationflags"] is None
 
 
-def test_permissions_run_sanitizes_env(monkeypatch):
+def test_readiness_run_sanitizes_env(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", SECRET)
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     monkeypatch.delenv("HERMES_CUA_TELEMETRY", raising=False)
 
-    from tools.computer_use import permissions
+    from tools.computer_use import readiness
 
     captured = {}
     monkeypatch.setattr(
-        permissions.subprocess, "run", _capture_run(captured, stdout="{}")
+        readiness.subprocess, "run", _capture_run(captured, stdout="{}")
     )
 
-    permissions._run("cua-driver", "doctor", "--json", timeout=1.0)
+    readiness._run("cua-driver", "doctor", "--json", timeout=1.0)
     _assert_sanitized(captured)
 
 
 
 
-def test_doctor_spawn_sanitizes_env_and_hides_console_on_windows(monkeypatch):
+@pytest.mark.parametrize("probe", ["readiness", "doctor"])
+def test_health_probes_refuse_to_spawn_if_environment_sanitization_fails(monkeypatch, probe):
+    from tools.computer_use import doctor, readiness
+    from tools.environments import local
+
+    sanitize = MagicMock(side_effect=RuntimeError("environment unavailable"))
+    monkeypatch.setattr(local, "_sanitize_subprocess_env", sanitize)
+    spawn = MagicMock()
+    monkeypatch.setattr(readiness.subprocess, "run", spawn)
+
+    run = readiness._run if probe == "readiness" else doctor._run_cli
+    with pytest.raises(RuntimeError, match="environment unavailable"):
+        run("cua-driver", "doctor", "--json", timeout=1.0)
+    spawn.assert_not_called()
+
+
+def test_doctor_spawn_sanitizes_env(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", SECRET)
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     monkeypatch.delenv("HERMES_CUA_TELEMETRY", raising=False)
@@ -169,7 +168,6 @@ def test_doctor_spawn_sanitizes_env_and_hides_console_on_windows(monkeypatch):
     from tools.computer_use import doctor
 
     captured = {}
-    _patch_windows_hide_flags(monkeypatch, doctor)
     proc = MagicMock()
     proc.stdout.readline.side_effect = [
         json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}}),
@@ -198,4 +196,4 @@ def test_doctor_spawn_sanitizes_env_and_hides_console_on_windows(monkeypatch):
 
     assert report["overall"] == "ok"
     _assert_sanitized(captured)
-    assert captured["creationflags"] == CREATE_NO_WINDOW
+    assert captured["creationflags"] is None

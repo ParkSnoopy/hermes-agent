@@ -70,6 +70,22 @@ def _assert_preserved(path: Path) -> dict:
 
 
 class TestEveryWriterPreservesComments:
+    def test_config_set_preserves_retired_user_data(self, home):
+        from hermes_cli.config import set_config_value
+
+        path = home / "config.yaml"
+        path.write_text(COMMENTED + "\ndisplay:\n  language: ja # user data\n", encoding="utf-8")
+        locales = home / "locales"
+        locales.mkdir()
+        catalog = locales / "ja.yaml"
+        catalog.write_text("message: original\n", encoding="utf-8")
+
+        set_config_value("streaming.enabled", "true")
+
+        assert _assert_preserved(path)["display"]["language"] == "ja"
+        assert "# user data" in path.read_text(encoding="utf-8")
+        assert catalog.read_text(encoding="utf-8") == "message: original\n"
+
     def test_config_set(self, home):
         from hermes_cli.config import set_config_value
 

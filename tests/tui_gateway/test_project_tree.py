@@ -161,7 +161,7 @@ def test_overview_orders_lanes_by_recency_not_alphabetically():
     assert _non_trunk_labels(hydrate=True) == ["wt-zzz", "wt-aaa"]
 
 
-def test_kanban_task_worktrees_collapse_into_one_bucket():
+def test_task_named_worktrees_remain_separate_lanes():
     resolve = _resolver(
         {
             "/repo": ("/repo", "/repo"),
@@ -177,14 +177,8 @@ def test_kanban_task_worktrees_collapse_into_one_bucket():
 
     tree = pt.build_tree([], sessions, [], resolve, hydrate=True)
     project = tree["projects"][0]
-    kanban = [g for repo in project["repos"] for g in repo["groups"] if g.get("isKanban")]
-
-    assert len(kanban) == 1
-    assert kanban[0]["id"] == "/repo::kanban"
-    assert kanban[0]["path"] == "/repo/.worktrees"
-    assert len(kanban[0]["sessions"]) == 2
-    # The bucket sorts below the real main branch.
-    assert _lane_ids(project)[-1] == "/repo::kanban"
+    lanes = [g for repo in project["repos"] for g in repo["groups"]]
+    assert len([g for g in lanes if g["id"].startswith("/repo/.worktrees/t_")]) == 2
 
 
 def test_user_worktree_under_dotworktrees_is_its_own_lane_not_kanban():
@@ -697,16 +691,11 @@ def test_non_git_folder_lane_matches_overlay_scheme():
     )
 
 
-def test_heuristic_lane_ids_for_kanban_and_wt_suffix_are_unchanged():
+def test_heuristic_lane_id_for_wt_suffix_is_unchanged():
     """The branch-style id applies ONLY to the plain-folder fallback.
 
-    Kanban worktrees keep the ::kanban id and `<repo>-wt-<slug>` folders keep
-    the raw-path lane key so existing worktree lanes don't fork.
+    `<repo>-wt-<slug>` folders keep the raw-path lane key.
     """
-    kanban = pt._place_by_heuristic("/www/app/.worktrees/t_1a2b3c")
-    assert kanban is not None
-    assert kanban["lane_key"] == pt._kanban_lane_id("/www/app")
-    assert kanban["is_kanban"] is True
 
     wt = pt._place_by_heuristic("/www/app-wt-feature")
     assert wt is not None

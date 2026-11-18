@@ -85,7 +85,7 @@ def test_status_line_sits_under_the_composer_only_in_the_glyph_layout(modern):
     cli = HermesCLI.__new__(HermesCLI)
     cli._modern_layout = modern
     names = ("sudo_widget", "secret_widget", "approval_widget", "clarify_widget", "spacer", "status_bar",
-             "input_rule_top", "image_bar", "input_area", "input_rule_bot", "voice_status_bar", "completions_menu")
+             "input_rule_top", "image_bar", "input_area", "input_rule_bot", "completions_menu")
     order = cli._build_tui_layout_children(**{name: name for name in names})
     if modern:
         assert order.index("status_bar") > order.index("input_rule_bot")

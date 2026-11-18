@@ -1,8 +1,8 @@
-"""Contracts: system / process / slash-command / rollback / cron / browser / config RPCs
+"""Contracts: system / process / slash-command / rollback / browser / config RPCs
 (handlers in ``tui_gateway/methods_tools.py``, browser helpers in ``methods_browser.py``).
 
 Several results here are pass-throughs of dicts another module owns (``tools/process_registry.py``,
-``tools/checkpoint_manager.py``, ``tools/cronjob_tools.py``): those declare every key the producer is
+``tools/checkpoint_manager.py``): those declare every key the producer is
 known to emit plus ``extra="allow"`` so a new upstream key never trips the strict gate.
 """
 
@@ -438,103 +438,6 @@ class RollbackDiffResult(Result):
 
 method("rollback.diff", params=RollbackDiffParams, result=RollbackDiffResult,
        doc="Diff between a checkpoint and the working tree, with an ANSI rendering sized to the TUI.")
-
-
-# ── cron.manage ───────────────────────────────────────────────────────────────────────────────
-
-
-class CronAction(WireEnum):
-    list = "list"
-    add = "add"
-    remove = "remove"
-    pause = "pause"
-    resume = "resume"
-
-
-class CronManageParams(Params):
-    action: CronAction = CronAction.list
-    name: str | None = None
-    include_disabled: bool | str | None = None
-    schedule: str | None = None
-    prompt: str | None = None
-    repeat: int | str | None = None
-    continuity: bool | str | None = None
-    deliver: str | None = None
-    profile: str | None = None
-
-
-class CronJobRow(_Open):
-    """``tools/cronjob_job_args.py::_format_job``."""
-
-    job_id: str
-    name: str = ""
-    skill: str | None = None
-    skills: list[str] = Field(default_factory=list)
-    prompt_preview: str = ""
-    model: str | None = None
-    provider: str | None = None
-    base_url: str | None = None
-    schedule: str = "?"
-    repeat: int | str | None = None
-    deliver: str | None = None
-    next_run_at: str | None = None
-    last_run_at: str | None = None
-    last_status: str | None = None
-    last_delivery_error: str | None = None
-    last_delivery_unverified: list[str] | None = None  # unconfirmed ``platform:chat_id[:thread_id]`` targets
-    last_fire_error: str | None = None
-    last_error: str | None = None
-    enabled: bool = True
-    state: str | None = None
-    paused_at: str | None = None
-    paused_reason: str | None = None
-    workdir: str | None = None
-    script: str | None = None
-    reasoning_effort: str | None = None
-    monitor_script: str | None = None
-    monitor_url: str | None = None
-    monitor_state: JsonValue | None = None
-    no_agent: bool | None = None
-    enabled_toolsets: list[str] | None = None
-    continuity: bool | None = None
-    context_from: list[str] | None = None
-    attach_to_session: bool | None = None
-
-
-class CronRemovedJob(Result):
-    id: str
-    name: str = ""
-    schedule: str | None = None
-
-
-class CronManageResult(_Open):
-    """Pass-through of ``tools/cronjob_tools.py::cronjob`` JSON: ``list`` → ``jobs``/``count``
-    (+ ``scoped`` when profile-scoped); ``add`` → the created job's summary + ``job``; ``remove`` →
-    ``removed_job``; ``pause``/``resume`` → ``job``. A tool-level failure lands in ``error``."""
-
-    success: bool | None = None
-    error: str | None = None
-    count: int | None = None
-    jobs: list[CronJobRow] | None = None
-    scoped: str | None = None
-    gateway_running: bool | None = None
-    warning: str | None = None
-    job_id: str | None = None
-    name: str | None = None
-    skill: str | None = None
-    skills: list[str] | None = None
-    schedule: str | None = None
-    repeat: int | str | None = None
-    deliver: str | None = None
-    next_run_at: str | None = None
-    job: CronJobRow | None = None
-    message: str | None = None
-    guidance: JsonValue | None = None
-    removed_job: CronRemovedJob | None = None
-
-
-method("cron.manage", params=CronManageParams, result=CronManageResult,
-       doc="List/add/remove/pause/resume cron jobs in the (optionally profile-scoped) cron store.")
 
 
 # ── browser.manage ────────────────────────────────────────────────────────────────────────────

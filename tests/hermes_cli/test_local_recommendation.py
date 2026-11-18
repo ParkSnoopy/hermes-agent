@@ -3,9 +3,7 @@
 The recommendation itself is DERIVED (catalog.recommended_entry: best
 quality among resident entries clearing the pleasant speed floor, else
 fastest resident). Spilled models stay browseable but are never automatic
-recommendations, so nobody hand-maintains per-hardware-class picks. The
-one exception is a recognized product whose manufacturer chose its default
-(catalog._PRODUCT_DEFAULTS), tested at the bottom of this file.
+recommendations, so nobody hand-maintains per-hardware-class picks.
 This table pins the model and reason across discrete and unified memory
 classes so changes to the recommendation remain reviewable.
 
@@ -122,69 +120,28 @@ def test_recommendation_decision_table(size_gb, kind, expected, expected_reason)
         assert (picked[0].id, picked[1]) == (expected, expected_reason)
 
 
-@pytest.mark.parametrize("gpu_name", [
-    "NVIDIA RTX Spark N1X",
-    "NVIDIA RTX Spark N1X (5120-core Blackwell RTX GPU)",
-    "NVIDIA RTX Spark N1X (updated device description)",
+@pytest.mark.parametrize("uma, spilled, bandwidth", [
+    (False, False, 1000e9),
+    (True, False, 210e9),
+    (False, True, 80e9),
+    (True, True, 80e9),
 ])
-@pytest.mark.parametrize("capacity", [24, 48, 256])
-def test_measured_n1x_profile_changes_speed_eligibility_not_fit_or_quality(monkeypatch, capacity, gpu_name):
-    import subprocess
-    import urllib.request
-
-    from hermes_cli.local_runtime import catalog
-
-    def no_io(*args, **kwargs):
-        raise AssertionError("calibration must use shipped data, not a runtime benchmark")
-
-    monkeypatch.setattr(subprocess, "run", no_io)
-    monkeypatch.setattr(urllib.request, "urlopen", no_io)
-    # The derived rule alone; the RTX Spark's product default has its own tests below.
-    monkeypatch.setattr(catalog, "_PRODUCT_DEFAULTS", {})
-    budget = _unified(capacity)
-    budget.gpu_name = gpu_name
-    budget.platform = "win32"
-    entry = next(e for e in CATALOG if e.id == "qwen3.8-27b")
-    assert predicted_decode_tok_s(entry, entry.variants[0], budget) >= PLEASANT_FLOOR_TOK_S
-    picked = recommended_entry(budget)
-    expected = {24: None, 48: "qwen3.8-27b", 256: "qwen3.8-flash-next"}[capacity]
-    assert (picked[0].id if picked else None) == expected
-
-
-@pytest.mark.parametrize("budget_changes, entry_changes, quant, backend, spilled", [
-    ({"gpu_name": ""}, {}, "UD-Q4_K_M", "cuda", False),
-    ({"gpu_name": "NVIDIA Other Device"}, {}, "UD-Q4_K_M", "cuda", False),
-    ({"gpu_name": "NVIDIA RTX Spark N1X2"}, {}, "UD-Q4_K_M", "cuda", False),
-    ({"gpu_name": "NVIDIA RTX Spark N1X Pro"}, {}, "UD-Q4_K_M", "cuda", False),
-    ({"platform": "linux"}, {}, "UD-Q4_K_M", "cuda", False),
-    ({"uma": False}, {}, "UD-Q4_K_M", "cuda", False),
-    ({}, {}, "UD-Q4_K_M", "vulkan", False),
-    ({}, {}, "UD-Q4_K_M", "cpu", False),
-    ({}, {"mtp": False}, "UD-Q4_K_M", "cuda", False),
-    ({}, {"mtp_draft_depth": 3}, "UD-Q4_K_M", "cuda", False),
-    ({}, {}, "Q8_0", "cuda", False),
-    ({}, {}, "UD-Q4_K_M", "cuda", True),
-])
-def test_unmatched_or_spilled_profiles_keep_the_existing_estimate(
-        monkeypatch, budget_changes, entry_changes, quant, backend, spilled):
+def test_decode_estimate_is_offline_and_uses_memory_class(monkeypatch, uma, spilled, bandwidth):
     from dataclasses import replace
     import subprocess
     import urllib.request
 
-    budget = replace(_unified(48), gpu_name="NVIDIA RTX Spark N1X (5120-core Blackwell RTX GPU)",
-                     platform="win32")
-    budget = replace(budget, **budget_changes)
-    entry = replace(next(e for e in CATALOG if e.id == "qwen3.8-27b"), **entry_changes)
-    variant = replace(entry.variants[0], quant=quant)
+    budget = replace(_unified(48), uma=uma, platform="linux")
+    entry = next(e for e in CATALOG if e.id == "qwen3.8-27b")
+    variant = entry.variants[0]
 
     def no_io(*args, **kwargs):
         raise AssertionError("speed selection must be an offline lookup and arithmetic")
 
     monkeypatch.setattr(subprocess, "run", no_io)
     monkeypatch.setattr(urllib.request, "urlopen", no_io)
-    fallback = predicted_decode_tok_s(entry, variant, replace(budget, gpu_name=""),
-                                      spilled=spilled, backend=backend)
-    assert predicted_decode_tok_s(entry, variant, budget, spilled=spilled, backend=backend) == fallback
+    expected = bandwidth / max(1.0, variant.size_bytes * entry.decode_fraction)
+    assert predicted_decode_tok_s(entry, variant, budget, spilled=spilled) == expected
 
 
 # ── invariants behind the table (survive catalog changes) ──
@@ -249,7 +206,7 @@ def test_a_derived_recommendation_always_clears_the_floor(budget):
     reads 31.5 GB, where only the 27B fits and runs well under the floor on an iGPU or the CPU;
     it stays one click away in Browse."""
     picked = recommended_entry(budget)
-    if picked is None or picked[1] == "product-default":
+    if picked is None:
         return
     choice = select_variant(picked[0], budget)
     assert choice is not None and choice.zero_spill
@@ -267,35 +224,3 @@ def test_quality_decides_where_speed_permits():
         if e.recommend and (c := select_variant(e, budget)) is not None and c.zero_spill
     ]
     assert pick == max(resident, key=lambda e: e.quality).id
-
-
-# ── the RTX Spark's product default ──
-
-_N1X_PCI_ID = 0x2E1210DE  # NVML packs the device ID above the 16-bit vendor ID
-
-
-@pytest.mark.parametrize("identity", [
-    {"gpu_pci_id": _N1X_PCI_ID},
-    {"gpu_name": "NVIDIA RTX Spark N1X (5120-core Blackwell RTX GPU)"},
-])
-def test_the_rtx_spark_defaults_to_the_27b_with_flash_next_still_fitting(identity):
-    """Its manufacturer's pick. Flash Next fits too and stays one click away; on Windows it loads
-    once the carve-out leaves Windows enough commit to back it."""
-    from dataclasses import replace
-
-    budget = replace(_unified(128), platform="win32", **identity)
-    picked = recommended_entry(budget)
-    assert (picked[0].id, picked[1]) == ("qwen3.8-27b", "product-default")
-    flash_next = next(e for e in CATALOG if e.id == "qwen3.8-flash-next")
-    choice = select_variant(flash_next, budget)
-    assert choice is not None and choice.zero_spill
-
-
-def test_the_derived_rule_decides_on_other_platforms_backends_and_when_the_default_is_ineligible():
-    from dataclasses import replace
-
-    spark = replace(_unified(128), platform="win32", gpu_pci_id=_N1X_PCI_ID)
-    without_the_27b = tuple(e for e in CATALOG if e.id != "qwen3.8-27b")
-    assert recommended_entry(spark, without_the_27b)[1] != "product-default"
-    assert recommended_entry(replace(spark, platform="linux"))[1] != "product-default"
-    assert recommended_entry(spark, backend="vulkan")[1] != "product-default"

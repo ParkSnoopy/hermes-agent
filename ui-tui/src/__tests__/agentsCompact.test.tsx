@@ -13,8 +13,8 @@ import { patchUiState, resetUiState } from '../app/uiStore.js'
 import { AgentsOverlay } from '../components/agentsOverlay.js'
 import { AgentsPanelView } from '../components/agentsPanel.js'
 import { TextInput } from '../components/textInput.js'
+import { hubsEn } from '../copy/hubs.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { messages } from '../i18n/runtime.js'
 import { buildAgentRows } from '../lib/agentRows.js'
 import { DEFAULT_THEME } from '../theme.js'
 
@@ -25,8 +25,8 @@ it('keeps collapsed live chrome to one row without losing count or restore contr
     const view = renderToScreen(<AgentsPanelView collapsed cols={cols} {...rows} t={DEFAULT_THEME} />, cols)
     expect(view.height).toBe(1)
     const text = Array.from({ length: cols }, (_, i) => cellAtIndex(view.screen, i).char).join('')
-    expect(text).toContain(messages().hubs.agentsPanel.liveAgents(rows.running))
-    expect(text).toContain(messages().hubs.agentsPanel.collapsedHint.trim())
+    expect(text).toContain(hubsEn.hubs.agentsPanel.liveAgents(rows.running))
+    expect(text).toContain(hubsEn.hubs.agentsPanel.collapsedHint.trim())
     expect(renderToScreen(<AgentsPanelView cols={cols} {...rows} t={DEFAULT_THEME} />, cols).height).toBeGreaterThan(
       view.height
     )

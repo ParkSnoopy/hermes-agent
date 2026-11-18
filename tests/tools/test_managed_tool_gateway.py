@@ -132,7 +132,7 @@ def test_is_managed_tool_gateway_ready_skips_refresh_for_expired_cached_token(tm
         {"TOOL_GATEWAY_DOMAIN": "nousresearch.com"},
         clear=False,
     ), patch.object(managed_tool_gateway, "managed_nous_tools_enabled", return_value=True):
-        assert is_managed_tool_gateway_ready("modal") is True
+        assert is_managed_tool_gateway_ready("perplexity") is True
 
     assert refresh_calls == []
 

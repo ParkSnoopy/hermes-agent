@@ -17,7 +17,7 @@ DELEGATE_BLOCKED_TOOLS = frozenset(
         "clarify",  # no user interaction
         "memory",  # no writes to shared MEMORY.md
         "send_message",  # no cross-platform side effects
-        "cronjob_manage",  # no scheduling more work in the parent's name
+
     ]
 )
 DEFAULT_TOOLSETS = ["terminal", "file", "web"]
@@ -55,8 +55,8 @@ def _expand_parent_toolsets(parent_toolsets: set) -> set:
 
 def _strip_blocked_tools(toolsets: list[str]) -> list[str]:
     """Remove toolsets whose tools are ALL blocked (derived from DELEGATE_BLOCKED_TOOLS so the two can't drift) plus
-    composite toolsets children must never get (``delegation``, ``kanban``)."""
-    blocked_toolset_names = {"delegation", "kanban"} | {
+    composite toolsets children must never get (``delegation``)."""
+    blocked_toolset_names = {"delegation"} | {
         name
         for name in TOOLSETS
         if (resolved_tools := resolve_toolset(name, include_registry=False))
@@ -88,9 +88,9 @@ def _resolve_child_toolsets(
     if parent_enabled is not None:
         parent_toolsets = set(parent_enabled)
     elif parent_agent and hasattr(parent_agent, "valid_tool_names"):
-        import model_tools
+        from tools.registry import registry
         parent_toolsets = {
-            ts for name in parent_agent.valid_tool_names if (ts := model_tools.get_toolset_for_tool(name)) is not None
+            ts for name in parent_agent.valid_tool_names if (ts := registry.get_toolset_for_tool(name)) is not None
         }
     else:
         parent_toolsets = set(DEFAULT_TOOLSETS)
@@ -118,6 +118,6 @@ def _resolve_child_toolsets(
         if "delegation" not in child_toolsets:
             child_toolsets.append("delegation")
     child_disabled_toolsets = list(
-        dict.fromkeys(inherited_disabled + _blocked_toolsets_for_role(effective_role) + ["kanban"])
+        dict.fromkeys(inherited_disabled + _blocked_toolsets_for_role(effective_role))
     )
     return child_toolsets, child_disabled_toolsets

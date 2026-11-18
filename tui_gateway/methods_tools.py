@@ -195,7 +195,7 @@ def _capture_run_kwargs(timeout: int) -> dict:
     not crash the gateway thread on Windows), no stdin, no console flash under the desktop parent."""
     return dict(
         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
-        stdin=subprocess.DEVNULL, creationflags=_tools_mod("hermes_cli._subprocess_compat").windows_hide_flags())
+        stdin=subprocess.DEVNULL)
 
 
 def _captured_exec(rid, cmd, timeout: int, *, on_result, timeout_err: tuple, fail_code: int,
@@ -318,7 +318,6 @@ def _refresh_live_sessions(home=None, *, preserve_prefix: bool = False,
     launch home). ``preserve_prefix``: append-only rebuild inside a live conversation. ``plugin_note``:
     ``(plugin_key, text)`` queued once per session for its next tool result or turn
     (``agent/plugin_live_notes.py``)."""
-    from agent.onboarding_session import carry_onboarding_toolset
     from hermes_constants import hermes_home_key
     want = hermes_home_key(home) if home is not None else None
     with _sessions_lock:
@@ -329,7 +328,7 @@ def _refresh_live_sessions(home=None, *, preserve_prefix: bool = False,
         agent = sess["agent"]
         try:
             with _session_profile_runtime_scope(sess):
-                enabled = carry_onboarding_toolset(_load_enabled_toolsets(getattr(agent, "platform", None)), agent)
+                enabled = _load_enabled_toolsets(getattr(agent, "platform", None))
                 disabled = _load_disabled_toolsets()
                 refresh(agent, enabled_override=enabled, disabled_override=disabled,
                         quiet_mode=True, preserve_prefix=preserve_prefix)
@@ -719,8 +718,7 @@ def _cmd_moa(rid, params, session, name, arg):
             try:  # persist_override=False: turn-scoped, never persist the MoA provider to config.yaml
                 _apply_model_switch(
                     params.get("session_id", ""), session, f"{preset} --provider moa",
-                    confirm_expensive_model=False, pin_session_override=True, persist_override=False,
-                    count_switch=False)
+                    confirm_expensive_model=False, pin_session_override=True, persist_override=False)
             except Exception:
                 session.pop("moa_one_shot_restore", None)
                 raise
@@ -777,7 +775,7 @@ def _cmd_retry(rid, params, session, name, arg):
         if err:
             return err
         content = cc.retryable_user_text(rewound[1].get("content"))
-    _tui_model_friction("retry", session)
+
     return _ok(rid, {"type": "send", "message": content})
 
 
@@ -877,7 +875,7 @@ def _cmd_undo(rid, params, session, name, arg):
             # The session's profile scope: a multiplexed manager refuses a hook naming no profile (#140058).
             with contextlib.suppress(Exception), _session_profile_runtime_scope(session):
                 step()
-    _tui_model_friction("undo", session, turns_undone)
+
     turn_word = "turn" if turns_undone == 1 else "turns"
     notice = f"↶ Undid {turns_undone} {turn_word} ({rewound_count} message(s)). Edit and resubmit, or send a new message."
     if hint := _tools_mod("tui_gateway.checkpoints").undo_rollback_hint_for(session, live_view, active):
@@ -1242,6 +1240,7 @@ def _(rid, params: dict) -> dict:
 @_rpc("tools.show", 5034)
 def _(rid, params: dict) -> dict:
     mt = _tools_mod("model_tools")
+    from tools.registry import registry
     session = _sessions.get(params.get("session_id", ""))
     enabled, disabled = _session_toolsets(session)
     # Pre-assembly list: /tools must also show tools deferred behind the tool_search bridge (as the CLI).
@@ -1253,7 +1252,7 @@ def _(rid, params: dict) -> dict:
         desc = str(tool["function"].get("description", "") or "").split("\n")[0]
         if ". " in desc:
             desc = desc[: desc.index(". ") + 1]
-        sections.setdefault(mt.get_toolset_for_tool(name) or "unknown", []).append({"name": name, "description": desc})
+        sections.setdefault(registry.get_toolset_for_tool(name) or "unknown", []).append({"name": name, "description": desc})
     sections_out = [{"name": n, "tools": rows} for n, rows in sorted(sections.items())]
     return _ok(rid, {"sections": sections_out, "total": len(tools)})
 
@@ -1305,34 +1304,6 @@ def _configure_session_tools(rid, params: dict, sid: str, session) -> dict:
     return _ok(rid, {
         "changed": changed, "enabled_toolsets": enabled, "info": info,
         "missing_servers": sorted(missing_servers), "reset": bool(session), "unknown": unknown})
-
-
-# ─── Cron / learning / skills ────────────────────────────────────────────────
-@_scoped_rpc("cron.manage", 5023)
-def _(rid, params: dict) -> dict:
-    """cronjob() keys off HERMES_HOME, so ``profile`` reaches a per-profile cron store."""
-    cronjob = _tools_mod("tools.cronjob_tools").cronjob
-    action, jid = params.get("action", "list"), params.get("name", "")
-    if action == "list":
-        # Paused jobs are excluded by default (reads as deletion in a toggle UI) — forward the flag.
-        include_disabled = is_truthy_value(params.get("include_disabled", False))
-        result = json.loads(cronjob(action="list", include_disabled=include_disabled))
-        # ``scoped`` proves the profile scope was honored; older gateways omit it and clients
-        # keep the safe [bot:<name>] filter.
-        if profile := _str_arg(params, "profile"):
-            result["scoped"] = profile
-        return _ok(rid, result)
-    if action == "add":
-        # Optional repeat / continuity / deliver ('bot-chat[:name]'): None keeps each cronjob() default.
-        raw = cronjob(
-            action="create", name=jid, schedule=params.get("schedule", ""), prompt=params.get("prompt", ""),
-            repeat=int(params["repeat"]) if str(params.get("repeat", "")).strip().isdigit() else None,
-            continuity=is_truthy_value(params.get("continuity")) if params.get("continuity") is not None else None,
-            deliver=_str_arg(params, "deliver") or None)
-        return _ok(rid, json.loads(raw))
-    if action in {"remove", "pause", "resume"}:
-        return _ok(rid, json.loads(cronjob(action=action, job_id=jid)))
-    return _err(rid, 4016, f"unknown cron action: {action}")
 
 
 @_rpc("learning.frames", 5000, "learning.frames failed: ")
@@ -1531,7 +1502,6 @@ def _(rid, params: dict) -> dict:
     if bearer_token := params.get("bearer_token"):
         server_config["headers"] = mc._save_bearer_auth_token(name, str(bearer_token))
     saved_ok = mc._save_mcp_server(name, server_config)
-    _tools_mod("tui_gateway.mcp_rpc_helpers").record_mcp_add(entry, server_config, saved_ok)
     if not saved_ok:
         return _err(rid, 4001, f"server '{name}' rejected: suspicious command/args configuration")
     saved = mc._get_mcp_servers().get(name, server_config)

@@ -135,7 +135,6 @@ def density_stats(nodes: dict[str, SkillNode], edges: list[tuple[str, str]]) -> 
         "nodes": len(nodes), "related_edges": len(edges), "edges_per_node": round(len(edges) / n, 3),
         "linked_nodes": len(linked), "isolated_pct": round(100 * (n - len(linked)) / n, 1), "categories": len(cats),
         "agent_created": sum(1 for x in nodes.values() if x.created_by == "agent"),
-        "used": sum(1 for x in nodes.values() if x.use_count > 0),
         "top_categories": sorted(cats.items(), key=lambda kv: -kv[1])[:8],
     }
 
@@ -239,7 +238,7 @@ def build_learning_graph() -> dict[str, Any]:
         {
             "id": memory_node_id(card, i), "label": card["title"], "kind": "memory",
             "memorySource": card["source"], "timestamp": card.get("timestamp"), "category": "memory",
-            "useCount": 0, "state": "active", "createdBy": "memory", "pinned": False,
+            "state": "active", "createdBy": "memory", "pinned": False,
         }
         for i, card in enumerate(memory_cards)
     ]

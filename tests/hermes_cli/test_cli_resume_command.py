@@ -294,11 +294,10 @@ class TestResumeOpensTheTargetOnTheGateway:
 
     @pytest.mark.parametrize("refusal", ["not_found", "permission_denied", "profile_mismatch"])
     def test_a_refused_target_keeps_the_current_session(self, refusal):
-        from agent.i18n import t
 
         cli_obj, conn, calls, printed = self._switch(refusal)
 
         assert cli_obj.session_id == "current_session"
         assert conn.states["current_session"].subscription_id == "sub-current_session"
         assert calls == [("session.resume", {"session_id": "target"})]  # asked once, nothing detached
-        assert t("gateway.resume.switch_failed") in printed and refusal in printed
+        assert 'Failed to switch session.' in printed and refusal in printed

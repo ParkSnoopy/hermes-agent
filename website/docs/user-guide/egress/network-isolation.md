@@ -16,8 +16,8 @@ commands.
 
 ## Threat Model
 
-The Hermes [SECURITY.md](https://github.com/NousResearch/hermes-agent/blob/main/SECURITY.md) §2 defines the trust model. The
-terminal backend is the primary execution boundary. However, when running with
+The Hermes [SECURITY.md](https://github.com/NousResearch/hermes-agent/blob/main/SECURITY.md) §2 defines the trust model.
+Local execution does not itself provide a containment boundary. When running with
 `network_mode: host`, any command the agent executes can reach any endpoint on
 the network, including external ones.
 
@@ -183,11 +183,9 @@ docker compose exec gateway \
   For most threat models this is acceptable since DNS resolution alone does not
   exfiltrate meaningful data.
 
-- **Not a substitute for sandbox backends:** This guide isolates the agent
-  *container's* network. If you use the default local terminal backend, tool
-  commands execute inside the same container. For stronger isolation, combine
-  network segmentation with a sandboxed terminal backend (Docker, Modal,
-  Daytona).
+- **Execution boundary:** This guide isolates the agent container’s network.
+  Local terminal commands run where Hermes itself runs. Network segmentation
+  does not by itself restrict filesystem access or guarantee containment.
 
 - **Platform adapters need egress:** The gateway service needs outbound access
   to reach messaging platform APIs. If you add new platform adapters, add their
@@ -197,5 +195,5 @@ docker compose exec gateway \
 
 - [SECURITY.md](https://github.com/NousResearch/hermes-agent/blob/main/SECURITY.md) — Hermes trust model and vulnerability reporting
 - [Docker](../docker.md) — running Hermes in a container
-- [Egress proxy](iron-proxy.md) — credential-injection firewall for the sandbox
+- [Egress proxy](iron-proxy.md) — historical terminal-sandbox integration
 - [docker-compose.yml](https://github.com/NousResearch/hermes-agent/blob/main/docker-compose.yml) — default compose configuration

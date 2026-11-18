@@ -3,8 +3,8 @@ import type { SessionDeleteResponse } from '@hermes/shared/gateway-types'
 import { useCallback, useRef, useState } from 'react'
 
 import { mutateCanonical } from '../app/slash/canonicalSessionControls.js'
+import { pickersEn } from '../copy/pickers.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { messages } from '../i18n/runtime.js'
 import { asRpcResult, rpcErrorMessage } from '../lib/rpc.js'
 
 /** The picker's history delete: one request at a time, and a refused delete hands back the viewer
@@ -59,7 +59,7 @@ export function useSessionDelete(
           if (ok) {
             onDeleted(target.id)
           } else {
-            onError(messages().pickers.common.invalidResponse(gw.isCanonical ? 'session.mutate' : 'session.delete'))
+            onError(pickersEn.pickers.common.invalidResponse(gw.isCanonical ? 'session.mutate' : 'session.delete'))
           }
 
           settle()

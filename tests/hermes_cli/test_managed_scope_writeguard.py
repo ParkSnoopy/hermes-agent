@@ -119,17 +119,19 @@ def _assert_user_stores_untouched(home, before):
     pytest.param("install", "managed by nixos", id="package-managed"),
 ])
 def test_api_env_write_of_locked_key_is_refused_and_writes_nothing(pinned_env, monkeypatch, method, lock, refusal):
-    from fastapi.testclient import TestClient
-
-    from hermes_cli.web_server import _SESSION_TOKEN, app
+    from hermes_cli.credential_lifecycle import (
+        remove_provider_env_credential,
+        save_provider_env_credential,
+    )
 
     if lock == "install":
         monkeypatch.setenv("HERMES_MANAGED", "nixos")
     home, before = pinned_env
-    body = {"key": "DEEPSEEK_API_KEY", **({"value": NEW_KEY} if method == "PUT" else {})}
-    resp = TestClient(app).request(method, "/api/env", json=body, headers={"X-Hermes-Session-Token": _SESSION_TOKEN})
-    assert resp.status_code == 400
-    assert refusal in resp.json()["detail"]
+    with pytest.raises(ValueError, match=refusal):
+        if method == "PUT":
+            save_provider_env_credential("DEEPSEEK_API_KEY", NEW_KEY)
+        else:
+            remove_provider_env_credential("DEEPSEEK_API_KEY")
     _assert_user_stores_untouched(home, before)
 
 

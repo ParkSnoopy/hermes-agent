@@ -16,7 +16,6 @@ import os
 import queue
 import threading
 import time
-from agent.i18n import t
 from agent.session_activity import format_iteration_progress
 from agent.turn_failure_copy import FAILED_TURN_DISPLAY_KIND, FAILED_TURN_NOTICE, PARTIAL_FAILED_TURN_NOTICE
 from contextlib import nullcontext, suppress
@@ -89,7 +88,7 @@ _CONTEXT_OVERFLOW_ERROR_PHRASES = (
 
 def _unexpected_silence_reply() -> str:
     """Reply when the model returned only a silence marker for a message that needed an answer."""
-    return t("gateway.errors.unexpected_silence")
+    return '⚠️ The model returned only a silence marker for a message that needed a reply. Try again or rephrase.'
 
 
 def is_context_overflow_failure_result(agent_result: dict, history_len: int) -> bool:
@@ -384,11 +383,8 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         """Home + terminal-policy scope for validating a turn's MEDIA / local-file paths on the
         adapter's delivery side, which runs after the routed turn scope was reset.
 
-        Docker path translation (``platforms/base.py::_translate_docker_container_media_path``)
-        infers the producing container from the ACTIVE profile (``get_active_profile_name``) and the
-        scope-aware ``TERMINAL_DOCKER_VOLUMES``; without this a secondary's ``MEDIA:/output/x.png``
-        resolves against the default profile's sandbox and mounts (#109024). No secret hydration:
-        path validation reads no credentials and this runs on the event loop."""
+        Restore the source profile for path validation without hydrating secrets; this runs on the
+        event loop after the turn scope has ended."""
         if not getattr(getattr(self, "config", None), "multiplex_profiles", False):
             return nullcontext()
         from gateway.run import _profile_runtime_scope
@@ -416,9 +412,9 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             else f"{context_length // 1_000}K" if context_length >= 1_000 else str(context_length)
         )
         lines = [
-            t("gateway.session.info_model", model=resolved.model),
-            t("gateway.session.info_provider", provider=resolved.provider or "openrouter"),
-            t("gateway.session.info_context", tokens=ctx_display, source=ctx_source),
+            (f'◆ Model: `{resolved.model}`'),
+            ('◆ Provider: {provider}').format(provider=resolved.provider or "openrouter"),
+            (f'◆ Context: {ctx_display} tokens ({ctx_source})'),
         ]
         if (resolved.provider or "") == "moa":
             # The preset name hides who pays: the aggregator runs every tool-loop step (#112359).
@@ -426,10 +422,10 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             from hermes_cli.moa_config import normalize_moa_config
             agg = normalize_moa_config(load_config().get("moa"))["presets"].get(resolved.model, {}).get("aggregator") or {}
             if agg:
-                lines.append(t("gateway.session.info_acting_model", provider=agg.get("provider"), model=agg.get("model")))
+                lines.append(('◆ Acting model (billed for the run): {provider}:{model}').format(provider=agg.get("provider"), model=agg.get("model")))
         base_url = resolved.base_url
         if base_url and base_url_hostname(base_url) in ("localhost", "127.0.0.1", "0.0.0.0"):
-            lines.append(t("gateway.session.info_endpoint", url=base_url))
+            lines.append(f'◆ Endpoint: {base_url}')
         return "\n".join(lines)
 
     def _resolve_enabled_toolsets_for_source(
@@ -523,21 +519,20 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                 from tools.mcp_tool import _mcp_tool_server_names
                 with _lock:
                     new_tools = [n for n in new_tools if _mcp_tool_server_names.get(n) in connected_servers]
-            # (label, i18n key, names); i18n lines list reconnected first, the injected note added first.
+            # (label, display template, names); the display lists reconnected first, the injected note added first.
             changes = (
-                ("Reconnected", "gateway.reload_mcp.reconnected", connected_servers & old_servers),
-                ("Added", "gateway.reload_mcp.added", connected_servers - old_servers),
-                ("Removed", "gateway.reload_mcp.removed", old_servers - connected_servers),
+                ("Reconnected", '♻️ Reconnected: {names}', connected_servers & old_servers),
+                ("Added", '➕ Added: {names}', connected_servers - old_servers),
+                ("Removed", '➖ Removed: {names}', old_servers - connected_servers),
             )
-            lines = [t("gateway.reload_mcp.header")] + [
-                t(key, names=", ".join(sorted(names))) for _label, key, names in changes if names
+            lines = ['🔄 **MCP Servers Reloaded**\n'] + [
+                key.format(names=", ".join(sorted(names))) for _label, key, names in changes if names
             ]
             from tools.mcp_tool_discovery import mcp_servers_not_connected
             failed = await self._run_in_executor_with_context(mcp_servers_not_connected)
-            lines.append(t("gateway.reload_mcp.none_connected") if not connected_servers else t(
-                "gateway.reload_mcp.tools_available", tools=len(new_tools), servers=len(connected_servers)))
+            lines.append('No MCP servers connected.' if not connected_servers else (f'\n🔧 {len(new_tools)} tool(s) available from {len(connected_servers)} server(s)'))
             if failed:  # a configured server that did not connect is named, never passed over as success
-                lines.append(t("gateway.reload_mcp.failed", error=f"did not connect: {', '.join(failed)}"))
+                lines.append(('❌ MCP reload failed: {error}').format(error=f"did not connect: {', '.join(failed)}"))
 
             self._mcp_reload_refresh_cached_agents(multiplex, event.source.profile)
 
@@ -560,7 +555,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
 
         except Exception as e:
             logger.warning("MCP reload failed: %s", e)
-            return t("gateway.reload_mcp.failed", error=e)
+            return (f'❌ MCP reload failed: {e}')
 
     def _get_proxy_url(self) -> Optional[str]:
         """Proxy URL if proxy mode is configured (GATEWAY_PROXY_URL env wins over ``gateway.proxy_url``).
@@ -579,40 +574,26 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
 
     def _build_stream_consumer_config(
         self, source: SessionSource, scfg: Any, adapter: Any, *, on_missing_cursor: str,
-    ) -> tuple[Any, Optional[Callable[[], None]]]:
-        """Build the shared ``StreamConsumerConfig`` and optional Telegram pause-typing closure.
+    ) -> Any:
+        """Build the shared ``StreamConsumerConfig`` for the adapter's capabilities.
         For non-editing adapters ``on_missing_cursor="fallback"`` streams with an empty cursor;
         ``"raise"`` raises ``RuntimeError`` so the caller skips streaming entirely."""
         from gateway.stream_consumer import StreamConsumerConfig
-        _pause_typing_before_finalize = None
-        if source.platform == Platform.TELEGRAM and hasattr(adapter, "pause_typing_for_chat"):
-            def _pause_typing_before_finalize(_adapter=adapter, _chat_id=source.chat_id) -> None:
-                _adapter.pause_typing_for_chat(_chat_id)
-        # Non-editing platforms (QQ, WeChat) skip streaming — the partial first message could never
-        # be updated — unless they have a native-streaming transport (WeCom msgtype "stream").
+        # Non-editing adapters need an incremental transport to update a partial message.
         _adapter_supports_edit = getattr(adapter, "SUPPORTS_MESSAGE_EDITING", True)
         _adapter_supports_native_stream = bool(getattr(adapter, "SUPPORTS_NATIVE_STREAMING", False))
         if not _adapter_supports_edit and not _adapter_supports_native_stream and on_missing_cursor == "raise":
             raise RuntimeError("skip streaming for non-editable platform")
         _effective_cursor = scfg.cursor if _adapter_supports_edit else ""
-        # Some Matrix clients render the cursor as tofu: stream text, no cursor.
-        if source.platform == Platform.MATRIX:
-            _effective_cursor = ""
-        # Fresh-final applies to Telegram only (others edit in place cheaply).
-        # Fresh-final applies to Telegram only — other platforms either edit in place cheaply (Discord,
-        # Slack) or don't have the timestamp-on-edit / edit-timestamp-stays-stale problem. (Ported from
-        # openclaw/openclaw#72038.)
-        _fresh_final_secs = (
-            float(getattr(scfg, "fresh_final_after_seconds", 0.0) or 0.0)
-            if source.platform == Platform.TELEGRAM else 0.0
-        )
+
         _consumer_cfg = StreamConsumerConfig(
             edit_interval=scfg.edit_interval, buffer_threshold=scfg.buffer_threshold,
             cursor=_effective_cursor,
-            fresh_final_after_seconds=_fresh_final_secs, transport=scfg.transport or "edit",
+            fresh_final_after_seconds=float(getattr(scfg, "fresh_final_after_seconds", 0.0) or 0.0),
+            transport=scfg.transport or "edit",
             chat_type=getattr(source, "chat_type", "") or "",
         )
-        return _consumer_cfg, _pause_typing_before_finalize
+        return _consumer_cfg
 
     def _run_still_current_fn(self, session_key: Optional[str], run_generation: Optional[int]) -> Callable[[], bool]:
         """Predicate: does this run's generation still own ``session_key``? (always True when untracked)."""
@@ -630,9 +611,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         """Platform stream consumer for the proxy path when streaming is enabled, else ``None``."""
         from gateway.run import _load_gateway_config, _platform_config_key
         _scfg = getattr(getattr(self, "config", None), "streaming", None)
-        # #60671 — streaming TTS consumer is created on the outer event-loop thread before run_sync
-        # launches.  run_sync only reads it via ``streaming_tts_consumer_holder[0]`` for delta callback
-        # wiring.
+
         if _scfg is None:
             from gateway.config import StreamingConfig
             _scfg = StreamingConfig()
@@ -648,12 +627,12 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             _adapter = self._delivery_adapter_for(source)
             if not _adapter:
                 return None
-            _consumer_cfg, _pause_typing_before_finalize = self._build_stream_consumer_config(
+            _consumer_cfg = self._build_stream_consumer_config(
                 source, _scfg, _adapter, on_missing_cursor="fallback",
             )
             return GatewayStreamConsumer(
                 adapter=_adapter, chat_id=source.chat_id, config=_consumer_cfg,
-                metadata=_thread_metadata, on_before_finalize=_pause_typing_before_finalize,
+                metadata=_thread_metadata,
                 initial_reply_to_id=event_message_id, run_still_current=_run_still_current,
             )
         except Exception as _sc_err:
@@ -674,11 +653,11 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         try:
             from aiohttp import ClientSession as _AioClientSession, ClientTimeout
         except ImportError:
-            return self._proxy_error_result(t("gateway.proxy.requires_aiohttp", hint=install_hint("messaging")))
+            return self._proxy_error_result(('⚠️ Proxy mode requires aiohttp. Run: {hint}').format(hint=install_hint("messaging")))
 
         proxy_url = self._get_proxy_url()
         if not proxy_url:
-            return self._proxy_error_result(t("gateway.proxy.url_missing"))
+            return self._proxy_error_result('⚠️ Proxy URL not configured (GATEWAY_PROXY_URL or gateway.proxy_url)')
 
         # The proxy key is a per-profile credential read through the installed secret scope:
         # ``_run_agent`` binds the source profile's scope (or the launch profile's once the process
@@ -766,7 +745,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                     if resp.status != 200:
                         error_text = await resp.text()
                         logger.warning("Proxy error (%d) from %s: %s", resp.status, safe_proxy_url_for_log(proxy_url), error_text[:500])
-                        return self._proxy_error_result(t("gateway.proxy.http_error", status=resp.status, error=error_text[:300]))
+                        return self._proxy_error_result(f'⚠️ Proxy error ({resp.status}): {error_text[:300]}')
 
                     buffer = ""
                     async for chunk in resp.content.iter_any():
@@ -796,13 +775,13 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                             "(%d chars received)", safe_proxy_url_for_log(proxy_url), len(full_response),
                         )
                         if not full_response:
-                            return self._proxy_error_result(t("gateway.proxy.closed_early"))
+                            return self._proxy_error_result('⚠️ Proxy connection closed before the response completed')
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error("Proxy connection error to %s: %s", safe_proxy_url_for_log(proxy_url), describe_proxy_error(e, proxy_url) or e)
             if not full_response:
-                return self._proxy_error_result(t("gateway.proxy.connection_error", error=describe_proxy_error(e, proxy_url) or e))
+                return self._proxy_error_result(f'⚠️ Proxy connection error: {describe_proxy_error(e, proxy_url) or e}')
             # Partial response — return what we got
         finally:
             if _stream_consumer:
@@ -821,7 +800,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             safe_proxy_url_for_log(proxy_url), (session_id or "")[:20], _elapsed, len(full_response),
         )
         return {
-            "final_response": full_response or t("gateway.proxy.no_response"),
+            "final_response": full_response or '(No response from remote agent)',
             "messages": [
                 {"role": "user", "content": message},
                 {"role": "assistant", "content": full_response},
@@ -845,7 +824,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
     def _run_agent_display_settings(self, source: SessionSource) -> GatewayRunner._RunAgentDisplay:
         """Resolve per-platform display, progress, status and streaming-surface settings for a turn."""
         from gateway.run import (
-            _gateway_platform_value, _has_platform_display_override, _load_gateway_config,
+            _load_gateway_config,
             _platform_config_key,
         )
         from agent.secret_scope import get_secret
@@ -873,7 +852,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         # Resolve the mode and its provenance together: null inherits, tier off is not intent.
         # A raw os.getenv here reads whichever profile's env loaded last under multiplexing
         # (#116898); get_secret resolves through the active profile's scope instead.
-        progress_mode, _tool_progress_explicit = resolve_tool_progress(
+        progress_mode, _ = resolve_tool_progress(
             user_config, platform_key, get_secret("HERMES_TOOL_PROGRESS_MODE"),
         )
         # "accumulate" (edit one bubble) or "separate" (one msg per tool)
@@ -883,17 +862,9 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
 
         def _display_surface_mode(
             setting: str, *, default: bool = False,
-            require_platform_override_for: set[Any] | None = None, allow_generic: bool = False,
+            allow_generic: bool = False,
         ) -> str:
             """Return off|raw|generic for a gateway visibility surface."""
-            if require_platform_override_for:
-                current_platform = _gateway_platform_value(source.platform)
-                platform_only = {_gateway_platform_value(item) for item in require_platform_override_for}
-                if (
-                    current_platform in platform_only
-                    and not _has_platform_display_override(user_config, platform_key, setting)
-                ):
-                    return "off"
             value = resolve_display_setting(user_config, platform_key, setting, default)
             if isinstance(value, str) and value.strip().lower() == "generic":
                 return "generic" if allow_generic else "off"
@@ -907,9 +878,9 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                 )
             except Exception as _phrase_err:
                 logger.debug("generic status phrase selection failed: %s", _phrase_err)
-                return (t("gateway.progress.status_fallback_long")
+                return ('still on it'
                         if kind in {"heartbeat", "waiting", "long_running", "status"}
-                        else t("gateway.progress.status_fallback_short"))
+                        else 'one sec')
 
         # Webhooks can't edit messages; a bot peer gets the final reply only (#137027): no progress lanes.
         is_webhook, bot_peer = source.platform == Platform.WEBHOOK, not automatic_notices_allowed(source)
@@ -921,33 +892,14 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         )
         # "log" mode: tool calls go to ~/.hermes/logs/tool_calls.log instead of the chat. Gateway-only.
         log_mode_enabled = progress_mode == "log" and not is_webhook
-        # Interim assistant messages and thinking_progress are independent of tool progress (same
-        # queue). Mattermost requires a per-platform opt-in: scratch text leaks into public threads.
+        # Interim assistant messages and thinking progress are independent of tool progress.
         interim_assistant_messages_mode = _display_surface_mode(
-            "interim_assistant_messages", default=True, require_platform_override_for={Platform.MATTERMOST},
+            "interim_assistant_messages", default=True,
         )
         interim_assistant_messages_enabled = not is_webhook and not bot_peer and interim_assistant_messages_mode != "off"
         _thinking_enabled = _display_surface_mode(
-            "thinking_progress", default=False, require_platform_override_for={Platform.MATTERMOST},
+            "thinking_progress", default=False,
         ) != "off" and not bot_peer
-        # Slack-native task cards (#29483): when the Slack adapter's opt-in is set, tool progress renders as
-        # native plan/task cards via chat.startStream — the progress queue is needed even though Slack keeps
-        # ordinary text tool_progress off by default (requiring both flags would silently leave the native
-        # feature inactive).
-        # Cards are still tool progress. Slack's TIER default (``off``) only quiets the text lane so
-        # cards stay on for unconfigured installs, but an operator who WRITES ``tool_progress: off``
-        # (global, platform override, or legacy overrides) has asked for no tool progress at all and
-        # gets no cards either. Every other explicit mode keeps the card lane.
-        _native_slack_task_cards = False
-        if (
-            source.platform == Platform.SLACK
-            and hasattr(adapter, "native_task_cards_enabled")
-            and not (_tool_progress_explicit and progress_mode == "off") and not bot_peer
-        ):
-            try:
-                _native_slack_task_cards = bool(adapter.native_task_cards_enabled())
-            except Exception:
-                logger.debug("Slack native task-card config check failed", exc_info=True)
         return self._RunAgentDisplay(
             user_config=user_config, platform_key=platform_key, enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets, resolve_display_setting=resolve_display_setting,
@@ -957,8 +909,8 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             _live_status_adapter=_live_status_adapter, log_mode_enabled=log_mode_enabled,
             log_queue=queue.Queue() if log_mode_enabled else None,
             interim_assistant_messages_enabled=interim_assistant_messages_enabled,
-            _thinking_enabled=_thinking_enabled, _native_slack_task_cards=_native_slack_task_cards,
-            needs_progress_queue=tool_progress_enabled or _thinking_enabled or _native_slack_task_cards,
+            _thinking_enabled=_thinking_enabled,
+            needs_progress_queue=tool_progress_enabled or _thinking_enabled,
             _generic_status_phrase=_generic_status_phrase,
         )
 
@@ -967,7 +919,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         "_live_status_adapter", "_live_status_mode", "_thinking_enabled", "progress_mode",
         "progress_grouping", "tool_progress_enabled", "log_queue", "resolve_display_setting",
         "user_config", "enabled_toolsets", "disabled_toolsets", "log_mode_enabled",
-        "interim_assistant_messages_enabled", "needs_progress_queue", "_native_slack_task_cards",
+        "interim_assistant_messages_enabled", "needs_progress_queue",
     )
 
     def _run_agent_build_turn_context(
@@ -978,9 +930,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         session_id, persist_user_*, …) are stored verbatim. Returns ``(turn_ctx, turn_runner,
         cleanup_adapter)``."""
         from gateway.run_turn_runner import TurnRunner
-        # Discord voice "verbal ack" on the FIRST tool call (discord.voice_fx.enabled): resolve the
-        # guild whose voice connection is bound to this text channel (mirrors DiscordAdapter.play_tts).
-        _voice_ack_guild: list[Optional[int]] = [self._voice_ack_guild_for(source)]
+
 
         # Auto-cleanup of temporary progress bubbles needs a real ``delete_message`` (getattr on the
         # type: a fake adapter without it means "can't delete", not a crash).
@@ -1000,7 +950,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             run_generation=run_generation, _cleanup_progress=_cleanup_progress,
             _run_still_current=self._run_still_current_fn(session_key, run_generation),
             progress_queue=queue.Queue() if disp.needs_progress_queue else None,
-            _voice_ack_guild=_voice_ack_guild, _voice_ack_loop=asyncio.get_running_loop(),
+
             **{name: getattr(disp, name) for name in self._DISPLAY_TO_TURN_CTX}, **turn_params,
         )
         turn_runner = TurnRunner(self, turn_ctx)
@@ -1008,98 +958,15 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             turn_ctx.persist_user_display_metadata, source.platform, turn_ctx.user_config)
         # Agent tool-lifecycle callbacks live on the runner (bound methods, same signatures).
         turn_ctx.progress_callback = turn_runner.progress_callback
-        turn_ctx.voice_ack_callback = turn_runner.voice_ack_callback
-        turn_ctx.native_tool_start_callback = turn_runner.combined_tool_start_callback
-        turn_ctx.native_tool_complete_callback = turn_runner.native_tool_complete_callback
+
         return turn_ctx, turn_runner, _cleanup_adapter
 
-    def _thread_metadata_for_progress(
-        self, source: SessionSource, event_message_id: Optional[str], _progress_thread_id: Any,
-        _relay_prospective_thread_id: Optional[str],
-    ) -> Optional[dict[str, Any]]:
-        """Thread metadata for a progress-lane send; relay Discord auto-thread lane falls back to the reply anchor.
-
-        The connector will auto-thread on the reply anchor (thread is born on its FIRST send), so
-        carrying it routes progress / status bubbles into the same thread as the final reply."""
-        if not _progress_thread_id:
-            metadata = None
-        elif _progress_thread_id == source.thread_id:
-            metadata = self._thread_metadata_for_source(source, event_message_id)
-        else:
-            metadata = self._thread_metadata_for_target(
-                source.platform, source.chat_id, _progress_thread_id,
-                chat_type=getattr(source, "chat_type", None), reply_to_message_id=event_message_id,
-            )
-        if metadata is None and _relay_prospective_thread_id:
-            metadata = {"reply_to_message_id": event_message_id}
-        return metadata
-
     def _run_agent_progress_threading(
-        self, source: SessionSource, event_message_id: Optional[str], _native_slack_task_cards: bool
+        self, source: SessionSource, event_message_id: Optional[str],
     ) -> tuple[Optional[dict], Optional[str], Optional[dict]]:
-        """Resolve where progress bubbles are threaded (platform-specific).
-
-        Returns ``(progress_metadata, progress_reply_to, status_thread_metadata)``; the latter is
-        for status / approval / stream sends (Feishu topics need the triggering message id via the
-        reply API, so carry it as a fallback). Slack and Buzz honour the user's reply_in_thread
-        opt-out: never synthesise a thread for progress, or every later reply inherits it."""
-        from gateway.run import _non_conversational_metadata, _resolve_progress_thread_id
-        is_buzz = str(getattr(source.platform, "value", source.platform) or "").lower() == "buzz"
-        _progress_reply_in_thread = True
-        _adapter = self._delivery_adapter_for(source) if source.platform == Platform.SLACK or is_buzz else None
-        if _adapter is not None:
-            try:
-                if is_buzz:
-                    _progress_reply_in_thread = getattr(_adapter, "_reply_to_mode", "first") != "off"
-                else:
-                    # Relay lane: the adapter owns mode resolution; native lane: flat extra key.
-                    _mode_fn = getattr(_adapter, "_effective_reply_in_thread", None)
-                    _progress_reply_in_thread = bool(
-                        _mode_fn() if callable(_mode_fn) else _adapter.config.extra.get("reply_in_thread", True)
-                    )
-            except Exception:
-                _progress_reply_in_thread = True
-        _progress_thread_id = _resolve_progress_thread_id(
-            source.platform, source.thread_id, event_message_id, reply_in_thread=_progress_reply_in_thread,
-        )
-        # Relay Discord auto-thread lane: the connector stamps prospective_thread_id at ingest.
-        _relay_prospective_thread_id = (
-            str(getattr(source, "prospective_thread_id", None))
-            if source.platform == Platform.DISCORD
-            and getattr(source, "delivered_via_upstream_relay", False)
-            and getattr(source, "prospective_thread_id", None)
-            and not source.thread_id
-            else None
-        )
-        _progress_metadata = _non_conversational_metadata(
-            self._thread_metadata_for_progress(
-                source, event_message_id, _progress_thread_id, _relay_prospective_thread_id,
-            ),
-            platform=source.platform,
-        )
-        if _native_slack_task_cards:
-            # chat.startStream in channels requires the recipient team/user pair; harmless elsewhere.
-            _progress_metadata = dict(_progress_metadata or {})
-            if source.scope_id:
-                _progress_metadata.setdefault("recipient_team_id", source.scope_id)
-                _progress_metadata.setdefault("slack_team_id", source.scope_id)
-            if source.user_id:
-                _progress_metadata.setdefault("recipient_user_id", source.user_id)
-        # Buzz has no native thread_id: thread via reply-to unless the user opted out.
-        _progress_reply_to = (
-            event_message_id
-            if (source.platform in (Platform.FEISHU, Platform.MATTERMOST) and source.thread_id and event_message_id)
-            or (is_buzz and event_message_id and _progress_reply_in_thread)
-            or _relay_prospective_thread_id
-            else None
-        )
-        if source.platform == Platform.FEISHU and source.thread_id and event_message_id:
-            _status_thread_metadata = {"thread_id": _progress_thread_id, "reply_to_message_id": event_message_id}
-        else:
-            _status_thread_metadata = self._thread_metadata_for_progress(
-                source, event_message_id, _progress_thread_id, _relay_prospective_thread_id,
-            )
-        return _progress_metadata, _progress_reply_to, _status_thread_metadata
+        """Keep progress and status sends on the source's existing route."""
+        metadata = self._thread_metadata_for_source(source, event_message_id)
+        return metadata, None, metadata
 
     async def _run_agent_write_tool_log(self, log_queue: Any) -> None:
         """Drain log_queue and append tool-call lines to tool_calls.log (tool_progress=log).
@@ -1128,38 +995,6 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                 for handler in tool_logger.handlers:
                     handler.flush()
 
-    def _run_agent_start_streaming_tts(
-        self, source: SessionSource, message_type: Optional[str],
-        _status_thread_metadata: Optional[dict[str, Any]], streaming_tts_consumer_holder: list,
-    ) -> None:
-        """Start the streaming-TTS consumer for a voice-input turn on an auto-TTS chat.
-
-        Created on the gateway loop thread (not run_sync's executor); an inactive consumer leaves
-        the holder None so the whole-file fallback path runs."""
-        # Skip when streaming TTS already delivered audio for this turn (#60671).
-        # This avoids a cross-scope NameError: the outer interrupt / finalisation paths reference the
-        # consumer via ``streaming_tts_consumer_holder[0]``. Gates: voice input, auto-TTS enabled for this
-        # chat, adapter supports streaming, and a usable streaming TTS provider configured. See #60671.
-        _stts_adapter = self._delivery_adapter_for(source)
-        _is_voice_input = (
-            message_type is not None
-            and str(getattr(message_type, "value", message_type)).lower() == "voice"
-        )
-        if _stts_adapter is None or not _is_voice_input or not _stts_adapter._should_auto_tts_for_chat(source.chat_id):
-            return
-        try:
-            from gateway.streaming_tts_consumer import StreamingTTSConsumer
-            from tools.tts_tool import _load_tts_config
-            _stts_consumer = StreamingTTSConsumer(
-                adapter=_stts_adapter, chat_id=source.chat_id, tts_config=_load_tts_config(),
-                loop=self._gateway_loop or asyncio.get_event_loop(),
-                metadata=_status_thread_metadata,
-            )
-            if _stts_consumer.active:
-                streaming_tts_consumer_holder[0] = _stts_consumer
-                _stts_consumer.start()
-        except Exception as _stts_err:
-            logger.debug("Could not set up streaming TTS consumer: %s", _stts_err)
 
     async def _run_agent_stream_consumer_task(self, stream_consumer_holder: list) -> None:
         """Wait (up to 10s) for the stream consumer to be created inside run_sync, then run it."""
@@ -1200,41 +1035,20 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
 
     async def _run_agent_fire_pending_interrupt(
         self, adapter: Any, agent: Any, source: SessionSource, session_key: str,
-        _interrupt_detected: asyncio.Event, streaming_tts_consumer_holder: list, *,
-        log_context: str, log: Callable[[], None],
+        _interrupt_detected: asyncio.Event, *, log: Callable[[], None],
     ) -> None:
-        """Peek the adapter's pending event, transcribe voice, then signal the agent + abort streaming TTS.
-
-        Peek WITHOUT consuming: the event must stay for the post-run ``_dequeue_pending_event()``
-        (popping races the agent finishing). Transcribe BEFORE signaling so voice interrupts carry
-        the real transcript."""
+        """Signal the agent without consuming the pending event needed by the drain path."""
         from gateway.run import _build_media_placeholder
         _peek_event = adapter._pending_messages.get(session_key)
         pending_text = None
         if _peek_event is not None:
             pending_text = _peek_event.text or ""
-            if self._pending_event_audio_paths(_peek_event):
-                pending_text, _ = await self._transcribe_and_echo_pending_voice(
-                    _peek_event, adapter, source, pending_text, log_context=log_context,
-                    metadata={"thread_id": source.thread_id} if source.thread_id else None,
-                )
-            elif not pending_text and (getattr(_peek_event, "media_urls", None) or []):
+            if not pending_text and (getattr(_peek_event, "media_urls", None) or []):
                 pending_text = _build_media_placeholder(_peek_event)
         log()
         agent.interrupt(pending_text)
         _interrupt_detected.set()
-        # Abort streaming TTS on barge-in.
-        # See #60671.
-        # See #60671.
-        # See #60671.
-        # Finalize the streaming-TTS consumer (#60671). finish() is called from the outer event-loop thread
-        # (not the executor worker) so early returns from run_sync are also finalised.  wait_complete()
-        # drains queued audio; on timeout the consumer is aborted unconditionally — if audio was audible,
-        # suppression is preserved so the gateway does not replay from the beginning; if no audio was
-        # audible, the whole-file fallback path is permitted.
-        _stts = streaming_tts_consumer_holder[0]
-        if _stts is not None:
-            _stts.abort("barge-in")
+
 
     async def _run_agent_monitor_for_interrupt(self, turn_ctx: TurnContext, _interrupt_detected: asyncio.Event) -> None:
         """Poll the adapter for interrupts (new messages) every 200ms and signal the agent.
@@ -1242,7 +1056,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         Level 1 (base.py) catches regular text before _handle_message(); the inactivity poll loop
         has a BACKUP check in case this task dies. Keyed by session_key, NOT source.chat_id."""
         source, session_key, agent_holder = turn_ctx.source, turn_ctx.session_key, turn_ctx.agent_holder
-        streaming_tts_consumer_holder = turn_ctx.streaming_tts_consumer_holder
+
         if not session_key:
             return
         while True:
@@ -1257,7 +1071,6 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                     if agent:
                         await self._run_agent_fire_pending_interrupt(
                             _adapter, agent, source, session_key, _interrupt_detected,
-                            streaming_tts_consumer_holder, log_context="Voice-interrupt",
                             log=lambda: logger.debug("Interrupt detected from adapter, signaling agent..."),
                         )
                         break
@@ -1280,8 +1093,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                 and _backup_adapter.has_pending_interrupt(session_key)):
             await self._run_agent_fire_pending_interrupt(
                 _backup_adapter, _backup_agent, source, session_key, _interrupt_detected,
-                turn_ctx.streaming_tts_consumer_holder,
-                log_context="Voice-backup-interrupt",
+
                 log=lambda: logger.info(
                     "Backup interrupt detected for session %s (monitor task state: %s)",
                     session_key, "done" if interrupt_monitor.done() else "running",
@@ -1407,10 +1219,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             return
         try:
             await _warn_adapter.emit_warning(
-                source.chat_id, t(
-                    "gateway.progress.stuck_warning",
-                    minutes=int(worker.agent_warning // 60) or 1,
-                    remaining=int((worker.agent_timeout - worker.agent_warning) // 60) or 1),
+                source.chat_id, (f"⚠️ I seem to be stuck (no activity for {int(worker.agent_warning // 60) or 1} min). If nothing happens in the next {int((worker.agent_timeout - worker.agent_warning) // 60) or 1} min I'll give up on this task. You can keep waiting, send /stop to cancel it, or /new to start a fresh conversation."),
                 metadata=_interim_metadata(_status_thread_metadata), logical_platform=source.platform,
             )
         except Exception as _warn_err:
@@ -1440,16 +1249,12 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             request_hard_interrupt(_timed_out_agent, _INTERRUPT_REASON_TIMEOUT, tool_reason=_INTERRUPT_TOOL_REASON_TIMEOUT)
         _timeout_mins = int(worker.agent_timeout // 60) or 1
         _iter_progress = format_iteration_progress(_iter_n, _iter_max)
-        _diag_lines = [t("gateway.progress.timeout_header", minutes=_timeout_mins)]
+        _diag_lines = [(f'⏱️ Agent inactive for {_timeout_mins} min — no tool calls or API responses.')]
         if _cur_tool:
-            _diag_lines.append(t(
-                "gateway.progress.timeout_stuck_tool",
-                tool=_cur_tool, seconds=f"{_secs_ago:.0f}", progress=_iter_progress))
+            _diag_lines.append(('The agent appears stuck on tool `{tool}` ({seconds}s since last activity, {progress}).').format(tool=_cur_tool, seconds=f"{_secs_ago:.0f}", progress=_iter_progress))
         else:
-            _diag_lines.append(t(
-                "gateway.progress.timeout_last_activity",
-                activity=_last_desc, seconds=f"{_secs_ago:.0f}", progress=_iter_progress))
-        _diag_lines.append(t("gateway.progress.timeout_hint"))
+            _diag_lines.append(('Last activity: {activity} ({seconds}s ago, {progress}). The agent may have been waiting on an API response.').format(activity=_last_desc, seconds=f"{_secs_ago:.0f}", progress=_iter_progress))
+        _diag_lines.append('To increase the limit, set agent.gateway_timeout in config.yaml (value in seconds, 0 = no limit) and restart the gateway.\nTry again, or use /reset to start fresh.')
         return record_terminal_failure({
             "final_response": "\n".join(_diag_lines),
             "messages": result_holder[0].get("messages", []) if result_holder[0] else [],
@@ -1512,25 +1317,6 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         _agent._evicted_on_fallback = session_key or True
         self._evict_cached_agent(session_key)
 
-    async def _run_agent_finalize_streaming_tts(self, turn_ctx: TurnContext, adapter: Any) -> None:
-        """Finalize the streaming-TTS consumer on the outer event-loop thread (covers early returns
-        from run_sync). On drain timeout abort to free the task — audible streams keep whole-file
-        suppression, silent streams stay eligible for the whole-file fallback."""
-        _stts = turn_ctx.streaming_tts_consumer_holder[0]
-        if _stts is None:
-            return
-        _stts.finish()
-        try:
-            await _stts.wait_complete(timeout=10.0)
-        except Exception as _stts_done_err:
-            logger.debug("streaming TTS wait_complete error: %s", _stts_done_err)
-        if not _stts.done:
-            _stts.abort("streaming TTS finalisation timeout")
-            await _stts.wait_complete(timeout=2.0)
-        if _stts.suppress_whole_file and adapter is not None:
-            _mark_turn = getattr(adapter, "_mark_streaming_tts_completed_turn", None)
-            if callable(_mark_turn):
-                _mark_turn(turn_ctx.session_key, turn_ctx.run_generation)
 
     async def _run_agent_drain_pending(
         self, result: Any, adapter: Any, source: SessionSource, session_key: Optional[str]
@@ -1561,16 +1347,8 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                     # FIFO already has this send.
                     pending = None if executing_admission.get() else interrupt_message
             elif pending_event:
-                # Transcribe audio BEFORE it becomes the next user turn (real transcript, not a path).
                 _pending_text = pending_event.text or ""
-                if self._pending_event_audio_paths(pending_event):
-                    pending, _ = await self._transcribe_and_echo_pending_voice(
-                        pending_event, adapter, source, _pending_text, log_context="Voice-drain",
-                        metadata={"thread_id": source.thread_id} if source.thread_id else None,
-                    )
-                    pending = pending or _build_media_placeholder(pending_event)
-                else:
-                    pending = _pending_text or _build_media_placeholder(pending_event)
+                pending = _pending_text or _build_media_placeholder(pending_event)
                 if pending:
                     logger.debug("Processing queued message after agent completion: '%s...'", pending[:40])
 
@@ -1715,13 +1493,13 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
 
         updated_history = result.get("messages", history)
         next_source, next_message, next_session_key = source, pending, session_key
-        # message_type is carried into the recursive call so queued voice turns can stream TTS.
+        # Preserve the message type for the recursive follow-up.
         next_message_id = next_channel_prompt = next_message_type = None
         # The raw inbound id keys the delivery-ledger obligation for the follow-up's own final send,
         # distinct from the reply anchor above (None in forum topics). Carry it or two chained
         # topic turns with the same text would collide on one obligation id (queued-final-ledger).
         next_inbound_id = None
-        # Queued Discord turns carry the same routing note as first turns; persist the authored text.
+        # Queued follow-ups persist their own prepared text, never the interrupted turn's text.
         next_persist_message = None
         next_display_kind = display_kind_for_event(pending_event)
         next_reply_expected = pending_event.reply_expected if pending_event is not None else None
@@ -1748,8 +1526,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             )
             if next_message is None:
                 return result
-            from gateway.run_inbound import strip_discord_triggering_note
-            next_persist_message = strip_discord_triggering_note(pending_event, next_message)
+            next_persist_message = next_message
             next_message_id = self._reply_anchor_for_event(pending_event)
             next_inbound_id = str(pending_event.message_id) if getattr(pending_event, "message_id", None) else None
             next_channel_prompt, next_source = self._pinned_channel_inputs(
@@ -1765,14 +1542,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             # of the turn they are recursively following.
             next_channel_prompt = turn_ctx.channel_prompt
 
-        # Clear the prior turn's streaming-TTS completion marker so the recursive turn isn't suppressed (#60671).
         _clear_adapter = self._delivery_adapter_for(source)
-        _completed_turns = getattr(_clear_adapter, "_streaming_tts_completed_turns", None)
-        _prior_key = getattr(_clear_adapter, "_streaming_tts_turn_key", None)
-        if _completed_turns is not None and callable(_prior_key) and session_key and run_generation is not None:
-            _pk = _prior_key(session_key, run_generation)
-            if _pk:
-                _completed_turns.discard(_pk)
 
         # Restart the typing indicator; the outer typing task may be stale.
         if _clear_adapter:
@@ -1860,13 +1630,6 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             else:
                 await self._await_stream_task(stream_task)
 
-        # Abort + bounded wait for streaming TTS: covers paths where normal finalisation was skipped.
-        _stts_finally = turn_ctx.streaming_tts_consumer_holder[0]
-        # See #60671.
-        if _stts_finally is not None and not _stts_finally.done:
-            _stts_finally.abort("cleanup")
-            with suppress(Exception):
-                await _stts_finally.wait_complete(timeout=2.0)
 
         tracking_task.cancel()
         if session_key:
@@ -2033,13 +1796,13 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
 
     def _run_agent_bind_turn_wiring(
         self, turn_ctx: TurnContext, turn_runner: TurnRunner, source: SessionSource,
-        event_message_id: Optional[str], _native_slack_task_cards: bool,
+        event_message_id: Optional[str],
     ) -> Optional[dict[str, Any]]:
         """Resolve progress threading, then publish progress metadata and the sync→async bridges onto
         ``turn_ctx`` (the one-slot holders shared with run_sync's executor thread are TurnContext
         defaults). Returns ``_status_thread_metadata``."""
         turn_ctx._progress_metadata, turn_ctx._progress_reply_to, _status_thread_metadata = (
-            self._run_agent_progress_threading(source, event_message_id, _native_slack_task_cards)
+            self._run_agent_progress_threading(source, event_message_id)
         )
         # Bridges: sync step/event/status callbacks → async hooks.emit and adapter.send.
         turn_ctx._loop_for_step = asyncio.get_running_loop()
@@ -2099,7 +1862,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             _heartbeat_text = (
                 disp._generic_status_phrase("status")
                 if _long_running_mode == "generic"
-                else t("gateway.progress.working_heartbeat", minutes=_elapsed_mins, detail=_status_detail)
+                else (f'⏳ Working — {_elapsed_mins} min{_status_detail}')
             )
             try:
                 _notify_res = None
@@ -2166,7 +1929,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             # Keep status callbacks intact for approvals and actionable failures. Interim messages keep the chat's
             # setting (TurnRunner drops them for a heartbeat): an agent this turn builds takes its mode from it.
             disp = dataclasses.replace(
-                disp, tool_progress_enabled=False, _thinking_enabled=False, _native_slack_task_cards=False,
+                disp, tool_progress_enabled=False, _thinking_enabled=False,
                 needs_progress_queue=False,
             )
         turn_ctx, turn_runner, _cleanup_adapter = self._run_agent_build_turn_context(
@@ -2181,16 +1944,12 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             persist_user_display_kind=persist_user_display_kind,
             reply_expected=reply_expected,
             persist_user_display_metadata=persist_user_display_metadata, scheduled_heartbeat=scheduled_heartbeat,
-            voice_turn=str(getattr(message_type, "value", message_type) or "").lower() == "voice",
+
         )
         _status_thread_metadata = self._run_agent_bind_turn_wiring(
-            turn_ctx, turn_runner, source, event_message_id, disp._native_slack_task_cards,
+            turn_ctx, turn_runner, source, event_message_id,
         )
-        # Two independent quiet reasons: a muted diagnostic wake (ours) and a scheduled heartbeat.
-        if not (scheduled_heartbeat or turn_ctx.mute_notification_reply):
-            self._run_agent_start_streaming_tts(
-                source, message_type, _status_thread_metadata, turn_ctx.streaming_tts_consumer_holder,
-            )
+
 
         # Progress sender drains BOTH tool-progress lines and thinking bubbles (needs_progress_queue).
         spawn = asyncio.create_task
@@ -2220,7 +1979,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             # Interrupted OR queued message (/queue)?
             result = turn_ctx.result_holder[0]
             adapter = self._delivery_adapter_for(source)
-            await self._run_agent_finalize_streaming_tts(turn_ctx, adapter)
+
             pending_event, pending = await self._run_agent_drain_pending(result, adapter, source, session_key)
             if pending_event or pending:
                 return await self._run_agent_queued_followup(

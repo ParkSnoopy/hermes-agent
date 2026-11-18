@@ -47,7 +47,7 @@ def _gateway_prompt(source, cwd):
         load_soul_identity=False, skip_context_files=True, valid_tool_names={"terminal"},
         _memory_enabled=False, _user_profile_enabled=False, _task_completion_guidance=False,
         _parallel_tool_call_guidance=False, _tool_use_enforcement=False, _execution_guidance=False,
-        _environment_probe=False, _bot_mode_protocol=False, _kanban_worker_guidance="",
+        _environment_probe=False, _bot_mode_protocol=False,
         pass_session_id=False, session_id="s1", _emit_status=lambda *a, **k: None,
     )
     with patch("agent.prompt_builder.load_soul_md", return_value=""), \

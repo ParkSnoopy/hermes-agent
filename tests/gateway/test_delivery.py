@@ -6,10 +6,9 @@ import pytest
 from typing import Any, cast
 
 from gateway.config import GatewayConfig, HomeChannel, Platform, PlatformConfig
-from gateway.delivery import DeliveryRouter, DeliveryTarget
+from gateway.delivery import DeliveryRouter, DeliveryTarget, PartialDeliveryError
 from gateway.platforms.base import SendResult
-from gateway.relay.adapter import RelayAdapter
-from gateway.relay.descriptor import CONTRACT_VERSION, CapabilityDescriptor
+
 from gateway.session import SessionSource
 
 
@@ -61,229 +60,80 @@ class TestPlatformNameCaseInsensitivity:
         assert target.chat_id == "12345"
     
 
-class _RelayDeliveryTransport:
-    """Relay transport that advertises Slack and records outbound wire frames."""
-
-    def __init__(self, platform="slack"):
-        self._identities = [(platform, "bot-1")]
-        self.sent = []
-
-    async def send_outbound(self, action, *, platform=None):
-        self.sent.append((action, platform))
-        if not action.get("metadata", {}).get("user_id"):
-            return {"success": False, "error": "target not routed to an onboarded tenant"}
-        return {"success": True, "message_id": "relay-message-1"}
 
 
-def _make_relay(transport, platform="slack", max_message_length=4000):
-    return RelayAdapter(
-        PlatformConfig(enabled=True),
-        CapabilityDescriptor(
-            contract_version=CONTRACT_VERSION,
-            platform=platform,
-            label=platform.capitalize(),
-            max_message_length=max_message_length,
-            supports_draft_streaming=False,
-            supports_edit=True,
-            supports_threads=True,
-            markdown_dialect=platform,
-            len_unit="chars",
-        ),
-        transport=cast(Any, transport),
-    )
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("content", ["scheduled result", "x" * 5000], ids=["short", "oversized"])
-async def test_relay_fronted_target_delivers_without_prior_inbound_chat_state(tmp_path, monkeypatch, content):
-    """A persisted Slack home receives the complete payload from the gateway."""
-    monkeypatch.setattr("gateway.delivery.get_hermes_home", lambda: tmp_path)
-    transport = _RelayDeliveryTransport()
-    relay = _make_relay(transport)
-    config = GatewayConfig(
-        platforms={
-            Platform.RELAY: PlatformConfig(enabled=True),
-            Platform.SLACK: PlatformConfig(
-                enabled=False,
-                home_channel=HomeChannel(
-                    platform=Platform.SLACK,
-                    chat_id="D123",
-                    name="Owner DM",
-                    user_id="U123",
-                ),
-            ),
-        },
-    )
-    router = DeliveryRouter(config, adapters={Platform.RELAY: relay})
-
-    result = await router._deliver_to_platform(
-        DeliveryTarget(platform=Platform.SLACK, chat_id="D123"),
-        content,
-        metadata={"job_id": "cron-1", "user_id": "stale-user"},
-    )
-
-    assert getattr(result, "success", False) is True
-    assert transport.sent
-    action, wire_platform = transport.sent[0]
-    assert wire_platform == "slack"
-    assert action["chat_id"] == "D123"
-    assert action["metadata"] == {"job_id": "cron-1", "user_id": "U123"}
-    assert action["content"] == content
-    saved_files = list(tmp_path.glob("cron/output/cron-1_*.txt"))
-    if len(content) > 4000:
-        assert len(saved_files) == 1
-        assert saved_files[0].read_text(encoding="utf-8") == content
-    else:
-        assert saved_files == []
 
 
 class RecordingAdapter:
     def __init__(self):
         self.calls = []
-        self.ensure_dm_topic_calls = []
 
     async def send(self, chat_id, content, metadata=None):
         self.calls.append({"chat_id": chat_id, "content": content, "metadata": metadata})
         return {"success": True}
 
-    async def ensure_dm_topic(self, chat_id, topic_name, force_create=False):
-        self.ensure_dm_topic_calls.append(
-            {"chat_id": chat_id, "topic_name": topic_name, "force_create": force_create}
-        )
-        return "38049"
-
-
 @pytest.mark.asyncio
-async def test_native_adapter_wins_when_relay_also_fronts_platform(tmp_path, monkeypatch):
+@pytest.mark.parametrize("metadata,expected", [
+    ({"job_id": "job"}, {"job_id": "job", "thread_id": "ThreadA"}),
+    ({"thread_id": "override"}, {"thread_id": "override"}),
+])
+async def test_plugin_delivery_preserves_thread_metadata(tmp_path, monkeypatch, metadata, expected):
+    from tests.gateway.test_platform_reconnect import register_test_platform
     monkeypatch.setattr("gateway.delivery.get_hermes_home", lambda: tmp_path)
-    native = RecordingAdapter()
-    transport = _RelayDeliveryTransport()
-    relay = _make_relay(transport)
-    config = GatewayConfig(
-        platforms={
-            Platform.SLACK: PlatformConfig(enabled=True),
-            Platform.RELAY: PlatformConfig(enabled=True),
-        },
-    )
-    router = DeliveryRouter(
-        config,
-        adapters={Platform.SLACK: native, Platform.RELAY: relay},
-    )
-
-    await router._deliver_to_platform(
-        DeliveryTarget(platform=Platform.SLACK, chat_id="D123"),
-        "native result",
-        metadata=None,
-    )
-
-    assert native.calls == [
-        {"chat_id": "D123", "content": "native result", "metadata": None}
-    ]
-    assert transport.sent == []
-
-
-@pytest.mark.asyncio
-async def test_disabled_native_adapter_does_not_shadow_relay(tmp_path, monkeypatch):
-    monkeypatch.setattr("gateway.delivery.get_hermes_home", lambda: tmp_path)
-    native = RecordingAdapter()
-    transport = _RelayDeliveryTransport()
-    relay = _make_relay(transport)
-    config = GatewayConfig(
-        platforms={
-            Platform.SLACK: PlatformConfig(
-                enabled=False,
-                home_channel=HomeChannel(
-                    platform=Platform.SLACK,
-                    chat_id="D123",
-                    name="Owner DM",
-                    user_id="U123",
-                ),
-            ),
-            Platform.RELAY: PlatformConfig(enabled=True),
-        },
-    )
-    router = DeliveryRouter(
-        config,
-        adapters={Platform.SLACK: native, Platform.RELAY: relay},
-    )
-
-    await router._deliver_to_platform(
-        DeliveryTarget(platform=Platform.SLACK, chat_id="D123"),
-        "relay result",
-        metadata=None,
-    )
-
-    assert native.calls == []
-    assert len(transport.sent) == 1
-    assert transport.sent[0][1] == "slack"
-
-
-class StaleTopicAdapter:
-    def __init__(self):
-        self.calls = []
-        self.ensure_dm_topic_calls = []
-
-    async def send(self, chat_id, content, metadata=None):
-        self.calls.append({"chat_id": chat_id, "content": content, "metadata": dict(metadata or {})})
-        if len(self.calls) == 1:
-            return SendResult(success=False, error="Bad Request: message thread not found")
-        return SendResult(success=True, message_id="fresh-message")
-
-    async def ensure_dm_topic(self, chat_id, topic_name, force_create=False):
-        self.ensure_dm_topic_calls.append(
-            {"chat_id": chat_id, "topic_name": topic_name, "force_create": force_create}
-        )
-        return "38064" if force_create else "32343"
-
-
-@pytest.mark.asyncio
-async def test_named_telegram_private_topic_is_created_before_delivery(tmp_path, monkeypatch):
-    monkeypatch.setattr("gateway.delivery.get_hermes_home", lambda: tmp_path)
+    platform = register_test_platform(monkeypatch)
     adapter = RecordingAdapter()
-    router = DeliveryRouter(GatewayConfig(), adapters={Platform.TELEGRAM: adapter})
-    target = DeliveryTarget.parse("telegram:722341991:Hermes API Test")
-
-    await router._deliver_to_platform(target, "hello", metadata=None)
-
-    assert adapter.ensure_dm_topic_calls == [
-        {"chat_id": "722341991", "topic_name": "Hermes API Test", "force_create": False}
-    ]
-    assert adapter.calls == [
-        {
-            "chat_id": "722341991",
-            "content": "hello",
-            "metadata": {
-                "thread_id": "38049",
-                "telegram_dm_topic_created_for_send": True,
-            },
-        }
-    ]
+    router = DeliveryRouter(GatewayConfig(), adapters={platform: adapter})
+    target = DeliveryTarget.parse("test-chat:CaseSensitive:ThreadA")
+    assert target.to_string() == "test-chat:CaseSensitive:ThreadA"
+    result = await router._deliver_to_platform(target, "hello", metadata)
+    assert result["success"] is True
+    assert adapter.calls == [{"chat_id": "CaseSensitive", "content": "hello", "metadata": expected}]
 
 
 @pytest.mark.asyncio
-async def test_explicit_telegram_private_thread_uses_reply_fallback_with_anchor(tmp_path, monkeypatch):
+async def test_plugin_partial_delivery_is_not_retried(tmp_path, monkeypatch):
+    from tests.gateway.test_platform_reconnect import register_test_platform
     monkeypatch.setattr("gateway.delivery.get_hermes_home", lambda: tmp_path)
+    platform = register_test_platform(monkeypatch)
+    result = SendResult(success=False, error="chunk failed", raw_response={"partial_overflow": True})
+
+    class PartialAdapter:
+        def __init__(self):
+            self.calls = 0
+
+        async def send(self, chat_id, content, metadata=None):
+            self.calls += 1
+            return result
+
+    adapter = PartialAdapter()
+    router = DeliveryRouter(GatewayConfig(), adapters={platform: adapter})
+    with pytest.raises(PartialDeliveryError) as exc:
+        await router._deliver_to_platform(DeliveryTarget(platform, "chat"), "hello", None)
+    assert exc.value.result is result
+    assert adapter.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_plugin_delivery_preserves_media_directive(tmp_path, monkeypatch):
+    from tests.gateway.test_platform_reconnect import register_test_platform
+    monkeypatch.setattr("gateway.delivery.get_hermes_home", lambda: tmp_path)
+    platform = register_test_platform(monkeypatch)
     adapter = RecordingAdapter()
-    router = DeliveryRouter(GatewayConfig(), adapters={Platform.TELEGRAM: adapter})
-    target = DeliveryTarget.parse("telegram:722341991:32344")
+    router = DeliveryRouter(GatewayConfig(), adapters={platform: adapter})
+    content = "Report\nMEDIA:/tmp/report.pdf"
+    await router._deliver_to_platform(DeliveryTarget(platform, "chat"), content, None)
+    assert adapter.calls == [{"chat_id": "chat", "content": content, "metadata": None}]
 
-    await router._deliver_to_platform(
-        target,
-        "hello",
-        metadata={"telegram_reply_to_message_id": "9001"},
-    )
 
-    assert adapter.calls == [
-        {
-            "chat_id": "722341991",
-            "content": "hello",
-            "metadata": {
-                "telegram_reply_to_message_id": "9001",
-                "thread_id": "32344",
-                "telegram_dm_topic_reply_fallback": True,
-            },
-        }
-    ]
+
+
+
+
+
+
+
 
 
 class FailingAdapter:
@@ -410,46 +260,3 @@ def test_local_delivery_writes_non_ascii_on_windows_codepage(tmp_path, monkeypat
     written = Path(result["path"]).read_text(encoding="utf-8")
     assert "完了 ✅ café" in written
     assert "日次レポート" in written
-
-
-@pytest.mark.asyncio
-async def test_relay_fronted_telegram_target_receives_payload_above_its_own_limit(tmp_path, monkeypatch):
-    """The gateway does not pre-truncate for a relay-fronted Telegram chat.
-
-    The connector splits egress against the negotiated max_message_length
-    (4096 for Telegram), so the full payload must reach the transport intact.
-    """
-    monkeypatch.setattr("gateway.delivery.get_hermes_home", lambda: tmp_path)
-    transport = _RelayDeliveryTransport(platform="telegram")
-    relay = _make_relay(transport, platform="telegram", max_message_length=4096)
-    config = GatewayConfig(
-        platforms={
-            Platform.RELAY: PlatformConfig(enabled=True),
-            Platform.TELEGRAM: PlatformConfig(
-                enabled=False,
-                home_channel=HomeChannel(
-                    platform=Platform.TELEGRAM,
-                    chat_id="12345",
-                    name="Owner",
-                    user_id="777",
-                ),
-            ),
-        },
-    )
-    router = DeliveryRouter(config, adapters={Platform.RELAY: relay})
-    content = "y" * 30_000
-
-    result = await router._deliver_to_platform(
-        DeliveryTarget(platform=Platform.TELEGRAM, chat_id="12345"),
-        content,
-        metadata={"job_id": "cron-2", "user_id": "stale-user"},
-    )
-
-    assert getattr(result, "success", False) is True
-    action, wire_platform = transport.sent[0]
-    assert wire_platform == "telegram"
-    assert action["content"] == content
-    assert len(action["content"]) > 4096
-    saved_files = list(tmp_path.glob("cron/output/cron-2_*.txt"))
-    assert len(saved_files) == 1
-    assert saved_files[0].read_text(encoding="utf-8") == content

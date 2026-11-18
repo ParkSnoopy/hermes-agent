@@ -13,7 +13,7 @@ thing:
 """
 from __future__ import annotations
 
-from agent.i18n import t
+
 from hermes_cli.gateway_client import GatewayClientError
 
 
@@ -21,10 +21,10 @@ def _diff(cli, connection, cmd):
     args = cmd.partition(" ")[2].strip().lower().split()
     if "session" not in args:
         return False
-    from hermes_cli.cli_commands_session_tools import _lines, _pr, _t, print_session_diff
+    from hermes_cli.cli_commands_session_tools import _lines, _pr, print_session_diff
     result = connection.call("rollback.session_diff", session_id=cli.session_id) or {}
     if not result.get("enabled"):
-        _pr(*_lines(_t("diff.not_enabled")))
+        _pr(*_lines("Checkpoints are not enabled, so there's no session baseline.\nEnable with: hermes --checkpoints\nOr in config.yaml: checkpoints: { enabled: true }\n(Plain /diff still works — it uses git directly.)"))
     else:
         print_session_diff(cli, result, stat_only=bool({"--stat", "stat"} & set(args)))
     return True
@@ -34,7 +34,7 @@ def _reload(cli, connection, cmd):
     from hermes_cli.config import reload_env
     reload_env()
     updated = (connection.call("reload.env", session_id=cli.session_id) or {}).get("updated", 0)
-    print(f"  {t('cli.reload.env_reloaded', count=updated)}")
+    print(f"  {(f'Reloaded .env ({updated} var(s) updated)')}")
     return True
 
 

@@ -283,84 +283,6 @@ def _upscale_image(image_url: str, original_prompt: str) -> Optional[dict[str, A
         return None
 
 
-# --- Artifact path hinting for non-local terminal backends ---
-_CONTAINER_HOME_ENVS = {"DockerEnvironment", "ModalEnvironment"}
-# No env yet: only deterministic cache roots translate side-effect free (SSH: tilde path; its
-# first sync uploads the cache file).
-_CACHE_BASE_BY_BACKEND = {"docker": "/root/.hermes", "modal": "/root/.hermes", "ssh": "~/.hermes"}
-
-
-def _looks_like_absolute_file_path(value: str) -> bool:
-    if not value or not isinstance(value, str) or value.lower().startswith(("http://", "https://", "data:")):
-        return False
-    return os.path.isabs(value) or (len(value) >= 3 and value[1] == ":" and value[2] in {"/", "\\"})
-
-
-def _active_terminal_env(task_id: str | None):
-    try:
-        from tools.terminal_tool_lifecycle import get_active_env
-        return get_active_env(task_id or "default")
-    except Exception as exc:
-        logger.debug("Could not inspect active terminal environment: %s", exc)
-        return None
-
-
-def _agent_cache_base_for_env(env: Any) -> str | None:
-    if env is not None:
-        # Optional extension hook: an environment may expose its own agent-visible cache root.
-        explicit = getattr(env, "agent_visible_cache_base", None)
-        if callable(explicit):
-            try:
-                value = explicit()
-                if value:
-                    return str(value).rstrip("/")
-            except Exception as exc:
-                logger.debug("active env agent_visible_cache_base failed: %s", exc)
-        remote_home = getattr(env, "_remote_home", None)
-        if remote_home:
-            return f"{str(remote_home).rstrip('/')}/.hermes"
-        if env.__class__.__name__ in _CONTAINER_HOME_ENVS:
-            return "/root/.hermes"
-    from tools.terminal_scope import terminal_env
-    backend = (terminal_env("TERMINAL_ENV") or "local").strip().lower()
-    return _CACHE_BASE_BY_BACKEND.get(backend)
-
-
-def _postprocess_image_generate_result(raw: str, task_id: str | None = None) -> str:
-    """Annotate successful local results: ``image`` stays the host/gateway-deliverable path;
-    ``agent_visible_image`` is the same file as seen by a non-local terminal backend."""
-    try:
-        payload = json.loads(raw) if isinstance(raw, str) else raw
-    except Exception:
-        return raw
-    if not isinstance(payload, dict) or not payload.get("success"):
-        return raw
-    image = payload.get("image")
-    if not isinstance(image, str) or not _looks_like_absolute_file_path(image):
-        return raw
-    env = _active_terminal_env(task_id)
-    cache_base = _agent_cache_base_for_env(env)
-    if not cache_base:
-        return raw
-    try:
-        from tools.credential_files import map_cache_path_to_container
-        agent_path = map_cache_path_to_container(image, container_base=cache_base)
-    except Exception as exc:
-        logger.debug("Could not translate image cache path for backend: %s", exc)
-        return raw
-    if not agent_path or agent_path == image:
-        return raw
-    sync_manager = getattr(env, "_sync_manager", None)
-    if sync_manager is not None:
-        try:
-            sync_manager.sync(force=True)
-        except Exception as exc:
-            logger.warning("Could not force-sync generated image artifact: %s", exc)
-    payload.setdefault("host_image", image)
-    payload.setdefault("agent_visible_image", agent_path)
-    return json.dumps(payload, ensure_ascii=False)
-
-
 # --- Tool entry point ---
 def _format_images(images: list, should_upscale: bool, prompt: str) -> list:
     """Normalize FAL result images, optionally chaining the upscaler (falls back to the original on failure)."""
@@ -838,7 +760,7 @@ def _handle_image_generate(args, **kw):
             raw = _fall_back_to_fal(raw, prompt, aspect_ratio, sources)
     if raw is None:
         raw = image_generate_tool(prompt, aspect_ratio, **sources)
-    return _postprocess_image_generate_result(raw, task_id=task_id)
+    return raw
 
 
 def _fall_back_to_fal(raw: str, prompt: str, aspect_ratio: str, sources: dict[str, Any]) -> str:

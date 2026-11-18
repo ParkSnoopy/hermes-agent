@@ -1,3 +1,4 @@
+import { atom } from 'nanostores'
 // Codex-style Esc backtrack, the two states that live outside the browse overlay:
 //  - PRIME: the first Esc on an idle, empty composer. No time window: it lasts until the next key
 //    that is not Esc, a click, a paste, a turn starting or a session switch. The second Esc opens
@@ -7,9 +8,7 @@
 //    non-empty, non-slash message while it is armed rewinds the session to just before that prompt
 //    and sends the edit (`rewindAndSend`); nothing is cut before that send.
 
-import { atom } from 'nanostores'
-
-import { t } from '../i18n/runtime.js'
+import { slashCmdEn } from '../copy/slashCmd.js'
 
 import type { ComposerToken, RewindTarget } from './interfaces.js'
 
@@ -62,7 +61,7 @@ export function cancelPendingRewind(sys?: (text: string) => void): boolean {
   }
 
   $pendingRewind.set(null)
-  sys?.(t('slashCmd.core.rewind.cancelled'))
+  sys?.(slashCmdEn.slashCmd.core.rewind.cancelled)
 
   return true
 }

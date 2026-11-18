@@ -125,12 +125,11 @@ class TestManifestParsing:
 
     def test_connector_slug_metadata_reaches_the_catalog_payload(self, catalog_dir):
         from hermes_cli.mcp_catalog import _parse_manifest
-        from hermes_cli.web_routers.mcp import _catalog_entry_json
 
         path = _write_manifest(catalog_dir, "demo", _basic_manifest(connector_slug="demo-connector"))
         entry = _parse_manifest(path)
 
-        assert _catalog_entry_json(entry, False, False)["connector_slug"] == "demo-connector"
+        assert entry.connector_slug == "demo-connector"
 
     def test_suggest_block_parsed_and_normalized(self, catalog_dir):
         _write_manifest(
@@ -155,7 +154,6 @@ class TestManifestParsing:
 
     def test_suggest_onboarding_metadata_is_additive(self, catalog_dir):
         from hermes_cli.mcp_catalog import _build_server_config, _parse_manifest
-        from hermes_cli.web_routers.mcp import _catalog_entry_json
 
         triggers = {"keywords": ["Demo "], "hosts": [".Example.com"]}
         path = _write_manifest(catalog_dir, "demo", _basic_manifest(suggest=triggers))
@@ -170,18 +168,13 @@ class TestManifestParsing:
         assert entry.suggest.keywords == legacy.suggest.keywords == ["demo"]
         assert entry.suggest.hosts == legacy.suggest.hosts == ["example.com"]
         assert legacy.suggest.applications == legacy.suggest.examples == []
-        assert _catalog_entry_json(entry, False, False)["suggest"] == {
-            "keywords": ["demo"], "hosts": ["example.com"],
-            "applications": enriched["applications"], "examples": enriched["examples"],
-            "requires_app": False,
-        }
+        assert entry.suggest.requires_app is False
         assert _build_server_config(entry, None) == _build_server_config(legacy, None)
         _write_manifest(catalog_dir, "demo", _basic_manifest(suggest={"applications": ["Blender"]}))
         assert _parse_manifest(path).suggest.applications == ["Blender"]
 
     def test_suggest_discovery_metadata_is_bounded_data(self, catalog_dir):
         from hermes_cli.mcp_catalog import CatalogError, _parse_manifest
-        from hermes_cli.web_routers.mcp import _catalog_entry_json
 
         def parse(**metadata):
             path = _write_manifest(catalog_dir, "demo", _basic_manifest(
@@ -190,7 +183,7 @@ class TestManifestParsing:
 
         entry = parse(applications=["Blender"], requires_app=True)
         assert entry.suggest is not None and entry.suggest.requires_app is True
-        assert _catalog_entry_json(entry, False, False)["suggest"]["requires_app"] is True
+
         assert parse().suggest.requires_app is False
         for metadata in (
             {"applications": "Blender"}, {"applications": [None]}, {"applications": ["/Applications/Blender.app"]},
@@ -515,18 +508,6 @@ class TestInstall:
         assert "evil" not in (load_config().get("mcp_servers") or {})
 
 
-    def test_first_install_records_one_extension_install_and_reinstall_none(self, catalog_dir, monkeypatch):
-        _write_manifest(catalog_dir, "demo", _basic_manifest())
-        import hermes_cli.observability.shared_metrics_events as events
-        from hermes_cli.mcp_catalog import install_entry
-
-        calls = []
-        monkeypatch.setattr(events, "record_extension_install", lambda **kw: calls.append(kw))
-        install_entry(_entry("demo"), enable=True)
-        install_entry(_entry("demo"), enable=True)
-
-        assert calls == [{"kind": "mcp_server", "source": "catalog", "name": "demo", "outcome": "success",
-                          "failure_class": None, "error": None}]
 
     def test_install_with_api_key_prompts_and_saves(self, catalog_dir, monkeypatch):
         body = _basic_manifest(

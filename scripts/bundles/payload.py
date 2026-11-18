@@ -17,13 +17,10 @@ if str(ROOT) not in sys.path:
 
 
 # Snapshot dirs the sealed agent payload never reads. Tests, docs and CI
-# definitions never ship; the frontend/desktop sources and build scripts are
-# prebuilt by CI into staged products (AgentInputs.frontends) — a sealed
-# payload never re-enters the source-build graph (is_bundled_payload routes
-# updates to the channel updater), and linux_desktop_entry degrades to the
-# themed icon when apps/desktop/assets is absent. Excluded here means:
-# not packaged, not compiled, not baked. Frontend product staging
-# (scripts/bundles/stage.py) needs its full tree and passes no exclusions.
+# definitions never ship; TUI sources and build scripts become explicit
+# staged products (AgentInputs.frontends), not runtime build inputs.
+# Retired product trees remain excluded from selected source revisions.
+# Frontend staging (scripts/bundles/stage.py) needs the full source tree.
 INERT_SNAPSHOT_DIRS = (
     "tests", "tests-js", "website", "evals", ".github", "nix", "docker",
     "apps", "ui-tui", "web", "scripts",
@@ -57,9 +54,8 @@ def _payload_file(root: Path, relative: str) -> Path:
 
 def _share_metadata(path: Path) -> None:
     # Atomic PM publication stays private; only packaged, non-secret records
-    # cross this boundary. Windows installers own their ACL policy.
-    if os.name != "nt":
-        path.chmod(0o644)
+    # cross this boundary.
+    path.chmod(0o644)
 
 
 def _discard_build_locks(root: Path) -> None:

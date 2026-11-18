@@ -71,16 +71,7 @@ def _readable_target(connection, ref, params):
     judged at its compression tip by the rule the stored feed lists it by and a resume adopts it by,
     and is never adopted."""
     authority = connection.authority
-    try:
-        authorize(connection, ref, params, 'session:read')
-    except RuntimeStoreError as exc:
-        from gateway.session_listing import legacy_readable
-        if exc.reason != 'not_found':
-            raise
-        tip = authority.db.get_compression_tip(ref.session_id) or ref.session_id
-        if not legacy_readable(authority, connection.actor, tip):
-            raise
-        return tip
+    authorize(connection, ref, params, 'session:read')
     from gateway.session_local_recovery import transcript_target
     return transcript_target(authority, ref)
 

@@ -64,7 +64,6 @@ export const SKIN_COLOR_TOKENS = [
   'status_bar_warn',
   'status_bar_bad',
   'status_bar_critical',
-  'voice_status_bg',
   'completion_menu_bg',
   'completion_menu_current_bg',
   'completion_menu_meta_bg',

@@ -1,6 +1,5 @@
-"""Skill usage telemetry + provenance for the Curator: a sidecar ``~/.hermes/skills/.usage.json`` keyed by
-skill name (never frontmatter — keeps telemetry out of user-authored SKILL.md and off bundled/hub skills).
-Counter bumps are best-effort (DEBUG-logged failures never break the tool call); writes are atomic under a
+"""Skill activity and provenance for the Curator: a sidecar keyed by skill name.
+Activity updates are best-effort (DEBUG-logged failures never break the tool call); writes are atomic under a
 cross-process lock. Curator management is an explicit ``created_by: agent`` marker written by skill_manage —
 never inferred from location. Lifecycle: active -> stale -> archived (moved to .archive/); ``pinned`` opts
 out of auto transitions, orthogonal to state."""
@@ -347,7 +346,7 @@ def adopt_skill(skill_name: str) -> tuple[bool, str]:
 # --- Sidecar I/O ---
 def _empty_record() -> dict[str, Any]:
     return {"created_by": None, "use_count": 0, "view_count": 0, "last_used_at": None, "last_viewed_at": None,
-            "patch_count": 0, "patch_generation": 0, "last_reused_patch_generation": 0, "last_patched_at": None,
+            "patch_count": 0, "last_patched_at": None,
             "created_at": _now_iso(), "state": STATE_ACTIVE, "pinned": False, "archived_at": None,
             # When the curator first anchored this skill's inactivity clock (seed or re-anchor); None = never seen.
             "first_seen_at": None}
@@ -470,14 +469,12 @@ def telemetry_provenance(skill_name: str, record: Optional[dict[str, Any]] = Non
 def _emit_skill_lifecycle(skill_name: str, action: str, *, record: Optional[dict[str, Any]] = None,
                           task_id: Optional[str] = None, session_id: Optional[str] = None) -> None:
     """Best-effort lifecycle hook after an authoritative state change; facts absent from *record* go as None."""
-    facts = record or {}
     try:
         from hermes_cli.lifecycle import has_hook, invoke_hook
         if has_hook("on_skill_lifecycle"):
             invoke_hook("on_skill_lifecycle", action=action, skill_name=skill_name,
                         provenance=telemetry_provenance(skill_name, record), task_id=task_id or "",
-                        session_id=session_id or "", use_count=facts.get("use_count"), reused=facts.get("reused"),
-                        reuse_after_patch=facts.get("reuse_after_patch"))
+                        session_id=session_id or "")
     except Exception:
         logger.debug("skill_usage lifecycle hook failed for %s/%s", skill_name, action, exc_info=True)
 
@@ -489,7 +486,7 @@ def _mutate_and_emit(skill_name: str, action: str, mutator: Callable[[dict[str, 
         _emit_skill_lifecycle(skill_name, action, record=facts, **hook_kwargs)
 
 
-# --- Counter bumps — telemetry for ALL skills regardless of provenance (observability only) ---
+# Activity drives curation and slash-completion ranking.
 def bump_view(skill_name: str) -> None:
     _mutate(skill_name, lambda rec: _bump(rec, "view_count", "last_viewed_at"))
 
@@ -498,13 +495,8 @@ def bump_use(skill_name: str, *, task_id: Optional[str] = None, session_id: Opti
     """Skill actively used (loaded into the prompt path / referenced from an assistant turn)."""
     def _apply(rec: dict[str, Any]) -> dict[str, Any]:
         uses = _non_negative_int(rec.get("use_count"))
-        gen = _non_negative_int(rec.get("patch_generation"))
-        last_reused = min(_non_negative_int(rec.get("last_reused_patch_generation")), gen)
-        reuse_after_patch = uses > 0 and gen > last_reused
-        rec.update(use_count=uses + 1, last_used_at=_now_iso(), patch_generation=gen,
-                   last_reused_patch_generation=gen if reuse_after_patch else last_reused)
-        return {"created_by": rec.get("created_by"), "use_count": uses + 1, "reused": uses > 0,
-                "reuse_after_patch": reuse_after_patch}
+        rec.update(use_count=uses + 1, last_used_at=_now_iso())
+        return {"created_by": rec.get("created_by")}
     _mutate_and_emit(skill_name, "loaded", _apply, task_id=task_id, session_id=session_id)
 
 
@@ -513,7 +505,6 @@ def bump_patch(skill_name: str, *, action: str = "patch", task_id: Optional[str]
     """Called from skill_manage (patch/edit)."""
     def _apply(rec: dict[str, Any]) -> dict[str, Any]:
         _bump(rec, "patch_count", "last_patched_at")
-        rec["patch_generation"] = _non_negative_int(rec.get("patch_generation")) + 1
         return {"created_by": rec.get("created_by")}
     _mutate_and_emit(skill_name, "patched" if action == "patch" else "edited", _apply, task_id=task_id,
                      session_id=session_id)
@@ -762,12 +753,3 @@ def provenance(skill_name: str) -> str:
             else "bundled" if is_bundled(skill_name)
             else "external" if is_external_only(skill_name)
             else "agent")
-
-
-def usage_report() -> list[dict[str, Any]]:
-    """Usage rows for EVERY skill on disk (built-ins and hub included); ``curated_report()`` is the managed subset."""
-    if not (base := _skills_dir()).exists():
-        return []
-    data = load_usage()
-    return [_report_row(n, data.get(n), provenance=provenance(n), _persisted=n in data)
-            for n in sorted({name for name, _md in _iter_skill_mds(base, local_only=False)})]

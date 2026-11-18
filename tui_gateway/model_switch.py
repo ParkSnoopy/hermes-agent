@@ -235,19 +235,6 @@ def _current_model_runtime(agent, explicit_provider: str) -> tuple:
     return provider, current_model, str(runtime.get("base_url", "") or ""), key
 
 
-def _switch_away_provider(agent, explicit_provider: str, current_provider: str) -> str | None:
-    """The provider of the model the user leaves. Agent-less with ``--provider``, ``current_provider``
-    is the TARGET (what switch_model wants), so the launch route names it instead; None when only a
-    credential resolve could tell, which the metric reads as ``unknown`` and so reports the model as
-    ``custom``."""
-    if agent or not explicit_provider:
-        return current_provider
-    if env_provider := os.environ.get("HERMES_TUI_PROVIDER", "").strip():
-        return env_provider
-    if _env_model_seed():
-        return None
-    return _config_model_target()[1] or None
-
 
 def _merge_preflight_warning(result, agent, session: dict, cfg, custom_provs) -> None:
     """Fold the context-compression preflight warning into ``result`` (best-effort)."""
@@ -317,9 +304,7 @@ LARGE_MODEL_NOTICE_KEY = "model.large_notice"
 def _apply_model_switch(
     sid: str, session: dict, raw_input: str, *, confirm_expensive_model: bool = False,
     pin_session_override: bool = True, parsed_flags: Any | None = None,
-    persist_override: bool | None = None, count_switch: bool = True) -> dict:
-    """``count_switch=False``: an internal swap (config adoption, MoA one-shot and its restore), not a
-    user's /model pick, so it stays out of the shared-metrics switch count."""
+    persist_override: bool | None = None) -> dict:
     from hermes_cli.model_switch import parse_model_switch_args, switch_model
     if parsed_flags is None:
         parsed_flags = parse_model_switch_args(raw_input)
@@ -390,13 +375,7 @@ def _apply_model_switch(
         persist_model_selection(result)
     if reasoning_effort:
         _apply_switch_reasoning(sid, session, agent, reasoning_effort, persist_global=persist_global, one_turn=one_turn)
-    if count_switch:
-        from hermes_cli.observability.shared_metrics_events import record_model_switch
 
-        record_model_switch(
-            from_provider=_switch_away_provider(agent, explicit_provider, current_provider),
-            to_provider=result.target_provider, surface=_session_source(session), from_model=current_model,
-            session_id=getattr(agent, "session_id", None))
     if (notice := getattr(result, "usage_notice", "")) and sid:
         # Window plans, Large model: a warning, never a confirm. The existing notice event, so desktop
         # (toast) and TUI (status line) show it for every switch path, live or applied at turn start.
@@ -414,7 +393,6 @@ def _reset_session_model_override(sid: str, session: dict) -> dict:
     mid-turn): drop this session's pin and any armed ``--once`` restore, adopt config.yaml's model
     through the config-sync switch (no new pin, never written back), and persist the row so
     ``session.resume`` cannot restore the old pin. History is kept."""
-    from agent.i18n import t
     had_override = bool(session.get("model_override"))
     session.pop("model_override", None)
     session.pop("one_turn_model_restore", None)
@@ -427,13 +405,16 @@ def _reset_session_model_override(sid: str, session: dict) -> dict:
             model != getattr(agent, "model", "") or (provider and provider != getattr(agent, "provider", ""))):
         _apply_model_switch(
             sid, session, f"{model} --provider {provider}" if provider else model,
-            confirm_expensive_model=True, pin_session_override=False, persist_override=False,
-            count_switch=False)
+            confirm_expensive_model=True, pin_session_override=False, persist_override=False)
     _persist_live_session_runtime(session)
     _emit_session_info(sid, session)
-    shown = model or getattr(agent, "model", "") or t("gateway.shared.unknown_value")
-    return {"value": shown, "warning": t("gateway.model.reset_done" if had_override else "gateway.model.reset_none",
-                                         model=shown),
+    shown = model or getattr(agent, "model", "") or "unknown"
+    warning = (
+        f"Session model override cleared — now using `{shown}` (the channel/global default). Conversation history kept."
+        if had_override else
+        f"No session model override is active — already using `{shown}` (the channel/global default)."
+    )
+    return {"value": shown, "warning": warning,
             "confirm_required": False, "scope": "session"}
 
 
@@ -538,7 +519,7 @@ def _sync_agent_model_with_config(sid: str, session: dict) -> None:
         # how `hermes --tui -m` once leaked into config.yaml).
         _apply_model_switch(
             sid, session, raw, confirm_expensive_model=True, pin_session_override=False,
-            persist_override=False, count_switch=False)
+            persist_override=False)
     except Exception as e:
         logger.warning("Configured model %s could not be adopted for session %s: %s", model, sid, e)
         from gateway.warning_notifications import render_notification

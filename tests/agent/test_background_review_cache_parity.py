@@ -528,7 +528,7 @@ def test_same_model_fork_inherits_parent_cache_scope_rotated_lineage(tmp_path):
 
     Every identity the fork publishes must equal the parent's: body cache key, the
     affinity header (None for both — a physical root is not a declared ``gwk_`` scope)
-    and the Portal ``conversation=`` root (fork has no DB to walk the lineage)."""
+    and the routing root (fork has no DB to walk the lineage)."""
     import run_agent
     from agent.background_review import build_cache_parity_fork
     from agent.prompt_cache_scope import declared_conversation_scope, resolve_prompt_cache_scope

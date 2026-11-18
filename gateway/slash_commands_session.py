@@ -15,16 +15,12 @@ import os
 import shlex
 from typing import Optional, Union
 
-from agent.i18n import t
 from agent.turn_context import extract_api_content_sidecar
-from gateway.config import Platform
 from gateway.platforms.base import EphemeralReply
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.session import SessionSource, build_session_key, is_shared_multi_user_session
 from gateway.session_transcript import TranscriptReadError
-from gateway.slash_commands_branch_thread import (
-    BRANCH_THREAD_PLATFORMS, branch_dest_source, branch_thread_parent, format_thread_ref, parse_branch_args,
-)
+from gateway.slash_commands_branch_thread import parse_branch_args
 from gateway.slash_commands_status import history_unreadable
 
 logger = logging.getLogger("gateway.run")  # log-record parity with gateway/run.py
@@ -52,7 +48,7 @@ def _manual_compression_reply_lines(summary: dict, compressor, focus_topic) -> l
     via main is an info note so the user can fix their config."""
     lines = [f"🗜️ {summary['headline']}"]
     if focus_topic:
-        lines.append(t("gateway.compress.focus_line", topic=focus_topic))
+        lines.append(f'Focus: "{focus_topic}"')
     lines.append(summary["token_line"])
     if summary["note"]:
         lines.append(summary["note"])
@@ -62,10 +58,10 @@ def _manual_compression_reply_lines(summary: dict, compressor, focus_topic) -> l
         summary_err = redact_sensitive_text(summary_err, force=True)
     aux_fail_model = getattr(compressor, "_last_aux_model_failure_model", None)
     if getattr(compressor, "_last_compress_aborted", False):
-        lines.append(t("gateway.compress.aborted", error=(summary_err or t("gateway.shared.unknown_error"))))
+        lines.append(('⚠️ Compression aborted ({error}). No messages were dropped — conversation is unchanged. Run /compress to retry, /reset for a clean session, or check your auxiliary.compression model configuration.').format(error=summary_err or 'unknown error'))
     elif aux_fail_model:
-        aux_err = getattr(compressor, "_last_aux_model_failure_error", None) or t("gateway.shared.unknown_error")
-        lines.append(t("gateway.compress.aux_failed", model=aux_fail_model, error=aux_err))
+        aux_err = getattr(compressor, "_last_aux_model_failure_error", None) or 'unknown error'
+        lines.append(f'ℹ️ Configured compression model `{aux_fail_model}` failed ({aux_err}). Recovered using your main model — context is intact — but you may want to check `auxiliary.compression.model` in config.yaml.')
     return lines
 
 
@@ -85,13 +81,10 @@ def _compress_preview_reply(history, partial: bool, keep_last, focus_topic, agg_
 
 
 def _reset_process_scoped_tool_state() -> None:
-    """Drop env-passthrough and credential-file state at a conversation boundary (best-effort)."""
+    """Drop env-passthrough state at a conversation boundary (best-effort)."""
     with contextlib.suppress(Exception):
         from tools.env_passthrough import clear_env_passthrough
         clear_env_passthrough()
-    with contextlib.suppress(Exception):
-        from tools.credential_files import clear_credential_files
-        clear_credential_files()
 
 
 def _branch_row(msg: dict) -> dict:
@@ -123,7 +116,7 @@ async def discard_lost_turns(authority, session_id) -> str:
     rows = await asyncio.to_thread(list_session_admissions, authority.db, session_id=session_id)
     lost = [row for row in rows if row['status'] == 'unknown']
     if not lost:
-        return t("gateway.discard.nothing")
+        return 'Nothing to discard: this chat has no turn lost in a restart.'
     ref = SessionRef(authority.profile_id, session_id)
     done = 0
     for row in lost:
@@ -133,7 +126,7 @@ async def discard_lost_turns(authority, session_id) -> str:
             logger.warning("/discard of %s refused: %s", row['admission_id'], exc.reason)
             continue
         done += 1
-    return t("gateway.discard.done", count=done) if done else t("gateway.discard.nothing")
+    return (f'🗑️ Discarded {done} lost turn(s); they were not re-run. Your saved messages will be answered now.') if done else 'Nothing to discard: this chat has no turn lost in a restart.'
 
 
 class GatewaySessionCommandsMixin:
@@ -181,12 +174,12 @@ class GatewaySessionCommandsMixin:
         """``/discard``: drop this chat's turn lost in a gateway restart so its queue runs again."""
         from gateway.session_authorities import active_authority
         if not self._is_user_authorized_for_source(event.source):
-            return t("gateway.discard.nothing")
+            return 'Nothing to discard: this chat has no turn lost in a restart.'
         authority = active_authority(self)
         session_key = self._session_key_for_source(event.source)
         sid = authority.logical_owner(self.session_store.peek_session_id(session_key)) if authority else None
         if not sid:
-            return t("gateway.discard.nothing")
+            return 'Nothing to discard: this chat has no turn lost in a restart.'
         if sid not in authority.sessions:
             # A conversation /resume brought back after a restart is the chat's route but not yet
             # live: publish the peeked conversation on its route (review #141357). Never through
@@ -237,21 +230,15 @@ class GatewaySessionCommandsMixin:
         except Exception:
             session_info = ""
         if new_entry:
-            default_header = t("gateway.reset.header_default")
+            default_header = '✨ Session reset! Starting fresh.'
         else:  # no existing session: create one
             new_entry = await self.async_session_store.get_or_create_session(source, force_new=True)
-            default_header = t("gateway.reset.header_new")
-        header = await asyncio.to_thread(self._telegram_topic_new_header, source) or default_header
+            default_header = '✨ New session started!'
+        header = default_header
         _title_arg = event.get_command_args().strip()
         if _title_arg and self._session_db and new_entry:
             header = await self._reset_titled_header(header, new_entry.session_id, _title_arg)
-        # Telegram DM topic lane: rebind (chat_id, thread_id) → session_id so the next message uses
-        # the fresh session instead of switching back to the old one.
-        if await asyncio.to_thread(self._is_telegram_topic_lane, source) and new_entry is not None:
-            try:
-                await asyncio.to_thread(self._record_telegram_topic_binding, source, new_entry)
-            except Exception:
-                logger.debug("Failed to rebind Telegram topic after /new", exc_info=True)
+
         _new_sid = new_entry.session_id if new_entry else None
         # Plugin on_session_reset hook (new session guaranteed to exist); best-effort.
         try:
@@ -263,7 +250,7 @@ class GatewaySessionCommandsMixin:
             pass
         try:
             from hermes_cli.tips import get_random_tip
-            _tip_line = t("gateway.reset.tip", tip=get_random_tip())
+            _tip_line = (f'\n✦ Tip: {get_random_tip()}')
         except Exception:
             _tip_line = ""
         body = f"{header}\n\n{session_info}" if session_info else header
@@ -277,17 +264,17 @@ class GatewaySessionCommandsMixin:
             sanitized = SessionDB.sanitize_title(title_arg)
         except ValueError as e:
             sanitized = None
-            note = t("gateway.reset.title_rejected", error=str(e))
+            note = (f'\n⚠️ Title rejected: {e!s}')
         if sanitized:
             try:
                 await self._session_db.set_session_title(session_id, sanitized)
-                header = t("gateway.reset.header_titled", title=sanitized)
+                header = (f'✨ New session started: {sanitized}')
             except ValueError as e:
-                note = t("gateway.reset.title_error_untitled", error=str(e))
+                note = (f'\n⚠️ {e!s} — session started untitled.')
             except Exception:
                 pass
         elif not note:  # sanitize_title returned empty (whitespace-only / unprintable)
-            note = t("gateway.reset.title_empty_untitled")
+            note = '\n⚠️ Title is empty after cleanup — session started untitled.'
         return header + note
 
     # ------------------------------------------------------- origin / ownership guards
@@ -303,16 +290,8 @@ class GatewaySessionCommandsMixin:
         return next((getattr(e, "origin", None) for e in entries.values()
                      if getattr(e, "session_id", None) == session_id), None)
 
-    @staticmethod
-    def _same_matrix_room(current: SessionSource, origin: Optional[SessionSource]) -> bool:
-        # thread_id is part of the session key, so another thread of the SAME room is a DIFFERENT
-        # session; non-threaded rooms compare "" == "".
-        return (origin is not None and origin.platform == Platform.MATRIX
-                and current.platform == Platform.MATRIX and origin.chat_id == current.chat_id
-                and _sattr(current, "thread_id") == _sattr(origin, "thread_id"))
-
     def _same_origin_chat(self, current: SessionSource, origin: Optional[SessionSource]) -> bool:
-        """Platform-agnostic counterpart to ``_same_matrix_room``.  Per-participant sessions must be
+        """Per-participant sessions must be
         participant-scoped here too, else a co-member could resume another member's live session
         (IDOR); only an explicitly shared group/thread shares."""
         if origin is None or current is None:
@@ -438,12 +417,10 @@ class GatewaySessionCommandsMixin:
 
     async def _resume_row_visible(self, source: SessionSource, row: dict, allow_all: bool) -> bool:
         """Whether a listing *row* belongs to the caller's origin (blocks cross-origin enumeration of
-        ids/previews); Matrix is room-scoped, ``--all`` needs a configured admin everywhere."""
+        ids/previews); ``--all`` needs a configured admin."""
         if allow_all and self._resume_caller_is_admin(source):
             return True
         sid = str(row.get("id") or "")
-        if source.platform == Platform.MATRIX:
-            return self._same_matrix_room(source, self._gateway_session_origin_for_id(sid))
         return await self._resume_target_allowed(source, sid, allow_override=False)
 
     # ------------------------------------------------------------------ /retry, /undo
@@ -472,7 +449,7 @@ class GatewaySessionCommandsMixin:
         last_user_idx = next((i for i in range(len(history) - 1, -1, -1)
                               if user_originated_turn_view(history[i]) is not None), None)
         if last_user_idx is None:
-            return t("gateway.retry.no_previous")
+            return 'No previous message to retry.'
         # Resolve text + scaffold-preserving prefix BEFORE any write; messaging retries cannot
         # reconstruct attachments, so media/unknown content is rejected with the session untouched.
         try:
@@ -480,7 +457,7 @@ class GatewaySessionCommandsMixin:
             last_user_msg = retryable_user_text(live_view.get("content"))
             handoff, _ = split_user_originated_turn(history[last_user_idx])
         except ValueError as exc:
-            return t("gateway.retry.unsafe", error=exc)
+            return (f'Cannot retry that message safely: {exc}')
         # Answer the refusals the re-sent turn would hit BEFORE the transcript rewrite: /retry
         # passes the post-command gates as a canonical command, the plain-text re-send does not,
         # and a refusal after the rewrite leaves the transcript shorter and loses the user's turn.
@@ -501,16 +478,16 @@ class GatewaySessionCommandsMixin:
                 rewind_result = await self.async_session_store.rewind_session(
                     session_entry.session_id, 1, require_retryable_composite=True)
             except ValueError as exc:
-                return t("gateway.retry.unsafe", error=exc)
+                return (f'Cannot retry that message safely: {exc}')
             if rewind_result is None:
-                return t("gateway.retry.failed_unchanged")
+                return 'Retry failed; transcript was not changed.'
             last_user_msg = rewind_result["target_text"]
         # active_only preserves the active=0/compacted=1 archive left by in-place compaction.
         elif not await self.async_session_store.rewrite_transcript(
             session_entry.session_id, truncated, active_only=True, reject_active_turn_lease=True):
-            return t("gateway.retry.failed_unchanged")
+            return 'Retry failed; transcript was not changed.'
         session_entry.last_prompt_tokens = 0  # transcript was truncated
-        self._record_model_friction("retry", source, session_entry.session_id)
+
         # The re-sent turn is the /retry event's own turn, built on its authenticated source: carry
         # that event's native callback to it, or admission refuses it under multiplex (#139040).
         from gateway.session_ingress_context import carry_callback
@@ -548,13 +525,13 @@ class GatewaySessionCommandsMixin:
                                                require_retryable=True, require_composite=True)
             except ValueError as exc:
                 if isinstance(exc, RewindTargetUnavailableError):
-                    return t("gateway.retry.failed_unchanged")
-                return t("gateway.retry.unsafe", error=exc)
+                    return 'Retry failed; transcript was not changed.'
+                return (f'Cannot retry that message safely: {exc}')
             except RuntimeError:  # the history changed under the plan, or the target has no row id
                 logger.debug("/retry carrier plan refused for %s", session_id, exc_info=True)
-                return t("gateway.retry.failed_unchanged")
+                return 'Retry failed; transcript was not changed.'
             if plan.expected_active_ids != pinned:
-                return t("gateway.retry.failed_unchanged")
+                return 'Retry failed; transcript was not changed.'
             resend_text = plan.live_text
 
             def write(conn):
@@ -570,7 +547,7 @@ class GatewaySessionCommandsMixin:
         def committed():
             self.session_store._clear_dirty_transcript(session_id)
             session_entry.last_prompt_tokens = 0  # transcript was truncated
-            self._record_model_friction("retry", event.source, session_id)
+
         rewrite = retry_admission.RetryRewrite(db=db, session_id=session_id, source=event.source,
                                                write=write, on_commit=committed)
         turn = MessageEvent(
@@ -582,11 +559,11 @@ class GatewaySessionCommandsMixin:
             return await self._handle_message(turn)
         except retry_admission.RetryRewriteRefused as exc:
             logger.info("/retry refused with the transcript unchanged for %s: %s", session_id, exc)
-            return t("gateway.retry.failed_unchanged")
+            return 'Retry failed; transcript was not changed.'
         except RuntimeStoreError as exc:
             if not rewrite.applied and exc.reason == 'runtime_draining':
                 # The drain began after the pre-check: the re-send was refused, nothing rewritten.
-                return t("gateway.busy.drain_rejected", action=self._status_action_gerund())
+                return (f'⏳ Gateway is {self._status_action_gerund()} and is not accepting another turn right now.')
             raise
         finally:
             retry_admission.unbind(token)
@@ -604,7 +581,7 @@ class GatewaySessionCommandsMixin:
         if paused_notice is not None:
             return paused_notice
         if getattr(self, "_external_drain_active", False):
-            return t("gateway.busy.draining_maintenance")
+            return "⏳ This agent is draining for a maintenance action and isn't accepting new turns right now. It'll be back in a moment — please resend shortly."
         authority_reply = self._retry_authority_refusal(source)
         if authority_reply is not None:
             return authority_reply
@@ -623,7 +600,7 @@ class GatewaySessionCommandsMixin:
         try:
             authority._require_admission_open()
         except RuntimeStoreError:
-            return t("gateway.busy.drain_rejected", action=self._status_action_gerund())
+            return (f'⏳ Gateway is {self._status_action_gerund()} and is not accepting another turn right now.')
         entry = self.session_store.lookup_by_session_key(self._session_key_for_source(source))
         if entry is None:
             return None
@@ -634,15 +611,6 @@ class GatewaySessionCommandsMixin:
             return QUEUE_FULL_REPLY
         return None
 
-    def _record_model_friction(self, signal: str, source, session_id: str, turns: int = 1) -> None:
-        """Slash dispatch does not install the routed profile's scope, so a multiplexed runner
-        names the owning home explicitly."""
-        from hermes_cli.observability.shared_metrics_model import record_model_friction
-        home = None
-        if getattr(getattr(self, "config", None), "multiplex_profiles", False):
-            with contextlib.suppress(Exception):
-                home = self._resolve_profile_home_for_source(source)
-        record_model_friction(signal, session_id=session_id, hermes_home=home, turns=turns)
 
     async def _handle_undo_command(self, event: MessageEvent) -> str:
         """Handle /undo [N] — back up N user turns (default 1), soft-deleting the truncated rows and
@@ -655,13 +623,13 @@ class GatewaySessionCommandsMixin:
             try:
                 n = max(1, int(raw_args.split()[0]))
             except ValueError:
-                return t("gateway.undo.invalid_count", arg=raw_args.split()[0])
+                return (f'Invalid count "{raw_args.split()[0]}" — use /undo or /undo N.')
         session_entry = await self.async_session_store.get_or_create_session(source)
         result = await self.async_session_store.rewind_session(session_entry.session_id, n)
         if result is None:
-            return t("gateway.undo.nothing")
+            return 'Nothing to undo.'
         session_entry.last_prompt_tokens = 0  # transcript was truncated
-        self._record_model_friction("undo", source, session_entry.session_id, result.get("turns_undone") or 1)
+
         try:
             # The cache is keyed by the profile-namespaced key; a bare build_session_key(source)
             # yields ``agent:main:…`` and misses for every secondary profile.
@@ -670,8 +638,7 @@ class GatewaySessionCommandsMixin:
             logger.debug("undo: cached-agent eviction skipped: %s", e)
         target_text = result["target_text"]
         preview = target_text[:200] + "..." if len(target_text) > 200 else target_text
-        reply = t("gateway.undo.removed", turns=result["turns_undone"],
-                  count=result["rewound_count"], preview=preview)
+        reply = ('↩️ Undid {turns} turn(s) ({count} message(s)).\nBacked up to: "{preview}"\nCopy/edit the text above and send it to re-prompt from here.').format(turns=result["turns_undone"], count=result["rewound_count"], preview=preview)
         if (mgr := self._checkpoint_manager(source)) is not None:
             # Same manager and cwd /rollback lists.
             from tools.checkpoint_undo_hint import format_undo_rollback_hint, undo_changed_files
@@ -703,17 +670,17 @@ class GatewaySessionCommandsMixin:
 
         agent = self._cached_agent_for(session_key, lockless_fallback=True)
         if agent is None or agent is _AGENT_PENDING_SENTINEL or getattr(agent, "_codex_session", None) is None:
-            return t("gateway.compress.codex_nothing")
+            return '🗜️ Nothing to compact: this session runs on the Codex app-server runtime, whose context lives in a Codex-owned thread that only exists while the agent is active. Send a message first, then /compress — or /reset to start fresh.'
         compressor = getattr(agent, "context_compressor", None)
         count_before = getattr(compressor, "compression_count", 0)
         try:
             await self._run_in_executor_with_context(
                 lambda: agent._compress_context([], "", force=True, task_id=session_id or "default"))
         except Exception as exc:
-            return t("gateway.compress.failed", error=exc)
+            return (f'Compression failed: {exc}')
         if getattr(compressor, "compression_count", 0) > count_before:
-            return t("gateway.compress.codex_compacted")
-        return t("gateway.compress.codex_incomplete")
+            return '🗜️ Codex app-server thread compacted (thread/compact). The transcript mirror is unchanged by design — the app-server now carries the compacted context.'
+        return '⚠️ Codex app-server compaction did not complete — the thread is unchanged. Check the app-server logs, retry /compress, or /reset for a clean session.'
 
     async def _handle_compress_command_inner(self, event: MessageEvent) -> str:
         """Handle /compress -- manually compress conversation context; ``/compress <focus>`` tells
@@ -727,9 +694,9 @@ class GatewaySessionCommandsMixin:
         except TranscriptReadError:
             return history_unreadable()
         if not history or len(history) < MIN_MESSAGES:
-            return t("gateway.compress.not_enough")
+            return 'Not enough conversation to compress (need at least 4 messages).'
         request = parse_compress_args(event.get_command_args() or "")
-        _agg_note = t("gateway.compress.aggressive_unsupported") if request.aggressive else ""
+        _agg_note = "--aggressive is not supported; use '/compress here [N]' to keep only recent exchanges, or /undo to drop turns." if request.aggressive else ""
         if request.aggressive and not request.preview:
             return _agg_note
         if request.preview:
@@ -738,7 +705,7 @@ class GatewaySessionCommandsMixin:
             return await self._run_manual_compression(source, session_entry, history, request)
         except Exception as e:
             logger.warning("Manual compress failed: %s", e)
-            return t("gateway.compress.failed", error=e)
+            return (f'Compression failed: {e}')
 
     async def _run_manual_compression(self, source, session_entry, history: list, request) -> str:
         """Build a temporary agent, run the shared compress core, persist, and describe the outcome."""
@@ -756,7 +723,7 @@ class GatewaySessionCommandsMixin:
             # has none (and finally-eviction would destroy the real context).
             return await self._compress_codex_app_server_session(session_key, session_entry.session_id)
         if not runtime_kwargs.get("api_key"):
-            return t("gateway.compress.no_provider")
+            return 'No provider configured -- cannot compress.'
         # FULL transcript (tool results included), like auto-compress: user/assistant-only starves
         # tool-result pruning and can trip the protect-first/last early-return.
         msgs = [m for m in history if m.get("role") in {"user", "assistant", "tool"}]
@@ -777,7 +744,7 @@ class GatewaySessionCommandsMixin:
                 lambda: compress_now(tmp_agent, msgs, request, system_message="", skip_without_window=True,
                                      task_id=session_entry.session_id or "default"))
             if result.status == "nothing_to_do":
-                return t("gateway.compress.nothing_to_do")
+                return 'Nothing to compress yet (the transcript is still all protected context).'
             if result.status != "compressed":
                 return "\n".join(render_compress_result(result))
             await self._persist_manual_compression(tmp_agent, session_entry, source, result.after_messages)
@@ -845,81 +812,13 @@ class GatewaySessionCommandsMixin:
                 raise RuntimeError(f"failed to persist compressed transcript for session {new_session_id}")
             session_entry.session_id = new_session_id
             await self.async_session_store._save()
-            await asyncio.to_thread(self._sync_telegram_topic_binding, source, session_entry,
-                                    reason="compress-command")
+
         elif not getattr(tmp_agent, "_last_compaction_in_place", False):
             logger.warning(
                 "Manual /compress: session rotation did not occur (session_id unchanged) and in-place "
                 "mode is off — preserving original transcript instead of overwriting it (#44794).")
         await self.async_session_store.update_session(session_entry.session_key, last_prompt_tokens=0)
 
-    # ------------------------------------------------------------------------ /topic
-
-    async def _handle_topic_command(self, event: MessageEvent, args: str = "") -> str:
-        """Handle /topic for Telegram DM user-managed topic sessions."""
-        source = event.source
-        if source.platform != Platform.TELEGRAM or source.chat_type != "dm":
-            return t("gateway.topic.not_telegram_dm")
-        if not self._session_db:
-            return self._session_db_unavailable_reply()
-
-        # Defense in depth: /topic mutates SQLite side tables, so re-check the allowlist here.
-        try:
-            if not self._is_user_authorized_for_source(source):
-                return t("gateway.topic.unauthorized")
-        except Exception:
-            logger.debug("Topic auth check failed", exc_info=True)
-
-        args = event.get_command_args().strip()
-        if args.lower() in {"help", "?", "-h", "--help"}:
-            return self._telegram_topic_help_text()
-        if args.lower() in {"off", "disable", "stop"}:
-            return await self._disable_telegram_topic_mode_for_chat(source)
-        if args:
-            if not source.thread_id:
-                return t("gateway.topic.restore_needs_topic")
-            return await self._restore_telegram_topic_session(event, args)
-
-        capabilities = await self._get_telegram_topic_capabilities(source)
-        if capabilities.get("checked"):
-            blocked_key = None
-            if capabilities.get("has_topics_enabled") is False:
-                blocked_key = "gateway.topic.topics_disabled"
-            elif capabilities.get("allows_users_to_create_topics") is False:
-                blocked_key = "gateway.topic.topics_user_disallowed"
-            if blocked_key:  # debounced BotFather screenshot
-                if self._should_send_telegram_capability_hint(source):
-                    await self._send_telegram_topic_setup_image(source)
-                return t(blocked_key)
-
-        profile_name = self._telegram_topic_profile_name(source)
-        try:
-            await self._session_db.enable_telegram_topic_mode(
-                chat_id=str(source.chat_id), user_id=str(source.user_id), profile_name=profile_name,
-                has_topics_enabled=capabilities.get("has_topics_enabled"),
-                allows_users_to_create_topics=capabilities.get("allows_users_to_create_topics"))
-        except Exception as exc:
-            logger.exception("Failed to enable Telegram topic mode")
-            return t("gateway.topic.enable_failed", error=exc)
-
-        if not source.thread_id:
-            return await self._telegram_topic_root_status_message(source)
-        try:
-            binding = await self._session_db.get_telegram_topic_binding(
-                chat_id=str(source.chat_id), thread_id=str(source.thread_id),
-                profile_name=profile_name)
-        except Exception:
-            logger.debug("Failed to read Telegram topic binding", exc_info=True)
-            binding = None
-        if not binding:
-            return t("gateway.topic.thread_ready")
-        session_id = str(binding.get("session_id") or "")
-        try:
-            title = await self._session_db.get_session_title(session_id)
-        except Exception:
-            title = None
-        return t("gateway.topic.bound_status", label=title or t("gateway.topic.untitled_session"),
-                 session_id=session_id)
 
     # ------------------------------------------------------------------ /save, /title
 
@@ -944,7 +843,7 @@ class GatewaySessionCommandsMixin:
         session_entry = await self.async_session_store.get_or_create_session(source)
         session_id = session_entry.session_id
         if not self._session_db:
-            return t("gateway.shared.session_db_unavailable")
+            return 'Session database not available.'
         # Never trust path separators from chat input; the filename is only echoed to the platform.
         filename = parts[1] if len(parts) > 1 else default_save_filename(session_id, fmt)
         filename = os.path.basename(filename) or default_save_filename(session_id, fmt)
@@ -955,7 +854,7 @@ class GatewaySessionCommandsMixin:
         except SessionExportTooLargeError as e:
             return str(e)
         if not export_data:
-            return t("gateway.save.no_messages", session_id=session_id)
+            return (f'No stored messages found for this session ({session_id}).')
         if redact:
             from hermes_cli.session_export_md import redact_session_data
             export_data = redact_session_data(export_data)
@@ -972,13 +871,13 @@ class GatewaySessionCommandsMixin:
             # Profile-aware: under multiplex the requester's bot lives in _profile_adapters, not self.adapters.
             adapter = self._delivery_adapter_for(source)
             if not adapter:
-                return t("gateway.save.no_adapter")
+                return 'Platform adapter not found to send the document.'
             await adapter.send_document(chat_id=source.chat_id, file_path=temp_path,
-                                        caption=t("gateway.save.caption", filename=filename), file_name=filename)
-            return t("gateway.save.complete")
+                                        caption=(f'Session export: {filename}'), file_name=filename)
+            return 'Export complete.'
         except Exception as e:
             logger.warning("Session /save failed: %s", e)
-            return t("gateway.save.failed", error=e)
+            return (f'Error exporting session: {e}')
         finally:
             with contextlib.suppress(Exception):
                 os.remove(temp_path)
@@ -1006,26 +905,22 @@ class GatewaySessionCommandsMixin:
         if not title_arg:
             title = await self._session_db.get_session_title(session_id)
             if title:
-                return t("gateway.title.current_with_title", session_id=session_id, title=title)
-            return t("gateway.title.current_no_title", session_id=session_id)
+                return (f'📌 Session: `{session_id}`\nTitle: **{title}**')
+            return (f'📌 Session: `{session_id}`\nNo title set. Usage: `/title My Session Name`')
         try:
             from hermes_state import SessionDB
             sanitized = SessionDB.sanitize_title(title_arg)
         except ValueError as e:
-            return t("gateway.shared.warn_passthrough", error=e)
+            return (f'⚠️ {e}')
         if not sanitized:
-            return t("gateway.title.empty_after_clean")
+            return '⚠️ Title is empty after cleanup. Please use printable characters.'
         try:
             if not await self._session_db.set_session_title(session_id, sanitized):
-                return t("gateway.title.not_found")
+                return 'Session not found in database.'
         except ValueError as e:
-            return t("gateway.shared.warn_passthrough", error=e)
-        # Mirror the title onto the Telegram forum topic name (auto titles already do this).
-        try:
-            await asyncio.to_thread(self._schedule_telegram_topic_title_rename, source, session_id, sanitized)
-        except Exception:
-            logger.debug("Failed to rename Telegram topic from /title", exc_info=True)
-        return t("gateway.title.set_to", title=sanitized)
+            return (f'⚠️ {e}')
+
+        return (f'✏️ Session title set: **{sanitized}**')
 
     # -------------------------------------------------------------- /resume, /sessions
 
@@ -1047,17 +942,17 @@ class GatewaySessionCommandsMixin:
                 titled = await self._list_titled_sessions(source, session_key, allow_all)
             except Exception as e:
                 logger.debug("Failed to list titled sessions for numeric resume: %s", e)
-                return t("gateway.resume.list_failed", error=e)
+                return (f'Could not list sessions: {e}')
             index = int(name)
             if index < 1 or index > len(titled):
-                return t("gateway.resume.out_of_range", index=index)
+                return (f'Resume index {index} is out of range.\nUse `/resume` with no arguments to see available sessions.')
             target = titled[index - 1]
             target_id, name = target.get("id"), target.get("title") or name
         else:  # session id first, then title
             session = await self._session_db.get_session(name)
             target_id = session["id"] if session else await self._session_db.resolve_session_by_title(name)
         if not target_id:
-            return t("gateway.resume.not_found", name=name)
+            return (f"No session found matching '**{name}**'.\nUse `/resume` with no arguments to see available sessions.")
         # Follow compression continuations to the live transcript (matches CLI /resume).
         try:
             # Follow that chain so gateway /resume matches CLI behavior (#15000).
@@ -1069,29 +964,21 @@ class GatewaySessionCommandsMixin:
     async def _resume_access_denied_reply(self, source, target_id: str, name: str, allow_all: bool,
                                           allow_cross_room: bool) -> Optional[str]:
         """IDOR guard: a session id/title is a routing handle, not authority — bind /resume to the
-        caller's own room (Matrix) or platform/user/chat (other adapters)."""
-        if source.platform == Platform.MATRIX:
-            target_origin = self._gateway_session_origin_for_id(target_id)
-            if self._same_matrix_room(source, target_origin) or allow_cross_room:
-                return None
-            if target_origin is None:
-                return t("gateway.resume.matrix_blocked_no_origin", name=name)
-            return t("gateway.resume.matrix_blocked_other_room", name=name,
-                     room=target_origin.chat_name or target_origin.chat_id)
+        caller's platform/user/chat."""
         if await self._resume_target_allowed(source, target_id, allow_override=(allow_all or allow_cross_room)):
             return None
-        return t("gateway.resume.blocked_not_owner", name=name)
+        return (f"⚠️ /resume blocked: '**{name}**' belongs to a different user or chat. You can only resume sessions from this chat.")
 
     async def _handle_resume_command(self, event: MessageEvent) -> str:
         """Handle /resume command — list or switch to a previous session."""
         if not self._session_db:
             return self._session_db_unavailable_reply()
-        source = await asyncio.to_thread(self._normalize_source_for_session_key, event.source)
+        source = event.source
         session_key = self._session_key_for_source(source)
         try:
             parts = shlex.split(event.get_command_args().strip())
         except ValueError as exc:
-            return t("gateway.resume.parse_error", error=exc)
+            return (f'⚠️ Could not parse `/resume` arguments: {exc}.\nUse quotes around titles with spaces, for example: `/resume "Project A Plan"`.')
         allow_all = "--all" in parts
         allow_cross_room = "--cross-room" in parts
         name = _strip_resume_name(parts)
@@ -1101,7 +988,7 @@ class GatewaySessionCommandsMixin:
                 return self._resume_listing_reply(source, titled, allow_all)
             except Exception as e:
                 logger.debug("Failed to list titled sessions: %s", e)
-                return t("gateway.resume.list_failed", error=e)
+                return (f'Could not list sessions: {e}')
 
         resolved = await self._resolve_resume_target(source, session_key, name, allow_all)
         if isinstance(resolved, str):
@@ -1118,18 +1005,13 @@ class GatewaySessionCommandsMixin:
             return denied
         current_entry = await self.async_session_store.get_or_create_session(source)
         if current_entry.session_id == target_id:
-            return t("gateway.resume.already_on", name=name)
-        conflict = await self._telegram_topic_switch_conflict(source, target_id)
-        if conflict is not None:
-            return conflict
+            return (f'📌 Already on session **{name}**.')
         self._release_running_agent_state(session_key)
-        with self._telegram_topic_publication(source):
-            new_entry = await self.async_session_store.switch_session(
-                session_key, target_id, preserve_prompt_pin=False,
-            )
-            if not new_entry:
-                return t("gateway.resume.switch_failed")
-            await self._follow_telegram_topic_switch(source, new_entry, reason="resume-command")
+        new_entry = await self.async_session_store.switch_session(
+            session_key, target_id, preserve_prompt_pin=False,
+        )
+        if not new_entry:
+            return 'Failed to switch session.'
         if local_owner is not None and authority is not None:  # a Desktop still viewing it follows it
             follow_hand_off(authority, source, session_key, authority.logical_owner(target_id), local_owner)
         # Conversation boundary: all conversation-scoped state + security state in one funnel call.
@@ -1145,48 +1027,39 @@ class GatewaySessionCommandsMixin:
         # provider cached _session_id at initialize() and would keep writing to the wrong session.
         self._evict_cached_agent(session_key)
         title = await self._session_db.get_session_title(target_id) or name
-        await self._rename_telegram_topic_after_switch(source, new_entry, title)
+
         try:
             history = await self.async_session_store.load_transcript(target_id)
         except TranscriptReadError:
             # The resume itself succeeded; only the count is missing — say so rather than "empty".
-            return t("gateway.resume.resumed_no_count", title=title) + "\n" + history_unreadable()
+            return (f'↻ Resumed session **{title}**. Conversation restored.') + "\n" + history_unreadable()
         msg_count = len([m for m in history if m.get("role") == "user"]) if history else 0
-        if source.platform == Platform.MATRIX and allow_cross_room:
-            msg_part = t("gateway.resume.msg_count_one" if msg_count == 1 else "gateway.resume.msg_count_other",
-                         count=msg_count) if msg_count else ""
-            return t("gateway.resume.matrix_cross_room_success", title=title,
-                     room=source.chat_name or source.chat_id, msg_part=msg_part)
+
         if not msg_count:
-            return t("gateway.resume.resumed_no_count", title=title)
+            return (f'↻ Resumed session **{title}**. Conversation restored.')
         if msg_count == 1:
-            return t("gateway.resume.resumed_one", title=title, count=msg_count)
-        return t("gateway.resume.resumed_many", title=title, count=msg_count)
+            return (f'↻ Resumed session **{title}** ({msg_count} message). Conversation restored.')
+        return (f'↻ Resumed session **{title}** ({msg_count} messages). Conversation restored.')
 
     def _resume_listing_reply(self, source, titled: list[dict], allow_all: bool) -> str:
         """Numbered /resume list; a non-admin ``--all`` falls back to same-origin scoping and says so
         (sibling of the /sessions notice)."""
         scope_note = None
         if allow_all and not self._resume_caller_is_admin(source):
-            scope_note = t("gateway.resume.all_requires_admin")
+            scope_note = "_Note: `--all` (cross-chat listing) requires a configured admin; showing this chat's sessions only._"
         if not titled:
-            if source.platform == Platform.MATRIX and not allow_all:
-                return t("gateway.resume.matrix_no_named_sessions")
-            base = t("gateway.resume.no_named_sessions")
+            base = 'No named sessions found.\nUse `/title My Session` to name your current session, then `/resume My Session` to return to it later.'
             return f"{base}\n{scope_note}" if scope_note else base
-        lines = [t("gateway.resume.list_header")]
+        lines = ['📋 **Named Sessions**\n']
         for idx, s in enumerate(titled[:10], start=1):
             title = s["title"]
-            if source.platform == Platform.MATRIX and allow_all:
-                origin = self._gateway_session_origin_for_id(str(s.get("id") or ""))
-                if origin:
-                    title = f"{title} — {origin.chat_name or origin.chat_id}"
+
             preview = s.get("preview", "")[:40]
-            preview_part = t("gateway.resume.list_preview_suffix", preview=preview) if preview else ""
-            lines.append(t("gateway.resume.list_item_numbered", index=idx, title=title, preview_part=preview_part))
+            preview_part = (f' — _{preview}_') if preview else ""
+            lines.append(f'{idx}. **{title}**{preview_part}')
         if scope_note:
             lines.append(scope_note)
-        lines.append(t("gateway.resume.list_footer_numbered"))
+        lines.append('\nUsage: `/resume <session name>` or `/resume <number>` (e.g. `/resume 1` for the most recent)')
         return "\n".join(lines)
 
     async def _handle_sessions_command(self, event: MessageEvent) -> str:
@@ -1199,19 +1072,19 @@ class GatewaySessionCommandsMixin:
             include_all, include_unnamed, target, search_query = parse_session_listing_args(
                 event.get_command_args().strip())
         except ValueError as exc:
-            return t("gateway.resume.parse_error", error=exc)
+            return (f'⚠️ Could not parse `/resume` arguments: {exc}.\nUse quotes around titles with spaces, for example: `/resume "Project A Plan"`.')
         if search_query == "":
-            return t("gateway.sessions.usage_search")
+            return 'Usage: `/sessions search <query>`'
         if target:
             return await self._handle_resume_command(dataclasses.replace(event, text=f"/resume {target}"))
-        source = await asyncio.to_thread(self._normalize_source_for_session_key, event.source)
+        source = event.source
         session_key = self._session_key_for_source(source)
         # `/sessions all` is admin-only like `/resume --all` (else any caller could enumerate other
         # origins' ids/titles/previews); a non-admin gets explicit feedback, not a silent narrowing.
         cross_origin = include_all and self._resume_caller_is_admin(source)
         scope_notice = None
         if include_all and not cross_origin:
-            scope_notice = t("gateway.sessions.all_requires_admin")
+            scope_notice = "_Note: `all` (cross-chat listing) requires a configured admin; showing this chat's sessions only._"
         current_entry = await self.async_session_store.get_or_create_session(source)
         rows = await asyncio.to_thread(
             query_session_listing, getattr(self._session_db, "_db", self._session_db),
@@ -1226,25 +1099,22 @@ class GatewaySessionCommandsMixin:
             rows = [row for row in rows if await self._resume_row_visible(source, row, allow_all=False)]
         rows = rows[:10]
         if search_query:
-            title = t("gateway.sessions.title_matching", query=search_query)
+            title = (f'Sessions matching “{search_query}”')
         else:
-            title = t("gateway.sessions.title_all" if include_unnamed else "gateway.sessions.title_named")
+            title = ('Sessions' if include_unnamed else 'Named Sessions')
         return format_gateway_session_listing(rows, include_source=cross_origin, title=title,
                                               notice=scope_notice)
 
     # ----------------------------------------------------------------------- /branch
 
     async def _handle_branch_command(self, event: MessageEvent) -> str:
-        """Handle /branch [--here] [name] — fork the current session into an independent copy.
-
-        Thread-capable platforms (Discord/Telegram/Slack/Matrix) open a NEW sibling thread bound
-        to the clone and leave this chat on the original session; ``--here`` (and every platform
-        without threads) switches the current chat onto the clone instead (#66023).
-        """
+        """Fork the current session into an independent copy on the current route."""
         import json as _json
         import uuid as _uuid
         from datetime import datetime as _dt
 
+        if event.get_command_args().strip().split()[:1] == ["--thread"]:
+            return "Branching into a new thread is no longer supported; use /branch or /branch --here."
         if not self._session_db:
             return self._session_db_unavailable_reply()
         source = event.source
@@ -1255,26 +1125,20 @@ class GatewaySessionCommandsMixin:
         except TranscriptReadError:
             return history_unreadable()
         if not history:
-            return t("gateway.branch.no_conversation")
+            return 'No conversation to branch — send a message first.'
         new_session_id = f"{_dt.now().strftime('%Y%m%d_%H%M%S')}_{_uuid.uuid4().hex[:6]}"
-        stay_here, branch_title = parse_branch_args(event.get_command_args())
+        _, branch_title = parse_branch_args(event.get_command_args())
         if not branch_title:
             current_title = await self._session_db.get_session_title(current_entry.session_id)
             branch_title = await self._session_db.get_next_title_in_lineage(current_title or "branch")
         parent_session_id = current_entry.session_id
-        # The thread is created BEFORE the clone so a failed create never orphans a branch row;
-        # ``None`` = branch in place (--here, no threads here, or the adapter could not open one).
-        dest_source = None if stay_here else await self._branch_open_thread(source, branch_title)
-        in_place = dest_source is None
-        if in_place:
-            dest_source = source
-        dest_key = session_key if in_place else self._session_key_for_source(dest_source)
+        dest_source = source
+        dest_key = session_key
         # Full origin (same shape as the reset path in gateway/session.py); the live entry's origin
-        # may hold richer metadata than the triggering event's source (#82633). A thread branch
-        # is routed by the NEW thread, so its origin is the destination.
+        # may hold richer metadata than the triggering event's source (#82633).
         _branch_origin_json = None
         with contextlib.suppress(Exception):
-            _origin = (current_entry.origin or source) if in_place else dest_source
+            _origin = current_entry.origin or source
             _branch_origin_json = _json.dumps(_origin.to_dict())
         # ``_branched_from`` keeps the branch visible in /resume and /sessions after the parent is
         # reopened and re-ended. ALL routing columns go in at CREATE time: a crash before
@@ -1295,7 +1159,7 @@ class GatewaySessionCommandsMixin:
                 display_name=current_entry.display_name, system_prompt=(parent or {}).get("system_prompt") or None)
         except Exception as e:
             logger.error("Failed to create branch session: %s", e)
-            return t("gateway.branch.create_failed", error=e)
+            return (f'Failed to create branch: {e}')
 
         # Chunked transactions; best-effort — a failed copy still yields a usable (partial) branch.
         with contextlib.suppress(Exception):
@@ -1306,48 +1170,12 @@ class GatewaySessionCommandsMixin:
                 new_session_id, [_branch_row(msg) for msg in history], chunk_rows=500)
         with contextlib.suppress(Exception):
             await self._session_db.set_session_title(new_session_id, branch_title)
-        if not in_place:
-            # Materialize the thread's own entry, then point IT at the clone; ``session_key`` (this
-            # chat) is never touched, so the original conversation stays live here.
-            await self.async_session_store.get_or_create_session(dest_source)
-        with self._telegram_topic_publication(dest_source):
-            new_entry = await self.async_session_store.switch_session(dest_key, new_session_id)
-            if new_entry and in_place:
-                await self._follow_telegram_topic_switch(dest_source, new_entry, reason="branch-command")
+        new_entry = await self.async_session_store.switch_session(dest_key, new_session_id)
         if not new_entry:
-            return t("gateway.branch.switch_failed")
+            return 'Branch created but failed to switch to it.'
         self._clear_session_boundary_security_state(dest_key)
         self._evict_cached_agent(dest_key)
-        if in_place:
-            await self._rename_telegram_topic_after_switch(dest_source, new_entry, branch_title)
-        msg_count = len([m for m in history if m.get("role") == "user"])
-        if in_place:
-            key = "gateway.branch.branched_one" if msg_count == 1 else "gateway.branch.branched_many"
-            reply = t(key, title=branch_title, count=msg_count, parent=parent_session_id, new=new_session_id)
-            if not stay_here and source.platform in BRANCH_THREAD_PLATFORMS:
-                reply += "\n" + t("gateway.branch.thread_fallback")
-            return reply
-        key = "gateway.branch.branched_thread_one" if msg_count == 1 else "gateway.branch.branched_thread_many"
-        return t(key, title=branch_title, count=msg_count, parent=parent_session_id, new=new_session_id,
-                 thread=format_thread_ref(source.platform, dest_source.thread_id))
 
-    async def _branch_open_thread(self, source: SessionSource, title: str) -> Optional[SessionSource]:
-        """Open the sibling thread a plain ``/branch`` clones into; the destination source, or
-        None when this chat cannot host one (in-place fallback)."""
-        parent_id = branch_thread_parent(source)
-        adapter = self._delivery_adapter_for(source) if parent_id else None
-        if adapter is None:
-            return None
-        try:
-            thread_id = await adapter.create_handoff_thread(parent_id, title)
-        except Exception:
-            logger.warning("Branch: create_handoff_thread failed on %s; branching in place",
-                           source.platform.value, exc_info=True)
-            return None
-        if not thread_id:
-            return None
-        # Discord only answers un-mentioned follow-ups in threads it has participated in.
-        threads = getattr(adapter, "_threads", None)
-        if threads is not None:
-            await threads.mark_async(str(thread_id))
-        return branch_dest_source(source, parent_id=parent_id, thread_id=str(thread_id), title=title)
+        msg_count = len([m for m in history if m.get("role") == "user"])
+        key = '⑂ Branched to **{title}** ({count} message copied)\nOriginal: `{parent}`\nBranch: `{new}`\nUse `/resume` to switch back to the original.' if msg_count == 1 else '⑂ Branched to **{title}** ({count} messages copied)\nOriginal: `{parent}`\nBranch: `{new}`\nUse `/resume` to switch back to the original.'
+        return key.format(title=branch_title, count=msg_count, parent=parent_session_id, new=new_session_id)

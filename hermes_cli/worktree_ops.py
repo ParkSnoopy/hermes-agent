@@ -812,13 +812,11 @@ def _tree_still_served(db_path: str, worktree_path: str) -> Optional[str]:
 
     Beyond pending admissions (``_retained_tree_is_live(pending_only=True)``): scheduled work for a
     session inside it (an active loop, heartbeat or goal continuation), another viewer still holding
-    such a session (its row was not ended by the quit), or an enabled cron job that runs in the tree
-    (``workdir``) or is bound to such a session's local chat. Reads only; unreadable fails SAFE."""
+    such a session (its row was not ended by the quit). Reads only; unreadable fails SAFE."""
     import sqlite3
     from urllib.parse import quote
 
     path = Path(db_path)
-    chats: set = set()
     if path.is_file():
         try:
             conn = sqlite3.connect(f"file:{quote(str(path))}?mode=ro", uri=True, timeout=2)
@@ -826,39 +824,14 @@ def _tree_still_served(db_path: str, worktree_path: str) -> Optional[str]:
                 conn.create_function("hermes_inside_tree", 1, _inside_tree(worktree_path), deterministic=True)
                 if conn.execute(_SERVED_TREE_SQL).fetchone():
                     return "session"
-                chats = {row[0] for row in conn.execute(
-                    "SELECT chat_id FROM sessions WHERE hermes_inside_tree(cwd) AND chat_id IS NOT NULL")}
             finally:
                 conn.close()
         except sqlite3.Error as exc:
             logger.debug("retained worktree serve check failed (%s); keeping tree", exc)
             return "unreadable"
-    return "cron" if _cron_bound_to_tree(worktree_path, chats) else None
+    return None
 
 
-def _cron_bound_to_tree(worktree_path: str, chats: set) -> bool:
-    """An enabled, non-terminal cron job whose ``workdir`` is inside the tree, or whose origin is
-    the local chat of a session there. Reads ``jobs.json`` directly (``load_jobs`` may repair-write);
-    an unreadable store fails SAFE."""
-    try:
-        from cron.jobs import _current_cron_store, _parse_jobs_file, is_job_runnable, is_terminal_job
-        jobs_file = _current_cron_store().jobs_file
-        if not jobs_file.exists():
-            return False
-        data, _ = _parse_jobs_file(jobs_file)
-    except Exception as exc:  # health: allow BLE001 -- an unreadable cron store keeps the tree (fail safe)
-        logger.debug("cron store unreadable (%s); keeping tree", exc)
-        return True
-    jobs = data.get("jobs") if isinstance(data, dict) else data
-    inside = _inside_tree(worktree_path)
-    for job in jobs if isinstance(jobs, list) else ():
-        if not isinstance(job, dict) or not is_job_runnable(job) or is_terminal_job(job):
-            continue
-        origin = job.get("origin") if isinstance(job.get("origin"), dict) else {}
-        if inside(job.get("workdir")) or (
-                str(origin.get("platform") or "").lower() == "local" and str(origin.get("chat_id") or "") in chats):
-            return True
-    return False
 
 
 def _retained_tree_is_live(db_path: str, worktree_path: str, *, pending_only: bool = False) -> bool:

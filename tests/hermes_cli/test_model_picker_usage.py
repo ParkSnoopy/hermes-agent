@@ -521,20 +521,17 @@ def test_catalog_reads_never_answer_from_another_profiles_cache(monkeypatch):
     assert mpu.large_model_notice("example/model-b", "nous") is None
 
 
-def test_picker_words_follow_the_display_language(monkeypatch):
-    """Pickers main translates read the catalog: English stays byte-identical, other languages translate."""
+def test_picker_words_are_english():
+    """Picker labels and limits use English."""
     from hermes_cli import model_picker_usage as mpu
-    monkeypatch.delenv("HERMES_LANGUAGE", raising=False)
+
     assert mpu.usage_level_label("top_tier") == "Large"
     assert mpu.usage_level_label("bogus") == ""
     spent = _replace_credits(_window_usage(day_used_bp=10_000), True)
     assert spent.limit_line().startswith("Daily limit reached · resets ")
-    monkeypatch.setenv("HERMES_LANGUAGE", "de")
-    assert mpu.usage_level_label("top_tier") == "Groß"
-    assert spent.limit_line().startswith("Tageslimit erreicht · Zurücksetzung in ")
+
     assert not spent.blocks("example/model-a")
-    # Surfaces whose own text is English (setup picker, ACP) ask for English explicitly.
-    assert spent.limit_line(lang="en").startswith("Daily limit reached")
+    assert spent.limit_line().startswith("Daily limit reached")
     assert spent.included_summary.startswith("Daily limit reached")
 
 

@@ -117,31 +117,6 @@ def test_a_launch_key_is_refused_for_an_entry_only_the_model_chose(tmp_path):
     assert (refused.value.reason, refused.value.field) == ('invalid_params', 'api_key')
 
 
-def test_a_kanban_custom_provider_override_stays_on_the_profiles_endpoint(tmp_path, monkeypatch):
-    from contextlib import closing
-    from types import SimpleNamespace
-    from gateway.session_contract import SessionActor
-    from gateway.session_kanban import build_kanban_policy
-    from hermes_cli import kanban_db as kb
-    from hermes_cli.kanban_db_connect import connect
-    monkeypatch.setenv('HERMES_KANBAN_HOME', str(tmp_path))
-    monkeypatch.setenv('HERMES_HOME', str(tmp_path))
-    monkeypatch.delenv('HERMES_KANBAN_DB', raising=False)
-    monkeypatch.setattr('hermes_cli.profiles.resolve_profile_env', lambda name: str(tmp_path))
-    kb.create_board('owned')
-    with closing(connect(board='owned')) as conn:
-        task_id = kb.create_task(conn, title='t', assignee='default', workspace_kind='dir',
-                                 workspace_path=str(tmp_path), model_override='qwen3-32b', provider_override='custom')
-        kb.recompute_ready(conn)
-        task = kb.claim_task(conn, task_id)
-    connection = SimpleNamespace(authority=SimpleNamespace(profile_id=str(tmp_path)), native_owner=True,
-                                 actor=SessionActor('owner', str(tmp_path), frozenset({'session:create'}), 'transport'))
-    policy, _secrets = build_kanban_policy(connection, dict(board='owned', task_id=task.id, run_id=task.current_run_id,
-                                                            claim_lock=task.claim_lock), BARE_LOCAL)
-    model_cfg = policy.effective()[0]['model']
-    assert (model_cfg['base_url'], model_cfg.get('key_env'), model_cfg.get('context_length')) == (
-        LOCAL, 'LOCAL_KEY', 32768)
-
 
 @pytest.mark.asyncio
 async def test_a_session_create_with_a_bare_custom_pick_stays_on_the_profiles_endpoint(monkeypatch):
@@ -168,11 +143,10 @@ async def test_a_session_create_with_a_bare_custom_pick_stays_on_the_profiles_en
 
 
 @pytest.mark.asyncio
-async def test_adopting_a_legacy_custom_row_recovers_the_entry_serving_its_model(monkeypatch):
-    """Real ``adopt_legacy_session``: the row recorded bare ``custom``, no endpoint, and a model only another entry lists."""
+async def test_native_custom_session_uses_the_key_of_the_entry_serving_its_model(monkeypatch):
+    """A canonical launch with bare ``custom`` resolves the model's endpoint and key together."""
     import json
     from gateway import run
-    from gateway.session_local_migration import resolve_local_target
     from hermes_constants import get_hermes_home
     from tests.gateway.test_session_follow_profile_config import _owner, _route
     home = get_hermes_home()
@@ -184,11 +158,11 @@ async def test_adopting_a_legacy_custom_row_recovers_the_entry_serving_its_model
     store, runner, authority, owner = _owner(home)
     runner._peek_session_state = lambda key: None
     try:
-        authority.db.create_session('old-tui', cwd=str(home), source='tui', model='saved-model',
-                                    model_config={'provider': 'custom'})
-        authority.db.end_session('old-tui', 'tui_close')
-        authority._native_legacy_transports = {owner.actor.transport_id: owner.actor}
-        live = authority.sessions[resolve_local_target(authority, owner.actor, 'old-tui').session_id]
+        created = await owner.dispatch({'id': 'custom-entry', 'method': 'session.create', 'params': {
+            'request_id': 'custom-entry', 'source': 'tui', 'cwd': str(home), 'toolsets': [],
+            'model': 'saved-model', 'provider': 'custom'}})
+        assert 'result' in created, created
+        live = authority.sessions[created['result']['session_id']]
         assert _route(runner, live) == ('saved-model', RELAY, 'relay-key')
     finally:
         await owner.close()

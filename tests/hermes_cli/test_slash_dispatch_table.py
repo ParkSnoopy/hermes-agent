@@ -35,10 +35,7 @@ def test_dispatch_return_semantics_and_side_effects():
     c = _cli()
     assert c.process_command("/exit") is False
     c = _cli()
-    with patch.object(HermesCLI, "_handle_handoff_command", return_value=False):
-        assert c.process_command("/handoff telegram") is False
-    with patch.object(HermesCLI, "_handle_handoff_command", return_value=True):
-        assert c.process_command("/handoff telegram") is True
+
     with patch.object(HermesCLI, "_handle_update_command", return_value=True):
         assert c.process_command("/update") is False
     with patch.object(HermesCLI, "_handle_update_command", return_value=False):
@@ -51,3 +48,10 @@ def test_unknown_command_falls_through():
     with patch.object(HermesCLI, "_process_unregistered_slash", return_value=True) as m:
         assert c.process_command("/definitely-not-a-command x") is True
         m.assert_called_once_with("/definitely-not-a-command x", "/definitely-not-a-command x")
+
+
+def test_retired_handoff_falls_through():
+    c = _cli()
+    with patch.object(HermesCLI, "_process_unregistered_slash", return_value=True) as m:
+        assert c.process_command("/handoff telegram") is True
+        m.assert_called_once_with("/handoff telegram", "/handoff telegram")

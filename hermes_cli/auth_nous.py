@@ -7,12 +7,10 @@ so ``hermes_cli.auth.<name>`` patches still intercept (and no import cycle).
 from __future__ import annotations
 
 import logging
-import hashlib
 import json
 import os
 import threading
 import time
-import uuid
 from contextlib import contextmanager, suppress
 from datetime import datetime, timezone, UTC
 from pathlib import Path
@@ -48,22 +46,6 @@ def _unusable_invoke_jwt_error(reason: str, *, no_refresh_token: bool = False) -
         f"Nous Portal access token is not a usable inference JWT ({reason}){detail}. "
         f"{_UNUSABLE_JWT_RELOGIN}",
         "nous_auth_missing_refresh_token" if no_refresh_token else reason, relogin=True)
-
-
-def _token_fingerprint(token: Any) -> Optional[str]:
-    """Return a short hash fingerprint for telemetry without leaking token bytes."""
-    cleaned = token.strip() if isinstance(token, str) else ""
-    return hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:12] if cleaned else None
-
-
-def _oauth_trace(event: str, *, sequence_id: Optional[str] = None, **fields: Any) -> None:
-    if os.getenv("HERMES_OAUTH_TRACE", "").strip().lower() not in {"1", "true", "yes", "on"}:
-        return
-    payload: dict[str, Any] = {"event": event}
-    if sequence_id:
-        payload["sequence_id"] = sequence_id
-    payload.update(fields)
-    logger.info("oauth_trace %s", json.dumps(payload, sort_keys=True, ensure_ascii=False))
 
 
 def _iso_after(now: datetime, ttl_seconds: int) -> str:
@@ -323,15 +305,12 @@ def _set_nous_agent_key_from_invoke_jwt(
 
 
 def _select_nous_invoke_jwt(
-    state: dict[str, Any], *, access_token: Any = None, sequence_id: Optional[str] = None) -> None:
+    state: dict[str, Any], *, access_token: Any = None) -> None:
     from hermes_cli.auth import _nonempty_str
     if _nonempty_str(access_token):
         state["access_token"] = access_token
     _set_nous_agent_key_from_invoke_jwt(state)
     logger.debug("Nous inference auth: using NAS invoke JWT")
-    _oauth_trace(
-        "nous_invoke_jwt_selected", sequence_id=sequence_id,
-        access_token_fp=_token_fingerprint(state.get("access_token")))
 
 
 # Derived from expires_at/JWT exp and tick down between reads; persisting only these changes makes
@@ -460,10 +439,6 @@ def _merge_shared_nous_oauth_state(state: dict[str, Any]) -> bool:
     # Never across identities: a profile signed in as one account keeps it (profiles are islands).
     if not (same and (order == 1 or (order is None and refresh_changed))):
         if order == -1 and refresh_changed and known_same:
-            _oauth_trace(
-                "nous_shared_store_older_than_profile",
-                shared_refresh_token_fp=_token_fingerprint(shared_refresh),
-                refresh_token_fp=_token_fingerprint(state.get("refresh_token")))
             _write_shared_nous_state(state, renewal=True)
         return False
     for key in _NOUS_SHARED_STATE_KEYS:
@@ -537,9 +512,6 @@ def _write_shared_nous_state(state: dict[str, Any], *, renewal: bool) -> None:
             held = _read_shared_nous_state()
             same = held is not None and _nous_identity(held) == _nous_identity(state)
             if renewal and _shared_copy_is_newer(held, state, same=same):
-                _oauth_trace(
-                    "nous_shared_store_write_skipped_older", path=str(path),
-                    refresh_token_fp=_token_fingerprint(refresh_token))
                 return
             if renewal and held is not None and not same:
                 shared = {**held, _SHARED_RENEWAL_KEY: _nous_shared_shape(state)}
@@ -548,9 +520,6 @@ def _write_shared_nous_state(state: dict[str, Any], *, renewal: bool) -> None:
                 if same and _SHARED_RENEWAL_KEY in held:
                     shared[_SHARED_RENEWAL_KEY] = held[_SHARED_RENEWAL_KEY]
             _save_private_json(path, shared, sort_keys=True)
-        _oauth_trace(
-            "nous_shared_store_written", path=str(path),
-            refresh_token_fp=_token_fingerprint(refresh_token))
     except Exception as exc:
         logger.debug("Failed to write shared Nous auth store: %s", exc)
 
@@ -579,28 +548,21 @@ def _read_shared_nous_state() -> Optional[dict[str, Any]]:
     return payload if has_tokens else None
 
 
-def _clear_shared_nous_state(reason: str) -> None:
+def _clear_shared_nous_state() -> None:
     """Remove the shared Nous OAuth store after a terminal token failure."""
     try:
         with _nous_shared_store_lock():
             _nous_shared_store_path().unlink(missing_ok=True)
-        _oauth_trace("nous_shared_store_cleared", reason=reason)
     except Exception as exc:
         logger.debug("Failed to clear shared Nous auth store: %s", exc)
 
 
 def _quarantine_forensics(state: dict[str, Any], error: AuthError, reason: str) -> dict[str, Any]:
-    """Redaction-safe forensic record for a quarantine: fingerprints, sizes and booleans only.
-
-    NEVER include a raw token/agent_key (credential-shaped literals get corrupted in logs). The
-    12-char SHA-256 prefix correlates to NAS's refreshTokenHash without leaking the secret;
-    provenance is client_id + agent_key_id (Nous state has no session_id).
-    """
+    """Redaction-safe diagnostic record for a quarantine; never include credentials."""
     from hermes_cli.auth import _auth_file_path
     forensic: dict[str, Any] = {
         "reason": reason, "error_code": error.code, "client_id": state.get("client_id"),
-        "agent_key_id": state.get("agent_key_id"),
-        "refresh_token_fp": _token_fingerprint(state.get("refresh_token"))}
+        "agent_key_id": state.get("agent_key_id")}
     # On-disk integrity of the auth store at the moment of quarantine.
     try:
         auth_path = _auth_file_path()
@@ -645,12 +607,11 @@ def _quarantine_nous_oauth_state(state: dict[str, Any], error: AuthError, *, rea
     for key in (*_FLAT_OAUTH_TOKEN_KEYS, *_NOUS_EMPTY_AGENT_KEY_FIELDS):
         state.pop(key, None)
     state["last_auth_error"] = _last_auth_error_marker("nous", error, reason=reason)
-    _clear_shared_nous_state(reason)
+    _clear_shared_nous_state()
     invalidate_nous_auth_status_cache()
 
 
-def _quarantine_nous_pool_entries(
-    auth_store: dict[str, Any], error: AuthError, *, reason: str) -> bool:
+def _quarantine_nous_pool_entries(auth_store: dict[str, Any]) -> bool:
     """Remove singleton-seeded Nous pool entries that contain dead OAuth state."""
     entries = _pool_entries(auth_store, "nous")
     if entries is None:
@@ -661,7 +622,6 @@ def _quarantine_nous_pool_entries(
     removed = len(retained) != len(entries)
     if removed:
         auth_store["credential_pool"]["nous"] = retained
-        _oauth_trace("nous_pool_device_code_quarantined", reason=reason, error_code=error.code)
     return removed
 
 
@@ -689,11 +649,8 @@ def _try_import_shared_nous_state(*, timeout_seconds: float = 15.0) -> Optional[
             _write_shared_nous_state(refreshed, renewal=True)
     except Exception as exc:
         is_auth = isinstance(exc, AuthError)
-        _oauth_trace(
-            "nous_shared_import_failed", error_type=type(exc).__name__,
-            **({"error_code": getattr(exc, "code", None)} if is_auth else {}))
         if is_auth and _is_terminal_nous_refresh_error(exc):
-            _clear_shared_nous_state("shared_import_terminal_refresh_failure")
+            _clear_shared_nous_state()
         logger.debug("Shared Nous import failed: %s", exc)
         return None
     return refreshed
@@ -775,7 +732,7 @@ def _refresh_nous_or_quarantine(
     except AuthError as exc:
         if _is_terminal_nous_refresh_error(exc):
             _quarantine_nous_oauth_state(state, exc, reason=reason)
-            _quarantine_nous_pool_entries(auth_store, exc, reason=reason)
+            _quarantine_nous_pool_entries(auth_store)
             persist()
         raise
 
@@ -1015,7 +972,6 @@ class _NousRuntimeResolve:
         self.auth_store, self.state, self._source_path = auth_store, state, state_source_path
         self.force_refresh, self.stale_access_token = force_refresh, stale_access_token
         self.timeout_seconds = timeout_seconds
-        self.sequence_id = uuid.uuid4().hex[:12]
         self._persisted_state = dict(state)
         self.persisted_any = False
         self.access_token = state.get("access_token")
@@ -1026,24 +982,13 @@ class _NousRuntimeResolve:
         (self.portal_base_url, self.stored_inference_base_url, self.inference_base_url,
          self.client_id) = _nous_effective_routing(self.state)
 
-    def persist(self, reason: str) -> None:
+    def persist(self) -> None:
         from hermes_cli.auth import _save_provider_state_to_source, _write_shared_nous_state
         state = self.state
         persisted = _nous_effective_provider_state(self._persisted_state)
         if _nous_effective_provider_state(state) == persisted:
-            _oauth_trace("nous_state_persist_skipped", sequence_id=self.sequence_id, reason=reason)
             return
-        try:
-            _save_provider_state_to_source(self.auth_store, "nous", state, self._source_path)
-        except Exception as exc:
-            _oauth_trace(
-                "nous_state_persist_failed", sequence_id=self.sequence_id, reason=reason,
-                error_type=type(exc).__name__)
-            raise
-        _oauth_trace(
-            "nous_state_persisted", sequence_id=self.sequence_id, reason=reason,
-            refresh_token_fp=_token_fingerprint(state.get("refresh_token")),
-            access_token_fp=_token_fingerprint(state.get("access_token")))
+        _save_provider_state_to_source(self.auth_store, "nous", state, self._source_path)
         self._persisted_state = dict(state)
         self.persisted_any = True
         _write_shared_nous_state(state, renewal=True)
@@ -1075,9 +1020,6 @@ class _NousRuntimeResolve:
         token = self.access_token
         if (self.force_refresh and self.stale_access_token and isinstance(token, str) and token
                 and token != self.stale_access_token and self.invoke_jwt_status() is None):
-            _oauth_trace(
-                "refresh_skipped_peer_rotated", sequence_id=self.sequence_id,
-                access_token_fp=_token_fingerprint(token))
             self.force_refresh = False
 
     def refresh(self, client: httpx.Client, invoke_jwt_status: Optional[str]) -> None:
@@ -1085,17 +1027,11 @@ class _NousRuntimeResolve:
         if not isinstance(self.refresh_token, str) or not self.refresh_token:
             raise _unusable_invoke_jwt_error(
                 invoke_jwt_status or "force_refresh", no_refresh_token=True)
-        refresh_reason = (
-            "force_refresh" if self.force_refresh else (invoke_jwt_status or "access_unusable"))
-        _oauth_trace(
-            "refresh_start", sequence_id=self.sequence_id, reason=refresh_reason,
-            refresh_token_fp=_token_fingerprint(self.refresh_token))
         refreshed = _refresh_nous_or_quarantine(
             client=client, auth_store=self.auth_store, state=self.state,
             portal_base_url=self.portal_base_url, client_id=self.client_id,
             refresh_token=self.refresh_token, reason="runtime_access_refresh_failure",
-            persist=lambda: self.persist("terminal_runtime_access_refresh_failure"))
-        previous_refresh_token = self.refresh_token
+            persist=self.persist)
         # The validated, network-provenance URL is what gets persisted (with the rotated tokens,
         # so a later JWT validation failure cannot leave the stores on stale metadata). The
         # NOUS_INFERENCE_BASE_URL env override is layered on for the client/return value only.
@@ -1106,12 +1042,8 @@ class _NousRuntimeResolve:
             inference_base_url=self.stored_inference_base_url)
         self.access_token = self.state["access_token"]
         self.refresh_token = self.state["refresh_token"]
-        _oauth_trace(
-            "refresh_success", sequence_id=self.sequence_id, reason=refresh_reason,
-            previous_refresh_token_fp=_token_fingerprint(previous_refresh_token),
-            new_refresh_token_fp=_token_fingerprint(self.refresh_token))
         # Persist immediately so validation failures cannot drop rotated refresh tokens.
-        self.persist("post_refresh_access_token")
+        self.persist()
 
     def ensure_usable_access_token(self, client: httpx.Client) -> None:
         """Merge from the shared store / refresh until the access token is a usable invoke JWT."""
@@ -1124,12 +1056,12 @@ class _NousRuntimeResolve:
                 self.access_token = self.state["access_token"]
                 self.stored_inference_base_url = self.state.get("inference_base_url") or self.stored_inference_base_url
                 self.inference_base_url = _nous_inference_env_override() or self.stored_inference_base_url
-                self.persist("guest_exchange")
+                self.persist()
             return
         if not self.has_access_token():
             with self.shared_lock():
                 if self.merge_shared():
-                    self.persist("runtime_shared_merge_missing_access_token")
+                    self.persist()
         if not self.has_access_token():
             raise _nous_err(
                 "No access token found for Nous Portal login.", "nous_auth_missing_access_token", relogin=True)
@@ -1140,7 +1072,7 @@ class _NousRuntimeResolve:
         with self.shared_lock():
             if self.merge_shared():
                 invoke_jwt_status = self.invoke_jwt_status()
-                self.persist("post_shared_merge_access_unusable")
+                self.persist()
                 self.skip_refresh_if_peer_rotated()
             if self.force_refresh or invoke_jwt_status is not None:
                 self.refresh(client, invoke_jwt_status)
@@ -1196,14 +1128,10 @@ def _resolve_nous_runtime_credentials(
             auth_store, state, state_source_path, force_refresh=force_refresh,
             stale_access_token=stale_access_token, timeout_seconds=timeout_seconds)
         verify = _resolve_verify(insecure=insecure, ca_bundle=ca_bundle, auth_state=state)
-        _oauth_trace(
-            "nous_runtime_credentials_start", sequence_id=run.sequence_id,
-            refresh_token_fp=_token_fingerprint(state.get("refresh_token")))
         with _nous_http_client(timeout_seconds or 15.0, verify) as client:
             run.ensure_usable_access_token(client)
             _assert_nous_inference_jwt_usable(state, access_token=run.access_token)
-            _select_nous_invoke_jwt(
-                state, access_token=run.access_token, sequence_id=run.sequence_id)
+            _select_nous_invoke_jwt(state, access_token=run.access_token)
             # Persist routing and TLS metadata for non-interactive refresh — the validated,
             # network-provenance URL, NEVER the env override (a runtime-only overlay; persisting
             # it would leak a dev/staging host into auth.json and survive unsetting it).
@@ -1211,7 +1139,7 @@ def _resolve_nous_runtime_credentials(
                 portal_base_url=run.portal_base_url, client_id=run.client_id,
                 inference_base_url=run.stored_inference_base_url,
                 tls=_tls_state_from_verify(verify))
-        run.persist("resolve_nous_runtime_credentials_final")
+        run.persist()
     if run.persisted_any:
         _sync_nous_pool_from_auth_store()
     api_key = state.get("agent_key")

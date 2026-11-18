@@ -10,43 +10,6 @@ def _load_optional_dependencies():
     return project["optional-dependencies"]
 
 
-def test_wake_dependencies_and_runtime_gate_agree_on_supported_targets():
-    from packaging.markers import Marker, default_environment
-    from packaging.requirements import Requirement
-
-    root = Path(__file__).resolve().parents[1]
-    metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8-sig"))
-    optional = metadata["project"]["optional-dependencies"]
-    gates = metadata["tool"]["hermes"]["extras-platforms"]
-    targets = [
-        ("darwin", "Darwin", "x86_64", False),
-        ("darwin", "Darwin", "arm64", True),
-        ("linux", "Linux", "x86_64", True),
-        ("linux", "Linux", "aarch64", True),
-        ("win32", "Windows", "AMD64", True),
-        ("win32", "Windows", "ARM64", False),
-    ]
-    for system, platform_system, machine, supported in targets:
-        environment = {**default_environment(), "sys_platform": system,
-                       "platform_system": platform_system, "platform_machine": machine}
-        for extra in ("wake", "wake-openwakeword"):
-            requirement = next(req for spec in optional[extra]
-                               if (req := Requirement(spec)).name == "pyopen-wakeword")
-            assert requirement.marker.evaluate(environment) is supported, (extra, system, machine)
-        assert Marker(gates["wake-openwakeword"]).evaluate(environment) is supported
-        selected = {req.name for spec in optional["wake"]
-                    if (req := Requirement(spec)).marker is None or req.marker.evaluate(environment)}
-        assert {"sherpa-onnx", "pvporcupine", "sentencepiece", "pypinyin"} <= selected
-        sherpa_deps = {req.name for spec in optional["wake-sherpa"]
-                       if (req := Requirement(spec)).marker is None or req.marker.evaluate(environment)}
-        assert {"sherpa-onnx", "sentencepiece", "pypinyin"} <= sherpa_deps
-        for extra in ("wake-sherpa", "wake-porcupine"):
-            assert all(req.marker is None or req.marker.evaluate(environment)
-                       for req in map(Requirement, optional[extra]))
-            gate = gates.get(extra)
-            assert gate is None or Marker(gate).evaluate(environment)
-
-
 def test_direct_overrides_preserve_the_declared_exact_version():
     from packaging.requirements import Requirement
     from packaging.utils import canonicalize_name
@@ -70,31 +33,6 @@ def test_direct_overrides_preserve_the_declared_exact_version():
         assert versions and all(version in requirement.specifier for version in versions)
 
 
-def test_matrix_extra_not_in_all():
-    """The [matrix] extra pulls `mautrix[encryption]` -> `python-olm`,
-    which has Linux-only wheels and no native build path on Windows or
-    modern macOS (archived libolm, C++ errors with Clang 21+).
-
-    With matrix in [all], `uv sync --locked` on Windows tried to build
-    python-olm from sdist and failed on `make`. As of 2026-05-12 the
-    [matrix] extra is excluded from [all] entirely and installs on first
-    use (pm.ensure_import("matrix")), where the user is expected to have
-    a toolchain.
-    """
-    optional_dependencies = _load_optional_dependencies()
-
-    assert "matrix" in optional_dependencies, "[matrix] extra must still exist for `uv sync --extra matrix`"
-    # Must NOT appear in [all] in any form — neither unconditional nor
-    # platform-gated. Lazy-install handles it.
-    matrix_in_all = [
-        dep for dep in optional_dependencies["all"]
-        if "matrix" in dep
-    ]
-    assert not matrix_in_all, (
-        "matrix must not appear in [all] — it installs on first use via "
-        f"pm.ensure_import('matrix'). Found: {matrix_in_all}"
-    )
-
 
 def test_lazy_installable_extras_excluded_from_all():
     """Policy (2026-05-12): opt-in backends stay out of [all].
@@ -114,16 +52,10 @@ def test_lazy_installable_extras_excluded_from_all():
         "anthropic", "bedrock",
         "exa", "firecrawl", "parallel-web",
         "fal",
-        "edge-tts", "tts-premium",
-        "voice",  # faster-whisper / sounddevice / numpy (composes stt-whisper + audio-io)
-        "stt-whisper",
-        "modal", "daytona", "vercel",
-        "messaging", "slack", "matrix", "dingtalk", "feishu",
-        "telegram", "discord",
-        "wake", "wake-openwakeword", "wake-sherpa", "wake-porcupine",
-        "google-chat",
+        "vercel",
+
         "keychain",  # keyring — vault key in the OS keychain, installed by `hermes vault key migrate`
-        "mistral",  # mistralai — Voxtral STT/TTS, lazy-installed (stt.mistral / tts.mistral)
+
     }
     all_extra_specs = optional_dependencies["all"]
     for extra in lazy_covered_extras:
@@ -178,16 +110,3 @@ def test_extras_pin_each_package_at_one_version():
         "extras pin the same package at different versions — uv sync would "
         f"resolve whichever wins and silently downgrade the other: {drift}"
     )
-
-
-
-
-
-
-def test_dingtalk_extra_includes_qrcode_for_qr_auth():
-    """DingTalk's QR-code device-flow auth (hermes_cli/dingtalk_auth.py)
-    needs the qrcode package."""
-    optional_dependencies = _load_optional_dependencies()
-
-    dingtalk_extra = optional_dependencies["dingtalk"]
-    assert any(dep.startswith("qrcode") for dep in dingtalk_extra)

@@ -1,56 +1,60 @@
 """Native deletion retires routing and keeps only exact authorized retries."""
-import asyncio
 import json
 import sqlite3
+from types import SimpleNamespace
 
-import httpx
 import pytest
-from websockets.asyncio.client import connect
-from tests.gateway.test_native_http_auth import daemon, ticket, headers
+
+def local_authority(tmp_path, monkeypatch, *, instance_id='owner'):
+    """The canonical in-process owner and its durable routing store."""
+    from gateway import run
+    from gateway.config import GatewayConfig
+    from gateway.session import SessionStore
+    from gateway.session_authority import SessionAuthority
+    from gateway.session_controls import AuthorityConnection
+    from hermes_state_runtime import begin_runtime_epoch
+
+    monkeypatch.setattr(run, '_load_gateway_config', dict)
+    store = SessionStore(tmp_path / 'sessions', GatewayConfig())
+    db = store._db
+    runner = SimpleNamespace(session_store=store, _session_db=db, adapters={}, _draining=False,
+                             _evict_cached_agent=lambda route: None, _cached_agent_for=lambda route: None,
+                             _adapter_for_source=lambda source: None)
+    authority = SessionAuthority(runner, profile_id='owned', instance_id=instance_id, db=db,
+                                 epoch=begin_runtime_epoch(db, instance_id=instance_id))
+    runner.session_authority = authority
+    return authority, AuthorityConnection(authority, object(), {'user_id': 'human'})
 
 
-async def create(home, descriptor):
-    async with connect(descriptor['api_origin'].replace('http:', 'ws:') + '/api/ws',
-        subprotocols=['hermes-gateway-v1', 'hermes-gateway-ticket.' + ticket(home, descriptor, 'interactive')]) as ws:
-        await ws.send(json.dumps({'id': 1, 'method': 'session.create', 'params': {
-            'request_id': 'retirement', 'source': 'gui'}}))
-        while True:
-            response = json.loads(await ws.recv())
-            if response.get('id') == 1:
-                assert 'result' in response, response
-                return response['result']['session_id']
-
-
-@pytest.mark.platforms("linux")
-def test_native_delete_exact_retry_survives_owner_restart(tmp_path):
-    with daemon(tmp_path) as (home, descriptor), httpx.Client(base_url=descriptor['api_origin'], trust_env=False) as client:
-        sid = asyncio.run(create(home, descriptor))
-        path = '/api/sessions/' + sid
-        snapshot = client.get(path + '/mutation-snapshot', headers=headers(ticket(home, descriptor))).json()
-        params = dict(request_id='delete', expected_revision=snapshot['runtime_revision'],
-                      expected_generation=snapshot['runtime_generation'])
-        deleted = client.delete(path, params=params, headers=headers(ticket(home, descriptor)))
-        assert deleted.status_code == 200, deleted.text
-        receipt = deleted.json()
-        assert client.get(path, headers=headers(ticket(home, descriptor))).status_code == 404
-        with sqlite3.connect(home / 'state.db') as db:
-            assert not any(json.loads(row[0])['session_id'] == sid for row in db.execute('SELECT entry_json FROM gateway_routing'))
-        assert client.delete(path, params=params, headers=headers(ticket(home, descriptor))).json() == receipt
-    with daemon(tmp_path) as (home, descriptor), httpx.Client(base_url=descriptor['api_origin'], trust_env=False) as client:
-        retry = client.delete(path, params=params, headers=headers(ticket(home, descriptor)))
-        assert retry.status_code == 200 and retry.json() == receipt, retry.text
-        changed = client.delete(path, params=params | {'expected_revision': 99}, headers=headers(ticket(home, descriptor)))
-        assert changed.status_code == 409 and 'admission_conflict' in changed.text
-        # Without this principal's exact receipt, a delete of the gone id is main's idempotent
-        # ``already_absent`` (Desktop ghost-row contract, #48641): never the receipt, never a write.
-        absent = {'ok': True, 'already_absent': True}
-        fresh = client.delete(path, params=params | {'request_id': 'different'}, headers=headers(ticket(home, descriptor)))
-        assert fresh.status_code == 200 and fresh.json() == absent, fresh.text
-        # The dashboard login is the owner, so its exact retry replays the owner's receipt.
-        login = client.delete(path, params=params, headers={'Authorization': 'Bearer normal-http-owner'})
-        assert login.status_code == 200 and login.json() == receipt, login.text
-    print(json.dumps({'native_delete_restart': receipt, 'changed_retry': changed.json(),
-                      'fresh_request_status': fresh.status_code, 'login_status': login.status_code}))
+@pytest.mark.asyncio
+async def test_native_delete_exact_retry_survives_owner_restart(tmp_path, monkeypatch):
+    from gateway.session_local import create_local_session
+    authority, owner = local_authority(tmp_path, monkeypatch)
+    db = authority.db
+    ref = create_local_session(authority, owner.actor, {'request_id': 'retirement', 'source': 'cli',
+                               'cwd': str(tmp_path), 'model': 'm', 'toolsets': []})
+    sid = ref.session_id
+    row = db.get_session(sid)
+    params = {'session_id': sid, 'request_id': 'delete', 'expected_revision': row['runtime_revision'],
+              'expected_generation': row['runtime_generation'], 'operation': 'delete', 'payload': {}}
+    request = {'id': 1, 'method': 'session.mutate', 'params': params}
+    first = await owner.dispatch(request)
+    assert 'result' in first, first
+    assert db.get_session(sid) is None
+    assert not any(json.loads(row)['session_id'] == sid for row in db.load_gateway_routing_entries(scope='').values())
+    assert await owner.dispatch(request) == first
+    await owner.close()
+    db.close()
+    authority, owner = local_authority(tmp_path, monkeypatch, instance_id='restarted')
+    try:
+        assert await owner.dispatch(request) == first
+        changed = await owner.dispatch({**request, 'params': {**params, 'expected_revision': 99}})
+        assert changed['error']['message'] == 'admission_conflict', changed
+        fresh = await owner.dispatch({**request, 'params': {**params, 'request_id': 'different'}})
+        assert fresh['error']['message'] == 'not_found', fresh
+    finally:
+        await owner.close()
+        authority.db.close()
 
 
 def test_route_retirement_rolls_back_with_receipt_and_rejects_stale_mirror(tmp_path):

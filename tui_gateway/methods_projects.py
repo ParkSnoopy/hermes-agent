@@ -95,8 +95,7 @@ def _(rid, params, pdb, conn) -> dict:
         **_pick(params, "slug", "primary_path", "description", "icon", "color", "board_slug"))
     if params.get("use"):
         pdb.set_active(conn, pid)
-    from hermes_cli.observability.shared_metrics_signals import record_feature_used
-    record_feature_used("projects")
+
     proj = pdb.get_project(conn, pid)
     return _ok(rid, {"project": proj.to_dict() if proj else None})
 
@@ -165,26 +164,25 @@ def _is_session_cwd_junk(cwd: str) -> bool:
 
 
 def _repo_discovery_policy(raw: dict | None = None) -> dict:
-    """Return the effective, profile-local Desktop repository scan policy."""
+    """Return the effective, profile-local repository scan policy."""
     from hermes_cli.config import DEFAULT_CONFIG
-    defaults = DEFAULT_CONFIG["desktop"]
-    source = raw if isinstance(raw, dict) else (_load_cfg().get("desktop") or {})
+    defaults = DEFAULT_CONFIG["projects"]["repo_scan"]
+    source = raw
+    if not isinstance(source, dict):
+        projects = _load_cfg().get("projects")
+        source = projects.get("repo_scan") if isinstance(projects, dict) else {}
     if not isinstance(source, dict):
         source = {}
 
-    def _get(short: str, long: str):
-        return source.get(short, source.get(long, defaults[long]))
-
-    def _paths(short: str, long: str) -> list[str]:
-        values = _get(short, long)
+    def _paths(name: str) -> list[str]:
+        values = source.get(name, defaults[name])
         if not isinstance(values, list):
-            return list(defaults[long])
+            return list(defaults[name])
         return [v.strip() for v in values if isinstance(v, str) and v.strip()]
-    enabled = _get("enabled", "repo_scan_enabled")
+    enabled = source.get("enabled", defaults["enabled"])
     return {
-        "enabled": enabled if isinstance(enabled, bool) else defaults["repo_scan_enabled"],
-        "roots": _paths("roots", "repo_scan_roots"),
-        "exclude_paths": _paths("exclude_paths", "repo_scan_exclude_paths")}
+        "enabled": enabled if isinstance(enabled, bool) else defaults["enabled"],
+        "roots": _paths("roots"), "exclude_paths": _paths("exclude_paths")}
 
 
 def _repo_discovery_policy_key(policy: dict) -> str:
@@ -202,7 +200,7 @@ def _repo_discovery_policy_key(policy: dict) -> str:
 def _repo_discovery_policy_is_default(policy: dict) -> bool:
     from hermes_cli.config import DEFAULT_CONFIG
     return _repo_discovery_policy_key(policy) == _repo_discovery_policy_key(
-        _repo_discovery_policy(DEFAULT_CONFIG["desktop"]))
+        _repo_discovery_policy(DEFAULT_CONFIG["projects"]["repo_scan"]))
 
 
 def _scan_discovered_repos_remote(conn, policy: dict) -> bool:

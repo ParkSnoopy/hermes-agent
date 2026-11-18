@@ -69,6 +69,8 @@ class TestNtNamespaceGuard(unittest.TestCase):
                 patch("tools.file_tools._resolve_path_for_task") as ft_resolve, \
                 patch("tools.file_tools_write_guards._resolve_path_for_task") as wg_resolve, \
                 patch("tools.file_tools_paths._resolve_path_for_task") as ckpt_resolve, \
+                patch("tools.terminal_tool._get_env_config", return_value={"env_type": "local"}), \
+                patch("tools.terminal_tool.resolve_task_overrides", return_value={}), \
                 patch.object(Path, "resolve", side_effect=AssertionError("must not resolve")), \
                 patch.object(os.path, "realpath", side_effect=AssertionError("must not realpath")):
             results = [

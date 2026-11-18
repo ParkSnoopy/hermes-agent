@@ -6,15 +6,11 @@ breaks the provider prompt cache.
 """
 from __future__ import annotations
 
-import json
 import logging
-import time
 from typing import Any, Dict, List, Optional
 
-from agent.compaction_events import publish_micro
-from agent.context_compressor_telemetry import _safe_int
 from agent.message_metadata import record_absorbed_message
-from agent.model_metadata import estimate_messages_tokens_rough, estimate_tokens_rough
+from agent.model_metadata import estimate_tokens_rough
 
 # Log name parity with the origin module.
 logger = logging.getLogger("agent.context_compressor")
@@ -203,12 +199,11 @@ class MicroCompactionMixin:
         self._micro_compact_last_failure_cursor = -1
 
     def _micro_compact(
-        self, messages: list[dict[str, Any]], *, turn_session_id: Optional[str] = None,
+        self, messages: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         """Run one round of micro-compaction (entry point from ``finalize_turn()``). Returns the
         (possibly modified) list and syncs the session DB via ``archive_and_compact`` (the
-        append-only flush alone would double-load on resume). ``turn_session_id`` is the session the
-        caller's turn started in; it parents the pass's Relay mark when this session has no scope yet."""
+        append-only flush alone would double-load on resume)."""
         if not self._micro_compact_enabled:
             return messages
 
@@ -227,24 +222,14 @@ class MicroCompactionMixin:
             return messages
         exchange_start, exchange_end = exchange
 
-        # Telemetry baseline; taken only once an exchange exists so no-op turns don't pay.
-        _started_at = time.monotonic()
-        _tokens_before = estimate_messages_tokens_rough(messages)
+
         # The history this pass rewrites, and the store's watermark, before the slow summary call: the commit
         # keeps what another surface or a concurrent write added instead of archiving it unseen. A watermark
         # the store could not answer for leaves the commit unbounded, so the pass does not run at all.
         _held = list(messages)
         _skip, _start_watermark = self._micro_start_watermark(_held)
 
-        def _telemetry(outcome: str, result: list[dict[str, Any]], **extra: Any) -> None:
-            self._emit_micro_compaction_telemetry(
-                outcome=outcome, messages_before=n_messages, messages_after=len(result),
-                tokens_before=_tokens_before, duration_ms=int((time.monotonic() - _started_at) * 1000),
-                turn_session_id=turn_session_id, **extra,
-            )
-
         if _skip:  # unanswerable watermark (unbounded archive) or a stale generation (no lease): skip
-            _telemetry(_skip, messages, tokens_after=_tokens_before)
             return messages
         # Pre-pass state, restored when the commit finds a compaction landed during the summary call.
         _pre_cursor, _pre_summary = self._micro_compact_cursor, self._micro_compact_rolling_summary
@@ -254,6 +239,7 @@ class MicroCompactionMixin:
         if self._needs_defrag():
             _marker = next((e for e in reversed(messages) if _is_micro_marker(e)), None)
             _pre_marker = dict(_marker) if _marker is not None else None
+            before_defrag = [dict(m) for m in messages]
             defragged = self._defrag_rolling_summary(messages)
             if defragged and not self._sync_micro_compact_to_db(
                 messages, held=_held, start_watermark=_start_watermark,
@@ -263,23 +249,24 @@ class MicroCompactionMixin:
                 if _marker is not None:
                     _marker.clear()
                     _marker.update(_pre_marker)
-                _telemetry("stale_generation", messages, tokens_after=_tokens_before)
                 return messages
             if defragged:
                 self._reset_micro_failure_tracking()
-            outcome = "defrag" if defragged else "defrag_failed"
-            _telemetry(outcome, messages, tokens_after=estimate_messages_tokens_rough(messages))
+                from agent.compaction_events import notify_compaction
+
+                notify_compaction(
+                    session_id=getattr(self, "_session_id", "") or "", kind="micro_summarize", reason="between_turns",
+                    messages_before=before_defrag, messages_after=messages,
+                )
             return messages
 
         # Cumulative iff it subsumes an earlier marker; captured before summarizing.
         _cumulative = bool(self._micro_compact_rolling_summary.strip())
 
         exchange_text = self._serialize_for_summary(messages[exchange_start:exchange_end])
-        _exchange_tokens = estimate_tokens_rough(exchange_text)
         updated_summary = self._micro_summarize_one(exchange_text)
         if updated_summary is None:
-            _outcome = self._record_micro_failure(exchange_start, exchange_end)
-            _telemetry(_outcome, messages, tokens_after=_tokens_before, exchange_tokens=_exchange_tokens)
+            self._record_micro_failure(exchange_start, exchange_end)
             return messages
 
         self._micro_compact_rolling_summary = updated_summary
@@ -292,10 +279,12 @@ class MicroCompactionMixin:
             # Another compaction committed during the summary call. A true no-op: returning the spliced
             # list would let finalize_turn persist its unmarked summary row beside the winning generation.
             self._micro_compact_cursor, self._micro_compact_rolling_summary = _pre_cursor, _pre_summary
-            _telemetry("stale_generation", messages, tokens_after=_tokens_before)
             return messages
-        _telemetry(
-            "absorbed", result, tokens_after=estimate_messages_tokens_rough(result), exchange_tokens=_exchange_tokens,
+        from agent.compaction_events import notify_compaction
+
+        notify_compaction(
+            session_id=getattr(self, "_session_id", "") or "", kind="micro_summarize", reason="between_turns",
+            messages_before=_held, messages_after=result,
         )
         return result
 
@@ -343,44 +332,10 @@ class MicroCompactionMixin:
         pre-splice indices land inside a later exchange and silently skip it."""
         return next((idx + 1 for idx in range(len(result) - 1, -1, -1) if _is_summary_marker(result[idx])), fallback)
 
-    def _emit_micro_compaction_telemetry(
-        self, *, outcome: str, messages_before: int, messages_after: int, tokens_before: int | None,
-        tokens_after: int | None, exchange_tokens: int | None = None, duration_ms: int | None = None,
-        turn_session_id: str | None = None,
-    ) -> None:
-        """Emit one content-free JSON log line for a micro-compaction pass.
-        ``tokens_delta`` < 0 means the pass shrank the transcript; ``*_total`` fields accumulate."""
-        try:
-            delta = tokens_after - tokens_before if tokens_before is not None and tokens_after is not None else None
-            self._micro_compact_tokens_saved_total -= delta or 0
-            self._micro_compact_passes += 1
-            # Cached reads only: the lazy properties can fire a synchronous /models probe.
-            # The ``threshold_tokens`` / ``context_length`` properties resolve lazily and can fire a
-            # synchronous /models probe on first access (#32221) — telemetry must never be the thing that
-            # blocks a turn. Unresolved simply reports null.
-            threshold = self._threshold_tokens
-            has_occupancy = threshold and tokens_after is not None and threshold > 0
-            occupancy = round(tokens_after / threshold * 100, 1) if has_occupancy else None
-            payload = {
-                "event": "micro_compaction", "session_id": getattr(self, "_session_id", "") or "", "outcome": outcome,
-                "messages_before": messages_before, "messages_after": messages_after,
-                "tokens_before": _safe_int(tokens_before), "tokens_after": _safe_int(tokens_after),
-                "tokens_delta": _safe_int(delta), "exchange_tokens": _safe_int(exchange_tokens),
-                "rolling_summary_tokens": estimate_tokens_rough(self._micro_compact_rolling_summary),
-                "cursor": _safe_int(self._micro_compact_cursor), "passes_total": self._micro_compact_passes,
-                "tokens_saved_total": self._micro_compact_tokens_saved_total, "duration_ms": _safe_int(duration_ms),
-                # Headroom: how full the window is being kept.
-                "threshold_tokens": _safe_int(threshold), "context_limit": _safe_int(self._resolved_context_length),
-                "occupancy_pct": occupancy, "main_model": self.model or "", "aux_model": self.summary_model or "",
-            }
-            logger.info("micro compaction telemetry: %s", json.dumps(payload, sort_keys=True, separators=(",", ":")))
-            publish_micro(payload, turn_session_id=turn_session_id)
-        except Exception as exc:
-            logger.debug("failed to emit micro-compaction telemetry: %s", exc)
 
     def _micro_start_watermark(self, held: list[dict[str, Any]]) -> tuple[Optional[str], Optional[int]]:
-        """``(skip_outcome, watermark)`` taken before a pass's slow step; *skip_outcome* is the telemetry
-        label of a pass that must not run, or None.
+        """``(skip_reason, watermark)`` taken before a pass's slow step; *skip_reason* explains
+        why a pass must not run, or is None.
 
         A store with no watermark API runs the pass with ``(None, None)``: the commit keeps today's
         archive-everything behaviour. ``watermark_unavailable`` when the read itself raised — that must

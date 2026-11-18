@@ -1,6 +1,6 @@
 import type { BillingStepUpVerificationPayload, FreeTierChallengePayload } from '@hermes/shared/gateway-events'
 
-import { t } from '../i18n/runtime.js'
+import { gatewayMsgEn } from '../copy/gatewayMsg.js'
 
 // Links the headless gateway needs the user to open in a browser: it cannot open one or print
 // where the user sees it, so the TUI shows the link (clickable/copyable) and opens it itself.
@@ -24,11 +24,11 @@ export function createBillingVerificationPresenter(
       return
     }
 
-    sys(t('gatewayMsg.billing.openLinkRemoteSpending'))
+    sys(gatewayMsgEn.gatewayMsg.billing.openLinkRemoteSpending)
     sys(url)
 
     if (payload.user_code) {
-      sys(t('gatewayMsg.billing.enterCode', payload.user_code))
+      sys(gatewayMsgEn.gatewayMsg.billing.enterCode(payload.user_code))
     }
 
     void openExternalUrl(url)

@@ -11,7 +11,7 @@ import pytest
 
 from gateway.config import Platform
 from gateway.run import GatewayRunner, _profile_runtime_scope
-from tools.send_message_senders import _live_adapter
+from gateway.outbound_senders import _live_adapter
 
 
 @pytest.fixture
@@ -23,8 +23,8 @@ def mux_runner(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(home))
     default_slack, sec_slack = object(), object()
     runner = object.__new__(GatewayRunner)
-    runner.adapters = {Platform.SLACK: default_slack}
-    runner._profile_adapters = {"sec": {Platform.SLACK: sec_slack}, "nobot": {}}
+    runner.adapters = {Platform.API_SERVER: default_slack}
+    runner._profile_adapters = {"sec": {Platform.API_SERVER: sec_slack}, "nobot": {}}
     runner._primary_profile_name = "default"
     import gateway.run as gateway_run
     monkeypatch.setattr(gateway_run, "_gateway_runner_ref", lambda: runner)
@@ -34,14 +34,14 @@ def mux_runner(tmp_path, monkeypatch):
 def test_secondary_profile_turn_resolves_its_own_adapter(mux_runner):
     home, default_slack, sec_slack = mux_runner
     with _profile_runtime_scope(home / "profiles" / "sec", {}):
-        _, adapter = _live_adapter(Platform.SLACK)
+        _, adapter = _live_adapter(Platform.API_SERVER)
     assert adapter is sec_slack
-    _, adapter = _live_adapter(Platform.SLACK)  # default scope still gets the default bot
+    _, adapter = _live_adapter(Platform.API_SERVER)  # default scope still gets the default bot
     assert adapter is default_slack
 
 
 def test_profile_without_adapter_fails_closed_never_default_bot(mux_runner):
     home, _default_slack, _ = mux_runner
     with _profile_runtime_scope(home / "profiles" / "nobot", {}):
-        _, adapter = _live_adapter(Platform.SLACK)
+        _, adapter = _live_adapter(Platform.API_SERVER)
     assert adapter is None

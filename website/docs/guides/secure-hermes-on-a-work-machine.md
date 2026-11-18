@@ -70,29 +70,12 @@ export HERMES_WRITE_SAFE_ROOT=/path/to/project:/home/you/.hermes
 Sensitive paths inside the safe root are still blocked — pointing it at `$HOME` does not allow writing `~/.ssh/id_rsa`.
 
 :::caution
-Don't add this to `~/.hermes/.env` casually. If you set it to a project directory only, the agent cannot write to `~/.hermes/cron/jobs.json`, profile skills, or other Hermes state outside that prefix. Include your Hermes home as a second root, as above.
+Don't add this to `~/.hermes/.env` casually. If you set it to a project directory only, the agent cannot write to profile skills or other Hermes state outside that prefix. Include your Hermes home as a second root, as above.
 :::
 
-### Move command execution off the host
+### Local command execution
 
-The strongest isolation is not running commands on your machine at all. The terminal tool supports multiple [backends](../user-guide/features/tools.md#terminal-backends):
-
-| Backend | Isolation |
-|---------|-----------|
-| `local` | None — runs on host (dangerous-command checks apply) |
-| `docker` | Container — the container itself is the security boundary |
-| `ssh` | Remote machine — keeps execution on a separate server |
-
-```yaml
-terminal:
-  backend: docker
-  docker_image: "nousresearch/hermes-sandbox:desktop"
-  docker_forward_env: []  # Explicit allowlist only; empty keeps secrets out of the container
-```
-
-Every Docker container runs with hardened settings — all Linux capabilities dropped (with a minimal add-back set), `no-new-privileges`, a process-count limit, and size-limited tmpfs mounts. With a container backend, destructive commands inside the container can't harm the host, which is why dangerous-command checks are skipped there.
-
-For `ssh`, set `terminal.backend: ssh` in `config.yaml` and provide host details via `TERMINAL_SSH_HOST`, `TERMINAL_SSH_USER`, and `TERMINAL_SSH_KEY` in `~/.hermes/.env`. See [Network Isolation](../user-guide/security.md#network-isolation).
+Terminal commands run locally as the Hermes process user, with that user’s filesystem permissions. They are not isolated by Hermes. Explicit nonlocal terminal selectors are refused; remove or correct old configuration before running. Running Hermes itself on a remote server or in a container is a separate deployment choice.
 
 ### If messaging is on: allowlists and pairing
 
@@ -140,9 +123,9 @@ Preview with `/rollback diff <N>` before restoring, and combine checkpoints with
 
 Be clear-eyed about what these controls defend against. As the [Security](../user-guide/security.md#user-defined-deny-rules-approvalsdeny) guide puts it:
 
-> Deny rules are a guardrail against an honest-but-wrong agent, the same threat model as the dangerous-pattern detector. They are not a sandbox against a deliberately adversarial process — for that, use an isolated backend (Docker, Modal) or an egress-restricted environment.
+> Deny rules are a guardrail against an honest-but-wrong agent, the same threat model as the dangerous-pattern detector. They are not a sandbox against a deliberately adversarial process ; external containment must be configured independently.
 
-The same applies to the file-write guards: they apply to `write_file` and `patch` only, while the `terminal` tool runs as the same OS user. The denylist reduces accidental damage and gives models a clear stop signal; it does not sandbox a hostile or compromised agent. If your requirement is containment rather than guardrails, the answer is an isolated terminal backend — that's the boundary designed for it.
+The same applies to the file-write guards: they apply to `write_file` and `patch` only, while the `terminal` tool runs as the same OS user. The denylist reduces accidental damage and gives models a clear stop signal; it does not sandbox a hostile or compromised agent.
 
 ## A Cautious Starting Config
 
@@ -164,8 +147,7 @@ checkpoints:
   enabled: true                 # Snapshot before destructive operations
 
 terminal:
-  backend: docker               # Or ssh — keep execution off the host
-  docker_forward_env: []        # No host secrets inside the container
+  backend: local                # Commands run with the Hermes user’s permissions
 ```
 
 And in `~/.hermes/.env`, if you want the write sandbox:
@@ -176,7 +158,7 @@ HERMES_WRITE_SAFE_ROOT=/path/to/project:/home/you/.hermes
 
 ## See Also
 
-- **[Security](../user-guide/security.md)** — the full defense-in-depth reference: every approval pattern, container hardening flags, gateway authorization, MCP credential filtering
+- **[Security](../user-guide/security.md)** — the full defense-in-depth reference: every approval pattern, gateway authorization, MCP credential filtering
 - **[Checkpoints & Rollback](../user-guide/checkpoints-and-rollback.md)** — configuration, store maintenance, and restore workflows
-- **[Tools & Toolsets](../user-guide/features/tools.md)** — all terminal backends and their configuration
+- **[Tools & Toolsets](../user-guide/features/tools.md)** — local terminal configuration
 - **[Configuration](../user-guide/configuration.md)** — the complete `config.yaml` reference

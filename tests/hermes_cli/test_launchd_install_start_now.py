@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import hermes_cli.gateway as gateway_cli
-from hermes_cli import gateway_service_owner
+from hermes_cli import gateway_service_owner, gateway_setup_service as setup_service
 from hermes_cli.subcommands.gateway import build_gateway_parser
 
 LABEL = "ai.hermes.gateway"
@@ -22,7 +22,7 @@ def _parse(*argv):
     parser = argparse.ArgumentParser()
     build_gateway_parser(
         parser.add_subparsers(dest="command"),
-        cmd_gateway=lambda a: None, cmd_proxy=lambda a: None, cmd_gateway_enroll=lambda a: None,
+        cmd_gateway=lambda a: None, cmd_proxy=lambda a: None,
     )
     return parser.parse_args(["gateway", *argv])
 
@@ -90,10 +90,11 @@ def test_cli_no_start_now_loads_only_a_gateway_launchd_already_runs(
 
 def test_wizard_no_to_start_now_installs_without_loading(launchd, monkeypatch):
     answers = iter([False, True])  # "Start the gateway now?" No, "on login" Yes
+    monkeypatch.setattr(setup_service.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(gateway_cli, "prompt_yes_no", lambda *a, **k: next(answers))
     monkeypatch.setattr(gateway_cli, "is_wsl", lambda: False)
 
-    gateway_cli._wizard_install_service("launchd")
+    setup_service._wizard_install_service("launchd")
 
     assert launchd.plist.exists()
     assert launchd.bootstraps == []

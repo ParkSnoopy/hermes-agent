@@ -1,5 +1,4 @@
-"""Profile JSON-RPC handlers — the ws twin of the dashboard's /api/profiles (desktop plugins
-only have the ws door), on the same `hermes_cli.profiles` primitives. Bodies are rebound onto
+"""Profile JSON-RPC handlers using the shared `hermes_cli.profiles` primitives. Bodies are rebound onto
 server.py's globals (method_ctx.bind_module) and use them bare; module-level names are published
 onto server.py, so they must not collide with its globals.
 """
@@ -39,8 +38,32 @@ def _lazy(module, name):
 
 
 def _pin_profile_model(profile_dir, provider, model, base_url="") -> None:
-    _lazy("hermes_cli.web_routers.profiles", "_write_profile_model")(
-        profile_dir, provider, model, base_url=base_url)
+    from dataclasses import replace
+    from hermes_cli.config import load_config
+    from hermes_cli.model_switch import persist_model_selection, switch_model
+    from hermes_cli.providers import determine_api_mode
+
+    with _hermes_home_scope(profile_dir):
+        cfg = load_config()
+        configured = cfg.get("model") or {}
+        bare_custom = provider.strip().lower() in {"custom", "local"}
+        explicit_endpoint = bare_custom and bool(base_url.strip())
+        providers = cfg.get("providers") or {}
+        if explicit_endpoint:
+            providers = {name: entry for name, entry in providers.items()
+                         if str(name).strip().lower() not in {"custom", "local"}}
+        result = switch_model(
+            raw_input=model, explicit_provider=provider, is_global=True,
+            current_provider="custom" if explicit_endpoint else str(configured.get("provider") or ""),
+            current_model=str(configured.get("default") or ""),
+            current_base_url=base_url if bare_custom else str(configured.get("base_url") or ""),
+            user_providers=providers)
+        if not result.success:
+            raise ValueError(result.error_message or "model switch rejected")
+        if explicit_endpoint:
+            result = replace(result, base_url=base_url.strip(),
+                             api_mode=determine_api_mode(result.target_provider, base_url.strip()))
+        persist_model_selection(result)
 
 
 def _model_provider_params(params) -> tuple:
@@ -481,35 +504,8 @@ def _env_has_content(env_path) -> bool:
     return any(s and not s.startswith("#") for s in map(str.strip, lines))
 
 
-def _mirror_voice_sections(path) -> bool:
-    """Copy stt/tts/voice sections from the launch profile (a fresh profile has only ``model``,
-    so voice fell back to defaults); True if written."""
-    try:
-        from hermes_cli.config import read_user_config_raw, save_config
-        # Launch file RAW too: the loaded config has ${VAR} refs expanded, and the new profile
-        # must get the ref (resolved against its own .env), never the launch profile's secret.
-        src_cfg = read_user_config_raw()
-        sections = {k: src_cfg[k] for k in ("stt", "tts", "voice") if src_cfg.get(k)}
-        if not sections:
-            return False
-        with _hermes_home_scope(path):
-            # RAW file: load_config() merges DEFAULT_CONFIG (every section would look present).
-            dst_cfg = read_user_config_raw() or {}
-            missing = {k: v for k, v in sections.items() if k not in dst_cfg}
-            if missing:
-                save_config({**dst_cfg, **missing})
-        return bool(missing)
-    except Exception:
-        return False
-
-
 def _inherit_launch_model(path) -> bool:
-    """Inherit launch model.provider/default when the new profile has none. Gate on the MODEL
-    SECTION, not config.yaml existing: voice mirroring creates the file first."""
-    # Gate on the MODEL SECTION being absent, not on config.yaml existing — earlier mirroring steps (voice
-    # sections, #85755) legitimately create the file first, and a file-existence gate silently skipped
-    # inheritance for every non-clone bot ("No inference provider configured" on first message, tester
-    # report). Clones bring their own model section and stay untouched.
+    """Inherit launch model.provider/default when the new profile has none."""
     from hermes_cli.config import load_config_readonly, read_user_config_raw
     with _hermes_home_scope(path):
         dst_model = (read_user_config_raw() or {}).get("model") or {}
@@ -524,7 +520,7 @@ def _inherit_launch_model(path) -> bool:
     # rejects a provider it has not been told about ("Unknown provider").
     # Seeded from the RAW launch file so a ${VAR} api_key travels as the ref, not its value.
     seed = _lazy("hermes_cli.profile_model_seed", "launch_model_seed")(read_user_config_raw())
-    if seed.get("providers") or seed.get("custom_providers"):
+    if seed.get("providers"):
         from hermes_cli.config import save_config
         merge = _lazy("hermes_cli.profile_model_seed", "merge_endpoint_seed")
         with _hermes_home_scope(path):
@@ -546,12 +542,11 @@ def _inherit_launch_model(path) -> bool:
 
 
 def _mirror_launch_credentials(path, params: dict) -> dict:
-    """Copy launch .env / auth.json / voice sections into a new profile (best-effort per item).
+    """Copy launch .env / auth.json into a new profile (best-effort per item).
     ``share_auth`` reports ``auth: "shared"`` and skips the auth copy; ``mirror_credentials``
     false skips everything. ``model_inherited`` is filled in by the caller."""
     share_auth = is_truthy_value(params.get("share_auth", False))
-    mirrored = {"env": False, "auth": "shared" if share_auth else False, "model_inherited": False,
-                "voice": False}
+    mirrored = {"env": False, "auth": "shared" if share_auth else False, "model_inherited": False}
     if not is_truthy_value(params.get("mirror_credentials", True)):
         return mirrored
     launch_home = get_hermes_home()
@@ -569,7 +564,6 @@ def _mirror_launch_credentials(path, params: dict) -> dict:
             # Drop single-use OAuth grants (first refresh strands every sibling); they read from the
             # root grant via the pool fallback. API keys stay.
             _best_effort(lambda: _lazy("hermes_cli.auth", "strip_cloned_single_use_oauth_grants")(path))
-    mirrored["voice"] = _mirror_voice_sections(path)
     return mirrored
 
 
@@ -695,16 +689,13 @@ def _save_toolset_pin(cfg, enabled, save_config) -> None:
 
 
 def _mcp_entry_enabled(entry: dict) -> bool:
-    """The runtime's ``enabled`` reader; a legacy ``disabled: true`` (what older editors wrote,
-    migrated by config v46) still reads as off."""
-    from hermes_cli.tools_config import _parse_enabled_flag
+    """Read the runtime's current ``enabled`` field."""
     from tools.mcp_tool_common import mcp_server_enabled
-    return mcp_server_enabled(entry) and not _parse_enabled_flag(entry.get("disabled", False), default=False)
+    return mcp_server_enabled(entry)
 
 
 def _save_mcp_toggles(cfg, enabled, launch_mcp, save_config) -> None:
-    """Write the ``enabled`` flag every runtime resolver reads (``enabled_mcp_server_names``,
-    coding_context, oneshot); the legacy ``disabled`` key is dropped so old configs migrate."""
+    """Write the ``enabled`` flag every runtime resolver reads."""
     wanted = _clean_names(enabled)
     mcp_cfg = cfg.get("mcp_servers") if isinstance(cfg.get("mcp_servers"), dict) else {}
     for srv in wanted:
@@ -713,7 +704,7 @@ def _save_mcp_toggles(cfg, enabled, launch_mcp, save_config) -> None:
     for srv, entry in mcp_cfg.items():
         if isinstance(entry, dict):
             entry["enabled"] = srv in wanted
-            entry.pop("disabled", None)
+
     if mcp_cfg:
         cfg["mcp_servers"] = mcp_cfg
     save_config(cfg)
@@ -752,15 +743,10 @@ def _configure_cfg_sections(profile_dir, params, applied) -> None:
 
 
 def _mcp_toggle_state(servers):
-    """Every toggle field ``_save_mcp_toggles`` writes, per server: ``enabled`` AND the legacy
-    ``disabled`` it removes. A lock that kept ``disabled: true`` leaves the server off for the
-    editor (and on for the runtime) although ``enabled`` landed, so it must not read as applied."""
+    """The current enablement values whose successful persistence must be checked."""
     if not isinstance(servers, dict):
         return servers
-    return {k: (e.get("enabled"), e.get("disabled", _ABSENT)) for k, e in servers.items() if isinstance(e, dict)}
-
-
-_ABSENT = "<absent>"
+    return {k: e.get("enabled") for k, e in servers.items() if isinstance(e, dict)}
 
 
 def _landed(cfg: dict, path: tuple, key=lambda v: v) -> bool:

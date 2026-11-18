@@ -585,7 +585,7 @@ def test_child_watch_match_suppressed_by_default(monkeypatch):
 def test_child_completion_with_collapsed_container_task_id_suppressed(monkeypatch):
     """Regression (child-notify leak, Aug 2026): terminal_tool stamps the
     COLLAPSED container key ("default"/session key) into the event's task_id
-    — _resolve_container_task_id deliberately collapses subagent ids so
+    — _resolve_task_id deliberately collapses subagent ids so
     children share the parent's container. The suppression gate must key on
     owner_task_id (the raw spawning id), or child events with
     task_id="default" walk straight past it into the parent chat."""

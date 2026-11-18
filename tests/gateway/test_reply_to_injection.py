@@ -9,7 +9,7 @@ which prior message the user is referencing.
 """
 import pytest
 
-from gateway.config import GatewayConfig, Platform, PlatformConfig
+from gateway.config import GatewayConfig, Platform
 from gateway.platforms.event import MessageEvent
 from gateway.run import GatewayRunner
 from gateway.session import SessionSource
@@ -17,9 +17,7 @@ from gateway.session import SessionSource
 
 def _make_runner() -> GatewayRunner:
     runner = object.__new__(GatewayRunner)
-    runner.config = GatewayConfig(
-        platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="fake")},
-    )
+    runner.config = GatewayConfig()
     runner.adapters = {}
     runner._model = "openai/gpt-4.1-mini"
     runner._base_url = None
@@ -28,7 +26,7 @@ def _make_runner() -> GatewayRunner:
 
 def _source() -> SessionSource:
     return SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.LOCAL,
         chat_id="123",
         chat_name="DM",
         chat_type="private",
@@ -61,21 +59,16 @@ async def test_reply_prefix_injected_when_text_absent_from_history():
 
 
 @pytest.mark.asyncio
-async def test_telegram_long_reply_reaches_prompt_without_losing_later_items():
-    """The native reply already has the full message; preparation must not trim it."""
-    from gateway.platforms.event import MessageType
-    from tests.gateway.test_telegram_reply_quote import _make_adapter, _make_message
-
+async def test_long_reply_reaches_prompt_without_losing_later_items():
+    """Preparation must not trim the supplied quoted message."""
     quoted = "\n".join(
         f"{index}. {company}: " + "Evidence from the supplied list. " * 12
         for index, company in enumerate(
             ["GoCar", "Urban Drive", "DubCar", "GRPS", "Halucar"], 1
         )
     )
-    event = _make_adapter()._build_message_event(
-        _make_message(text="Review all five companies.", reply_to_text=quoted),
-        MessageType.TEXT,
-    )
+    event = MessageEvent(text="Review all five companies.", source=_source(),
+                         reply_to_message_id="42", reply_to_text=quoted)
     history = [{"role": "user", "content": "Previous request"}]
     result = await _make_runner()._prepare_inbound_message_text(
         event=event, source=event.source, history=history,

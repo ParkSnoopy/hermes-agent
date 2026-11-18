@@ -1,14 +1,7 @@
-"""Desktop Settings → Model → Auxiliary can set a task's reasoning effort (#89259, salvage #90649).
-
-``POST /api/model/set`` carries ``reasoning_effort`` for an auxiliary task: omitted → the task's
-override is left alone; explicit null → cleared (inherit); a level → set. Runtime reads it from
-``auxiliary.<task>.reasoning_effort`` (``agent/auxiliary_client.py``).
-"""
+"""Auxiliary model choices preserve, set, and clear per-task reasoning overrides."""
 
 import pytest
-from fastapi import HTTPException
-
-from hermes_cli.web_server_config import _UNSET, _apply_aux_assignment_sync
+from hermes_cli.main_provider_setup import _reset_aux_to_auto, _save_aux_choice
 
 
 @pytest.fixture
@@ -18,35 +11,41 @@ def saved(monkeypatch):
     return store
 
 
-def test_reasoning_effort_field_semantics_omitted_null_and_level(saved):
+def test_reasoning_effort_choice_preserves_sets_and_clears_override(saved, monkeypatch):
     cfg = {"auxiliary": {"vision": {"provider": "openrouter", "model": "m1", "reasoning_effort": "low"}}}
+    monkeypatch.setattr("hermes_cli.config.load_config", lambda: cfg)
 
     # A plain provider/model re-assignment leaves an existing override alone.
-    _apply_aux_assignment_sync(cfg, "openrouter", "m2", "vision", "", "")
-    assert cfg["auxiliary"]["vision"] == {"provider": "openrouter", "model": "m2", "reasoning_effort": "low"}
+    _save_aux_choice("vision", provider="openrouter", model="m2")
+    assert cfg["auxiliary"]["vision"]["provider"] == "openrouter"
+    assert cfg["auxiliary"]["vision"]["model"] == "m2"
+    assert cfg["auxiliary"]["vision"]["reasoning_effort"] == "low"
 
-    # A level sets it (canonicalised) and the response echoes it; a disable is stored as the explicit "none".
-    out = _apply_aux_assignment_sync(cfg, "openrouter", "m2", "vision", "", "", reasoning_effort="HIGH")
-    assert cfg["auxiliary"]["vision"]["reasoning_effort"] == "high" and out["reasoning_effort"] == "high"
-    _apply_aux_assignment_sync(cfg, "openrouter", "m2", "vision", "", "", reasoning_effort="disabled")
+    # The CLI passes the canonical level selected by its reasoning picker.
+    _save_aux_choice("vision", provider="openrouter", model="m2", reasoning_effort="high")
+    assert cfg["auxiliary"]["vision"]["reasoning_effort"] == "high"
+    _save_aux_choice("vision", provider="openrouter", model="m2", reasoning_effort="none")
     assert cfg["auxiliary"]["vision"]["reasoning_effort"] == "none"
 
-    # Explicit null clears only this task's key; siblings and the pick survive.
+    # The provider-default choice clears this override; siblings and the pick survive.
     cfg["auxiliary"]["compression"] = {"provider": "openrouter", "model": "m3", "reasoning_effort": "max"}
-    _apply_aux_assignment_sync(cfg, "openrouter", "m2", "vision", "", "", reasoning_effort=None)
-    assert "reasoning_effort" not in cfg["auxiliary"]["vision"]
+    _save_aux_choice("vision", provider="openrouter", model="m2", reasoning_effort="")
+    assert cfg["auxiliary"]["vision"]["reasoning_effort"] == ""
     assert cfg["auxiliary"]["vision"]["model"] == "m2"
     assert cfg["auxiliary"]["compression"]["reasoning_effort"] == "max"
     assert saved["auxiliary"] == cfg["auxiliary"]
 
 
-def test_unknown_level_is_rejected_and_reset_clears_overrides(saved):
-    cfg = {"auxiliary": {"vision": {"provider": "openrouter", "model": "m1"}}}
-    with pytest.raises(HTTPException) as exc:
-        _apply_aux_assignment_sync(cfg, "openrouter", "m1", "vision", "", "", reasoning_effort="turbo")
-    assert exc.value.status_code == 400 and "reasoning_effort" in exc.value.detail
-    assert "reasoning_effort" not in cfg["auxiliary"]["vision"]
+def test_reset_clears_reasoning_overrides_without_changing_timeout(saved, monkeypatch):
+    cfg = {"auxiliary": {"vision": {
+        "provider": "openrouter", "model": "m1", "reasoning_effort": "high", "timeout": 17,
+    }}}
+    monkeypatch.setattr("hermes_cli.config.load_config", lambda: cfg)
+    monkeypatch.setattr("hermes_cli.main_provider_setup._all_aux_tasks", lambda: [("vision", "Vision", "")])
 
-    cfg["auxiliary"]["vision"]["reasoning_effort"] = "high"
-    _apply_aux_assignment_sync(cfg, "", "", "__reset__", "", "", reasoning_effort=_UNSET)
-    assert all("reasoning_effort" not in slot for slot in cfg["auxiliary"].values())
+    _reset_aux_to_auto()
+
+    assert cfg["auxiliary"]["vision"] == {
+        "provider": "auto", "model": "", "reasoning_effort": "", "timeout": 17,
+    }
+    assert saved["auxiliary"] == cfg["auxiliary"]

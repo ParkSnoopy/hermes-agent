@@ -38,6 +38,29 @@ def _finalize(outcome="success", fleet=None):
 
 
 class TestReceiptLifecycle:
+    def test_finalize_leaves_existing_telemetry_data_untouched(self, receipt_home, monkeypatch):
+        marker = receipt_home / "telemetry" / "shared_metrics" / "pending_updates" / "existing.json"
+        marker.parent.mkdir(parents=True)
+        marker.write_bytes(b"existing data")
+        monkeypatch.setattr(ur, "_code_identity", lambda refresh=False: {"sha": "new" if refresh else "old"})
+
+        ur.begin_update_receipt()
+        assert _finalize("success") is not None
+        assert marker.read_bytes() == b"existing data"
+
+    def test_finalize_changed_checkout_writes_receipt_without_metrics(self, receipt_home, monkeypatch):
+        monkeypatch.setattr(ur, "_code_identity", lambda refresh=False: {"sha": "new" if refresh else "old"})
+        ur.begin_update_receipt()
+        ur.record_stage("apply", "success")
+        path = _finalize("success")
+
+        assert path is not None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert payload["pre_update"]["sha"] == "old"
+        assert payload["post_update"]["sha"] == "new"
+        assert payload["stages"][-1]["name"] == "apply"
+        assert not (receipt_home / "telemetry").exists()
+
     def test_begin_record_finalize_roundtrip(self, receipt_home):
         ur.begin_update_receipt()
         ur.record_step("pre_update_backup", True, "snapshot=abc123")

@@ -1,7 +1,7 @@
 """Opt-in compression progress notices on chat gateways (#52995).
 
 Routine automatic compression is silent-by-design on human-facing chat
-platforms: the gateway noise filter (`_TELEGRAM_NOISY_STATUS_RE` via
+platforms: the gateway noise filter (`_GATEWAY_NOISY_STATUS_RE` via
 `_prepare_gateway_status_message`) swallows every ROUTINE compression status.
 `compression.progress_notices: true` (default: false) opens an opt-in gate
 that lets those ROUTINE compression statuses through — scoped strictly to

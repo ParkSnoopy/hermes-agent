@@ -12,10 +12,10 @@ from hermes_cli.toolset_validation import validate_platform_toolsets
 # that is the corruption #38798 reported (`hermes-cli` rewritten to `hermes`).
 _KNOWN = {
     "hermes-cli",
-    "hermes-telegram",
-    "hermes-discord",
-    "hermes-whatsapp",
-    "discord",
+    "hermes-api-server",
+    "hermes-webhook",
+    "hermes-acp",
+    "webhook",
     "terminal",
     "web",
 }
@@ -39,16 +39,16 @@ def test_38798_corruption_warns_and_suggests_correct_name():
 
 
 def test_mixed_valid_and_invalid_flags_only_the_invalid():
-    cfg = {"cli": ["hermes-cli"], "discord": ["bogus"]}
+    cfg = {"cli": ["hermes-cli"], "webhook": ["bogus"]}
     warnings = validate_platform_toolsets(cfg, _is_valid)
     # One valid entry exists, so no zero-valid warning.
     assert not any("zero valid toolsets" in w for w in warnings)
     assert any(
-        "platform 'discord'" in w and "unknown toolset 'bogus'" in w
+        "platform 'webhook'" in w and "unknown toolset 'bogus'" in w
         for w in warnings
     )
     assert any(
-        "platform 'discord'" in w and "no valid toolsets" in w
+        "platform 'webhook'" in w and "no valid toolsets" in w
         for w in warnings
     )
 
@@ -64,8 +64,8 @@ def test_empty_list_on_a_platform_warns_even_when_others_are_valid():
     # produces no warning at all and the agent silently starts with no tools.
     cfg = {
         "cli": [],
-        "telegram": ["hermes-telegram"],
-        "discord": ["hermes-discord"],
+        "api_server": ["hermes-api-server"],
+        "webhook": ["hermes-webhook"],
     }
     warnings = validate_platform_toolsets(cfg, _is_valid)
 
@@ -74,25 +74,25 @@ def test_empty_list_on_a_platform_warns_even_when_others_are_valid():
     assert "platform 'cli'" in empty[0]
     assert "no tools" in empty[0]
     # Populated platforms must not be implicated.
-    assert "telegram" not in empty[0]
+    assert "api_server" not in empty[0]
     # The global net is genuinely suppressed here — the per-platform warning is
     # the only thing standing between the user and a silent zero-tool agent.
     assert not any("zero valid toolsets" in w for w in warnings)
 
 
 def test_empty_list_warns_for_each_affected_platform():
-    cfg = {"cli": [], "discord": [], "telegram": ["hermes-telegram"]}
+    cfg = {"cli": [], "webhook": [], "api_server": ["hermes-api-server"]}
     warnings = validate_platform_toolsets(cfg, _is_valid)
 
     empty = [w for w in warnings if "empty toolset list" in w]
     assert len(empty) == 2
-    assert {"cli", "discord"} == {
-        p for p in ("cli", "discord") if any(f"platform '{p}'" in w for w in empty)
+    assert {"cli", "webhook"} == {
+        p for p in ("cli", "webhook") if any(f"platform '{p}'" in w for w in empty)
     }
 
 
 def test_empty_list_does_not_mask_unknown_names_on_other_platforms():
-    cfg = {"cli": [], "discord": ["bogus"]}
+    cfg = {"cli": [], "webhook": ["bogus"]}
     warnings = validate_platform_toolsets(cfg, _is_valid)
 
     assert any("empty toolset list" in w and "platform 'cli'" in w for w in warnings)
@@ -104,7 +104,7 @@ def test_empty_list_does_not_mask_unknown_names_on_other_platforms():
 def test_null_platform_warns_even_when_others_are_valid():
     # YAML's ``cli:`` parses as None. The resolver treats it as absent and uses
     # the platform default, so the warning must not claim that tools disappear.
-    cfg = {"cli": None, "telegram": ["hermes-telegram"]}
+    cfg = {"cli": None, "api_server": ["hermes-api-server"]}
     warnings = validate_platform_toolsets(cfg, _is_valid)
 
     assert any(
@@ -116,20 +116,8 @@ def test_null_platform_warns_even_when_others_are_valid():
     assert not any("zero valid toolsets" in w for w in warnings)
 
 
-def test_null_platform_uses_canonical_default_for_alias():
-    cfg = {"whatsapp_cloud": None, "telegram": ["hermes-telegram"]}
-    warnings = validate_platform_toolsets(cfg, _is_valid)
-
-    assert any(
-        "platform 'whatsapp_cloud'" in w
-        and "falling back to 'hermes-whatsapp'" in w
-        for w in warnings
-    )
-    assert not any("zero valid toolsets" in w for w in warnings)
-
-
 def test_scalar_platform_value_warns_but_uses_platform_default():
-    cfg = {"cli": "bogus", "telegram": ["hermes-telegram"]}
+    cfg = {"cli": "bogus", "api_server": ["hermes-api-server"]}
     warnings = validate_platform_toolsets(cfg, _is_valid)
 
     assert any(
@@ -152,19 +140,6 @@ def test_list_literal_string_is_validated_as_the_list_it_encodes():
     assert not any("falling back" in w for w in warnings)
 
 
-def test_platform_restricted_toolset_warns_when_other_platform_is_valid():
-    cfg = {"telegram": ["discord"], "cli": ["hermes-cli"]}
-    warnings = validate_platform_toolsets(cfg, _is_valid)
-
-    assert any(
-        "platform 'telegram'" in w
-        and "toolset 'discord'" in w
-        and "not available" in w
-        for w in warnings
-    )
-    assert not any("zero valid toolsets" in w for w in warnings)
-
-
 def test_null_plugin_platform_uses_synthetic_default():
     from gateway.platform_registry import PlatformEntry, platform_registry
     from toolsets import resolve_toolset
@@ -179,7 +154,7 @@ def test_null_plugin_platform_uses_synthetic_default():
         )
     )
     try:
-        cfg = {platform: None, "telegram": ["hermes-telegram"]}
+        cfg = {platform: None, "api_server": ["hermes-api-server"]}
         warnings = validate_platform_toolsets(cfg, _is_valid)
 
         assert resolve_toolset(f"hermes-{platform}")
@@ -194,7 +169,7 @@ def test_null_plugin_platform_uses_synthetic_default():
 
 
 def test_all_invalid_platform_warns_even_when_others_are_valid():
-    cfg = {"cli": ["bogus"], "telegram": ["hermes-telegram"]}
+    cfg = {"cli": ["bogus"], "api_server": ["hermes-api-server"]}
     warnings = validate_platform_toolsets(cfg, _is_valid)
 
     assert any("unknown toolset 'bogus'" in w for w in warnings)
@@ -205,6 +180,6 @@ def test_all_invalid_platform_warns_even_when_others_are_valid():
 
 
 def test_populated_platforms_produce_no_empty_list_warning():
-    cfg = {"cli": ["hermes-cli"], "telegram": ["hermes-telegram"]}
+    cfg = {"cli": ["hermes-cli"], "api_server": ["hermes-api-server"]}
     warnings = validate_platform_toolsets(cfg, _is_valid)
     assert warnings == []

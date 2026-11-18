@@ -12,9 +12,9 @@ _POOL_COVERAGE = {
     "firecrawl": True,
     "fal": True,
     "fal-video": False,
-    "openai-audio": True,
+
     "browser-use": True,
-    "modal": True,
+
 }
 
 
@@ -47,8 +47,6 @@ def test_get_nous_subscription_features_recognizes_direct_exa_backend(monkeypatc
     )
     monkeypatch.setattr(ns, "_toolset_enabled", lambda config, key: key == "web")
     monkeypatch.setattr(ns, "_has_browser_harness", lambda: False)
-    monkeypatch.setattr(ns, "resolve_openai_audio_api_key", lambda: "")
-    monkeypatch.setattr(ns, "has_direct_modal_credentials", lambda: False)
 
     features = ns.get_nous_subscription_features({"web": {"backend": "exa"}})
 
@@ -73,8 +71,6 @@ def test_get_nous_subscription_features_recognizes_keyless_tavily_backend(monkey
     )
     monkeypatch.setattr(ns, "_toolset_enabled", lambda config, key: key == "web")
     monkeypatch.setattr(ns, "_has_browser_harness", lambda: False)
-    monkeypatch.setattr(ns, "resolve_openai_audio_api_key", lambda: "")
-    monkeypatch.setattr(ns, "has_direct_modal_credentials", lambda: False)
 
     features = ns.get_nous_subscription_features({"web": {"backend": "tavily"}})
 
@@ -93,8 +89,6 @@ def test_keyless_tavily_search_backend_without_shared_backend(monkeypatch):
     )
     monkeypatch.setattr(ns, "_toolset_enabled", lambda config, key: key == "web")
     monkeypatch.setattr(ns, "_has_browser_harness", lambda: False)
-    monkeypatch.setattr(ns, "resolve_openai_audio_api_key", lambda: "")
-    monkeypatch.setattr(ns, "has_direct_modal_credentials", lambda: False)
 
     features = ns.get_nous_subscription_features(
         {"web": {"search_backend": "tavily"}}
@@ -112,8 +106,6 @@ def test_unconfigured_web_without_keys_is_unavailable(monkeypatch):
     )
     monkeypatch.setattr(ns, "_toolset_enabled", lambda config, key: key == "web")
     monkeypatch.setattr(ns, "_has_browser_harness", lambda: False)
-    monkeypatch.setattr(ns, "resolve_openai_audio_api_key", lambda: "")
-    monkeypatch.setattr(ns, "has_direct_modal_credentials", lambda: False)
 
     features = ns.get_nous_subscription_features({})
 
@@ -130,8 +122,6 @@ def _stub_browser_probes(monkeypatch, *, harness, chromium):
     )
     monkeypatch.setattr(ns, "_toolset_enabled", lambda config, key: key == "browser")
     monkeypatch.setattr("tools.browser_use_cli._find_cli", lambda: ["harness"] if harness else None)
-    monkeypatch.setattr(ns, "resolve_openai_audio_api_key", lambda: "")
-    monkeypatch.setattr(ns, "has_direct_modal_credentials", lambda: False)
     monkeypatch.setattr(ns, "is_managed_tool_gateway_ready", lambda vendor: False)
     monkeypatch.setattr(
         "hermes_cli.browser_runtime.chromium_executable", lambda **_kw: "/pm/chromium/chrome" if chromium else None
@@ -193,21 +183,16 @@ def _capture_checklist(monkeypatch, *, selected_idx):
 
 
 def test_logged_in_entitled_account_yields_a_state_for_every_feature(monkeypatch):
-    """The logged-in + entitled branch must produce a state for EVERY feature, including
-    those with no config selection field (modal). Regression: the managed-availability
-    table indexed the selection map by every feature key and raised KeyError('modal'),
-    crashing `hermes status`, `hermes tools`, and the dashboard toolsets API."""
+    """The logged-in + entitled branch produces a state for every supported feature."""
     monkeypatch.setattr(ns, "get_nous_portal_account_info", lambda **kw: _pool_account())
     monkeypatch.setattr(ns, "is_managed_tool_gateway_ready", lambda gateway: True)
     monkeypatch.setattr(ns, "get_env_value", lambda name: "")
     monkeypatch.setattr(ns, "_has_browser_harness", lambda: False)
-    monkeypatch.setattr(ns, "resolve_openai_audio_api_key", lambda: "")
-    monkeypatch.setattr(ns, "has_direct_modal_credentials", lambda: False)
 
     result = ns.get_nous_subscription_features({"model": {"provider": "nous"}})
 
     assert set(result.features) == set(ns._FEATURES)
-    assert result.modal.available is True  # entitled + gateway ready → managed modal is offered
+    assert "modal" not in result.features
 
 
 @pytest.mark.parametrize(
@@ -229,12 +214,12 @@ def test_managed_image_partner_follows_the_stored_model(image_cfg, partner):
 
 
 def test_prompt_enable_tool_gateway_pool_offers_covered_tools_only(monkeypatch):
-    """Pool user's checklist lists web/image/tts/browser and never video."""
+    """Pool user's checklist lists covered tools and never video."""
     monkeypatch.setattr(ns, "get_nous_portal_account_info", lambda **kw: _pool_account())
     monkeypatch.setattr(
         ns,
         "_get_gateway_direct_credentials",
-        lambda: {"web": False, "image_gen": False, "video_gen": False, "tts": False, "browser": False},
+        lambda: {"web": False, "image_gen": False, "video_gen": False, "browser": False},
     )
     captured = _capture_checklist(monkeypatch, selected_idx=[])
 
@@ -256,7 +241,7 @@ def test_get_gateway_eligible_tools_treats_explicit_backend_as_configured(monkey
     monkeypatch.setattr(
         ns,
         "_get_gateway_direct_credentials",
-        lambda: {"web": False, "image_gen": False, "video_gen": False, "tts": False, "browser": False},
+        lambda: {"web": False, "image_gen": False, "video_gen": False, "browser": False},
     )
 
     config = {"model": {"provider": "nous"}, "web": {"backend": "searxng"}}
@@ -280,7 +265,7 @@ def test_get_gateway_eligible_tools_treats_browser_use_selection_as_explicit(mon
     monkeypatch.setattr(
         ns,
         "_get_gateway_direct_credentials",
-        lambda: {"web": False, "image_gen": False, "video_gen": False, "tts": False, "browser": True},
+        lambda: {"web": False, "image_gen": False, "video_gen": False, "browser": True},
     )
 
     config = {"model": {"provider": "nous"}, "browser": {"cloud_provider": "browser-use"}}
@@ -312,7 +297,7 @@ def test_prompt_enable_tool_gateway_never_offers_explicit_backend(monkeypatch):
     monkeypatch.setattr(
         ns,
         "_get_gateway_direct_credentials",
-        lambda: {"web": False, "image_gen": False, "video_gen": False, "tts": False, "browser": False},
+        lambda: {"web": False, "image_gen": False, "video_gen": False, "browser": False},
     )
     captured = _capture_checklist(monkeypatch, selected_idx=[])
 
@@ -334,7 +319,6 @@ def test_gateway_direct_credentials_honor_env_configured_local_backends(monkeypa
         lambda name: "http://localhost:9377" if name in ("SEARXNG_URL", "CAMOFOX_URL") else "",
     )
     monkeypatch.setattr(ns, "fal_key_is_configured", lambda: False)
-    monkeypatch.setattr(ns, "resolve_openai_audio_api_key", lambda: None)
 
     direct = ns._get_gateway_direct_credentials()
 
@@ -351,7 +335,7 @@ def test_prompt_enable_tool_gateway_persists_decline(monkeypatch):
     monkeypatch.setattr(
         ns,
         "_get_gateway_direct_credentials",
-        lambda: {"web": False, "image_gen": False, "video_gen": False, "tts": False, "stt": False, "browser": False},
+        lambda: {"web": False, "image_gen": False, "video_gen": False, "browser": False},
     )
     saved = []
     captured = _capture_checklist(monkeypatch, selected_idx=[])
@@ -384,7 +368,7 @@ def test_prompt_enable_tool_gateway_choosing_declined_tool_clears_decline(monkey
     monkeypatch.setattr(
         ns,
         "_get_gateway_direct_credentials",
-        lambda: {"web": False, "image_gen": False, "video_gen": False, "tts": False, "stt": False, "browser": False},
+        lambda: {"web": False, "image_gen": False, "video_gen": False, "browser": False},
     )
     captured = _capture_checklist(monkeypatch, selected_idx=[0])
 

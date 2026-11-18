@@ -34,18 +34,19 @@ async def test_busy_burst_is_admitted_once(monkeypatch, tmp_path, case, follow_u
     from gateway.session_ingress_burst import holds_busy_burst
     from gateway.session_results import execution_result
     from hermes_state_runtime import list_session_admissions
-    from plugins.platforms.discord.adapter import DiscordAdapter
+    from tests.gateway.test_shared_busy_receive_loop import Adapter
 
-    monkeypatch.setenv('DISCORD_ALLOWED_USERS', '42,43')
+
     runner = GatewayRunner(GatewayConfig(group_sessions_per_user=False))  # one shared room session
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token='fixture-token', typing_indicator=False,
-                                                   extra={'group_sessions_per_user': False}))
+    adapter = Adapter()
+    adapter.platform = Platform.API_SERVER
+    adapter.config.extra['group_sessions_per_user'] = False
 
     async def send(chat_id, content, reply_to=None, metadata=None):
         return SendResult(success=True, message_id='sent')
     monkeypatch.setattr(adapter, 'send', send)
     adapter.gateway_runner = runner
-    runner.adapters = {Platform.DISCORD: adapter}
+    runner.adapters = {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='owner')
     runner._wire_adapter_handlers(adapter, busy_text_mode='queue')
     running, finish = asyncio.Event(), asyncio.Event()

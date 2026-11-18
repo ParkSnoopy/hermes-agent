@@ -17,18 +17,18 @@ from hermes_cli.toolset_scope import (
 from hermes_cli.toolset_validation import parse_platform_toolsets_value
 # Re-exports: keep ``hermes_cli.tools_config.X`` callers and test patch targets resolving.
 from hermes_cli.tools_config_cua import (
-    _post_setup_no_window_flags, _cua_driver_cmd, _cua_version_summary, _resolved_cua_driver_cmd, _cua_driver_env,
+    _cua_driver_cmd, _cua_version_summary, _resolved_cua_driver_cmd, _cua_driver_env,
     _cua_driver_contract_status, _cua_driver_install_ready)
 from hermes_cli.tools_config_post_setup import (
     _ensure_browser_use_cli, _run_post_setup, valid_post_setup_keys, run_post_setup_command, _POST_SETUP_INSTALLED,
     _post_setup_already_installed, _module_installed, _POST_SETUP_READY)
 from hermes_cli.tools_config_providers import (
     _plugin_image_gen_providers, _plugin_video_gen_providers, _plugin_web_search_providers, _plugin_browser_providers,
-    _plugin_tts_providers, web_provider_capabilities, _visible_providers, provider_readiness_status,
+    web_provider_capabilities, _visible_providers, provider_readiness_status,
     _toolset_needs_configuration_prompt, _configure_tool_category, _web_tier_matches, _is_provider_active,
     _detect_active_provider_index, IMAGEGEN_BACKENDS, _plugin_image_gen_catalog, _plugin_video_gen_catalog,
     _configure_imagegen_model, _configure_imagegen_model_for_plugin, _configure_videogen_model_for_plugin,
-    _select_plugin_image_gen_provider, _select_plugin_video_gen_provider, STT_MODEL_CATALOG, _configure_stt_model,
+    _select_plugin_image_gen_provider, _select_plugin_video_gen_provider,
     _write_provider_config, apply_provider_selection, _configure_provider, _reconfigure_provider,
     _configure_vision_backend, _configure_vision_provider_model, _configure_simple_requirements)
 from hermes_cli.tools_config_mcp import (
@@ -77,21 +77,17 @@ CONFIGURABLE_TOOLSETS = [
     ("image_gen",       "🎨 Image Generation",          "image_generate"),
     ("video_gen",       "🎬 Video Generation",          "video_generate (text/image/reference)"),
     ("x_search",        "🐦 X (Twitter) Search",        "x_search (requires xAI OAuth or XAI_API_KEY)"),
-    ("tts",             "🔊 Text-to-Speech",            "text_to_speech"),
-    ("stt",             "🎙️ Speech-to-Text",           "voice transcription (gateway voice messages + voice mode)"),
     ("skills",          "📚 Skills",                    "list, view, manage"),
     ("todo",            "📋 Task Planning",             "todo_list"),
-    ("kanban",          "📌 Kanban",                    "opt-in task board tools for this platform"),
+
     ("memory",          "💾 Memory",                    "persistent memory across sessions"),
     ("context_engine",  "🧩 Context Engine",            "runtime tools from the active context engine"),
     ("session_search",  "🔎 Session Search",            "search past conversations"),
     ("connections",     "🔌 Connections",               "remote connector tools and account authorization"),
     ("clarify",         "❓ Clarifying Questions",      "clarify"),
     ("delegation",      "👥 Task Delegation",           "delegate_task"),
-    ("cronjob",         "⏰ Cron Jobs",                 "create/list/update/pause/resume/run, with optional attached skills"),
-    ("discord",         "💬 Discord (read/participate)", "fetch messages, search members, create thread"),
-    ("discord_admin",   "🛡️  Discord Server Admin",    "list channels/roles, pin, assign roles"),
-    ("computer_use",     "🖱️  Computer Use (macOS/Windows/Linux)", "background desktop control via cua-driver"),
+
+    ("computer_use",     "🖱️  Computer Use (Linux)", "background desktop control via cua-driver"),
 ]
 
 
@@ -108,11 +104,10 @@ def gui_toolset_label(label: str) -> str:
 # OFF by default for new installs (still in _HERMES_CORE_TOOLS; the checklist won't pre-select them). x_search
 # auto-enables when xAI creds exist; its check_fn still gates the schema. ``spotify`` and ``a2a`` are plugin
 # toolsets (catalog / bundled plugin) that stay opt-in once installed.
-_DEFAULT_OFF_TOOLSETS = {"spotify", "discord", "discord_admin", "video", "video_gen", "x_search", "a2a", "kanban"}
+_DEFAULT_OFF_TOOLSETS = {"spotify", "video", "video_gen", "x_search", "a2a"}
 
-# Config-only capabilities: provider setup in `hermes tools` (TOOL_CATEGORIES) but not model toolsets — zero
-# schemas, own switch (``stt.enabled``), never in ``platform_toolsets`` or the per-platform checklist.
-_CONFIG_ONLY_TOOLSETS = {"stt"}
+
+
 
 
 def _xai_credentials_present() -> bool:
@@ -187,7 +182,7 @@ def _checklist_toolset_keys(platform: str) -> set[str]:
     read-time-resolved toolsets (recovered composites, MCP names) are NOT here."""
     return {
         ts_key for ts_key, _, _ in _get_effective_configurable_toolsets()
-        if _toolset_allowed_for_platform(ts_key, platform) and ts_key not in _CONFIG_ONLY_TOOLSETS}
+        if _toolset_allowed_for_platform(ts_key, platform)}
 
 
 def _platform_default_toolset(platform: str) -> str:
@@ -234,52 +229,8 @@ def _row(name: str, badge: str = "", tag: str = "", env_vars: list = (), **marke
 
 
 _NOUS = {"requires_nous_auth": True}
-_OPENAI_VOICE_KEY = _key("VOICE_TOOLS_OPENAI_KEY", "OpenAI API key", "https://platform.openai.com/api-keys")
-_ELEVENLABS_KEY = _key("ELEVENLABS_API_KEY", "ElevenLabs API key", "https://elevenlabs.io/app/settings/api-keys")
-_DEEPINFRA_KEY = _key("DEEPINFRA_API_KEY", "DeepInfra API key", "https://deepinfra.com/dash/api_keys")
 
 TOOL_CATEGORIES = {
-    "tts": {
-        "name": "Text-to-Speech", "icon": "🔊",
-        "providers": [
-            _row("Microsoft Edge TTS", "★ recommended · free", "Good quality, no API key needed", tts_provider="edge"),
-            _row("Nous Subscription", "subscription", "Managed OpenAI TTS billed to your subscription", tts_provider="openai",
-                 **_NOUS, managed_nous_feature="tts", override_env_vars=["VOICE_TOOLS_OPENAI_KEY", "OPENAI_API_KEY"]),
-            _row("OpenAI TTS", "paid", "High quality voices", [_OPENAI_VOICE_KEY], tts_provider="openai"),
-            _row("xAI TTS", tag="Grok voices — uses xAI Grok OAuth or XAI_API_KEY", tts_provider="xai", post_setup="xai_grok"),
-            _row("ElevenLabs", "paid", "Most natural voices", [_ELEVENLABS_KEY], tts_provider="elevenlabs"),
-            # Mistral Voxtral TTS — `mistralai` SDK lazy-installs on first use.
-            _row("Mistral (Voxtral TTS)", "paid", "Multilingual, native Opus",
-                 [_key("MISTRAL_API_KEY", "Mistral API key", "https://console.mistral.ai/")], tts_provider="mistral"),
-            _row("Google Gemini TTS", "preview", "30 prebuilt voices, controllable via prompts",
-                 [_key("GEMINI_API_KEY", "Gemini API key", "https://aistudio.google.com/app/apikey")], tts_provider="gemini"),
-            _row("KittenTTS", "local · free", "Lightweight local ONNX TTS (~25MB), no API key", tts_provider="kittentts",
-                 post_setup="kittentts"),
-            _row("Piper", "local · free", "Local neural TTS, 44 languages (voices ~20-90MB)", tts_provider="piper",
-                 post_setup="piper"),
-            _row("DeepInfra TTS", "paid", "Chatterbox, Qwen3-TTS, … — live catalog from api.deepinfra.com", [_DEEPINFRA_KEY],
-                 tts_provider="deepinfra"),
-        ],
-    },
-    "stt": {
-        "name": "Speech-to-Text", "icon": "🎙️",
-        "providers": [
-            _row("Local Whisper", "★ recommended · free", "faster-whisper on-device, no API key", stt_provider="local",
-                 post_setup="faster_whisper"),
-            _row("Nous Subscription", "subscription", "Managed OpenAI transcription billed to your subscription",
-                 stt_provider="openai", **_NOUS, managed_nous_feature="stt",
-                 override_env_vars=["VOICE_TOOLS_OPENAI_KEY", "OPENAI_API_KEY"]),
-            _row("OpenAI", "paid", "whisper-1, gpt-4o-transcribe, gpt-transcribe", [_OPENAI_VOICE_KEY], stt_provider="openai"),
-            _row("Groq", "free tier", "whisper-large-v3-turbo, whisper-large-v3 — very fast",
-                 [_key("GROQ_API_KEY", "Groq API key", "https://console.groq.com/keys")], stt_provider="groq"),
-            _row("xAI", tag="Grok Voice Transcribe — uses xAI Grok OAuth or XAI_API_KEY", stt_provider="xai", post_setup="xai_grok"),
-            _row("ElevenLabs Scribe", "paid", "scribe_v2 — diarization + audio-event tagging", [_ELEVENLABS_KEY],
-                 stt_provider="elevenlabs"),
-            _row("Mistral Voxtral", "paid", "voxtral-mini-latest — multilingual",
-                 [_key("MISTRAL_API_KEY", "Mistral API key", "https://console.mistral.ai/")], stt_provider="mistral"),
-            _row("DeepInfra", "paid", "Live STT catalog from api.deepinfra.com", [_DEEPINFRA_KEY], stt_provider="deepinfra"),
-        ],
-    },
     "web": {
         "name": "Web Search & Extract", "setup_title": "Select Search Provider",
         "setup_note": "A free DuckDuckGo search skill is also included — skip this if you don't need a premium provider.",
@@ -353,9 +304,8 @@ TOOL_CATEGORIES = {
         ],
     },
     "computer_use": {
-        "name": "Computer Use (macOS/Windows/Linux)", "icon": "🖱️",
-        # Runtime backends ship for macOS, Windows, Linux (X11; Wayland via XWayland). Gaps surface via `computer-use doctor`.
-        "platform_gate": ["darwin", "win32", "linux"],
+        "name": "Computer Use (Linux)", "icon": "🖱️",
+        "platform_gate": ["linux"],
         # cua-driver reads HOME/TMPDIR from the process env; HERMES_CUA_DRIVER_CMD selects a specific
         # binary (e.g. a local build). There is no version-pin env var.
         "providers": [
@@ -372,14 +322,9 @@ TOOL_CATEGORIES = {
 TOOLSET_ENV_REQUIREMENTS = {"vision": [("OPENROUTER_API_KEY", "https://openrouter.ai/keys")]}
 
 # --- Platform / Toolset Helpers ---
-_PLATFORM_ENABLE_ENV_VARS = (
-    ("telegram", "TELEGRAM_BOT_TOKEN"), ("discord", "DISCORD_BOT_TOKEN"), ("slack", "SLACK_BOT_TOKEN"),
-    ("whatsapp", "WHATSAPP_ENABLED"), ("qqbot", "QQ_APP_ID"))
-
-
 def _get_enabled_platforms() -> list[str]:
-    """Return platform keys that are configured (have tokens or are CLI)."""
-    return ["cli"] + [platform for platform, env_var in _PLATFORM_ENABLE_ENV_VARS if get_env_value(env_var)]
+    """Return the interactive local toolset configuration."""
+    return ["cli"]
 
 
 def _platform_toolset_summary(config: dict, platforms: Optional[list[str]] = None) -> dict[str, set[str]]:
@@ -628,11 +573,8 @@ def _get_platform_tools(config: dict, platform: str, *, include_default_mcp_serv
     # Explicit non-configurable entries (custom toolsets, MCP server names) pass through.
     explicit_passthrough = {ts for ts in toolset_names if ts not in explicit_known_keys and ts not in platform_default_keys}
     enabled_toolsets |= _merge_mcp_servers(config, toolset_names, explicit_passthrough, include_default_mcp_servers)
-
-    # Legacy profile opt-in is a fallback only. A saved platform list (even
-    # empty) is authoritative, so a later disable cannot silently re-enable it.
-    if not explicitly_configured and "kanban" in (config.get("toolsets") or []):
-        enabled_toolsets.add("kanban")
+    # Apply the shared session-platform gate after passthrough/plugin expansion as well.
+    enabled_toolsets = {ts for ts in enabled_toolsets if _toolset_allowed_for_platform(ts, platform)}
 
     # agent.disabled_toolsets is a global suppression list (#86661) and runs LAST so it overrides everything
     # above. It may arrive as a JSON-array string ("['memory']") from `hermes config set` or a JSON-mode editor.
@@ -667,12 +609,11 @@ def _prune_toolsets_stripped_by_disabled(enabled_toolsets: set[str], disabled_na
 
 
 def _disabled_entry_tools(name: str) -> set[str]:
-    """Tools one ``agent.disabled_toolsets`` entry removes at runtime: legacy names (``terminal_tools``)
-    and the bundle/posture non-core delta included, which ``resolve_toolset`` alone gets wrong."""
-    from model_tools import _LEGACY_TOOLSET_MAP, _apply_toolset_selection
+    """Resolve the tools removed by one disabled toolset, including bundle/posture policy."""
+    from model_tools import _apply_toolset_selection
     from toolsets import resolve_toolset
 
-    universe = set(resolve_toolset(name)) | set(_LEGACY_TOOLSET_MAP.get(name, ()))
+    universe = set(resolve_toolset(name))
     kept = set(universe)
     _apply_toolset_selection(kept, [name], quiet_mode=True, disable=True)
     return universe - kept
@@ -851,7 +792,7 @@ def _toolset_has_keys(
             return resolve_vision_provider_client()[1] is not None
         except Exception:
             return False
-    if ts_key in {"web", "image_gen", "video_gen", "tts", "stt", "browser"}:
+    if ts_key in {"web", "image_gen", "video_gen", "browser"}:
         if features is None:
             features = get_nous_subscription_features(config, force_fresh=force_fresh)
         feature = features.features.get(ts_key)
@@ -912,10 +853,10 @@ def _prompt_toolset_checklist(platform_label: str, enabled: set[str], platform: 
     from toolsets import resolve_toolset
 
     tool_tokens = _estimate_tool_tokens()
-    # Drop platform-scoped toolsets that don't apply here and config-only capabilities (stt).
+    # Drop platform-scoped toolsets that don't apply here.
     effective = [
         (k, l, d) for (k, l, d) in _get_effective_configurable_toolsets()
-        if _toolset_allowed_for_platform(k, platform) and k not in _CONFIG_ONLY_TOOLSETS]
+        if _toolset_allowed_for_platform(k, platform)]
     labels = [
         f"{ts_label}  ({ts_desc})"
         + ("  [no API key]" if not _toolset_has_keys(ts_key, force_fresh=force_fresh) and _is_configurable(ts_key) else "")
@@ -981,32 +922,6 @@ def _toolset_enabled_for_reconfigure(ts_key: str, config: dict) -> bool:
 
 
 # --- Main Entry Point ---
-def _shared_metrics_state(config: dict) -> tuple[bool, bool]:
-    """Return (collection_enabled, send_enabled) from a config dict."""
-    telemetry = config.get("telemetry")
-    shared = telemetry.get("shared_metrics") if isinstance(telemetry, dict) else None
-    shared = shared if isinstance(shared, dict) else {}
-    return shared.get("enabled") is True, shared.get("send") is True
-
-
-def _shared_metrics_menu_label(config: dict) -> str:
-    """Menu row for shared metrics. Collect-only is an answer the offer no longer has; a profile
-    that chose it earlier keeps it, and the row names it rather than reading "off" while it collects."""
-    enabled, send = _shared_metrics_state(config)
-    state = "off" if not enabled else ("sending to Nous" if send else "collecting locally")
-    return f"Configure shared metrics  ({state})"
-
-
-def _configure_shared_metrics_interactive(config: dict) -> None:
-    """Toggle shared-metrics collection/sending via the setup wizard prompt (single home for the consent rules)."""
-    from hermes_cli.setup import setup_telemetry
-
-    before = _shared_metrics_state(config)
-    setup_telemetry(config)
-    if _shared_metrics_state(config) != before:
-        save_config(config)
-
-
 def _print_toolset_diff(added: set[str], removed: set[str], *, indent: str = "  ") -> None:
     """Print ``+ label`` / ``- label`` lines for a checklist change."""
     for ts in sorted(added):
@@ -1166,7 +1081,7 @@ def tools_command(args=None, first_install: bool = False, config: dict | None = 
 
     global_idx = _add_row("Configure all platforms (global)", len(platform_keys) > 1)
     reconfig_idx = _add_row("Reconfigure an existing tool's provider or API key")
-    metrics_idx = _add_row(_shared_metrics_menu_label(config))
+
     mcp_idx = _add_row("Configure MCP server tools", bool(config.get("mcp_servers")))
     done_idx = _add_row("Done")
 
@@ -1176,9 +1091,7 @@ def tools_command(args=None, first_install: bool = False, config: dict | None = 
             break
         if idx == reconfig_idx:
             _reconfigure_tool(config, force_fresh=True)
-        elif idx == metrics_idx:
-            _configure_shared_metrics_interactive(config)
-            platform_choices[metrics_idx] = _shared_metrics_menu_label(config)
+
         elif idx == mcp_idx:
             _configure_mcp_tools_interactive(config)
         elif idx == global_idx:

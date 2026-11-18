@@ -10,7 +10,7 @@ Regression for #113738 (found via Slack's native stop button, gateway-gateway#28
 
 import pytest
 
-from agent.i18n import t
+
 from gateway.run import GatewayRunner, _AGENT_PENDING_SENTINEL
 from gateway.session import SessionSource, build_session_key
 from gateway.platforms.base import Platform
@@ -82,7 +82,7 @@ async def test_stop_from_thread_reaches_top_level_channel_run():
     interrupted, result = await _stop(stop_source, running_key)
 
     assert interrupted == [(running_key, "stop_command_chat_scope")]
-    assert result == t("gateway.stop.stopped")
+    assert result == '⚡ Stopped. You can continue this session.'
 
 
 @pytest.mark.asyncio
@@ -96,7 +96,7 @@ async def test_stop_with_thread_reaches_rolling_dm_run():
     interrupted, result = await _stop(stop_source, running_key)
 
     assert interrupted == [(running_key, "stop_command_chat_scope")]
-    assert result == t("gateway.stop.stopped")
+    assert result == '⚡ Stopped. You can continue this session.'
 
 
 @pytest.mark.asyncio
@@ -111,7 +111,7 @@ async def test_stop_reaches_peer_run_in_per_sender_group():
     interrupted, result = await _stop(stop_source, running_key)
 
     assert interrupted == [(running_key, "stop_command_chat_scope")]
-    assert result == t("gateway.stop.stopped")
+    assert result == '⚡ Stopped. You can continue this session.'
 
 
 @pytest.mark.asyncio
@@ -125,7 +125,7 @@ async def test_stop_does_not_reach_a_different_thread_of_the_same_channel():
     interrupted, result = await _stop(stop_source, [same_thread, other_thread])
 
     assert interrupted == [(same_thread, "stop_command_chat_scope")]
-    assert result == t("gateway.stop.stopped")
+    assert result == '⚡ Stopped. You can continue this session.'
 
 
 @pytest.mark.asyncio
@@ -140,7 +140,7 @@ async def test_stop_does_not_reach_another_reply_thread_of_a_channel_keyed_run()
     interrupted, result = await _stop(stop_source, [same_reply_thread, other_reply_thread])
 
     assert interrupted == [(same_reply_thread, "stop_command_chat_scope")]
-    assert result == t("gateway.stop.stopped")
+    assert result == '⚡ Stopped. You can continue this session.'
 
 
 @pytest.mark.asyncio
@@ -157,7 +157,7 @@ async def test_stop_interrupts_every_run_of_the_callers_thread():
     interrupted, result = await _stop(stop_source, [sibling, same_thread_channel_run])
 
     assert sorted(key for key, _ in interrupted) == sorted([sibling, same_thread_channel_run])
-    assert result == t("gateway.stop.stopped")
+    assert result == '⚡ Stopped. You can continue this session.'
 
 
 @pytest.mark.asyncio
@@ -173,7 +173,7 @@ async def test_a_lone_thread_sibling_keeps_its_own_invalidation_reason():
     interrupted, result = await _stop(stop_source, sibling)
 
     assert interrupted == [(sibling, "stop_command_thread_sibling")]
-    assert result == t("gateway.stop.stopped")
+    assert result == '⚡ Stopped. You can continue this session.'
 
 
 @pytest.mark.asyncio
@@ -192,7 +192,7 @@ async def test_stop_matches_a_canonicalised_whatsapp_dm_chat_id():
     interrupted, result = await _stop(stop_source, running_key)
 
     assert interrupted == [(running_key, "stop_command_chat_scope")]
-    assert result == t("gateway.stop.stopped")
+    assert result == '⚡ Stopped. You can continue this session.'
 
 
 @pytest.mark.asyncio
@@ -214,7 +214,7 @@ async def test_stop_in_a_dm_does_not_reach_a_group_run_that_ends_in_the_same_use
     interrupted, result = await _stop(dm_stop, [same_chat, group_run])
 
     assert interrupted == [(same_chat, "stop_command_chat_scope")]
-    assert result == t("gateway.stop.stopped")
+    assert result == '⚡ Stopped. You can continue this session.'
 
 
 @pytest.mark.asyncio
@@ -225,7 +225,7 @@ async def test_chat_scope_fallback_is_authorization_gated():
     interrupted, result = await _stop(stop_source, running_key, authorized=False)
 
     assert interrupted == []
-    assert result == t("gateway.stop.no_active")
+    assert result == 'No active task to stop.'
 
 
 @pytest.mark.asyncio
@@ -237,7 +237,7 @@ async def test_pending_sentinel_is_never_interrupted():
     interrupted, result = await _stop(stop_source, {pending: _AGENT_PENDING_SENTINEL})
 
     assert interrupted == []
-    assert result == t("gateway.stop.no_active")
+    assert result == 'No active task to stop.'
 
 
 @pytest.mark.asyncio
@@ -255,7 +255,7 @@ async def test_stop_reaches_a_chat_whose_id_contains_a_colon():
     interrupted, result = await _stop(stop_source, running_key)
 
     assert interrupted == [(running_key, "stop_command_chat_scope")]
-    assert result == t("gateway.stop.stopped")
+    assert result == '⚡ Stopped. You can continue this session.'
 
 
 @pytest.mark.asyncio
@@ -270,7 +270,7 @@ async def test_chat_scope_fallback_interrupts_only_the_callers_chat(other_chat_i
     interrupted, result = await _stop(stop_source, [same_chat, foreign])
 
     assert interrupted == [(same_chat, "stop_command_chat_scope")]
-    assert result == t("gateway.stop.stopped")
+    assert result == '⚡ Stopped. You can continue this session.'
 
 
 @pytest.mark.asyncio
@@ -283,7 +283,7 @@ async def test_chat_scope_fallback_does_not_fold_in_a_prefix_of_the_chat_id():
     interrupted, result = await _stop(stop_source, foreign)
 
     assert interrupted == []
-    assert result == t("gateway.stop.no_active")
+    assert result == 'No active task to stop.'
 
 
 @pytest.mark.asyncio
@@ -303,4 +303,4 @@ async def test_chat_scope_fallback_does_not_cross_workspace_scope_or_profile():
     interrupted, result = await _stop(stop_source, running_keys)
 
     assert interrupted == [(same_chat, "stop_command_chat_scope")]
-    assert result == t("gateway.stop.stopped")
+    assert result == '⚡ Stopped. You can continue this session.'

@@ -578,46 +578,6 @@ class TestPluginLoading:
         assert entry.module is None
         assert "exclusive" in (entry.error or "").lower()
 
-    def test_bundled_cron_provider_is_not_loaded_by_general_manager(self, tmp_path, monkeypatch):
-        """``plugins/cron_providers/`` has its own discovery (``plugins.cron_providers``); the general
-        manager's PluginContext has no ``register_cron_scheduler``, so importing chronos from here
-        warned ``Failed to load plugin 'chronos'`` on every start it was enabled (#62951)."""
-        bundled = tmp_path / "bundled"
-        chronos = bundled / "cron_providers" / "chronos"
-        chronos.mkdir(parents=True)
-        (chronos / "plugin.yaml").write_text(yaml.safe_dump({"name": "chronos"}), encoding="utf-8")
-        (chronos / "__init__.py").write_text(
-            "def register(ctx):\n    ctx.register_cron_scheduler(object())\n", encoding="utf-8")
-        hermes_home = tmp_path / "hermes_test"
-        hermes_home.mkdir(exist_ok=True)
-        (hermes_home / "config.yaml").write_text(yaml.safe_dump({"plugins": {"enabled": ["chronos"]}}))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-        from hermes_cli import plugins as plugins_mod
-        monkeypatch.setattr(plugins_mod, "get_bundled_plugins_dir", lambda: bundled)
-
-        mgr = PluginManager()
-        mgr.discover_and_load()
-
-        assert not any(key.endswith("chronos") for key in mgr._plugins)
-
-    def test_user_cron_plugin_auto_coerced_to_exclusive(self, tmp_path, monkeypatch):
-        """A user-installed cron provider (no ``kind:``) routes to ``plugins.cron_providers`` like a
-        memory provider does, instead of being imported by the general manager (#62951)."""
-        hermes_home = tmp_path / "hermes_test"
-        plugin_dir = hermes_home / "plugins" / "mycron"
-        plugin_dir.mkdir(parents=True)
-        (plugin_dir / "plugin.yaml").write_text(yaml.safe_dump({"name": "mycron"}), encoding="utf-8")
-        (plugin_dir / "__init__.py").write_text(
-            "def register(ctx):\n    ctx.register_cron_scheduler(object())\n", encoding="utf-8")
-        (hermes_home / "config.yaml").write_text(yaml.safe_dump({"plugins": {"enabled": ["mycron"]}}))
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-
-        mgr = PluginManager()
-        mgr.discover_and_load()
-
-        entry = mgr._plugins["mycron"]
-        assert entry.manifest.kind == "exclusive"
-        assert entry.module is None and not entry.enabled
 
     def test_entrypoint_memory_provider_auto_coerced_to_exclusive(
         self, tmp_path, monkeypatch
@@ -1703,31 +1663,6 @@ class TestPreToolCallBlocking:
 class TestPreToolCallDirective:
     """Tests for the extended (block | approve) directive helper."""
 
-    def test_first_party_observer_receives_pre_tool_call(self, monkeypatch):
-        from hermes_cli import observability
-        from hermes_cli.plugins import get_pre_tool_call_directive
-
-        observed = []
-        monkeypatch.setattr(
-            observability,
-            "observe_lifecycle",
-            lambda hook_name, **kwargs: observed.append((hook_name, kwargs)),
-        )
-        monkeypatch.setattr(
-            "hermes_cli.plugins.invoke_hook",
-            lambda hook_name, **kwargs: [],
-        )
-
-        assert get_pre_tool_call_directive(
-            "write_file",
-            {"path": "README.md"},
-            task_id="task-1",
-            session_id="session-1",
-            tool_call_id="call-1",
-        ) == (None, None)
-        [(hook_name, payload)] = observed
-        assert hook_name == "pre_tool_call"
-        assert (payload["tool_name"], payload["args"], payload["tool_call_id"]) == ("write_file", {"path": "README.md"}, "call-1")
 
     def test_approve_directive_returned(self, monkeypatch):
         from hermes_cli.plugins import get_pre_tool_call_directive

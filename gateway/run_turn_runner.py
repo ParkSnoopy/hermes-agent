@@ -19,7 +19,7 @@ from contextlib import suppress
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from agent.i18n import t
+
 from agent.interrupt_compat import _accepts_keyword
 from agent.replay_cleanup import canonicalize_replay_history
 from gateway.config import Platform
@@ -41,14 +41,6 @@ logger = logging.getLogger("gateway.run")
 # _load_turn_history escalates the lag line from WARNING to ERROR (#114266: 11 days of WARNING).
 _TRANSCRIPT_LAG_ESCALATION_TURNS = 3
 
-# Exact refusals retained for older adapters/connectors without destination preflight.
-# Substring matching would also silence transient thread-resolution errors.
-_CARD_DESTINATION_REFUSALS = {
-    "No Slack thread target",
-    "slack task_card requires a thread anchor",
-    "slack task_card requires a thread anchor (Slack streams are thread replies)",
-}
-
 
 def _renders_exec_approval_buttons(adapter_cls: type) -> bool:
     """True when the adapter class renders native approval buttons. BasePlatformAdapter subclasses
@@ -63,7 +55,7 @@ def _renders_exec_approval_buttons(adapter_cls: type) -> bool:
 # Rendered on a native clarify card whose wait ended without a click (mirrors the notice the
 # Slack click handler shows on a dead entry).
 def _clarify_expired_notice() -> str:
-    return t("gateway.clarify.expired")
+    return '⏳ This prompt expired — please send a new request.'
 
 
 # run_conversation result keys the gateway projection carries verbatim so a finite viewer's
@@ -179,8 +171,8 @@ def _resolution_failure_reply(exc: Exception, platform: Platform) -> tuple[str, 
         # with no credential verdict: /login cannot fix it, the gateway log can (#140344).
         # host_error sits on the gateway layer, so clients don't offer "Switch provider"; not retryable,
         # since a deleted bundle or unreadable store fails the same way until the host is fixed.
-        return t("gateway.errors.generic_failed"), "host_error", False
-    return t("gateway.errors.no_credentials"), auth_permanent, False
+        return "⚠️ Something went wrong and I couldn't finish this reply. Use /retry to try again, or /new to start a fresh conversation. Technical details are in the gateway log (`hermes logs`).", "host_error", False
+    return "⚠️ I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.", auth_permanent, False
 
 
 
@@ -251,9 +243,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         if ctx.mute_notification_reply:
             return None, None, None, False
         stream_consumer = None
-        # The streaming-TTS consumer is created on the outer loop thread before run_sync launches;
-        # run_sync only reads it via the holder for delta-callback wiring.
-        stts = ctx.streaming_tts_consumer_holder[0]
+
         scfg = getattr(getattr(self._runner, 'config', None), 'streaming', None)
         if scfg is None:
             from gateway.config import StreamingConfig
@@ -280,7 +270,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                         or bool(getattr(adapter, "SUPPORTS_NATIVE_STREAMING", False))
                     )
                     consumer_stream_deltas = want_stream_deltas and supports_incremental_stream
-                    consumer_cfg, pause_typing_before_finalize = self._runner._build_stream_consumer_config(
+                    consumer_cfg = self._runner._build_stream_consumer_config(
                         ctx.source, scfg, adapter,
                         # A complete commentary message needs no edit cursor.  Keeping it on the
                         # consumer records what reached non-editable platforms, so an interim
@@ -293,7 +283,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                         on_new_message=(
                             (lambda: ctx.progress_queue.put(("__reset__",))) if ctx.progress_queue is not None else None
                         ),
-                        on_before_finalize=pause_typing_before_finalize,
+
                         initial_reply_to_id=ctx.event_message_id, run_still_current=ctx._run_still_current,
                     )
                     ctx.stream_consumer_holder[0] = stream_consumer
@@ -303,11 +293,11 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                     stream_consumer.stream_deltas_enabled = consumer_stream_deltas
             except Exception as err:
                 logger.debug("Could not set up stream consumer: %s", err)
-        # Deltas tee to the stream consumer (when text streaming is on) and to streaming TTS.
+        # Deltas go to the text stream consumer when enabled.
         delta_sinks = [
             sc for sc in (
                 stream_consumer if stream_consumer and stream_consumer.stream_deltas_enabled else None,
-                stts,
+
             ) if sc is not None
         ]
         stream_delta_cb = None
@@ -344,12 +334,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                 # as delivered only when a viewer or observer actually took it.
                 payload = {"text": text, "already_streamed": False}
                 unseen = not self._publish_execution("message.interim", payload)
-            if stts is not None:
-                # Flush accepted deltas; completed commentary is a separate speech segment.
-                stts.on_delta(None)
-                if not already_streamed:
-                    stts.on_delta(text)
-                    stts.on_delta(None)
+
             if unseen:
                 return
             if stream_consumer is not None:
@@ -478,13 +463,8 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         # ALWAYS attached (never gated to None): its body gates each event class, and subagent-
         # failure notices must fire even with tool_progress/thinking off.
         agent.tool_progress_callback = ctx.progress_callback
-        # Discord's one-time voice ack and Slack's task cards both ride the authoritative start
-        # callback, so neither infers identity from tool names.
-        agent.tool_start_callback = (
-            (ctx.native_tool_start_callback or ctx.voice_ack_callback)
-            if (ctx._voice_ack_guild[0] is not None or ctx._native_slack_task_cards) else None
-        )
-        agent.tool_complete_callback = ctx.native_tool_complete_callback if ctx._native_slack_task_cards else None
+        agent.tool_start_callback = None
+        agent.tool_complete_callback = None
         if self._approval_owner is not None:
             agent.tool_start_callback = self.combined_tool_start_callback
             agent.tool_complete_callback = self.combined_tool_complete_callback
@@ -510,9 +490,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         agent.daybreak_surface = callable(_surface) and _surface(ctx.source) is True
         self._merge_turn_request_overrides(agent, turn_route)
         from gateway.session_surface import arm_surface_turn
-        # auxiliary.voice_chat route (a voice note, or an admission committed as a voice turn) and
-        # this turn's must-deliver notes; a managed worker arms its agent through the same helper.
-        arm_surface_turn(agent, runner._consume_pending_turn_sidecar_notes(ctx.session_key), voice_turn=ctx.voice_turn)
+        arm_surface_turn(agent, runner._consume_pending_turn_sidecar_notes(ctx.session_key))
         agent.background_review_callback, bg_release = self._make_bg_review_callbacks()
         # Register the release hook on the adapter so base.py's finally block fires it after the
         # main response is delivered.
@@ -616,7 +594,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         # The typed-"skip" hint is for messaging adapters, where a chat reply answers the card. A local
         # viewer (TUI / Desktop / CLI) renders main's modal with its own skip control, unhinted.
         platform = getattr(getattr(self._ctx, "source", None), "platform", None)
-        hint = "" if platform == Platform.LOCAL else f"\n{t('gateway.clarify.skip_hint')}"
+        hint = "" if platform == Platform.LOCAL else ('\n' + format(('Reply "skip" to skip this question.'), ''))
         for index, entry in enumerate(questions):
             question = f"{entry['question']}{hint}"
             raw, answered = self._ask_clarify_question(
@@ -664,7 +642,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         )
         # Unlike approval, clarify passes reopen=True so the continuation re-opens a native stream
         # below the question; if the re-seed fails the consumer degrades to send() automatically.
-        self._close_native_stream_boundary("Clarify", t("gateway.clarify.native_stream_placeholder"), reopen=True)
+        self._close_native_stream_boundary("Clarify", '💬 Waiting for your choice...', reopen=True)
         # Pause typing: a "thinking..." status must not obscure the prompt or block an "Other" reply
         # on platforms that disable input while typing (Slack Assistant).
         with suppress(Exception):
@@ -1039,10 +1017,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                 kwargs["persist_user_display_metadata"] = ctx.persist_user_display_metadata
             if ctx.moa_config is not None:
                 kwargs["moa_config"] = ctx.moa_config
-            from gateway.session_onboarding import arm_onboarding_turn
-            prelude = arm_onboarding_turn(agent, self._approval_owner, agent_history)
-            if prelude is not None and _accepts_keyword(agent.run_conversation, "prelude"):
-                kwargs["prelude"] = prelude
+
             if persist_user_timestamp_override is not None:
                 kwargs["persist_user_timestamp"] = persist_user_timestamp_override
             # The RAW inbound id (not event_message_id, the reply anchor) rides the persisted user
@@ -1113,22 +1088,6 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         except TypeError:
             stream_consumer.finish()
 
-    def _restore_telegram_thread_id_after_split(self, agent_session_id) -> None:
-        """Telegram DM whose source.thread_id was lost in the session split (synthetic/recovered
-        event): restore it from the binding so _thread_metadata_for_source yields the right
-        message_thread_id instead of the General thread (non-fatal)."""
-        ctx = self._ctx
-        try:
-            # run_sync is off-loop (executor); sync DB is fine.
-            binding = self._runner._session_db._db.get_telegram_topic_binding_by_session(session_id=agent_session_id)
-            if binding and binding.get("thread_id"):
-                ctx.source.thread_id = str(binding["thread_id"])
-                logger.debug(
-                    "Restored source.thread_id=%s from binding after session split %s → %s",
-                    ctx.source.thread_id, ctx.session_id, agent_session_id,
-                )
-        except Exception:
-            logger.debug("Failed to restore thread_id from binding after session split", exc_info=True)
 
     def _sync_session_after_run(self, agent_history):
         """Sync session_id right after run_conversation(): compression can rotate before a follow-up
@@ -1145,7 +1104,6 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         if session_was_split:
             logger.info("Session split detected: %s → %s (compression)", ctx.session_id, agent_session_id)
             entry = runner.session_store._entries.get(ctx.session_key)
-            persisted = False
             if entry:
                 entry_session_id = getattr(entry, "session_id", None)
                 if not ctx._run_still_current():
@@ -1154,30 +1112,17 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                         "generation %s is no longer current",
                         ctx.session_key or "?", ctx.run_generation,
                     )
-                elif entry_session_id == agent_session_id:
-                    persisted = True
-                elif entry_session_id != ctx.session_id:
+                elif entry_session_id not in (ctx.session_id, agent_session_id):
                     logger.info(
                         "Skipping session split sync for %s because the "
                         "session binding moved from %s to %s before "
                         "compression finished",
                         ctx.session_key or "?", ctx.session_id, entry_session_id,
                     )
-                else:
+                elif entry_session_id != agent_session_id:
                     entry.session_id = agent_session_id
                     runner.session_store._save()
                     runner.session_store._record_gateway_session_peer(agent_session_id, ctx.session_key, ctx.source)
-                    persisted = True
-            # Only after this run published its split — a stale /stop→/new predecessor must not
-            # mutate routing state.
-            if persisted:
-                src = ctx.source
-                if (
-                    getattr(src, "platform", None) == Platform.TELEGRAM and getattr(src, "chat_type", None) == "dm"
-                    and getattr(src, "thread_id", None) is None and runner._session_db is not None
-                ):
-                    self._restore_telegram_thread_id_after_split(agent_session_id)
-                runner._sync_telegram_topic_binding(src, entry, reason="agent-run-compression")
         from gateway.session_cli_turn import cli_turn
         if not cli_turn(ctx.inbound_message_id).get("model_override"):
             # A `/model --once` / `/moa` turn ran another route for this admission only: the row keeps
@@ -1240,7 +1185,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
 
     def run_sync(self):
         from contextlib import ExitStack
-        from gateway.session_policy import bind_turn_workspace, policy_for_source, policy_scope, refused_turn_result
+        from gateway.session_policy import policy_for_source, policy_scope, refused_turn_result
         from gateway.session_api_turn import api_policy_scope
         from gateway.session_authorities import active_authority
         from hermes_state_runtime import RuntimeStoreError
@@ -1254,7 +1199,6 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                     raise
             else:
                 scope.enter_context(api_policy_scope())
-                bind_turn_workspace(policy, self._ctx.session_id)
                 result = self._run_sync_scoped()
             from gateway.session_results import execution_result
             captured = execution_result.get()
@@ -1356,16 +1300,6 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         reasoning_config = one_turn_reasoning(self, reasoning_config)  # `/model --once --reasoning X`
         runner._service_tier = (policy.current_service_tier(runner, ctx.session_key) if policy else
             runner._resolve_session_service_tier(source=ctx.source, session_key=ctx.session_key))
-        from gateway.session_api_turn import api_execution
-        api = api_execution.get()
-        if api is not None:
-            from gateway.platforms.api_server import _request_reasoning_config, _request_service_tier, _REQUEST_OPTION_MISSING
-            requested_reasoning = _request_reasoning_config(api['settings'].get('model_options'))
-            if requested_reasoning is not None:
-                reasoning_config = requested_reasoning
-            tier = _request_service_tier(api['settings'].get('model_options'))
-            if tier is not _REQUEST_OPTION_MISSING:
-                runner._service_tier = tier
         runner._reasoning_config = reasoning_config
         stream_consumer, stream_delta_cb, interim_cb, want_interim = self._setup_stream_consumer(platform_key)
         turn_route = runner._resolve_turn_agent_config(ctx.message, model, runtime_kwargs)
@@ -1473,7 +1407,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
             final_response = _normalize_empty_agent_response(result, final_response or "", history_len=len(agent_history))
             final_response = _sanitize_gateway_final_response(ctx.source.platform, final_response)
             if not final_response:
-                final_response = t("gateway.shared.warn_passthrough", error=result["error"]) if result.get("error") else ""
+                final_response = ('⚠️ {error}').format(error=result["error"]) if result.get("error") else ""
             # NOTE: deliberately omits agent_persisted/response_reused (and last_reasoning outside a local
             # viewer's turn); the caller defaults agent_persisted differently when the key is absent.
             if local_sinks is not None:

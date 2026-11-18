@@ -1,4 +1,4 @@
-"""Config propagation tests for the WS keepalive + orphan-reap grace knobs (#79635)."""
+"""Config propagation tests for orphan-reap settings (#79635)."""
 
 import textwrap
 
@@ -20,25 +20,24 @@ def _write_config(home, body: str) -> None:
 
 
 
-def test_dashboard_ws_values_propagate_from_yaml(_temp_home):
+def test_orphan_settings_propagate_from_yaml(_temp_home):
     from hermes_cli.config import load_config
+    from hermes_cli.config_defaults import DEFAULT_CONFIG
 
     _write_config(
         _temp_home,
         """
         dashboard:
-          ws_ping_interval: 45.5
-          ws_ping_timeout: 10
           ws_orphan_reap_grace_s: 90
+          ws_orphan_activity_stale_s: 120
         """,
     )
     cfg = load_config()
     dash = cfg["dashboard"]
-    assert dash["ws_ping_interval"] == 45.5
-    assert dash["ws_ping_timeout"] == 10
     assert dash["ws_orphan_reap_grace_s"] == 90
+    assert dash["ws_orphan_activity_stale_s"] == 120
     # Deep-merge: sibling defaults survive a partial user section.
-    assert "theme" in dash
+    assert dash["startup_orphan_sweep"] == DEFAULT_CONFIG["dashboard"]["startup_orphan_sweep"]
 
 
 def test_ws_orphan_reap_grace_reads_config(_temp_home):

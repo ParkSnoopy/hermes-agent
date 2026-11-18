@@ -149,15 +149,15 @@ async def test_the_reads_a_viewer_sends_for_an_open_chat_answer_on_a_mount(tmp_p
         assert 'result' in reply, (method, reply)
     from gateway.run import GatewayRunner
     runner = conn.authority.runner
-    for name in ('_voice_key_for_source', '_voice_key', '_resolve_session_service_tier', '_resolve_session_key_or_none',
+    for name in ('_resolve_session_service_tier', '_resolve_session_key_or_none',
                  '_peek_session_state', '_load_service_tier'):
         setattr(runner, name, getattr(GatewayRunner, name).__get__(runner))
     runner._adapter_profile_for_source = lambda source: None  # no adapters here
-    # Desktop's automatic voice read on open, and the TUI's /fast status read.
+    # The TUI's /fast status read.
     replies = {key: await conn.dispatch({'id': 1, 'method': 'config.get', 'params': {**sid, 'key': key}})
-               for key in ('voice', 'fast')}
+               for key in ('fast',)}
     assert {key: reply.get('result', {}).get('value') for key, reply in replies.items()} == {
-        'voice': 'off', 'fast': 'normal'}, replies
+        'fast': 'normal'}, replies
     for command in ('fast status', 'model'):
         reply = await conn.dispatch({'id': 1, 'method': 'slash.exec', 'params': {**sid, 'command': command}})
         assert reply['error']['message'] == 'session_read_only', (command, reply)
@@ -210,20 +210,3 @@ async def test_a_compressed_cron_history_deletes_as_one_chat(tmp_path, monkeypat
     await conn.resume(target, {})
     await _mutate(conn, target, 'delete', 'delete', {})
     assert [sid for sid in (root, 'cron-tip') if db.get_session(sid) is not None] == []
-
-
-@pytest.mark.asyncio
-async def test_push_to_talk_reads_voice_off_on_a_mount(tmp_path, monkeypatch):
-    """The TUI's push-to-talk gate on an opened stored chat raised AttributeError on the source-less mount."""
-    from gateway import run_api
-    from gateway.run import GatewayRunner
-    from gateway.session_config import local_voice_enabled
-    conn, ref = await _connect(tmp_path, monkeypatch, 'cron_job1_20261001_120000')
-    await conn.resume(ref, {})
-    runner = conn.authority.runner
-    for name in ('_voice_key_for_source', '_voice_key'):
-        setattr(runner, name, getattr(GatewayRunner, name).__get__(runner))
-    runner._adapter_profile_for_source = lambda source: None
-    runner.session_authority = conn.authority
-    monkeypatch.setattr(run_api, '_ACTIVE_RUNNER', runner)
-    assert local_voice_enabled(ref.session_id) is False

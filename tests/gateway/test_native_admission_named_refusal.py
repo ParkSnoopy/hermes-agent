@@ -5,6 +5,7 @@ import logging
 import pytest
 
 from gateway.config import GatewayConfig, Platform, PlatformConfig
+from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent
 from gateway.run import GatewayRunner
 from gateway.session_authority import initialize_session_authority
@@ -12,15 +13,46 @@ from gateway.session_envelope import prepare_native
 from gateway.session_ingress import admit_message
 from hermes_state_runtime import RuntimeStoreError, list_session_admissions
 
-CHAT = '15551234567@s.whatsapp.net'
+CHAT = 'fixture-chat'
+
+
+class TestTransport(BasePlatformAdapter):
+    __test__ = False
+
+    def __init__(self):
+        super().__init__(PlatformConfig(enabled=True), Platform('fixture_chat'))
+
+    async def connect(self, *, is_reconnect=False):
+        return True
+
+    async def disconnect(self):
+        pass
+
+    async def send(self, chat_id, content, reply_to=None, metadata=None):
+        return SendResult(success=True, message_id='sent')
+
+    async def get_chat_info(self, chat_id):
+        return {'id': chat_id, 'type': 'dm'}
+
+
+def make_test_transport(monkeypatch):
+    from gateway import platform_registry
+    from gateway.platform_registry import PlatformEntry, PlatformRegistry
+
+    registry = PlatformRegistry()
+    monkeypatch.setattr(platform_registry, 'platform_registry', registry)
+    registry.register(PlatformEntry(name='fixture_chat', label='Fixture chat',
+                                    adapter_factory=lambda config: None, check_fn=lambda: True,
+                                    allow_all_env='FIXTURE_CHAT_ALLOW_ALL'))
+    monkeypatch.setenv('FIXTURE_CHAT_ALLOW_ALL', 'true')
+    return TestTransport()
 
 
 async def _authority(tmp_path, monkeypatch):
-    from plugins.platforms.whatsapp.adapter import WhatsAppAdapter
-    monkeypatch.setenv('WHATSAPP_ALLOWED_USERS', '15551234567')
+    monkeypatch.setenv('GATEWAY_ALLOW_ALL_USERS', 'true')
     runner = GatewayRunner(GatewayConfig(sessions_dir=tmp_path / 'sessions'))
-    adapter = WhatsAppAdapter(PlatformConfig(enabled=True, extra={'session_path': str(tmp_path / 'wa')}))
-    adapter.gateway_runner, runner.adapters = runner, {Platform.WHATSAPP: adapter}
+    adapter = make_test_transport(monkeypatch)
+    adapter.gateway_runner, runner.adapters = runner, {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='named')
     runner._wire_adapter_handlers(adapter)
     return authority, adapter.build_source(chat_id=CHAT, user_id=CHAT, chat_type='dm')

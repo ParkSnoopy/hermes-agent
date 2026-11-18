@@ -124,10 +124,6 @@ def _shutdown_agent_memory_provider(agent) -> None:
         agent.shutdown_memory_provider()
 
 
-def _stop_cli_wake_word() -> None:
-    from tools.wake_word import stop_listening
-    if _cli()._cli_wake_owner is not None:
-        stop_listening(owner=_cli()._cli_wake_owner)
 
 
 def _interrupt_async_delegations() -> None:
@@ -151,7 +147,7 @@ def _shutdown_cached_aux_clients() -> None:
 # Async delegations and MCP servers live in the gateway, which owns their lifetime: a CLI exit
 # neither interrupts the delegations nor tears down MCP servers.
 _CLEANUP_STEPS = (
-    ("_stop_cli_wake_word", Exception), ("_cleanup_all_terminals", Exception),
+    ("_cleanup_all_terminals", Exception),
     ("_cleanup_all_browsers", Exception), ("_shutdown_cached_aux_clients", Exception),
 )
 

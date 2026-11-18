@@ -1,23 +1,14 @@
-"""Regression tests — Slack-pattern scoped credential reads at adapter startup.
+"""Regression tests for profile-scoped API adapter credential reads.
 
-Class-closure follow-up to the profile secret-scope cluster (#76462, Slack
-pattern #59739, WhatsApp ``_get_wsecret``): the 13 platform adapters below
-read credentials at ``__init__`` / availability-check / standalone-send time
-with bare ``os.getenv`` (SMS even used ``os.environ[...]``, which KeyErrors).
-Under ``gateway.multiplex_profiles`` those reads leak the default profile's
-credential into secondary profiles' adapters.
-
-Each migrated module now carries a module-level ``_get_scoped_secret`` helper
-mirroring ``gateway/platforms/whatsapp_common.py::_get_wsecret``:
+Under ``gateway.multiplex_profiles``, bare environment reads could leak the
+default profile's credential into secondary profiles' adapters. The API
+adapter's ``_get_scoped_secret`` helper preserves these boundaries:
 
 - scope installed → scope is authoritative; scoped miss returns the default
   (NO borrow from ``os.environ``)
 - unscoped under multiplex (the default profile's own startup loop) →
   fall back to ``os.getenv`` without raising ``UnscopedSecretError``
 
-The helpers are imported and exercised directly rather than constructing every
-adapter — construction pulls heavy platform dependencies (slack-bolt-style SDK
-imports, webhook servers, sidecars) that the test environment doesn't need.
 """
 
 import importlib
@@ -28,19 +19,6 @@ from agent import secret_scope as ss
 
 # (module path, representative credential env var owned by that adapter)
 MIGRATED_ADAPTER_MODULES = [
-    ("plugins.platforms.irc.adapter", "IRC_SERVER_PASSWORD"),
-    ("plugins.platforms.line.adapter", "LINE_CHANNEL_ACCESS_TOKEN"),
-    ("plugins.platforms.teams.adapter", "TEAMS_CLIENT_SECRET"),
-    ("plugins.platforms.mattermost.adapter", "MATTERMOST_TOKEN"),
-    ("plugins.platforms.ntfy.adapter", "NTFY_TOKEN"),
-    ("plugins.platforms.sms.adapter", "TWILIO_AUTH_TOKEN"),
-    ("plugins.platforms.dingtalk.adapter", "DINGTALK_CLIENT_SECRET"),
-    ("plugins.platforms.feishu.adapter", "FEISHU_APP_SECRET"),
-    ("plugins.platforms.wecom.adapter", "WECOM_SECRET"),
-    ("plugins.platforms.photon.adapter", "PHOTON_PROJECT_SECRET"),
-    ("plugins.platforms.photon.auth", "PHOTON_PROJECT_SECRET"),
-    ("plugins.platforms.buzz.adapter", "BUZZ_PRIVATE_KEY"),
-    ("plugins.platforms.bluebubbles.adapter", "BLUEBUBBLES_PASSWORD"),
     ("gateway.platforms.api_server", "API_SERVER_KEY"),
 ]
 
@@ -59,8 +37,7 @@ def _helper(module_name):
     mod = importlib.import_module(module_name)
     helper = getattr(mod, "_get_scoped_secret", None)
     assert helper is not None, (
-        f"{module_name} must define the module-level _get_scoped_secret helper "
-        "(Slack pattern #59739 / whatsapp_common._get_wsecret)"
+        f"{module_name} must define the module-level _get_scoped_secret helper"
     )
     return helper
 

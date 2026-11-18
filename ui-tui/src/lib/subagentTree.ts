@@ -1,4 +1,4 @@
-import { t } from '../i18n/runtime.js'
+import { libTextEn } from '../copy/libText.js'
 import type { SubagentAggregate, SubagentNode, SubagentProgress } from '../types.js'
 
 const ROOT_KEY = '__root__'
@@ -238,18 +238,12 @@ export function sparkline(values: readonly number[]): string {
 export function formatSummary(totals: SubagentAggregate): string {
   const pieces = [`d${Math.max(0, totals.maxDepthFromHere)}`]
   pieces.push(
-    t(
-      totals.descendantCount === 1 ? 'libText.subagentTree.agentsOne' : 'libText.subagentTree.agentsOther',
-      totals.descendantCount
-    )
+    (totals.descendantCount === 1 ? libTextEn.libText.subagentTree.agentsOne(totals.descendantCount) : libTextEn.libText.subagentTree.agentsOther(totals.descendantCount))
   )
 
   if (totals.totalTools > 0) {
     pieces.push(
-      t(
-        totals.totalTools === 1 ? 'libText.subagentTree.toolsOne' : 'libText.subagentTree.toolsOther',
-        totals.totalTools
-      )
+      (totals.totalTools === 1 ? libTextEn.libText.subagentTree.toolsOne(totals.totalTools) : libTextEn.libText.subagentTree.toolsOther(totals.totalTools))
     )
   }
 
@@ -260,7 +254,7 @@ export function formatSummary(totals: SubagentAggregate): string {
   const tokens = totals.inputTokens + totals.outputTokens
 
   if (tokens > 0) {
-    pieces.push(t('libText.subagentTree.tokens', fmtTokens(tokens)))
+    pieces.push(libTextEn.libText.subagentTree.tokens(fmtTokens(tokens)))
   }
 
   if (totals.activeCount > 0) {

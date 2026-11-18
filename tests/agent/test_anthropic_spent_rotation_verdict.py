@@ -91,7 +91,6 @@ def claude_credentials(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.setattr(AA, "claude_code_credentials_path", lambda: cred_path)
-    monkeypatch.setattr(AA, "_read_claude_code_credentials_from_keychain", lambda: None)
     return cred_path
 
 
@@ -266,7 +265,6 @@ import agent.anthropic_credentials as AA
 
 cred_path = Path(cred_path_str)
 AA.claude_code_credentials_path = lambda: cred_path
-AA._read_claude_code_credentials_from_keychain = lambda *a, **k: None
 
 posted = []
 

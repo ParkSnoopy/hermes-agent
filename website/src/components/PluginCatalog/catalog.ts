@@ -121,7 +121,6 @@ export const CATEGORY_CONFIG: Record<string, { label: string; icon: string; blur
   platform: { label: "Platforms", icon: "\u{1F4AC}", blurb: "Messaging and channel adapters" },
   web: { label: "Web & Browser", icon: "\u{1F310}", blurb: "Search backends, extraction and browser control" },
   tools: { label: "Tools", icon: "\u{1F6E0}\u{FE0F}", blurb: "New tools the agent can call" },
-  voice: { label: "Voice", icon: "\u{1F399}\u{FE0F}", blurb: "Speech, TTS and realtime audio" },
   automation: { label: "Automation", icon: "\u{23F1}\u{FE0F}", blurb: "Hooks, wake triggers and session automation" },
   models: { label: "Models", icon: "\u{2728}", blurb: "Model and inference providers" },
   general: { label: "General", icon: "\u{1F4E6}", blurb: "Plugins that span several areas" },

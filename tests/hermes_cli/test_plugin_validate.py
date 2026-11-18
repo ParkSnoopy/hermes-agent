@@ -79,6 +79,16 @@ BASE_MANIFEST = {
 }
 
 
+def test_manifest_without_loadable_payload_is_rejected(tmp_path):
+    from hermes_cli.plugin_validate import ValidationReport, _check_loadable
+
+    (tmp_path / "locales").mkdir()
+    report = ValidationReport()
+    (tmp_path / "plugin.yaml").write_text("name: pack\nprovides_locales: [xx]\n", encoding="utf-8")
+    _check_loadable(report, tmp_path)
+    assert any(name == "loadable" and not ok for name, ok, _ in report.checks)
+
+
 def test_requires_hermes_spec_is_validated(tmp_path):
     manifest = dict(BASE_MANIFEST, description="café", requires_hermes=">=0.21")
     d = _make_plugin(tmp_path, manifest=manifest)

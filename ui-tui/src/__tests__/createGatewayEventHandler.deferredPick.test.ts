@@ -14,7 +14,6 @@ const ctx = (sys = vi.fn()) =>
     submission: { submitRef: { current: vi.fn() } },
     system: { bellOnComplete: false, sys },
     transcript: { appendMessage: vi.fn(), panel: vi.fn(), setHistoryItems: vi.fn() },
-    voice: { setProcessing: vi.fn(), setRecording: vi.fn(), setVoiceEnabled: vi.fn() }
   }) as any
 
 describe('a model pick made during a turn that did not apply at the boundary', () => {

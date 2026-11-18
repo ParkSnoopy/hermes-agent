@@ -2,14 +2,13 @@ name: Canary Release
 
 # Automatic canaries are daily: the schedule caps new tags at one per 24h.
 # With no new commits, release.py resumes an existing unpublished canary until
-# its protected head is live; only a published canary makes a quiet day a no-op.
+# its GitHub prerelease is public; only publication makes a quiet day a no-op.
 # workflow_dispatch fires one on demand at any time.
 #
 # Source identity is the exact stable version plus build metadata:
-# v<stable>+canary.<YYYYMMDDTHHMMSSZ>. It compares equal to the stable; only
-# the protected R2 canary head moves subscribers. A dispatch queued behind a
-# running canary has conclusion=cancelled if a newer one supersedes it; only
-# conclusion=failure is a canary failure signal.
+# v<stable>+canary.<YYYYMMDDTHHMMSSZ>. Published prereleases are ordered by
+# their UTC stamp for source subscribers. Termux verifies its APT publication
+# before making the exact GitHub prerelease public.
 
 on:
   schedule:
@@ -18,7 +17,7 @@ on:
 
 permissions:
   contents: write # tag push + release create/delete for prune
-  actions: write # release.py dispatches the desktop build
+  actions: write # release.py dispatches the Termux build
 
 concurrency:
   group: canary-release
@@ -51,7 +50,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: tag
     environment: release-signing
-    # Prune even when this run had nothing new to tag. The desktop build
+    # Prune even when this run had nothing new to tag. The Termux build
     # runs in its own workflow run, so this does not wait on it — the
     # window is 14 days, far wider than any build.
     if: always() && needs.tag.result != 'cancelled' && needs.tag.result != 'skipped'

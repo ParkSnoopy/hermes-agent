@@ -127,8 +127,8 @@ def test_browser_becomes_camofox_where_core_carried_it(tmp_path, monkeypatch):
         "_config_version": 51,
         "platform_toolsets": {
             "cli": ["terminal", "browser", "file"],   # browser named directly
-            "telegram": ["hermes-telegram"],          # through the composite
-            "discord": ["terminal", "file"],          # core had browser off here
+            "api_server": ["hermes-api-server"],          # through the composite
+            "acp": ["terminal", "file"],          # core had browser off here
         },
         "agent": {"disabled_toolsets": ["memory"]},
     })
@@ -142,13 +142,13 @@ def test_browser_becomes_camofox_where_core_carried_it(tmp_path, monkeypatch):
     assert config["platform_toolsets"]["cli"] == ["terminal", "file", "camofox"]
     assert config["agent"]["disabled_toolsets"] == ["memory", "browser"]
     known = config["known_plugin_toolsets"]
-    assert "camofox" in known["discord"] and "camofox" in known["webhook"]
-    assert "cli" not in known and "telegram" not in known
+    assert "camofox" in known["acp"] and "camofox" in known["webhook"]
+    assert "cli" not in known and "api_server" not in known
     # The end state per platform: the camofox surface where core had browser on, never browser_exec.
-    for platform in ("cli", "telegram", "slack"):  # slack: no saved list, default composite
+    for platform in ("cli", "api_server"):  # slack: no saved list, default composite
         enabled = _resolved(home, platform, monkeypatch)
         assert "camofox" in enabled and "browser" not in enabled, platform
-    for platform in ("discord", "webhook"):
+    for platform in ("acp", "webhook"):
         enabled = _resolved(home, platform, monkeypatch)
         assert "camofox" not in enabled and "browser" not in enabled, platform
 
@@ -175,7 +175,7 @@ def test_globally_disabled_browsing_stays_off_after_the_conversion(tmp_path, mon
     if saved is not None:
         assert config["platform_toolsets"]["cli"] == ["terminal", "file", "camofox"]
     assert set(config["agent"]["disabled_toolsets"]) == {"browser", "camofox"}
-    for platform in ("cli", "telegram"):
+    for platform in ("cli", "api_server"):
         enabled = _resolved(home, platform, monkeypatch)
         assert "camofox" not in enabled and "browser" not in enabled, platform
 

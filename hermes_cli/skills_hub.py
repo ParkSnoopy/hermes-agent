@@ -596,33 +596,6 @@ def _resolve_url_bundle_name(c: Console, bundle, meta, identifier: str,
     return True
 
 
-def _announce_blueprint(c: Console, skill_name: str) -> None:
-    """Offer an installed skill's ``metadata.hermes.blueprint`` via /suggestions — never
-    auto-scheduled (installing must not silently create a recurring job). Never raises."""
-    try:
-        from tools.blueprints import BlueprintError, blueprint_spec_for_installed, register_blueprint_suggestion
-        try:
-            spec = blueprint_spec_for_installed(skill_name)
-        except BlueprintError as _rec_err:
-            c.print(f"[yellow]Blueprint block present but invalid:[/] {_rec_err}\n")
-            return
-        if spec is None:
-            return
-        lead = (f"[bold cyan]Blueprint:[/] '{skill_name}' is an automation "
-                f"(schedule [bold]{spec.schedule}[/])")
-        if register_blueprint_suggestion(spec) is not None:
-            c.print(f"{lead}.")
-            c.print("[dim]Added to your suggestions — run[/] [bold]/suggestions[/] "
-                    "[dim]to schedule or dismiss it.[/]\n")
-        else:
-            # Dropped: already offered/dismissed (latched) or the pending list is at its cap.
-            c.print(f"{lead}, but it wasn't added to your suggestions (already offered/dismissed, "
-                    "or the pending list is full — run [bold]/suggestions[/] to review).")
-            c.print("[dim]You can still schedule it any time by asking the agent "
-                    "or via[/] [bold]hermes cron add[/][dim].[/]\n")
-    except Exception:  # pragma: no cover - blueprint detection is best-effort
-        pass
-
 
 def _pinned_sources(c: Console, sources, source_id: Optional[str], identifier: str):
     """Restrict `sources` to the adapter matching `source_id`; None when it is unknown."""
@@ -770,24 +743,6 @@ def _registry_from_identifier(identifier: str) -> str:
     return next((sid for prefix, sid in _registry_prefixes() if lowered.startswith(prefix)), "unresolved")
 
 
-def _record_skill_install(identifier: str, bundle, outcome: str, attempt: Optional[dict] = None,
-                          error: Optional[BaseException] = None) -> None:
-    """One shared-metrics extension install: official optional skills are the catalog, URL skills
-    stay anonymous, every other registry is the hub. ``attempt`` carries the failure class the
-    failing exit named and the hub adapter id (``registry``); a raised ``error`` is classified by
-    its type inside the metrics guard."""
-    from hermes_cli.observability.shared_metrics_events import record_extension_install
-    attempt = attempt or {}
-    origin = getattr(bundle, "source", None) or attempt.get("origin") or (
-        "official" if identifier.startswith("official/")
-        else "url" if identifier.startswith(("http://", "https://")) else "hub")
-    source = _SKILL_METRIC_SOURCES.get(origin, "hub")
-    name = None if source == "url" else (getattr(bundle, "name", None) or identifier)
-    record_extension_install(kind="skill", source=source, name=name, outcome=outcome,
-                             failure_class=attempt.get("failure_class"), registry=attempt.get("registry"),
-                             error=error)
-
-
 def do_install(identifier: str, category: str = "", force: bool = False,
                console: Optional[Console] = None, skip_confirm: bool = False,
                invalidate_cache: bool = True, name_override: str = "",
@@ -796,27 +751,14 @@ def do_install(identifier: str, category: str = "", force: bool = False,
     adapter; callers that know the provenance (``do_update``) must pass it so a bare identifier
     cannot resolve to a same-named skill elsewhere.
 
-    A first install is recorded once as an extension install; updates and ``--force`` reinstalls
-    of an installed skill run through here too and are not installs, nor is a cancelled prompt.
 
     Returns True when the skill was installed, False when the install failed (unresolved name,
     fetch, scan block, bad path), None for a no-op the user owns (already installed, declined).
     The CLI router turns False into a non-zero exit — the Desktop Hub toasts failures off that
     exit code, so an exit-0 failure reads as "the button did nothing" (only the action log).
     """
-    from tools.skills_hub import HubLockFile
-    fresh = not HubLockFile().get_installed(identifier.rstrip("/").rsplit("/", 1)[-1])
-    attempt: dict = {}
-    try:
-        bundle, outcome, installed = _install_skill(identifier, category, force, console or _console,
-                                                    skip_confirm, invalidate_cache, name_override, source_id,
-                                                    attempt=attempt)
-    except Exception as exc:
-        if fresh:
-            _record_skill_install(identifier, None, "failed", attempt, error=exc)
-        raise
-    if fresh and outcome:
-        _record_skill_install(identifier, bundle, outcome, attempt)
+    _bundle, _outcome, installed = _install_skill(identifier, category, force, console or _console,
+                                                skip_confirm, invalidate_cache, name_override, source_id)
     return installed
 
 
@@ -922,7 +864,7 @@ def _install_skill(identifier: str, category: str, force: bool, c: Console, skip
     from tools.skills_hub import SKILLS_DIR
     c.print(f"[bold green]Installed:[/] {install_dir.resolve().relative_to(Path(SKILLS_DIR).resolve()).as_posix()}")
     c.print(f"[dim]Files: {', '.join(bundle.files.keys())}[/]\n")
-    _announce_blueprint(c, bundle.name)
+
     _finish_change(c, invalidate_cache, "Skill will be available", "activate")
     return bundle, None if existing else "success", True
 

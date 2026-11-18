@@ -328,17 +328,6 @@ class PluginHost:
         return self._call("profile_call", {"path": plugin_dir, "module_name": module_name, "profile": profile,
                                            "attr": attr, "args": encode(list(args)), "kwargs": encode(kwargs)})
 
-    def asgi_request(self, plugin_name: str, dashboard_dir: str, api_file: str, method: str, path: str,
-                     query: str, headers: list, body: bytes, *, timeout: Optional[float] = None,
-                     authenticated: bool = False) -> dict[str, Any]:
-        """One dashboard ``/api/plugins/<name>/`` request, served by the plugin's router in the host;
-        ``TimeoutError`` when no answer comes within ``timeout`` seconds (the host is left running)."""
-        self.ensure_started()
-        return self._call("asgi", {"plugin": plugin_name, "dashboard_dir": dashboard_dir, "api_file": api_file,
-                                   "method": method, "path": path, "query": query,
-                                   "authenticated": authenticated is True,
-                                   "headers": [list(h) for h in headers], "body": encode(body)},
-                          timeout=timeout)
 
     def _unload(self, plugin_key: str) -> None:
         self._contexts.pop(plugin_key, None)
@@ -616,9 +605,8 @@ def is_hosted_object(obj: Any) -> bool:
 
 
 def _run_on_gateway_loop(coro: Any) -> Any:
-    """A facade coroutine (``platform_actions``) uses adapters bound to the gateway's event loop, so
-    it runs there when a gateway is up; otherwise on a private loop. Always called off-loop (a
-    channel thread), never from the loop itself."""
+    """Run a facade coroutine on the gateway loop when available, otherwise on a private loop.
+    Always called off-loop (a channel thread), never from the loop itself."""
     try:
         from gateway.run import _gateway_runner_ref
         runner = _gateway_runner_ref()

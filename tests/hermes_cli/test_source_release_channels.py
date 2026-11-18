@@ -152,7 +152,7 @@ def test_source_check_and_apply_land_on_selected_release(releases, monkeypatch, 
     monkeypatch.setattr(update_cmd, "_begin_update_receipt_and_plan", lambda *_: None)
     monkeypatch.setattr(main, "_run_pre_update_backup", lambda *_: None)
     monkeypatch.setattr(main, "_pause_windows_gateways_for_update", lambda: None)
-    monkeypatch.setattr(update_cmd, "_prepare_git_command", lambda **_: (False, ["git"], False))
+    monkeypatch.setattr(update_cmd, "_prepare_git_command", lambda **_: (["git"], False))
     applied = []
     monkeypatch.setattr(update_cmd, "_complete_source_update", lambda request: applied.append(request))
     args = SimpleNamespace(branch=None, channel=None, force_venv=True)
@@ -193,23 +193,6 @@ def test_fork_origin_uses_its_own_published_release_not_the_official_pointer(rel
     assert not any(path.startswith("/releases/") for path in releases.requests)
 
 
-def test_zip_fallback_keeps_selected_repository_and_commit(releases, monkeypatch):
-    from hermes_cli import update_cmd_zip
-
-    seen = []
-    monkeypatch.setattr(update_cmd_zip, "_abort_zip_update_if_dirty_tree", lambda: None)
-    class DownloadBoundary(Exception):
-        pass
-    def download(branch, url, target_sha=None):
-        seen.append((url, target_sha))
-        raise DownloadBoundary
-    monkeypatch.setattr(update_cmd_zip, "_download_and_swap_zip", download)
-    with pytest.raises(DownloadBoundary):
-        update_cmd_zip._update_via_zip(
-            SimpleNamespace(branch=None), target_sha=releases.commits[2],
-            target_repository="Fixture/hermes-agent", completion_request={})
-    assert seen == [(f"https://github.com/Fixture/hermes-agent/archive/{releases.commits[2]}.zip",
-                     releases.commits[2])]
 
 
 @pytest.mark.parametrize("git_cmd", [["git"], None], ids=["git", "no-git"])
@@ -291,7 +274,7 @@ def test_default_stable_only_moves_forward_until_the_channel_is_chosen(releases,
     monkeypatch.setattr(update_cmd, "_begin_update_receipt_and_plan", lambda *_: None)
     monkeypatch.setattr(main, "_run_pre_update_backup", lambda *_: None)
     monkeypatch.setattr(main, "_pause_windows_gateways_for_update", lambda: None)
-    monkeypatch.setattr(update_cmd, "_prepare_git_command", lambda **_: (False, ["git"], False))
+    monkeypatch.setattr(update_cmd, "_prepare_git_command", lambda **_: (["git"], False))
     monkeypatch.setattr(update_cmd, "_complete_source_update", lambda request: None)
     # The Desktop passes the channel its check reported; naming the default is not a choice.
     update_cmd._cmd_update_impl(SimpleNamespace(branch=None, channel="stable", force_venv=True), False)

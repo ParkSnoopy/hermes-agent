@@ -58,11 +58,10 @@ SURFACES = (
     ("cli.hermes", "cli", "hermes", False),
     ("cli-code.claude", "cli", "claude", True),
     ("desktop.claude", "desktop", "claude", False),
-    ("telegram.claude", "telegram", "claude", False),
-    ("discord.claude", "discord", "claude", False),
-    ("cron.claude", "cron", "claude", False),
+    ("api.claude", "api_server", "claude", False),
+
 )
-# Desktop resolves toolsets in tui_gateway (client-surface toolsets folded in); the gateway, cron
+# Desktop resolves toolsets in tui_gateway (client-surface toolsets folded in); the gateway
 # and classic CLI read the platform toolsets directly.
 TUI_GATEWAY_PLATFORMS = ("desktop",)
 FIXED_NOW = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)

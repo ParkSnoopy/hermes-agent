@@ -73,10 +73,7 @@ def merge_sane_path(existing_path: str = "") -> str:
 
 def find_lightpanda_binary() -> Optional[str]:
     """Return the lightpanda executable, or None. Order: PATH (plus the standard system dirs), then the
-    installer's locations, then ``$HERMES_HOME/bin``. No Windows build."""
-    if os.name == "nt":
-        logger.debug("Lightpanda has no Windows build")
-        return None
+    installer's locations, then ``$HERMES_HOME/bin``."""
     return shutil.which("lightpanda", path=merge_sane_path(os.environ.get("PATH", ""))) or next(
         (str(c) for c in _home_candidates() if c.is_file() and os.access(c, os.X_OK)), None)
 
@@ -203,9 +200,6 @@ def launch_lightpanda(session_name: str, *, block_private_networks: bool = False
     else ``(None, error)``. stderr goes to ``<state_dir>/<session>.log`` so a chatty child never blocks on a pipe."""
     binary = find_lightpanda_binary()
     if not binary:
-        if os.name == "nt":
-            return None, ("browser.engine is 'lightpanda' but Lightpanda has no Windows "
-                          "build. Set browser.engine to auto (or run Hermes under WSL2).")
         return None, ("browser.engine is 'lightpanda' but no lightpanda binary was found on PATH, ~/.lightpanda "
                       f"or ~/.local/bin. {LIGHTPANDA_INSTALL_HINT}, or set browser.engine to auto.")
 

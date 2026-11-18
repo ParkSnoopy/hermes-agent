@@ -51,8 +51,8 @@ def canary_repo(tmp_path, monkeypatch, release_repo):
     from scripts.releases import versioning
     monkeypatch.setattr(versioning, "published_stable_identity", lambda repository: ("1.2.3", None))
     monkeypatch.setattr(
-        versioning, "published_channel_identity",
-        lambda _repository, _channel: (
+        versioning, "published_release_identity",
+        lambda _repository, *, channel: (
             (release.get_last_canary_tag()[1:], git("rev-parse", "HEAD"))
             if release.get_last_canary_tag() in published else None
         ),
@@ -79,7 +79,7 @@ def test_canary_cut_keeps_the_stable_core_and_dispatches_exactly_once(canary_rep
     assert {"--draft", "--prerelease", "--verify-tag"} <= set(create)
     dispatch = next(call for call in calls if call[1:3] == ["workflow", "run"])
     assert dispatch == [
-        "gh", "workflow", "run", "desktop-bundled-release.yml", "--ref", "main",
+        "gh", "workflow", "run", "termux-release.yml", "--ref", "main",
         "-f", f"tag={tag}", "-f", "upload_release=true", "--repo", "fixture/release",
     ]
     assert git("--git-dir", str(remote), "rev-parse", tag + "^{commit}") == git("rev-parse", "HEAD")
@@ -116,7 +116,7 @@ def test_incomplete_canary_redispatches_the_existing_receipt(canary_repo, monkey
     calls.clear()
 
     from scripts.releases import versioning
-    monkeypatch.setattr(versioning, "published_channel_identity", lambda *_args: None)
+    monkeypatch.setattr(versioning, "published_release_identity", lambda *_args, **_kwargs: None)
     release.cmd_canary(args)
 
     assert [call[1:3] for call in calls].count(["workflow", "run"]) == 1
@@ -156,7 +156,7 @@ def test_tag_shape_and_prune_use_canonical_receipts(canary_repo, monkeypatch, ca
     assert set(git("tag", "--list").splitlines()) == set(tags)
 
 
-def test_stable_dispatch_and_failure(monkeypatch, tmp_path):
+def test_canary_dispatch_and_failure(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(release, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(release.shutil, "which", lambda _: "gh")
@@ -167,21 +167,23 @@ def test_stable_dispatch_and_failure(monkeypatch, tmp_path):
         or subprocess.CompletedProcess(command, 0, "", ""),
     )
     monkeypatch.setattr(release, "_default_branch", lambda _repo: "main")
-    assert release.dispatch_desktop_build("v1.2.3", "owner/repo")
-    # Stable dispatches the default-branch workflow, like canary; the tag is an input.
+    tag = "v1.2.3+canary.20260818T103000Z"
+    assert release.dispatch_canary_build(tag, "owner/repo")
     assert calls == [[
-        "gh", "workflow", "run", "stable-release.yml", "--ref", "main",
-        "-f", "tag=v1.2.3", "--repo", "owner/repo",
+        "gh", "workflow", "run", "termux-release.yml", "--ref", "main",
+        "-f", f"tag={tag}", "-f", "upload_release=true", "--repo", "owner/repo",
     ]]
     with pytest.raises(ValueError):
-        release.dispatch_desktop_build("v1.2.3/other", "owner/repo")
+        release.dispatch_canary_build("v1.2.3/other", "owner/repo")
+    with pytest.raises(ValueError):
+        release.dispatch_canary_build("v1.2.3", "owner/repo")
     monkeypatch.setattr(
         release.subprocess,
         "run",
         lambda command, **kwargs: subprocess.CompletedProcess(command, 1, "", "refused"),
     )
-    assert release.dispatch_desktop_build("v1.2.3", "owner/repo") is False
+    assert release.dispatch_canary_build(tag, "owner/repo") is False
     monkeypatch.setattr(release.shutil, "which", lambda _: None)
-    assert release.dispatch_desktop_build(
+    assert release.dispatch_canary_build(
         "v1.2.3+canary.20260818T103000Z", "owner/repo"
     ) is False

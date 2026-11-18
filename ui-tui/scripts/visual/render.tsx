@@ -287,7 +287,7 @@ for (const scene of scenes) {
     <Box flexDirection="column">
       <Text>
         <Text color={scene.theme.color.statusGood}>— ready </Text>
-        <Text color={scene.theme.color.muted}>| opus 4.8 fast | 4s | voice off</Text>
+        <Text color={scene.theme.color.muted}>| opus 4.8 fast | 4s</Text>
       </Text>
       <Text>
         <Text color={scene.theme.color.muted}>{scene.theme.brand.prompt} </Text>

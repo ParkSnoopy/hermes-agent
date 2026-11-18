@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 from gateway.platforms.base import BasePlatformAdapter as _BasePlatformAdapter
 from gateway.stream_consumer_fences import ensure_closed_code_fences
-from hermes_cli.observability.shared_metrics_gateway import stops_reply_clock
+
 
 logger = logging.getLogger("gateway.stream_consumer")
 
@@ -184,7 +184,7 @@ class StreamTransportMixin:
             # merely "drafts are unusable". Disabling drafts alone routes the
             # turn-final to _first_send — a plain send into the chat the
             # connector just refused. Verified: ops were ['draft', 'send'].
-            from gateway.relay.egress import declined_send
+            from gateway.delivery_refusal import declined_send
 
             if declined_send(result):
                 logger.warning(
@@ -309,7 +309,7 @@ class StreamTransportMixin:
             self._message_id = "__no_edit__"
             self._message_created_ts = None
 
-    @stops_reply_clock
+
     async def _send_or_edit(
         self, text: str, *, finalize: bool = False, is_turn_final: bool = True) -> bool:
         """Send or edit the streaming message; True if delivered.  ``finalize`` marks the
@@ -538,7 +538,7 @@ class StreamTransportMixin:
         # unseen tail to the fallback, which SENDS it as a new message to the
         # chat the connector just refused. Measured: ops were
         # ['edit', 'edit', 'send'].
-        from gateway.relay.egress import declined_send
+        from gateway.delivery_refusal import declined_send
 
         if declined_send(result):
             logger.warning(

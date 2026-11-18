@@ -1,4 +1,4 @@
-"""Durable record of the gateways and services ``hermes update`` paused on Windows.
+"""Durable record of the gateways and services ``hermes update`` paused.
 
 The pause token used to live only in the updater's memory (plus an ``atexit`` resume), so a
 killed updater (console closed, ``taskkill``, power loss) left every paused gateway and SCM
@@ -137,20 +137,16 @@ def _mutex(wait_s: float = _MUTEX_WAIT_S):
             yield
         finally:
             _mutex_held.depth = 0
-            update_lock._unlock(fd)
     finally:
         os.close(fd)
 
 
 def _git_executable() -> str:
-    """The git ``hermes update`` runs, found without installing anything: PATH's, else the copy
-    install.ps1 staged in PM's store (``_subprocess_compat.expose_pm_git`` puts it on PATH only
-    inside the updater). A bare ``git`` on such an install dies with WinError 2, so every gate
-    read would fail and the paused gateways would never be restarted."""
+    """Resolve Git without installing anything: PATH first, then PM's existing store."""
     found = shutil.which("git")
     if found:
         return found
-    with suppress(Exception):  # health: allow BLE001 -- no PM, no store, no Windows git package: PATH's answer ("git") stands
+    with suppress(Exception):  # health: allow BLE001 -- no PM or stored Git: PATH's answer ("git") stands
         import pm
         from pm import paths
         from pm.lock import Lockfile
@@ -167,8 +163,7 @@ def _git_executable() -> str:
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess | None:
-    """A read-only git query in the updater's custody (``update_custody.run_git``: job-bound on
-    Windows inside an update, custody config in argv); ``None`` when git cannot run."""
+    """A read-only git query with updater custody config; ``None`` when git cannot run."""
     from hermes_cli.update_custody import run_git
     try:
         return run_git([_git_executable(), "-C", str(root)], args, capture_output=True, text=True,
@@ -884,6 +879,8 @@ def split_draining(token: dict) -> dict:
 def merge_into(token: dict | None, adopted: dict) -> dict:
     """Fold an orphaned pause into this update's token so its resume brings both sets back; its
     obligation id (and every id it absorbed) is recorded so a leftover copy is never resumed twice."""
+    if adopted.get("platform") != "posix":
+        raise ValueError("unsupported gateway pause record platform")
     token = token if token is not None else {"resume_needed": True, "profiles": {}, "unmapped_pids": [], "unmapped": []}
     token["resume_needed"] = True
     # Every pause keeps its own tree evidence: the adopted baseline stops this run's stamp from
@@ -907,29 +904,16 @@ def merge_into(token: dict | None, adopted: dict) -> dict:
             requested = sent = list(adopted.get("identities") or {})
         token["stop_requested"] = sorted({*map(str, token.get("stop_requested") or []), *map(str, requested)})
         token["stop_sent"] = sorted({*map(str, token.get("stop_sent") or []), *map(str, sent or [])})
-    cold = token.setdefault("cold_start_profiles", {})
-    for name, generation in (adopted.get("cold_start_profiles") or {}).items():
-        cold.setdefault(name, generation)
-    if adopted.get("cold_start_if_installed"):
-        token["cold_start_if_installed"] = True
-        if "attested_generation" in adopted:
-            token.setdefault("attested_generation", adopted["attested_generation"])
-    if adopted.get("platform"):  # a POSIX set (update_cmd_posix_pause): its supervised units ride along
+    if adopted.get("platform"):
         token["platform"] = adopted["platform"]
         units = token.setdefault("posix_units", [])
         units.extend(u for u in adopted.get("posix_units") or [] if u not in units)
-    services = token.setdefault("services", [])
-    services.extend(s for s in adopted.get("services") or [] if s not in services)
-    if services:
-        token.setdefault("expected_services", []).extend(s for s in services if s not in token["expected_services"])
-        token.setdefault("restarted_services", [])
-        token.setdefault("service_profiles", {}).update(adopted.get("service_profiles") or {})
     return token
 
 
 def _has_work(token: dict) -> bool:
     return bool(token.get("profiles") or any(u.get("argv") for u in token.get("unmapped") or [])
-                or token.get("services") or token.get("posix_units") or token.get("cold_start_if_installed") or token.get("cold_start_profiles"))
+                or token.get("posix_units"))
 
 
 def _resume_claimed(claim_path: Path, body: dict) -> None:
@@ -951,6 +935,10 @@ def _resume_fenced(claim_path: Path, body: dict) -> None:
     with _mutex():
         # A live consumer may have checkpointed after claim() returned its snapshot.
         body = read(claim_path) or body
+        if body["token"].get("platform") != "posix":
+            _atomic_write(claim_path, {**body, "claimer": UNOWNED})
+            print("  ⚠ Unsupported gateway pause record left untouched.", file=sys.stderr)
+            return
         token = drop_never_stopped(dict(body["token"]))
         draining = split_draining(token)
     _hold_backing_off(token, draining)
@@ -959,10 +947,10 @@ def _resume_fenced(claim_path: Path, body: dict) -> None:
     try:
         if _has_work(token):
             print("→ Restarting gateway(s) paused by an interrupted `hermes update`...", file=sys.stderr)
-            from hermes_cli.update_cmd_windows import _resume_windows_gateways_after_update
+            from hermes_cli.update_cmd_posix_pause import resume_gateways_after_update
             # Whatever command this launch runs owns stdout (``--json`` output, a Desktop pipe).
             with redirect_stdout(sys.stderr):
-                _resume_windows_gateways_after_update(token)
+                resume_gateways_after_update(token)
         else:
             token["resume_needed"] = False
     except Exception as exc:  # health: allow BLE001 -- recovery boundary: any resume error is reported and the claim handed back (finally), never raised into the launch

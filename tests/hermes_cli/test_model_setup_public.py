@@ -20,13 +20,6 @@ def test_persist_model_selection_writes_the_model_section(tmp_path, monkeypatch)
     assert "api_key" not in model  # endpoint credentials of the previous route never carry over
 
 
-def test_note_setup_failure_reaches_the_setup_metric(monkeypatch):
-    seen = []
-    monkeypatch.setattr("hermes_cli.observability.shared_metrics_setup.note_provider_setup_failure", seen.append)
-    from hermes_cli.model_setup import note_setup_failure
-
-    note_setup_failure("auth")
-    assert seen == ["auth"]
 
 
 def test_secret_source_label_names_an_external_source(monkeypatch):
@@ -41,7 +34,7 @@ def test_secret_source_label_names_an_external_source(monkeypatch):
 def test_plugin_validate_treats_the_helpers_as_public(tmp_path):
     (tmp_path / "plugin.yaml").write_text("name: fake-provider\nkind: model-provider\n")
     (tmp_path / "__init__.py").write_text(
-        "from hermes_cli.model_setup import persist_model_selection, note_setup_failure\n"
+        "from hermes_cli.model_setup import persist_model_selection\n"
         "from agent.secret_scope import secret_source_label\n"
         "from hermes_cli.model_setup_flows_common import _persist_model\n")
     assert private_import_findings(tmp_path) == ["__init__.py:3 hermes_cli.model_setup_flows_common._persist_model"]

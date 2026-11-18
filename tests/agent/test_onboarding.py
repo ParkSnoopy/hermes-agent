@@ -7,7 +7,6 @@ import hermes_yaml as yaml
 from agent.onboarding import (
     BUSY_INPUT_FLAG,
     TOOL_PROGRESS_FLAG,
-    detect_openclaw_residue,
     is_seen,
     mark_seen,
 )
@@ -73,20 +72,6 @@ class TestRoundTrip:
 
         assert is_seen(loaded, BUSY_INPUT_FLAG) is True
         assert is_seen(loaded, TOOL_PROGRESS_FLAG) is True
-
-# ---------------------------------------------------------------------------
-# OpenClaw residue banner
-# ---------------------------------------------------------------------------
-
-class TestDetectOpenclawResidue:
-    def test_returns_true_when_openclaw_dir_present(self, tmp_path):
-        (tmp_path / ".openclaw").mkdir()
-        assert detect_openclaw_residue(home=tmp_path) is True
-
-    def test_returns_false_when_path_is_a_file(self, tmp_path):
-        # A stray file named ``.openclaw`` is NOT a workspace — skip the banner.
-        (tmp_path / ".openclaw").write_text("oops")
-        assert detect_openclaw_residue(home=tmp_path) is False
 
 class TestProfileBuildMode:
 

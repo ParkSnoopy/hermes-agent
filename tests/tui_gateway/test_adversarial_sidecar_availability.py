@@ -23,7 +23,7 @@ async def test_registered_presentation_sidecar_remains_available_on_canonical_tr
         try:
             req = {'jsonrpc': '2.0', 'id': 7, 'method': method, 'params': params}
             old = await _dispatch_request(None, req, method, None)
-            assert old is not None and old.get('error', {}).get('code') != -32601
+            assert old['error'] == {'code': -32001, 'message': 'session authority required'}
             result = await _dispatch_request(viewer, req, method, None)
             assert result is not None and result.get('error', {}).get('code') != -32601
         finally:

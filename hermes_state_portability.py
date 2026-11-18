@@ -17,8 +17,7 @@ from utils import safe_json_loads
 from hermes_cli.timefmt import coerce_epoch
 from hermes_state_ids import new_session_id
 from hermes_state_keys import (
-    CRON_PRINCIPAL_ID, CRON_REQUEST_PREFIX, cron_request_range, cron_run_from_request, legacy_cron_run_job,
-    prefix_range,
+    CRON_PRINCIPAL_ID, CRON_REQUEST_PREFIX, cron_request_range, cron_run_from_request,
 )
 from hermes_state_local import POLICY_PREFIX
 from hermes_state_common import SCHEMA_SQL, _shape_preview, _sql_preview_raw, _sql_session_last_active
@@ -97,8 +96,7 @@ _PROMPT_RESOLVED_SQL = "COALESCE(sp.prompt, s.system_prompt) AS _system_prompt_r
 # whose only ``:`` after ``cron:`` ends the job id is unambiguous (fresh execution ids hold none);
 # any other in the range (job ``a`` vs ``a:b``, or an execution id admitted with a ``:`` before that
 # was refused) belongs to the job its creation receipt's policy names, never to a ``:`` split.
-# A legacy id is the prefix plus exactly ``YYYYmmdd_HHMMSS``: the GLOB keeps job ``daily`` from
-# claiming job ``daily_digest``'s ``cron_daily_digest_<ts>`` runs inside the same id range.
+
 _CRON_POLICY_JOB_SQL = (
     "(SELECT CASE WHEN json_valid(r) THEN json_extract(r, '$.cron_job.id') END FROM"
     " (SELECT CASE WHEN json_valid(value) THEN json_extract(value, '$.policy.request_json') END AS r"
@@ -109,9 +107,7 @@ _CRON_ADMISSION_SQL = (
     " AND instr(substr(request_id, length(:request_lo) + 1), ':') = 0)"
     f" OR {_CRON_POLICY_JOB_SQL} = :job_id)")
 _CRON_RUN_IDS_SQL = (
-    "SELECT id FROM sessions WHERE source = 'cron' AND id >= :prefix AND id < :prefix_hi"
-    " AND substr(id, length(:prefix) + 1) GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9][0-9][0-9]'"
-    f" UNION ALL SELECT target_session_id FROM session_admissions WHERE {_CRON_ADMISSION_SQL}")
+    f"SELECT target_session_id FROM session_admissions WHERE {_CRON_ADMISSION_SQL}")
 _CRON_EXECUTION_SQL = (
     "(SELECT substr(request_id, length(:request_lo) + 1) FROM session_admissions"
     f" WHERE target_session_id = s.id AND {_CRON_ADMISSION_SQL} LIMIT 1)")
@@ -247,36 +243,24 @@ class SessionPortabilityMixin:
 
     def list_cron_job_runs(self, job_id: str, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
         """Run sessions of one cron job, newest first, in the ``list_sessions_rich`` row shape,
-        stamped with ``cron_job_id`` and ``cron_execution_id`` (None for a pre-unified run).
+        stamped with ``cron_job_id`` and ``cron_execution_id``. The scheduler principal admits
+        each under ``cron:<job>:<execution>``, indexed by request id.
 
-        Pre-unified runs are flat ``cron_{job_id}_{timestamp}`` sessions: a ``[prefix,
-        prefix_hi)`` id range. Unified-runtime runs keep their runtime-minted ``local-*`` id, which
-        must not change (exact-retry recovery re-derives it), but the scheduler principal admitted
-        each under ``cron:<job>:<execution>``: a range of ``idx_session_admissions_cron_request``.
-        Both scans scale with this job's runs, never with total cron history or with every local
-        session's policy receipt, and skip ``list_sessions_rich``'s compression-chain CTE.
-
-        Limitation (legacy runs had it too): only a run's FIRST session is listed. A run that
+        Only a run's FIRST session is listed. A run that
         compressed continues in a child session this does not return, and the row's liveness
         (``scheduler_owned``) and detail identity follow that first session, not the tip."""
-        prefix, prefix_hi = prefix_range(f"cron_{job_id}_")
         request_lo, request_hi = cron_request_range(job_id)
         query = _rich_select(
             f"s.*, {_CRON_EXECUTION_SQL} AS cron_execution_id", f"s.source = 'cron' AND s.id IN ({_CRON_RUN_IDS_SQL})",
             "\n            ORDER BY s.started_at DESC, s.id DESC\n            LIMIT :limit OFFSET :offset",
             prompt_select=f",\n                {_PROMPT_RESOLVED_SQL}",
         )
-        rows = self._read_rows(query, {"prefix": prefix, "prefix_hi": prefix_hi, "request_lo": request_lo,
+        rows = self._read_rows(query, {"request_lo": request_lo,
                                        "request_hi": request_hi, "job_id": job_id, "limit": limit, "offset": offset})
         return [{**self._rich_row(row), "cron_job_id": job_id} for row in rows]
 
     def cron_run_identity(self, session_id: str) -> Optional[dict[str, Any]]:
-        """``{"cron_job_id", "cron_execution_id"}`` of a cron run session, else None: a legacy id
-        names its job (no execution), a unified-runtime run is one probe of its scheduler admission
-        (and, when its request id is ambiguous, of the job its creation receipt's policy names)."""
-        legacy_job = legacy_cron_run_job(session_id)
-        if legacy_job is not None:
-            return {"cron_job_id": legacy_job, "cron_execution_id": None}
+        """Return the job and execution identified by the scheduler admission, else None."""
         rows = self._read_rows(
             "SELECT request_id, " + _CRON_POLICY_JOB_SQL + " AS policy_job FROM session_admissions"
             " WHERE principal_id = ? AND target_session_id = ? ORDER BY seq LIMIT 1", (CRON_PRINCIPAL_ID, session_id))

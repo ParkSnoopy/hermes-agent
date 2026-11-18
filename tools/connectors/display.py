@@ -55,10 +55,10 @@ def _unchanged(_operation: Any) -> None:
 
 
 def run_display(client: Any, suggested: list[str], *, session_key: str, tool_call_id: Optional[str],
-                connection_callback: Callback, call: Optional[Any] = None) -> str:
+                connection_callback: Callback) -> str:
     """Draw the card and hold the tool thread until it settles."""
     before = connected_slugs(client)
-    operation = DisplayOperation([], session_key=session_key, tool_call_id=tool_call_id, call=call,
+    operation = DisplayOperation([], session_key=session_key, tool_call_id=tool_call_id,
                                  suggested=suggested)
     kind = Kind(prepare=_unchanged, observe=_unchanged, note="",
                 result=lambda _settled: _result(client, before, operation))

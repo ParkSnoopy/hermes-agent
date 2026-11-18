@@ -18,7 +18,7 @@ import signal
 import sys
 from typing import Optional, Tuple
 
-from agent.i18n import t
+
 from gateway.platforms.event import MessageEvent
 from gateway.session import SessionSource, build_session_context
 
@@ -165,7 +165,7 @@ class GatewayInboundHooksMixin:
             message = hook_result.get("message")
             message = message if isinstance(message, str) and message else None
             if decision == "deny":
-                return True, message or t("gateway.hooks.command_blocked", command=command), None
+                return True, message or (f'Command `/{command}` was blocked by a hook.'), None
             if decision == "handled":
                 return True, message, None
             if decision == "rewrite":
@@ -195,16 +195,16 @@ class GatewayInboundHooksMixin:
             if output:
                 from agent.redact import redact_sensitive_text
                 output = redact_sensitive_text(output)
-            return output or t("gateway.quick_command.no_output")
+            return output or 'Command returned no output.'
         except (TimeoutError, asyncio.CancelledError) as stopped:
             # One cleanup for both: a cancelled await must not leave the command running either.
             if proc is not None:
                 await asyncio.shield(_stop_exec_tree(proc))
             if isinstance(stopped, asyncio.CancelledError):
                 raise
-            return t("gateway.quick_command.timed_out")
+            return 'Quick command timed out (30s).'
         except Exception as e:  # health: allow BLE001 -- moved unchanged from run_inbound.py (main has the same handler): an operator quick command's failure is its reply
-            return t("gateway.quick_command.error", error=e)
+            return (f'Quick command error: {e}')
 
     async def _hm_dispatch_quick_and_plugin_commands(
         self, event: MessageEvent, source: SessionSource, command: Optional[str]
@@ -212,7 +212,7 @@ class GatewayInboundHooksMixin:
         """Drain gate, user-defined quick commands (exec/alias) and plugin slash commands →
         ``(handled, result, command)``; an alias quick command rewrites ``command``."""
         if self._draining and getattr(event, "_admitted_before_drain", False) is not True:
-            return True, t("gateway.busy.drain_rejected_new_work", action=self._status_action_gerund()), command
+            return True, (f'⏳ Gateway is {self._status_action_gerund()} and is not accepting new work right now.'), command
 
         # User-defined quick commands (bypass agent loop, no LLM call)
         qcmd = self._hm_quick_commands().get(command) if command else None
@@ -229,13 +229,13 @@ class GatewayInboundHooksMixin:
             if qtype == "exec":
                 exec_cmd = qcmd.get("command", "")
                 if not exec_cmd:
-                    return True, t("gateway.quick_command.no_command", command=command), command
+                    return True, (f"Quick command '/{command}' has no command defined."), command
                 return True, await self._hm_run_exec_quick_command(command, exec_cmd), command
             if qtype != "alias":
-                return True, t("gateway.quick_command.unsupported_type", command=command), command
+                return True, (f"Quick command '/{command}' has unsupported type (supported: 'exec', 'alias')."), command
             new_command = self._hm_expand_alias_quick_command(event, qcmd)
             if new_command is None:
-                return True, t("gateway.quick_command.no_target", command=command), command
+                return True, (f"Quick command '/{command}' has no target defined."), command
             command = new_command  # Fall through to normal command dispatch below
 
         if not command:

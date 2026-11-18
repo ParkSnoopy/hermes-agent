@@ -224,6 +224,8 @@ def test_message_react_targets_the_row_in_the_session_that_owns_it(monkeypatch, 
     rotation invalidated (#123545)."""
     db = SessionDB(db_path=tmp_path / "state.db")
     sid, key, _session, _agent, child = _rotated_session(monkeypatch, db)
+    events = []
+    monkeypatch.setattr(server, "_emit", lambda name, target, payload: events.append((name, target, payload)))
     try:
         # The continuation's newest user row is the rotated turn's own submit row.
         db.append_message(child, "user", content="the turn the user just reacted to")
@@ -241,6 +243,14 @@ def test_message_react_targets_the_row_in_the_session_that_owns_it(monkeypatch, 
             f"reaction landed on row {row_id} (session "
             f"{db._read_one('SELECT session_id FROM messages WHERE id = ?', (row_id,))[0]}), "
             f"not the newest user row {want[0]} in the live session {child}")
+        assert db.get_message_reactions(child, row_id) == got["result"]["reactions"]
+        assert events == [("message.reaction", sid,
+                           {"row_id": row_id, "reactions": got["result"]["reactions"], "role": "user"})]
+        cleared = server.handle_request({"id": "r2", "method": "message.react", "params": {
+            "session_id": sid, "row_id": row_id, "emoji": None}})
+        assert cleared["result"]["reactions"] == []
+        assert db.get_message_reactions(child, row_id) == []
+        assert events[-1] == ("message.reaction", sid, {"row_id": row_id, "reactions": [], "role": "user"})
     finally:
         server._sessions.pop(sid, None)
         db.close()

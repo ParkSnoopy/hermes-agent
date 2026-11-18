@@ -91,14 +91,6 @@ class PluginContext(PluginCapabilityCtxMixin):
         """This plugin's profile-scoped durable JSON state facade."""
         return _facade().PluginState(self.plugin_id, self.manifest.data_namespace)
 
-    @cached_property
-    def platform_actions(self):
-        """Capability-gated platform action facade (``add_reaction``, ``set_thread_title``). Every call
-        re-checks ``gateway.platform_actions`` (legacy ``plugins.entries.<id>.allow_platform_actions``,
-        default OFF) and returns ``{"ok": bool, ...}`` — verbs never raise into hook dispatch; no adapter
-        handles or raw SDK objects."""
-        from hermes_cli.platform_actions import PlatformActions
-        return PlatformActions(self.plugin_id)
 
     def _wrong_type(self, obj: Any, base_class: type, label: str, article: str = "a") -> bool:
         """Warn-and-ignore gate shared by every registrar that requires a base class."""
@@ -215,10 +207,6 @@ class PluginContext(PluginCapabilityCtxMixin):
         except Exception:
             return "default"
 
-    def current_cron_execution(self) -> Any:
-        """The cron run executing now (``cron.execution_identity.CronExecution``), else ``None``."""
-        from cron.execution_identity import current_cron_execution
-        return current_cron_execution()
 
     def on_unload(self, callback: Callable[[], None]) -> PluginRegistration:
         """Register a cleanup callback for unload: runs in reverse acquisition order interleaved
@@ -539,47 +527,6 @@ class PluginContext(PluginCapabilityCtxMixin):
         _facade().logger.debug("Plugin '%s' registered memory provider: %s", self.manifest.name,
                                getattr(provider, "name", "?"))
 
-    @_serialized_replacement
-    def register_dashboard_auth_provider(self, provider) -> Optional[PluginRegistration]:
-        """Register a :class:`hermes_cli.dashboard_auth.DashboardAuthProvider` for the dashboard
-        auth gate (non-loopback bind without ``--insecure``). Wrong type / duplicate name warn and
-        are ignored, never raised."""
-        from hermes_cli.dashboard_auth import DashboardAuthProvider
-        from hermes_cli.dashboard_auth.registry import register_global_provider, unregister_global_provider
-        if self._wrong_type(provider, DashboardAuthProvider, "dashboard-auth provider"):
-            return
-        launch_scope = _facade().hermes_home_key(_facade().get_process_hermes_home())
-        if self._manager.scope_key != launch_scope:
-            _facade().logger.warning(
-                "Plugin '%s' tried to register dashboard-auth provider %r "
-                "from profile scope %s; ignoring it because dashboard auth "
-                "is owned by launch scope %s.",
-                self.manifest.name,
-                provider.name,
-                self._manager.scope_key,
-                launch_scope,
-            )
-            return
-        registry_name = provider.name
-        # The auth registry is process-global (lifetime = web server). Disposing it on a routine
-        # per-home manager teardown emptied it for the WHOLE process and disabled sign-in until
-        # restart — so upsert and keep it out of reverse-order teardown (``persistent=True``).
-        try:
-            # A per-home manager is torn down routinely (profile-scoped dashboard activity, force
-            # re-discovery), and disposing this registration on that teardown emptied the auth registry for
-            # the WHOLE process, permanently disabling sign-in until restart (#91701). The handle still
-            # disposes explicitly (identity- conditional), and a forced re-discovery rotates the provider in
-            # place via the upsert.
-            register_global_provider(provider)
-        except (TypeError, ValueError) as e:
-            _facade().logger.warning("Plugin '%s' failed to register dashboard-auth provider %r: %s",
-                                     self.manifest.name, getattr(provider, "name", "?"), e)
-            return
-        handle = self._track("dashboard_auth_provider", registry_name,
-                             lambda: unregister_global_provider(registry_name, provider), persistent=True)
-        _facade().logger.info("Plugin '%s' registered dashboard-auth provider: %s (%s)", self.manifest.name,
-                              registry_name, provider.display_name)
-        return handle
 
     @_serialized_replacement
     def register_platform(
@@ -695,49 +642,6 @@ class PluginContext(PluginCapabilityCtxMixin):
         _facade().logger.debug("Plugin %s registered %d redaction pattern(s)", self.manifest.name, count)
         return count
 
-    def register_locale(
-        self, lang: str, source: str | Path | Mapping[str, Any], *, endonym: Optional[str] = None,
-        rtl: bool = False, surface: str = "core",
-    ) -> PluginRegistration:
-        """Register a language-pack layer for ``lang`` (``pl``, ``pt-br``): ``source`` is a YAML file path or
-        a nested/flat mapping of ``dotted.key: text``. ``surface`` is ``core`` (Python ``t()``), ``tui`` or
-        ``desktop`` (served to the renderers over ``i18n.catalog``). Partial catalogs are fine; the last
-        registration wins key by key. Resets the i18n caches; never changes ``display.language``. Raises
-        ``ValueError`` for a malformed id/surface/file and ``FileNotFoundError`` for a missing path."""
-        from agent.i18n_layers import (
-            SURFACES, is_language_id, load_locale_source, normalize_language_id, register_pack, unregister_pack,
-        )
-        lang_id = normalize_language_id(lang)
-        if not is_language_id(lang_id):
-            raise self._refuse(f"locale with invalid language id {lang!r} (expected e.g. 'pl', 'pt-br')")
-        if surface not in SURFACES:
-            raise self._refuse(f"locale {lang_id!r} for unknown surface {surface!r} (one of {', '.join(SURFACES)})")
-        messages = load_locale_source(source)
-        entry = register_pack(lang_id, surface, messages, source=f"plugin:{self.manifest.name}",
-                              endonym=endonym, rtl=rtl)
-        handle = self._track("locale", f"{lang_id}.{surface}", lambda: unregister_pack(entry))
-        _facade().logger.debug("Plugin %s registered locale: %s/%s (%d keys)", self.manifest.name, lang_id, surface,
-                               len(messages))
-        return handle
-
-    def register_locale_dir(
-        self, path: str | Path, *, metadata: Optional[Mapping[str, Mapping[str, Any]]] = None,
-    ) -> list[PluginRegistration]:
-        """Register every ``<lang>[.tui|.desktop].yaml`` under ``path`` (a pack's ``locales/`` dir). The
-        loader calls this for plugins declaring ``provides_locales``; ``metadata`` maps ids to
-        ``{endonym, rtl}``. A broken file is skipped with a warning so one typo never disables the pack."""
-        from agent.i18n_layers import scan_locale_dir
-        handles: list[PluginRegistration] = []
-        for lang_id, surface, file in scan_locale_dir(_facade().Path(path)):
-            meta = dict((metadata or {}).get(lang_id) or {})
-            try:
-                handles.append(self.register_locale(
-                    lang_id, file, surface=surface, endonym=meta.get("endonym"), rtl=bool(meta.get("rtl", False)),
-                ))
-            except Exception as exc:
-                _facade().logger.warning("Plugin '%s' locale file %s skipped: %s", self.manifest.name, file, exc)
-        return handles
-
     def register_hook(self, hook_name: str, callback: Callable, *, hold_stream: bool = False) -> PluginRegistration:
         """Register a lifecycle hook callback (``PluginDispatchMixin.track_hook``)."""
         return self._manager.track_hook(self, hook_name, callback, hold_stream=hold_stream)
@@ -824,7 +728,7 @@ class PluginContext(PluginCapabilityCtxMixin):
         self._manager._subscribe_event(self.plugin_id, event, callback)
         _facade().logger.debug("Plugin %s subscribed to event: %s", self.manifest.name, event)
 
-    from hermes_cli.plugins_content import register_automation_blueprint, register_skill
+    from hermes_cli.plugins_content import register_skill
     from hermes_cli.plugin_rpc import emit_to_session, register_rpc
 
     # -- scoped provider registrars ----------------------------------------------------------------
@@ -855,20 +759,10 @@ class PluginContext(PluginCapabilityCtxMixin):
         return register_scoped_provider(self, "register_browser_provider", provider)
 
     @scoped_provider_registrar
-    def register_terminal_environment_provider(self, provider):
-        return register_scoped_provider(self, "register_terminal_environment_provider", provider)
-
-    @scoped_provider_registrar
     def register_secret_source(self, source):
         return register_scoped_provider(self, "register_secret_source", source)
 
-    @scoped_provider_registrar
-    def register_tts_provider(self, provider):
-        return register_scoped_provider(self, "register_tts_provider", provider)
 
-    @scoped_provider_registrar
-    def register_transcription_provider(self, provider):
-        return register_scoped_provider(self, "register_transcription_provider", provider)
 
     @scoped_provider_registrar
     def register_delegation_provider(self, provider):

@@ -1,8 +1,8 @@
 import { Box, Text, useInput, useStdout } from '@hermes/ink'
 import { useEffect, useState } from 'react'
 
+import { hubsEn } from '../copy/hubs.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { useT } from '../i18n/useT.js'
 import { rpcErrorMessage } from '../lib/rpc.js'
 import type { Theme } from '../theme.js'
 
@@ -42,7 +42,7 @@ const GLYPH: Record<string, string> = {
 }
 
 export function PluginsHub({ gw, maxWidth, onClose, t }: PluginsHubProps) {
-  const { list: L, plugins: T } = useT().hubs
+  const { list: L, plugins: T } = hubsEn.hubs
   const [rows, setRows] = useState<PluginRow[]>([])
   const [bundledCount, setBundledCount] = useState(0)
   const [userCount, setUserCount] = useState(0)

@@ -98,23 +98,6 @@ async def test_flood_refused_progress_edit_sends_nothing_inside_the_window(monke
     assert len(adapter.edits) == 1, adapter.edits  # the refusal opened a window: no further edits in it
 
 
-@pytest.mark.asyncio
-async def test_flood_refused_finalize_edit_is_not_retried_as_plain_text():
-    """The MarkdownV2 -> plain fallback is for parse errors; on a flood it was a second refused call."""
-    from unittest.mock import AsyncMock
-
-    from plugins.platforms.telegram.adapter import TelegramAdapter
-
-    class RetryAfter(Exception):
-        retry_after = 30
-
-    adapter = TelegramAdapter(PlatformConfig(enabled=True, token="fake-token"))
-    adapter._bot = SimpleNamespace(edit_message_text=AsyncMock(side_effect=RetryAfter("Flood control exceeded. Retry in 30 seconds")))
-
-    result = await adapter.edit_message("-1001", "7", "**progress** line", finalize=True)
-
-    assert result.error == "flood_control:30"
-    assert adapter._bot.edit_message_text.await_count == 1
 
 
 class FloodOnceAdapter(FloodedEditAdapter):

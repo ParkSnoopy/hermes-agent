@@ -126,7 +126,6 @@ def test_session_interrupt_uses_explicit_stop_compatibility(server, monkeypatch,
         "session_key": "session-key",
         "_run_thread": None,
     }
-    monkeypatch.setattr(server, "_tts_stream_stop", lambda: None)
     monkeypatch.setattr(server, "_sess_nowait", lambda _params, _rid: (session, None))
     monkeypatch.setattr(server, "_sess", lambda _params, _rid: (session, None))
     monkeypatch.setattr(server, "_session_uses_compute_host", lambda _session: False)
@@ -405,75 +404,7 @@ def test_server_request_error_response_fails_fast(server):
     assert box["result"] is None
 
 
-def _two_window_session(server, sid):
-    """A session two advertised Desktop windows are attached to (a FanoutTransport of WS peers)."""
-    import asyncio
-
-    from tui_gateway import server_requests
-    from tui_gateway.transport import FanoutTransport
-
-    # The fake implements the same guarded batch boundary as a real WS peer.
-    loop = asyncio.new_event_loop()
-    threading.Thread(target=loop.run_forever, daemon=True).start()
-    windows = (_silent_ws(), _silent_ws())
-    for window in windows:
-        async def _write_many_if_current_async(frames, is_current, window=window):
-            return all(not is_current() or window.write(frame) for frame in frames)
-        window._loop, window.write_many_if_current_async = loop, _write_many_if_current_async
-        server_requests.advertise(window, True)
-    _ws_session(server, sid, FanoutTransport(*windows))
-    return windows
-
-
-def _not_shown(req):
-    from tui_gateway import server_requests
-    return {"jsonrpc": "2.0", "id": req.id, "error": {"code": server_requests.NOT_SHOWN_CODE, "message": "not here"}}
-
-
-def test_window_owned_request_refuses_at_once_when_no_window_shows_the_session(server):
-    """#119333: every attached window says it does not show the session → preview.read resolves with the
-    distinct not-shown refusal now, instead of the agent waiting out the 45s bridge deadline."""
-    from tui_gateway import server_requests
-
-    windows = _two_window_session(server, "s-none")
-    box = {}
-    thread = threading.Thread(target=lambda: box.setdefault("r", server._ask("preview.read", "s-none", {}, timeout=30)),
-                              daemon=True)
-    thread.start()
-    req = _wait_open(server_requests, windows=windows)
-    t0 = time.monotonic()
-    assert server.dispatch(_not_shown(req), windows[0]) is None
-    # A replayed decline from the same window is still one window's vote.
-    server.dispatch(_not_shown(req), windows[0])
-    assert thread.is_alive()
-    server.dispatch(_not_shown(req), windows[1])
-    thread.join(timeout=2)
-    assert not thread.is_alive() and time.monotonic() - t0 < 2
-    assert json.loads(box["r"]) == {"success": False, "error": server_requests.NOT_SHOWN_MESSAGE}
-    assert server_requests.open_requests("s-none") == []
-
-
-def test_window_owned_request_decline_does_not_beat_the_owner_window(server):
-    """#113348 stays fixed: one bystander window declining leaves the request open for the window that
-    shows the session, and its answer is the result."""
-    from tui_gateway import server_requests
-
-    bystander, owner = _two_window_session(server, "s-own")
-    box = {}
-    thread = threading.Thread(target=lambda: box.setdefault("r", server._ask("preview.read", "s-own", {}, timeout=5)),
-                              daemon=True)
-    thread.start()
-    req = _wait_open(server_requests, windows=(bystander, owner))
-    server.dispatch(_not_shown(req), bystander)
-    # An unattributed decline (proxied / relayed frame) is not a window's vote either.
-    assert server_requests.resolve_response(_not_shown(req)) is True
-    assert thread.is_alive() and [r["id"] for r in server_requests.open_requests("s-own")] == [req.id]
-    server.dispatch({"jsonrpc": "2.0", "id": req.id, "result": {"value": '{"text": "page"}'}}, owner)
-    thread.join(timeout=2)
-    assert box["r"] == '{"text": "page"}'
-
-
-def test_client_capabilities_advertises_counting_not_shown_declines(server):
+def test_client_capabilities_advertises_current_requests(server):
     from tui_gateway.transport import bind_transport, reset_transport
 
     peer = _silent_ws()
@@ -482,14 +413,22 @@ def test_client_capabilities_advertises_counting_not_shown_declines(server):
         response = server.handle_request({"id": 1, "method": "client.capabilities", "params": {"server_requests": True}})
     finally:
         reset_transport(token)
-    assert response["result"]["declines_not_shown"] is True
+    from tui_gateway.contracts import registry
+    assert response["result"]["server_requests"] == sorted(registry.SERVER_REQUESTS)
+    assert {"clarify", "approval", "sudo", "secret"} <= set(response["result"]["server_requests"])
+    assert "declines_not_shown" not in response["result"]
+    assert "vault.preview.fill" not in server._methods
 
 
-@pytest.mark.parametrize("method", ["secret", "sudo", "terminal.read", "tour"])
-def test_server_request_timeout_emits_one_request_cancel(capture, method):
+@pytest.mark.parametrize("method,params", [
+    ("secret", {"env_var": "TEST_SECRET", "prompt": "Enter a test value"}),
+    ("sudo", {}), ("vault.code", {}),
+    ("vault.unlock_prompt", {"backend": "local", "display_name": "Hermes"}),
+])
+def test_server_request_timeout_emits_one_request_cancel(capture, method, params):
     from tui_gateway import server_requests
     _server, buf = capture
-    assert server_requests.send(method, "s1", {}, timeout=0) is None
+    assert server_requests.send(method, "s1", params, timeout=0) is None
     request, cancel = _frames(buf)
     assert request["method"] == method
     assert cancel["params"]["type"] == "request.cancel"
@@ -1786,13 +1725,12 @@ def test_dispatch_runs_short_handlers_inline(server):
 
 @pytest.mark.parametrize(
     "slow_method",
-    ["complete.path", "complete.slash", "voice.toggle", "voice.record", "voice.tts", "wake.start", "wake.status"],
+    ["complete.path", "complete.slash"],
 )
 def test_slow_handlers_run_off_the_reader_thread(slow_method, server, monkeypatch):
     """dispatch() must hand these RPCs to the pool and return at once, so a stalled handler never blocks
     the stdin/WS reader behind it. Completion (#21123: git ls-files / skill scan froze prompt.submit for
-    the 120s RPC timeout) and voice/wake (synchronous faster-whisper lazy install, up to 300s: sent
-    messages never reached the agent) are the same bug class as #50005."""
+    the 120s RPC timeout) is the same bug class as #50005."""
     release = threading.Event()
     written = []
 

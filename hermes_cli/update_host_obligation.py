@@ -33,7 +33,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
-from hermes_dir_acl import make_user_dir
+from hermes_user_dirs import make_user_dir
 
 logger = logging.getLogger("hermes_cli.update_cmd")
 
@@ -370,12 +370,11 @@ def replace_bytes(path: Path, data: bytes) -> None:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
         raise
-    if os.name != "nt":  # Windows opens no directory handle; NTFS journals the rename itself
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def clear_host_obligation() -> None:

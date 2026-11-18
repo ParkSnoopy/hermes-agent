@@ -36,9 +36,9 @@ def test_restart_all_stamps_the_marker_after_the_host_is_stopped(hermes_home, mo
     monkeypatch.setattr(gw, "_wait_for_api_server_port_free", lambda: None)
     monkeypatch.setattr(gw, "_discard_dead_host_record", lambda: None)
     monkeypatch.setattr(gw, "_forget_host_gateway_probe", lambda: None)
-    monkeypatch.setattr(gw, "_installed_service_kind_for", lambda windows: "systemd")
+    monkeypatch.setattr(gw, "_installed_service_kind", lambda: "systemd")
     monkeypatch.setattr(gw, "_service_call", lambda kind, verb, system: seen.setdefault("marker_at_start", marker.exists()))
-    monkeypatch.setattr(gw, "is_windows", False)
+
 
     owner = SimpleNamespace(pid=4242, profiles=["default"], home=hermes_home, describe=lambda: "host")
     monkeypatch.setattr(gw, "_host_multiplexer_for_all_verb", lambda: owner)

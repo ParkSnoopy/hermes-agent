@@ -30,7 +30,7 @@ def validate_coalesce_config(route_name: str, route: dict) -> None:
     coalesce = route.get("coalesce")
     if coalesce is None:
         return
-    for exclusive in ("deliver_only", "cron_job"):
+    for exclusive in ("deliver_only",):
         if route.get(exclusive):
             raise ValueError(f"[webhook] Route '{route_name}' combines {exclusive} with coalesce. Coalescing only "
                              f"applies to agent-mode routes.")

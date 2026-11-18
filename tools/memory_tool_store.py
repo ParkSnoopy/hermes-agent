@@ -9,7 +9,7 @@ import os
 import re
 import time
 from contextlib import contextmanager, suppress
-from contextvars import ContextVar
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -32,15 +32,15 @@ def _scan_memory_content(content: str) -> Optional[str]:
     return _first_threat_message(content, scope="strict")
 
 
-# Why the last refusal/failure in this context happened, for the shared metric only (a closed name from
-# shared_metrics_contract.MEMORY_OP_FAILURE_CLASSES); never part of the result the model sees.
-FAILURE_CLASS: ContextVar[str] = ContextVar("memory_failure_class", default="other")
 _BACKUP_FAILED = " (BACKUP FAILED — file unchanged on disk)"
 
 
-def _error(message: str, failure_class: str, **extra) -> dict[str, Any]:
-    FAILURE_CLASS.set(failure_class)
+def _error(message: str, **extra) -> dict[str, Any]:
     return {"success": False, "error": message, **extra}
+
+
+class _BudgetFailure(dict):
+    """Internal signal that oversized on-disk content caused a budget refusal."""
 
 
 def _store_target(filename: str) -> str:
@@ -56,7 +56,7 @@ def _drift_error(path: Path, bak_path: str) -> dict[str, Any]:
         f"edit). Rewriting it would lose that text. A snapshot was saved to {bak_path}. Resolve the drift first — "
         f"either rewrite the file as a clean §-delimited list of entries, or move the extra "
         f"content out — then retry. This guard exists to prevent silent data loss (issue #26045)."
-    ), "drift", drift_backup=bak_path, remediation=(
+    ), drift_backup=bak_path, remediation=(
         "Open the .bak file, integrate the missing entries into the memory tool with one add op per entry via "
         f"memory(target='{_store_target(path.name)}', operations=[{{action: 'add', content: ...}}]), then remove or "
         "rewrite the original file to a clean state."))
@@ -68,7 +68,7 @@ def _read_failed_error(path: Path) -> dict[str, Any]:
         f"Refusing to write {path.name}: the file exists on disk but could not be read right now "
         f"(temporarily locked by another program, a permission change, invalid/corrupt text encoding, "
         f"or a filesystem error). Treating an unreadable file as empty and saving would wipe existing "
-        f"memory, so the write is refused. Nothing was changed — retry in a moment.", "read_failed")
+        f"memory, so the write is refused. Nothing was changed — retry in a moment.")
 
 
 # Typography a model re-types differently from the stored entry: every quote/backtick -> "'",
@@ -122,7 +122,7 @@ def _no_match_error(entries: list[str], old_text: str, verb: str, **extra) -> di
     hint = (" old_text must come from ONE entry ('§' separates entries); use one op per entry."
             if "§" in old_text else "")
     return _error(f"No entry matched '{old_text}'.{hint} Retry the {verb} with old_text copied verbatim "
-                  f"from the intended entry" + (" (closest_entries below)." if closest else "."), "no_match",
+                  f"from the intended entry" + (" (closest_entries below)." if closest else "."),
                   **({"closest_entries": closest} if closest else {}), **extra)
 
 
@@ -144,18 +144,18 @@ def _span_occurrences(text: str, span: str) -> int:
     return sum(text.startswith(span, i) for i in range(len(text) - len(span) + 1))
 
 
-def _patch_entry(entry: str, old_text: str, new_text: str) -> tuple[Optional[str], str, str]:
-    """``(patched entry, "", "none")``, or ``(None, error, failure class)`` when the span occurs more
+def _patch_entry(entry: str, old_text: str, new_text: str) -> tuple[Optional[str], str]:
+    """``(patched entry, "")``, or ``(None, error)`` when the span occurs more
     than once in the entry, the edit changes nothing, or the patched entry fails the threat scan.
     Single and batch patches both go through here, so they share one rule."""
     if (count := _span_occurrences(entry, old_text)) > 1:
-        return None, _repeated_span_message(old_text, count), "ambiguous"
+        return None, _repeated_span_message(old_text, count)
     patched = entry.replace(old_text, new_text, 1)
     if patched == entry:
-        return None, f"Patch is a no-op: '{old_text}' -> '{new_text}' leaves the entry unchanged.", "invalid_args"
+        return None, f"Patch is a no-op: '{old_text}' -> '{new_text}' leaves the entry unchanged."
     if scan_error := _scan_memory_content(patched):
-        return None, scan_error, "scan_blocked"
-    return patched, "", "none"
+        return None, scan_error
+    return patched, ""
 
 
 def _pinned_index(entries: list[str], matched_entry: str) -> Optional[int]:
@@ -214,7 +214,7 @@ class MemoryStore:
         self._consolidation_failures += 1
         if self._consolidation_failures <= self._MAX_CONSOLIDATION_FAILURES_PER_TURN:
             return response
-        FAILURE_CLASS.set("retry_cap")
+
         return {"success": False, "done": True, "error": (
             f"Memory consolidation failed {self._consolidation_failures} times this turn. Stop retrying "
             "memory calls — leave memory unchanged for now and continue with your reply to the user. "
@@ -323,8 +323,9 @@ class MemoryStore:
 
     def _failure_with_entries(self, target: str, message: str) -> dict[str, Any]:
         """Over-budget consolidation failure carrying the live entries so the model can consolidate."""
-        return self._consolidation_failure(
-            _error(message, "over_budget", current_entries=self._entries_for(target), usage=self._usage(target)))
+        result = self._consolidation_failure(
+            _error(message, current_entries=self._entries_for(target), usage=self._usage(target)))
+        return _BudgetFailure(result) if not result.get("done") else result
 
     def _add_overflow(self, target: str, content: str, limit: int) -> dict[str, Any]:
         """A lone add over budget, legacy or one-item batch: the model has not consolidated yet,
@@ -336,16 +337,17 @@ class MemoryStore:
             f"removes or shortens (patch) stale entries from current_entries below to free at least "
             f"{over:,} chars AND adds this entry — the limit is checked only on the batch result."))
 
-    def _batch_failure(self, target: str, message: str, failure_class: str,
+    def _batch_failure(self, target: str, message: str, *, over_budget: bool = False,
                        closest_entries: Optional[list[str]] = None) -> dict[str, Any]:
         """Batch-abort failure WITHOUT ``current_entries``: the store did not change and the
         caller already holds the inventory, so echoing it made each consolidation retry
         grow the context it was invoked to shrink (#97316). A zero-match op carries only
         its few ``closest_entries``."""
-        return self._consolidation_failure(
-            _error(message + " No operations were applied (batch is all-or-nothing).", failure_class,
+        result = self._consolidation_failure(
+            _error(message + " No operations were applied (batch is all-or-nothing).",
                    usage=self._usage(target),
                    **({"closest_entries": closest_entries} if closest_entries else {})))
+        return _BudgetFailure(result) if over_budget and not result.get("done") else result
 
     def _mutate(self, target: str, mutate, *, skip_drift: bool = False) -> dict[str, Any]:
         """Lock, re-read from disk, run ``mutate(entries, limit)`` -> ``(new_entries, message)``
@@ -366,12 +368,11 @@ class MemoryStore:
             oversized = not skip_drift and self._has_oversized_entry(target, raw)
             before = list(dict.fromkeys(self._parse_entries(raw)))
             self._set_entries(target, before)
-            FAILURE_CLASS.set("other")  # read below: only this closure's refusal counts
             result = mutate(self._entries_for(target), self._char_limit(target))
             if isinstance(result, dict):
                 # Over budget beside an oversized entry: that entry is the obstacle, so report
                 # the drift (with its snapshot) rather than a budget the model cannot meet.
-                if oversized and result.get("success") is False and FAILURE_CLASS.get() == "over_budget":
+                if oversized and isinstance(result, _BudgetFailure):
                     return _drift_error(path, self._drift_backup(target, raw))
                 return result
             extra_fields = dict(result[2]) if len(result) > 2 else {}
@@ -398,9 +399,9 @@ class MemoryStore:
         """Append a new entry. Returns error if it would exceed the char limit."""
         content = content.strip()
         if not content:
-            return _error("Content cannot be empty.", "missing_content")
+            return _error("Content cannot be empty.")
         if scan_error := _scan_memory_content(content):
-            return _error(scan_error, "scan_blocked")
+            return _error(scan_error)
 
         def _add(entries, limit):
             if content in entries:
@@ -419,11 +420,11 @@ class MemoryStore:
         the matched span is not spliced into it."""
         new_content = new_content.strip()
         if not old_text.strip():
-            return _error("old_text cannot be empty.", "missing_old_text")
+            return _error("old_text cannot be empty.")
         if not new_content:
-            return _error("new_content cannot be empty. Use 'remove' to delete entries.", "missing_content")
+            return _error("new_content cannot be empty. Use 'remove' to delete entries.")
         if scan_error := _scan_memory_content(new_content):
-            return _error(scan_error, "scan_blocked")
+            return _error(scan_error)
         return self._edit(target, old_text.strip(), new_content, matched_entry)
 
     def patch(self, target: str, old_text: str, new_text: str,
@@ -433,9 +434,9 @@ class MemoryStore:
         ``replace`` deliberately is not (replace overwrites the WHOLE entry). A span that
         occurs more than once in the entry is rejected rather than edited everywhere."""
         if not (old_text or "").strip():
-            return _error("old_text cannot be empty.", "missing_old_text")
+            return _error("old_text cannot be empty.")
         if new_text is None or not str(new_text).strip():
-            return _error(f"new_text cannot be empty. {PATCH_DROP_HINT}", "missing_content")
+            return _error(f"new_text cannot be empty. {PATCH_DROP_HINT}")
         # The span keeps its whitespace: it is part of the text being replaced ("tea " -> "coffee ").
         return self._patch(target, old_text, str(new_text), matched_entry)
 
@@ -447,9 +448,9 @@ class MemoryStore:
             if isinstance(idx, dict):
                 return idx
             before = entries[idx]
-            after, message, failure_class = _patch_entry(before, old_text, new_text)
+            after, message = _patch_entry(before, old_text, new_text)
             if after is None:
-                return _error(message, failure_class)
+                return _error(message)
             patched = entries[:idx] + [after] + entries[idx + 1:]
             new_total = len(ENTRY_DELIMITER.join(patched))
             if new_total > limit:
@@ -464,7 +465,7 @@ class MemoryStore:
     def remove(self, target: str, old_text: str, matched_entry: Optional[str] = None) -> dict[str, Any]:
         """Remove the entry containing old_text substring."""
         if not old_text.strip():
-            return _error("old_text cannot be empty.", "missing_old_text")
+            return _error("old_text cannot be empty.")
         return self._edit(target, old_text.strip(), None, matched_entry)
 
     def _locate(self, entries: list[str], old_text: str, verb: str, matched_entry: Optional[str] = None):
@@ -474,10 +475,10 @@ class MemoryStore:
         contains old_text."""
         if matched_entry is not None:
             idx = _pinned_index(entries, matched_entry)
-            return idx if idx is not None else _error(_stale_entry_message(matched_entry), "stale_entry")
+            return idx if idx is not None else _error(_stale_entry_message(matched_entry))
         idx, ambiguous = _find_unique_match(entries, old_text)
         if ambiguous:
-            return _error(f"Multiple entries matched '{old_text}'. Be more specific.", "ambiguous",
+            return _error(f"Multiple entries matched '{old_text}'. Be more specific.",
                           matches=[entries[i][:80] + ("..." if len(entries[i]) > 80 else "")
                                    for i in _substring_matches(entries, old_text)])
         if idx is None:
@@ -513,51 +514,50 @@ class MemoryStore:
 
     @staticmethod
     def _apply_batch_op(working: list[str], act: str, content: str, old_text: str, pos: str,
-                        matched_entry: Optional[str] = None) -> tuple[Optional[str], Any, str, Optional[str]]:
-        """Apply one batch op to *working*; return ``(error message, previous content, failure class,
+                        matched_entry: Optional[str] = None) -> tuple[Optional[str], Any, Optional[str]]:
+        """Apply one batch op to *working*; return ``(error message, previous content,
         patched entry)`` — on a zero-match error the second value is that op's ``closest_entries``
-        instead, and the fourth is the entry a patch produced (None for every other op).
+        instead, and the third is the entry a patch produced (None for every other op).
         Previous content is captured before each replace/remove, under the store lock.
         It is published only after the entire batch has been validated and persisted.
         A staged op's *matched_entry* selects exactly that entry, as in ``_locate``.
         """
         if act == "add":
             if not content:
-                return f"{pos}: content is required.", None, "missing_content", None
+                return f"{pos}: content is required.", None, None
             if content not in working:  # idempotent -- skip duplicate, don't fail the batch
                 working.append(content)
-            return None, None, "none", None
+            return None, None, None
         if act not in ("replace", "remove", "patch"):
-            return f"{pos}: unknown action. Use add, patch, or remove.", None, "invalid_args", None
+            return f"{pos}: unknown action. Use add, patch, or remove.", None, None
         if not old_text.strip():
-            return f"{pos}: old_text is required.", None, "missing_old_text", None
+            return f"{pos}: old_text is required.", None, None
         if act == "replace" and not content:
             return (f"{pos}: content is required — set this operation object's own 'content' to the COMPLETE "
-                    f"new entry (or use action='remove' to delete)."), None, "missing_content", None
+                    f"new entry (or use action='remove' to delete)."), None, None
         if act == "patch" and not content.strip():
             return (f"{pos}: content is required — set this operation object's own 'content' to the new "
-                    f"text for the old_text span. {PATCH_DROP_HINT}"), None, "missing_content", None
+                    f"text for the old_text span. {PATCH_DROP_HINT}"), None, None
         if matched_entry is not None:
             idx = _pinned_index(working, matched_entry)
             if idx is None:
-                return f"{pos}: {_stale_entry_message(matched_entry)}", None, "stale_entry", None
+                return f"{pos}: {_stale_entry_message(matched_entry)}", None, None
         else:
             idx, ambiguous = _find_unique_match(working, old_text)
             if ambiguous:
-                return (f"{pos}: '{old_text}' matched multiple distinct entries -- be more specific.", None,
-                        "ambiguous", None)
+                return f"{pos}: '{old_text}' matched multiple distinct entries -- be more specific.", None, None
             if idx is None:
                 miss = _no_match_error(working, old_text, act)
-                return f"{pos}: {miss['error']}", miss.get("closest_entries"), "no_match", None
+                return f"{pos}: {miss['error']}", miss.get("closest_entries"), None
         previous_content = working[idx]
         if act != "patch":
             working[idx:idx + 1] = [content] if act == "replace" else []
-            return None, previous_content, "none", None
-        patched, message, failure_class = _patch_entry(previous_content, old_text, content)
+            return None, previous_content, None
+        patched, message = _patch_entry(previous_content, old_text, content)
         if patched is None:
-            return f"{pos}: {message}", None, failure_class, None
+            return f"{pos}: {message}", None, None
         working[idx:idx + 1] = [patched]
-        return None, previous_content, "none", patched
+        return None, previous_content, patched
 
     def apply_batch(self, target: str, operations: list[dict[str, Any]]) -> dict[str, Any]:
         """Apply add/replace/remove ops atomically against the FINAL budget, so one call
@@ -578,13 +578,13 @@ class MemoryStore:
         if target_error := _memory_target_error(self, target, operations):
             return target_error
         if not operations:
-            return _error("operations list is empty.", "invalid_args")
+            return _error("operations list is empty.")
         ops = [op or {} for op in operations]
         # Scan every add/replace content BEFORE touching disk -- one poisoned op rejects the batch.
         for i, op in enumerate(ops):
             scan_error = op.get("action") in {"add", "replace"} and op.get("content") and _scan_memory_content(op["content"])
             if scan_error:
-                return _error(f"Operation {i + 1}: {scan_error}", "scan_blocked")
+                return _error(f"Operation {i + 1}: {scan_error}")
 
         def _apply(entries, limit):
             working = list(entries)  # only committed if the whole batch validates
@@ -595,11 +595,11 @@ class MemoryStore:
                 content, old_text = op.get("content") or op.get("new_text") or "", op.get("old_text") or ""
                 if act != "patch":  # whole-entry actions; a patch span keeps its whitespace
                     content, old_text = content.strip(), old_text.strip()
-                msg, previous_content, failure_class, after = self._apply_batch_op(
+                msg, previous_content, after = self._apply_batch_op(
                     working, act, content, old_text, f"Operation {i + 1} ({act or 'unknown'})",
                     op.get("matched_entry"))
                 if msg:  # a failed op's second value is its closest_entries (or None)
-                    return self._batch_failure(target, msg, failure_class, closest_entries=previous_content)
+                    return self._batch_failure(target, msg, closest_entries=previous_content)
                 matched.append(previous_content)
                 if after is not None:
                     produced[i + 1] = after
@@ -614,7 +614,7 @@ class MemoryStore:
                     f"Refusing to empty {label}: this batch would remove every entry from a "
                     f"previously non-empty store. Keep at least one entry — merge overlapping "
                     f"entries into a shorter one instead of removing the last one. To delete the "
-                    f"final entry deliberately, remove it alone in a one-item batch."), "would_empty")
+                    f"final entry deliberately, remove it alone in a one-item batch."))
             new_total = len(ENTRY_DELIMITER.join(working))  # budget check against the FINAL state only
             # A remove-only batch or a lone duplicate add never grows the store, so like the
             # legacy remove/add it is not refused for excess left by a lowered cap.
@@ -626,7 +626,7 @@ class MemoryStore:
                 return self._batch_failure(target, (
                     f"Applying all {len(operations)} operations {_over_limit(new_total, limit)} more. Add "
                     f"removes or shortening patches of other stale entries to the same batch, then retry."),
-                    "over_budget")
+                    over_budget=True)
             if not commit:
                 return {"success": True, "matched_entries": matched}
             # op index -> full entry text its replace/remove selected (#117952), 1-based to

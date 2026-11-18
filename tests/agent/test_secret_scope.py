@@ -53,8 +53,6 @@ class TestMultiplexActiveFailClosed:
             ss.reset_secret_scope(token)
 
 
-
-
 class TestScopedSingleProfile:
     """Multiplex OFF with a scope installed: the scope is an overlay, not a
     blindfold. The cron scheduler installs a ``<home>/.env`` scope around every
@@ -186,23 +184,6 @@ class TestRoutedForeignHomeScope:
             # The reader adapters actually call takes the same fail-closed path.
             assert get_scoped_secret("OPENAI_API_KEY") is None
 
-    def test_worker_profile_scope_bind_home_false_e2e(self, monkeypatch, tmp_path):
-        """The kanban spawn-env build binds the assignee's secret scope with
-        ``bind_home=False`` — no home override, because the passthrough POLICY
-        belongs to the dispatcher. The profile_home stamp must still make scoped
-        misses fail closed, or the dispatcher's env leaks into B's worker env."""
-        from hermes_cli.kanban_db_dispatch import _worker_profile_scope
-
-        foreign = tmp_path / "profiles" / "assignee"
-        foreign.mkdir(parents=True)
-        (foreign / ".env").write_text("ASSIGNEE_KEY=from-assignee\n", encoding="utf-8")
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-dispatcher")
-
-        with _worker_profile_scope(str(foreign), bind_home=False):
-            assert ss.serves_routed_profile() is True
-            assert ss.get_secret("OPENAI_API_KEY") is None
-            assert ss.get_secret("ASSIGNEE_KEY") == "from-assignee"
-
 
 class TestScopeSetupRecovery:
     """A raise mid-scope-setup must release whatever was already bound — a leaked
@@ -226,22 +207,6 @@ class TestScopeSetupRecovery:
         assert get_hermes_home_override() is None
         assert ss.current_secret_scope() is None
 
-    def test_worker_profile_scope_setup_failure_restores_override(self, monkeypatch, tmp_path):
-        from hermes_cli.kanban_db_dispatch import _worker_profile_scope
-        from hermes_constants import get_hermes_home_override
-
-        foreign = tmp_path / "profiles" / "assignee"
-        foreign.mkdir(parents=True)
-
-        def boom(home):
-            raise RuntimeError("corrupt profile home")
-
-        monkeypatch.setattr("agent.secret_scope.build_profile_secret_scope", boom)
-        with pytest.raises(RuntimeError):
-            with _worker_profile_scope(str(foreign), bind_home=True):
-                pass
-        assert get_hermes_home_override() is None
-        assert ss.current_secret_scope() is None
 
     def test_model_switch_bind_releases_partial_scopes_on_raise(self, monkeypatch, tmp_path):
         """The scopes object never reaches the caller when the bind raises, so the
@@ -354,8 +319,6 @@ class TestEnvFileParsing:
         assert ss.load_env_file(tmp_path / ".env") == {"MY_TOKEN": original}
 
 
-
-
     def test_strips_utf8_bom_from_first_key(self, tmp_path):
         """Windows editors often save .env as UTF-8 with BOM (EF BB BF).
 
@@ -459,66 +422,6 @@ class TestApiServerListenerGlobals:
         finally:
             ss.reset_secret_scope(token)
         assert not ss._is_global_env("API_SERVER_KEY")
-
-
-class TestRelayRoutingStampGlobals:
-    """GATEWAY_RELAY_* ROUTING stamps are deployment config, not profile
-    secrets: config's relay enablement/sweep and gateway.relay's readers
-    (relay_url(), registration, self-provision) must resolve the same
-    process-env value under any scope, or the gateway enters a split-brain
-    state (adapter registered but Platform.RELAY absent from config, or vice
-    versa). Auth material (GATEWAY_RELAY_SECRET / _ID / _DELIVERY_KEY and the
-    IDP_* credentials) stays profile-scoped with the fail-closed guard —
-    mirroring the API_SERVER_KEY line above and the terminal env blocklist
-    (tools/environments/local.py)."""
-
-    ROUTING_VARS = (
-        "GATEWAY_RELAY_URL",
-        "GATEWAY_RELAY_ENDPOINT",
-        "GATEWAY_RELAY_ALLOW_DIRECT_PLATFORMS",
-        "GATEWAY_RELAY_PLATFORMS",
-        "GATEWAY_RELAY_BOT_IDS",
-        "GATEWAY_RELAY_ROUTE_KEYS",
-        "GATEWAY_RELAY_INSTANCE_ID",
-        "GATEWAY_RELAY_WAKE_URL",
-        "GATEWAY_RELAY_DISPLAY_NAME",
-    )
-    AUTH_VARS = (
-        "GATEWAY_RELAY_SECRET",
-        "GATEWAY_RELAY_ID",
-        "GATEWAY_RELAY_DELIVERY_KEY",
-        "GATEWAY_RELAY_IDP_CLIENT_SECRET",
-        "GATEWAY_RELAY_IDP_CLIENT_ID",
-        "GATEWAY_RELAY_IDP_TOKEN_URL",
-    )
-
-    def test_routing_stamps_read_environ_even_when_scoped_multiplex(self, monkeypatch):
-        for name in self.ROUTING_VARS:
-            monkeypatch.setenv(name, f"deploy-{name.lower()}")
-        ss.set_multiplex_active(True)
-        token = ss.set_secret_scope({"TELEGRAM_BOT_TOKEN": "scoped"})
-        try:
-            for name in self.ROUTING_VARS:
-                assert ss.get_secret(name) == f"deploy-{name.lower()}", name
-        finally:
-            ss.reset_secret_scope(token)
-            ss.set_multiplex_active(False)
-
-    def test_relay_auth_material_stays_profile_scoped(self, monkeypatch):
-        for name in self.AUTH_VARS:
-            monkeypatch.setenv(name, "cross-profile-credential")
-        ss.set_multiplex_active(True)
-        token = ss.set_secret_scope({"OTHER": "x"})
-        try:
-            for name in self.AUTH_VARS:
-                # A scoped miss must NOT borrow the (potentially
-                # cross-profile) environ value: relay auth is a credential.
-                assert ss.get_secret(name) is None, name
-        finally:
-            ss.reset_secret_scope(token)
-            ss.set_multiplex_active(False)
-        for name in self.AUTH_VARS:
-            assert not ss._is_global_env(name), name
 
 
 class TestSecretScopeAcrossExecutorThreads:

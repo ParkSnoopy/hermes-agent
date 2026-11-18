@@ -1,6 +1,6 @@
 """Rewrite the launch files Hermes owns before ``hermes update`` starts any gateway.
 
-A service manager starts a gateway from the definition it holds, so a unit, plist or task script
+A service manager starts a gateway from the definition it holds, so a unit
 left from the previous release starts the new code under the old command line and environment.
 The update therefore regenerates every profile's launch files once the inputs the generators read
 are final (Python environment, published launchers, ``node_modules/.bin``) and before the first
@@ -14,7 +14,7 @@ are still rewritten. A failure never keeps the source-update tail pending: every
 from __future__ import annotations
 
 import os
-import sys
+
 
 FOLLOWUP_STEP = "launch_files"
 _RETRY = "the next `hermes update` or `hermes gateway restart` rewrites it"
@@ -64,10 +64,6 @@ def _refresh_systemd_system_unit() -> None:
 
 
 def _refreshers():
-    if sys.platform == "win32":
-        return [("Windows gateway launcher", _refresh_windows_launcher_scripts)]
-    if sys.platform == "darwin":
-        return [("launchd plist", _refresh_unloaded_launchd_plist)]
     from hermes_cli.gateway import supports_systemd_services
 
     if supports_systemd_services():
@@ -79,17 +75,3 @@ def _refresh_systemd_user_unit() -> None:
     from hermes_cli.gateway import refresh_systemd_unit_if_needed
 
     refresh_systemd_unit_if_needed(system=False)  # rewrites only a stale unit, then daemon-reloads
-
-
-def _refresh_unloaded_launchd_plist() -> None:
-    from hermes_cli.gateway_launchd import refresh_unloaded_launchd_plist
-
-    refresh_unloaded_launchd_plist()
-
-
-def _refresh_windows_launcher_scripts() -> None:
-    from hermes_cli import gateway_windows
-
-    if gateway_windows.is_installed() and gateway_windows.launcher_script_drift():
-        script = gateway_windows._write_task_script()
-        print(f"  ↻ Updated the {script.stem} gateway launcher scripts")

@@ -17,7 +17,7 @@ Core invariant these tests pin:
 
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 import pytest
 
@@ -91,49 +91,10 @@ def test_absolute_terminal_cwd_used_verbatim(_isolated_cwd, monkeypatch):
     assert resolved == (workspace / "target.py")
 
 
-def test_container_absolute_input_path_does_not_follow_host_symlink(tmp_path, monkeypatch):
-    """Docker paths are sandbox-local and must not be host-dereferenced.
-
-    A user may have a host symlink at a container-looking path such as
-    ``/workspace/projects``. For Docker file ops, resolving that symlink on the
-    host rewrites the path before Docker sees it, making file tools and terminal
-    disagree about where the file lives.
-    """
-    host_project = tmp_path / "host-project"
-    host_project.mkdir()
-    container_mount = tmp_path / "workspace-projects"
-    container_mount.symlink_to(host_project, target_is_directory=True)
-    monkeypatch.setattr(terminal_tool, "_get_env_config", lambda: {"env_type": "docker"})
-    monkeypatch.setattr(terminal_tool, "_active_environments", {})
-
-    container_path = container_mount / "oilsands-sim" / "README.md"
-    resolved = ftp._resolve_path_for_task(str(container_path), task_id="default")
-
-    assert resolved == container_path
-    assert resolved != (host_project / "oilsands-sim" / "README.md")
 
 
-def test_container_path_normalization_uses_posix_path_syntax():
-    resolved = ftp._normalize_without_host_deref("/workspace/projects/foo/../bar")
-
-    assert resolved == PurePosixPath("/workspace/projects/bar")
-    assert str(resolved) == "/workspace/projects/bar"
 
 
-def test_container_relative_path_keeps_container_cwd_symlink(tmp_path, monkeypatch):
-    """Relative Docker paths should stay under the container cwd textually."""
-    host_project = tmp_path / "host-project"
-    host_project.mkdir()
-    container_mount = tmp_path / "workspace-projects"
-    container_mount.symlink_to(host_project, target_is_directory=True)
-    monkeypatch.setattr(terminal_tool, "_get_env_config", lambda: {"env_type": "docker"})
-    monkeypatch.setattr(terminal_tool, "_active_environments", {})
-    terminal_tool.record_session_cwd("default", str(container_mount))
-
-    resolved = ftp._resolve_path_for_task("oilsands-sim/README.md", task_id="default")
-
-    assert resolved == container_mount / "oilsands-sim" / "README.md"
-    assert resolved != host_project / "oilsands-sim" / "README.md"
 
 
 def test_resolution_base_always_absolute_no_terminal_cwd(_isolated_cwd, monkeypatch):
@@ -352,25 +313,3 @@ def test_v4a_delete_and_move_act_on_a_symlink_not_its_target(
     assert str(link) in out["files_modified"]
     if dest:
         assert os.readlink(workspace / dest) == "safe/base.yaml"
-
-
-@pytest.mark.parametrize("live_cwd", [None, "/srv/project-a"], ids=["no-env", "shared-env-moved"])
-def test_container_relative_path_without_a_recorded_cwd_uses_the_backend_cwd(_isolated_cwd, monkeypatch, live_cwd):
-    """A container session with no recorded cwd resolves relative paths against the backend's configured cwd, the
-    same place its terminal commands start: never the process cwd (a host dir such as ``/opt/data`` the sandbox
-    lacks), and never a shared env's live cwd (wherever ANOTHER session last ``cd``'d)."""
-    _workspace, decoy = _isolated_cwd
-    monkeypatch.delenv("TERMINAL_CWD", raising=False)
-    monkeypatch.setattr(terminal_tool, "_get_env_config", lambda: {"env_type": "modal", "cwd": "/root"})
-    envs = {}
-    if live_cwd:
-        envs["default"] = type("ModalEnvironment", (), {"cwd": live_cwd})()
-    monkeypatch.setattr(terminal_tool, "_active_environments", envs)
-
-    resolved = ftp._resolve_path_for_task("notes/todo.md", task_id="b")
-    command_cwd = terminal_tool._resolve_command_cwd(
-        workdir=None, default_cwd="/root", session_key="b", env_type="modal")
-
-    assert resolved == PurePosixPath("/root") / "notes" / "todo.md"
-    assert resolved.parent.parent == PurePosixPath(command_cwd)
-    assert not str(resolved).startswith(str(decoy))

@@ -54,9 +54,13 @@ class TestContainerSkip:
         assert result["approved"] is True
 
 
-    def test_daytona_skips_both(self):
-        result = check_all_command_guards("rm -rf /", "daytona")
-        assert result["approved"] is True
+    @pytest.mark.parametrize("backend", ["daytona", "modal", "managed_modal"])
+    def test_retired_backend_names_do_not_bypass_guards(self, backend, monkeypatch):
+        monkeypatch.setenv("HERMES_INTERACTIVE", "1")
+        callback = MagicMock(return_value="deny")
+        result = check_all_command_guards("rm -rf /tmp/retired-backend", backend, approval_callback=callback)
+        assert result["approved"] is False
+        callback.assert_called_once()
 
     def test_vercel_sandbox_skips_both(self):
         result = check_all_command_guards("rm -rf /", "vercel_sandbox")

@@ -8,7 +8,6 @@ import sys
 
 from rich.markup import escape as _escape
 
-from agent.i18n import t
 from utils import base_url_host_matches
 
 
@@ -52,10 +51,10 @@ def _cooldown_cause(entry) -> str:
     quota response, a failed token refresh, or another HTTP failure."""
     reason = (entry.last_error_reason or "").lower()
     if entry.last_error_code in (402, 429) or any(k in reason for k in ("rate", "quota", "insufficient")):
-        return t("cli.startup.cooldown_cause_rate_limit")
+        return 'after a rate-limit or quota response'
     if entry.last_error_code is None or "refresh" in reason:
-        return t("cli.startup.cooldown_cause_token_refresh")
-    return t("cli.startup.cooldown_cause_http", code=entry.last_error_code)
+        return 'after a failed token refresh'
+    return (f'after an HTTP {entry.last_error_code} response')
 
 
 def _credential_pool_notice(provider: str) -> tuple:
@@ -76,19 +75,19 @@ def _credential_pool_notice(provider: str) -> tuple:
     if next_at is not None:
         minutes = max(1, int((next_at - time.time() + 59) // 60))
         benched = [e for e in entries if e.last_status == STATUS_EXHAUSTED]
-        cause = _cooldown_cause(benched[0]) if benched else t("cli.startup.cooldown_cause_failed_request")
-        lines.append(t("cli.startup.credential_cooling_down", provider=provider, cause=cause, minutes=minutes))
+        cause = _cooldown_cause(benched[0]) if benched else 'after a failed request'
+        lines.append(f'The {provider} credential is cooling down {cause}; it re-enters rotation in about {minutes}m.')
     dead = [e for e in entries if e.last_status == STATUS_DEAD]
     if dead:
-        reason = dead[0].last_error_message or dead[0].last_error_reason or t("cli.startup.sign_in_lost")
-        lines.append(t("cli.startup.sign_in_was_lost", provider=provider, reason=reason))
+        reason = dead[0].last_error_message or dead[0].last_error_reason or 'sign-in lost'
+        lines.append(f'The {provider} sign-in was lost ({reason}); run `hermes auth add {provider}` to sign in again.')
     return next_at is not None, lines
 
 
 def _resume_counts(user_count: int, total: int) -> str:
     """``(N user message(s), M total messages)`` suffix of the resumed-session line."""
-    key = "cli.resume.counts_one" if user_count == 1 else "cli.resume.counts_other"
-    return t(key, count=user_count, total=total)
+    key = '({count} user message, {total} total messages)' if user_count == 1 else '({count} user messages, {total} total messages)'
+    return (key).format(count=user_count, total=total)
 
 
 def _keyless_custom_base(base_url) -> bool:
@@ -155,17 +154,17 @@ def _tool_calls_summary(tool_calls) -> str:
         if name not in names:
             names.append(name)
     names_str = ", ".join(names[:4]) + (", ..." if len(names) > 4 else "")
-    key = "cli.resume.tool_calls_one" if len(tool_calls) == 1 else "cli.resume.tool_calls_other"
-    return t(key, count=len(tool_calls), names=names_str)
+    key = '[{count} tool call: {names}]' if len(tool_calls) == 1 else '[{count} tool calls: {names}]'
+    return (key).format(count=len(tool_calls), names=names_str)
 
 
 # display_kind -> catalog key of the recap event line (resolved at call time); ``hidden`` rows
 # are skipped before this lookup.
 _RESUME_EVENT_KEYS = {
-    "model_switch": "cli.resume.event_model_changed",
-    "async_delegation_complete": "cli.resume.event_delegation_completed",
-    "process_complete": "cli.resume.event_process_finished",
-    "auto_continue": "cli.resume.event_resumed_interrupted"}
+    "model_switch": 'model changed',
+    "async_delegation_complete": 'background delegation completed',
+    "process_complete": 'background process finished',
+    "auto_continue": 'resumed interrupted turn'}
 
 def _collect_resume_entries(display_history, disp: dict, clean_assistant):
     """Displayable ``(role, text)`` recap entries from stored history, truncated per the
@@ -195,7 +194,7 @@ def _collect_resume_entries(display_history, disp: dict, clean_assistant):
         if display_kind in _RESUME_EVENT_KEYS:
             metadata = msg.get("display_metadata") or {}
             label = metadata.get("display_text") if display_kind in ("async_delegation_complete", "process_complete") else None
-            entries.append(("event", _sanitize_display_text(label or t(_RESUME_EVENT_KEYS[display_kind]))))
+            entries.append(("event", _sanitize_display_text(label or _RESUME_EVENT_KEYS[display_kind])))
             continue
         if role == "user":
             text = _sanitize_display_text(withheld_prompt_text(msg) or _user_display_text(content))
@@ -287,7 +286,7 @@ class CLIAgentSetupMixin:
             # Only an explicit re-authentication requirement is terminal. Unknown
             # resolver/network failures must not acquire the sticky Kanban block.
             self._credentials_terminal = isinstance(_primary_exc, AuthError) and _primary_exc.relogin_required
-            message = format_runtime_provider_error(_primary_exc) if _primary_exc else t("cli.startup.provider_resolution_failed")
+            message = format_runtime_provider_error(_primary_exc) if _primary_exc else 'Provider resolution failed.'
             if getattr(self, "tool_progress_mode", "full") == "off":
                 print(message, file=sys.stderr)  # quiet/stream-json: stdout is machine-readable
             else:
@@ -312,13 +311,13 @@ class CLIAgentSetupMixin:
             else:
                 _prov = (resolved_provider or self.requested_provider or "").strip()
                 if _prov and _prov != "auto":
-                    print(f"\n{t('cli.startup.no_api_key_for_provider', provider=_prov)}")
+                    print('\n' + format(((f"⚠️  No API key found for provider '{_prov}'.")), ''))
                 else:
-                    print(f"\n{t('cli.startup.no_provider_configured')}")
-                print(f"   {t('cli.startup.run_model_or_setup')}")
+                    print(f"\n{'⚠️  No inference provider is configured.'}")
+                print('   ' + format(("Run 'hermes model' to choose a provider, or 'hermes setup' for first-time setup."), ''))
                 return False
         if not isinstance(base_url, str) or not base_url:
-            print(f"\n{t('cli.startup.empty_base_url')}")
+            print(f"\n{'⚠️  Provider resolver returned an empty base URL. Check your provider config or run: hermes setup'}")
             return False
         credentials_changed = api_key != self.api_key or base_url != self.base_url
         routing_changed = resolved_routing != (self.provider, self.api_mode, self.acp_command, self.acp_args)
@@ -402,7 +401,7 @@ class CLIAgentSetupMixin:
                     _why_log, primary_exc, _fb_provider, _fb_model)
                 from gateway.warning_notifications import render_notification
                 render_notification(
-                    lambda: _cprint(t("cli.startup.switching_to_fallback", reason=_why, provider=_fb_provider, model=_fb_model)),
+                    lambda: _cprint(f'⚠️  {_why} — switching to fallback: {_fb_provider} / {_fb_model}'),
                     platform="cli")
                 self.requested_provider = _fb_provider
                 self.model = _fb_model
@@ -482,29 +481,27 @@ class CLIAgentSetupMixin:
         source of truth. True when a provider was configured."""
         from cli import _cprint, logger
         _cprint("")
-        _cprint(t("cli.startup.first_run_no_provider"))
-        _cprint(f"  {t('cli.startup.first_run_pick_provider')}")
+        _cprint("☤ No inference provider is configured yet — let's fix that.")
+        _cprint('  ' + format(("You'll pick a provider (Nous Portal OAuth is the fastest; no API key needed) and a model."), ''))
         try:
-            answer = input(f"  {t('cli.startup.first_run_prompt')} ").strip().lower()
+            answer = input(f"  {'Set up a provider now? [Y/n]:'} ").strip().lower()
         except (KeyboardInterrupt, EOFError):
             print()
             answer = "n"
         if answer in {"n", "no"}:
-            _cprint(f"  {t('cli.startup.first_run_skipped')}")
+            _cprint('  ' + format(("Skipped. Run 'hermes model' or 'hermes setup' any time."), ''))
             return False
         try:
             from hermes_cli.main import select_provider_and_model
-            from hermes_cli.observability.shared_metrics_setup import provider_setup_surface
-            with provider_setup_surface("cli_setup"):
-                select_provider_and_model()
+            select_provider_and_model()
         except (KeyboardInterrupt, EOFError, SystemExit):
             print()
-            _cprint(f"  {t('cli.startup.first_run_cancelled')}")
+            _cprint('  ' + format(("Setup cancelled. Run 'hermes model' any time."), ''))
             return False
         except Exception as exc:
             logger.debug("first-run provider setup failed: %s", exc)
-            _cprint(f"  {t('cli.startup.provider_setup_failed', error=exc)}")
-            _cprint(f"  {t('cli.startup.run_model_to_retry')}")
+            _cprint(f"  {(f'⚠️  Provider setup failed: {exc}')}")
+            _cprint('  ' + format(("Run 'hermes model' to try again."), ''))
             return False
 
         # Re-sync CLI state from what the picker persisted so the next turn uses it without a restart.
@@ -526,9 +523,9 @@ class CLIAgentSetupMixin:
         _retire_agent(self)
         self._active_agent_route_signature = None
         if self._runtime_credentials_ready():
-            _cprint(f"  {t('cli.startup.provider_configured')}")
+            _cprint('  ' + format(("✓ Provider configured — you're ready to chat."), ''))
             return True
-        _cprint(f"  {t('cli.startup.provider_setup_incomplete')}")
+        _cprint('  ' + format(("Provider setup didn't complete. Run 'hermes model' to retry."), ''))
         return False
 
     def _resolve_turn_agent_config(self, user_message: str) -> dict:
@@ -598,8 +595,8 @@ class CLIAgentSetupMixin:
             else:
                 ChatConsole().print(rich)
         if not session_meta:
-            hint = t("cli.resume.session_id_hint")
-            not_found = t("cli.resume.session_not_found", session_id=self.session_id)
+            hint = 'Use a session ID from a previous CLI run (hermes sessions list).'
+            not_found = (f'Session not found: {self.session_id}')
             if _quiet_mode:
                 print(not_found, file=sys.stderr)
                 print(hint, file=sys.stderr)
@@ -610,7 +607,7 @@ class CLIAgentSetupMixin:
         session_meta = self._follow_compression_chain(
             session_meta,
             lambda rid: ChatConsole().print(
-                f"[dim]{_escape(t('cli.resume.compressed_into', session_id=self.session_id, descendant=rid))}[/dim]"))
+                f"[dim]{_escape(f'Session {self.session_id} was compressed into {rid}; resuming the descendant with your transcript.')}[/dim]"))
         if getattr(self, "_resume_history_error", None):
             return False
         # Only the TIP session's rows are loaded here (no ancestors), so use the
@@ -619,8 +616,8 @@ class CLIAgentSetupMixin:
         if resume_limit_error:
             self._resume_history_error = resume_limit_error
             _say(
-                t("cli.resume.cannot_resume", error=resume_limit_error),
-                f"[bold red]{_escape(t('cli.resume.cannot_resume_prefix'))}[/] {_escape(resume_limit_error)}")
+                (f'Cannot resume session: {resume_limit_error}'),
+                f"[bold red]{_escape('Cannot resume session:')}[/] {_escape(resume_limit_error)}")
             return False
         restored = self._session_db.get_messages_as_conversation(self._resume_read_id, repair_alternation=True)
         if restored:
@@ -630,12 +627,12 @@ class CLIAgentSetupMixin:
             title_part = f" \"{session_meta['title']}\"" if session_meta.get("title") else ""
             counts = _resume_counts(msg_count, len(restored))
             _say(
-                f"{t('cli.resume.resumed_session')} {self.session_id}{title_part} {counts}",
-                f"[bold {_accent_hex()}]{_escape(t('cli.resume.resumed_session'))}[/] [bold]{_escape(self.session_id)}[/]"
+                f"{'↻ Resumed session'} {self.session_id}{title_part} {counts}",
+                f"[bold {_accent_hex()}]{_escape('↻ Resumed session')}[/] [bold]{_escape(self.session_id)}[/]"
                 f"[bold {_accent_hex()}]{_escape(title_part)}[/] {counts}")
             self._restore_session_state(session_meta, quiet=_quiet_mode)
         else:
-            no_messages = t("cli.resume.session_no_messages", session_id=self.session_id)
+            no_messages = (f'Session {self.session_id} found but has no messages. Starting fresh.')
             _say(no_messages, f"[bold {_accent_hex()}]{_escape(no_messages)}[/]")
         self._reopen_session()
         return True
@@ -777,11 +774,11 @@ class CLIAgentSetupMixin:
                     self.agent._ensure_db_session()
                     if self.agent._session_db_created:
                         self._session_db.set_session_title(self.session_id, self._pending_title)
-                        _cprint(f"  {t('cli.resume.title_applied', title=self._pending_title)}")
+                        _cprint(f"  {(f'Session title applied: {self._pending_title}')}")
                         self._pending_title = None
                     # else: row creation failed transiently — keep _pending_title for retry
                 except Exception as e:
-                    _cprint(f"  {t('cli.resume.title_apply_failed', error=e)}")
+                    _cprint(f"  {(f'Could not apply pending title: {e}')}")
                     # Keep _pending_title so it can be retried after row creation succeeds
             return True
         except Exception as e:
@@ -826,33 +823,24 @@ class CLIAgentSetupMixin:
             return False
         session_meta = self._session_db.get_session(self.session_id)
         if not session_meta:
-            self._console_print(f"[bold red]{_escape(t('cli.resume.session_not_found', session_id=self.session_id))}[/]")
-            self._console_print(f"[dim]{_escape(t('cli.resume.session_id_hint'))}[/]")
+            self._console_print(f"[bold red]{_escape(f'Session not found: {self.session_id}')}[/]")
+            self._console_print(f"[dim]{_escape('Use a session ID from a previous CLI run (hermes sessions list).')}[/]")
             return False
         session_meta = self._follow_compression_chain(
             session_meta,
             lambda rid: self._console_print(
-                f"[dim]{_escape(t('cli.resume.compressed_into', session_id=self.session_id, descendant=rid))}[/]"))
-        # A Kanban worker transcript resumes only through a dispatcher-owned run (#68779) —
-        # an ordinary CLI resume would be a live writer the board cannot observe. Refuse AND
-        # fall back to a fresh session id, so this process never appends to the worker row.
-        from hermes_cli.kanban_resume_guard import kanban_resume_refusal
-        if (kanban_refusal := kanban_resume_refusal(self._session_db, self._resume_read_id)):
-            self._console_print(f"[bold red]{_escape(kanban_refusal)}[/]")
-            self._resumed = False
-            from hermes_state_ids import new_session_id
-            self.session_id = new_session_id(self.session_start)
-            return False
+                f"[dim]{_escape(f'Session {self.session_id} was compressed into {rid}; resuming the descendant with your transcript.')}[/]"))
+
         resume_limit_error = self._resume_history_limit_error()
         if resume_limit_error:
             self._resume_history_error = resume_limit_error
-            self._console_print(f"[bold red]{_escape(t('cli.resume.cannot_resume_prefix'))}[/] {resume_limit_error}")
+            self._console_print(f"[bold red]{_escape('Cannot resume session:')}[/] {resume_limit_error}")
             return False
         restored, display_history = self._session_db.get_resume_conversations(self._resume_read_id)
         accent_color = _accent_hex()
         if not restored:
             self._console_print(
-                f"[{accent_color}]{_escape(t('cli.resume.session_no_messages', session_id=self.session_id))}[/]")
+                f"[{accent_color}]{_escape(f'Session {self.session_id} found but has no messages. Starting fresh.')}[/]")
             return False
         restored = [m for m in restored if m.get("role") != "session_meta"]
         self.conversation_history = restored
@@ -863,7 +851,7 @@ class CLIAgentSetupMixin:
         msg_count = len([m for m in self._resume_display_history if is_user_originated_turn(m)])
         title_part = f' "{session_meta["title"]}"' if session_meta.get("title") else ""
         self._console_print(
-            f"[{accent_color}]{_escape(t('cli.resume.resumed_session'))} [bold]{self.session_id}[/bold]"
+            f"[{accent_color}]{_escape('↻ Resumed session')} [bold]{self.session_id}[/bold]"
             f"{title_part} {_resume_counts(msg_count, len(restored))}[/]")
         self._restore_session_state(session_meta)
         self._reopen_session()
@@ -895,8 +883,8 @@ class CLIAgentSetupMixin:
             _resume_panel_colors())
 
         # role -> (label, label style, body style, continuation indent)
-        you_label = f"  {t('cli.resume.label_you')} "
-        assistant_label = f"  {t('cli.resume.label_assistant', agent_name='Hermes')} "
+        you_label = f"  {'● You:'} "
+        assistant_label = f"  {('◆ {agent_name}:').format(agent_name='Hermes')} "
         role_styles = {
             "user": (you_label, f"dim bold {_session_label_c}", "dim", " " * len(you_label)),
             "assistant": (assistant_label, f"dim bold {_assistant_label_c}", "dim", " " * len(assistant_label)),
@@ -904,7 +892,7 @@ class CLIAgentSetupMixin:
         }
         lines = Text()
         if skipped:
-            lines.append(f"  {t('cli.resume.earlier_messages', count=skipped)}\n\n", style="dim italic")
+            lines.append(f"  {(f'... {skipped} earlier messages ...')}\n\n", style="dim italic")
         for i, (role, text) in enumerate(entries):
             if role == "event":
                 lines.append(f"  ◈ {text}\n", style="dim italic")
@@ -918,7 +906,7 @@ class CLIAgentSetupMixin:
             if i < len(entries) - 1:
                 lines.append("")  # small gap
         panel = Panel(
-            lines, title=f"[dim {_session_label_c}]{_escape(t('cli.resume.panel_title'))}[/]",
+            lines, title=f"[dim {_session_label_c}]{_escape('Previous Conversation')}[/]",
             border_style=f"dim {_session_border_c}", padding=(0, 1), style=_history_text_c)
         _record_output_history_entry(lambda: self._render_resume_history_panel_lines(panel))
         with _suspend_output_history():

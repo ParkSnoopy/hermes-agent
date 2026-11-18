@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.i18n import t
+
 
 
 @pytest.mark.parametrize('columns,rows,skin', [(100, 30, 'default'), (80, 20, 'daylight')])
@@ -79,5 +79,5 @@ def test_expanded_roster_reserves_activity_before_long_task_names():
             fragments = app.layout.current_control.text()
             assert len(fragments) == len(monitor.entries)
             for _, text in fragments:
-                assert '24s' in text and 'running' in text and t('cli.subagents.last_tool', tool='terminal') in text
+                assert '24s' in text and 'running' in text and ('last: {tool}').format(tool='terminal') in text
                 assert get_cwidth(text.rstrip('\n')) == columns

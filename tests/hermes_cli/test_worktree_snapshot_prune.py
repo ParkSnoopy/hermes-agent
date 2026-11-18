@@ -401,37 +401,6 @@ def test_archive_dirty_false_keeps_the_classic_never_delete_dirty_pruner(repo):
     assert _archives(repo) == []
 
 
-def test_cron_sweep_visits_only_the_active_profiles_registered_repos(repo, tmp_path, monkeypatch):
-    """I7: a worktree made under profile A registers its repo for A's sweep only, and a
-    registered repo that was deleted drops out."""
-    import cron.scheduler as sched
-    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
-
-    home_a, home_b = tmp_path / "home-a", tmp_path / "home-b"
-    home_a.mkdir()
-    home_b.mkdir()
-    monkeypatch.setattr("cron.jobs.load_jobs", list)
-    token = set_hermes_home_override(str(home_a))
-    try:
-        assert worktree_ops._setup_worktree(repo_root=str(repo), sync_base=False, name="reg") is not None
-        gone = tmp_path / "gone"
-        _git(["init", "-q", str(gone)], tmp_path)
-        (gone / ".worktrees").mkdir()
-        from hermes_cli.worktree_registry import record_worktree_repo
-        record_worktree_repo(gone)
-        import shutil
-        shutil.rmtree(gone)
-        repos_a = sched._worktree_maintenance_repos()
-    finally:
-        reset_hermes_home_override(token)
-    token = set_hermes_home_override(str(home_b))
-    try:
-        repos_b = sched._worktree_maintenance_repos()
-    finally:
-        reset_hermes_home_override(token)
-    assert os.path.realpath(repo) in repos_a
-    assert str(gone) not in repos_a and os.path.realpath(gone) not in repos_a
-    assert os.path.realpath(repo) not in repos_b
 
 
 def test_exit_question_never_prompts_without_a_tty(repo, monkeypatch):

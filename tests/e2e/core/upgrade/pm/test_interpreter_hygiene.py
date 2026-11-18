@@ -13,15 +13,13 @@ dependency-changing ``hermes update``:
 
 * the gateway (``hermes gateway run``) boots, and no process in its tree ever loaded, mapped or
   put either stray venv on its path;
-* the workers a Hermes process spawns after the update use the PM interpreter and import their
-  deps: ``execute_code`` (#124049) and a Kanban worker spawned by ``hermes kanban dispatch``
-  (#124542, #122500), each proven by what reaches the loopback provider.
+* ``execute_code`` workers spawned after the update use the PM interpreter and import their
+  deps (#124049), proven by what reaches the loopback provider.
 """
 
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -166,38 +164,3 @@ def test_execute_code_after_update_imports_third_party_deps(updated, provider):
         f"execute_code on a PM install cannot import third-party deps: {result[-1500:]}\n" + transcript)
     hits = _stray_hits(updated["logs"], mark)
     assert not hits, f"execute_code loaded a stray venv: {hits}"
-
-
-def test_kanban_worker_spawned_after_update_boots(updated, provider):
-    sb, mark = updated["sb"], _marks(updated["logs"])
-    n = len(provider.main_requests())
-    log = sb.root / "kanban-dispatch.log"
-    # One sandbox for dispatcher + worker (the worker outlives `kanban dispatch`, as on a real host);
-    # the sandbox stays up until the worker's first model call is observed, then is torn down.
-    script = (f'H="{sb.hermes}"\n"$H" kanban init >/dev/null\n'
-              '"$H" kanban create "pm hygiene kanban probe" --assignee default --json\n'
-              '"$H" kanban dispatch --json\nsleep 600\n')
-    with log.open("w") as out:
-        proc = subprocess.Popen(H.sandbox_argv(["/bin/sh", "-c", script], writable=[sb.root]), env=P.lazy_env(sb),
-                                cwd=str(sb.root), stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
-                                text=True, start_new_session=True)
-        try:
-            deadline, task_id, reached = time.monotonic() + 300, None, []
-            while time.monotonic() < deadline and not reached:
-                text = log.read_text(errors="replace")
-                ids = re.findall(r'"id": "(t_[0-9a-f]+)"', text)
-                task_id = ids[0] if ids else task_id
-                if task_id:
-                    reached = [r for r in provider.main_requests()[n:] if task_id in json.dumps(r["messages"])]
-                time.sleep(0.5)
-        finally:
-            H.kill_tree(proc)
-    worker_log = sb.hermes_home / "kanban" / "logs" / f"{task_id}.log"
-    detail = (f"--- dispatcher ---\n{log.read_text(errors='replace')[-3000:]}\n--- worker log ---\n"
-              + (worker_log.read_text(errors="replace")[-3000:] if task_id and worker_log.exists() else "(none)"))
-    assert task_id, "harness: `hermes kanban create` printed no task id\n" + detail
-    assert reached, (
-        f"the Kanban worker for {task_id} spawned after `hermes update` never reached the provider "
-        "(it died at spawn)\n" + detail)
-    hits = _stray_hits(updated["logs"], mark)
-    assert not hits, f"the worker loaded a stray venv: {hits}"

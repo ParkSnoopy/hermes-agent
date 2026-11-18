@@ -654,50 +654,24 @@ class TestEnvironmentHints:
 
 
 
-    def test_build_environment_hints_suppresses_host_on_docker_backend(self, monkeypatch):
-        """Docker/remote backends must hide host info — the agent can only touch the backend.
-
-        Host-independent: suppression is a property of the remote-backend
-        branch, so instead of faking a Windows host we assert no host line of
-        any kind is emitted.
-        """
-        import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
-        monkeypatch.setenv("TERMINAL_ENV", "docker")
-        # Force the probe to fail so we exercise the static fallback path
-        # deterministically (the live probe would try to spin up docker).
-        monkeypatch.setattr(_pb, "_probe_remote_backend", lambda _t: None)
-        _pb._BACKEND_PROBE_CACHE.clear()
-        result = _pb.build_environment_hints()
-        # Host suppression: none of the local-backend lines should appear.
-        assert "Host:" not in result
-        assert "User home directory:" not in result
-        assert "PowerShell" not in result
-        # Backend info must appear instead.
-        assert "Terminal backend: docker" in result
-        assert "inside" in result.lower()
 
     def test_build_environment_hints_uses_terminal_cwd_over_launch_dir(self, monkeypatch, tmp_path):
         """THE BUG: gateway/cron set TERMINAL_CWD but the prompt emitted os.getcwd()
         (the daemon launch dir). Regression for #24882/#24969/#27383/#29265."""
         import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
         configured = tmp_path / "workspace"
         configured.mkdir()
         monkeypatch.setenv("TERMINAL_CWD", str(configured))
         monkeypatch.chdir(tmp_path)
-        _pb._BACKEND_PROBE_CACHE.clear()
         assert f"Current working directory: {configured}" in _pb.build_environment_hints()
 
     def test_build_environment_hints_falls_back_to_launch_dir(self, monkeypatch, tmp_path):
         """The #19242 local-CLI contract: no TERMINAL_CWD → the launch dir."""
         import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
         monkeypatch.delenv("TERMINAL_CWD", raising=False)
         monkeypatch.chdir(tmp_path)
-        _pb._BACKEND_PROBE_CACHE.clear()
         assert f"Current working directory: {tmp_path}" in _pb.build_environment_hints()
 
     def test_running_bot_screen_rides_the_environment_hints(self, monkeypatch):
@@ -705,7 +679,6 @@ class TestEnvironmentHints:
         display number and lease holder — so 'open chrome in screen 20' resolves to the bot's own
         screen instead of launching on the user's display via a confused terminal call."""
         import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
         monkeypatch.setattr("tools.bot_desktop.runtime.published_env",
                             lambda: {"DISPLAY": ":20", "XAUTHORITY": "/run/x"})
@@ -715,7 +688,6 @@ class TestEnvironmentHints:
 
     def test_human_held_bot_screen_says_so(self, monkeypatch):
         import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
         monkeypatch.setattr("tools.bot_desktop.runtime.published_env", lambda: {"DISPLAY": ":20"})
         monkeypatch.setattr("tools.bot_desktop.lease.get", lambda: SimpleNamespace(holder="human"))
@@ -725,188 +697,23 @@ class TestEnvironmentHints:
     def test_stopped_bot_screen_leaves_no_hint(self, monkeypatch):
         """No screen running → nothing added; the block must drop out entirely, not say 'None'."""
         import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
         monkeypatch.setattr("tools.bot_desktop.runtime.published_env", dict)
-        _pb._BACKEND_PROBE_CACHE.clear()
-        assert "Bot Screen" not in _pb.build_environment_hints()
-
-    def test_remote_backend_never_sees_a_host_bot_screen(self, monkeypatch):
-        """A sandboxed terminal cannot open windows on the gateway host, so the hint is local-only."""
-        import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
-        monkeypatch.setenv("TERMINAL_ENV", "docker")
-        monkeypatch.setattr(_pb, "_probe_remote_backend", lambda _t: None)
-        monkeypatch.setattr("tools.bot_desktop.runtime.published_env",
-                            lambda: {"DISPLAY": ":20"})
-        _pb._BACKEND_PROBE_CACHE.clear()
         assert "Bot Screen" not in _pb.build_environment_hints()
 
 
 
-    def test_remote_backend_probe_carries_no_user_home_cwd(self, monkeypatch):
-        """#117262: the sandbox's user, $HOME and cwd are user-identifying metadata that
-        nothing consumes — the probe must neither ask for them nor render them. The
-        fake sandbox answers with the legacy full payload so a formatter that still
-        renders those keys is caught too."""
-        import agent.prompt_builder as _pb
-        import tools.terminal_tool_backends as _tt
-        import tools.terminal_tool_lifecycle as _lc
 
-        monkeypatch.setenv("TERMINAL_ENV", "docker")
-        _pb._clear_backend_probe_cache()
-        ran = {}
 
-        class _FakeEnv:
-            def execute(self, cmd, timeout=None):
-                ran["cmd"] = cmd
-                return {"returncode": 0, "output": "os=Linux\nkernel=6.8.0\nhome=/home/alice\ncwd=/srv/secret\nuser=alice\n"}
 
-        monkeypatch.setattr(_tt, "_create_environment", lambda **kw: _FakeEnv())
-        monkeypatch.setattr(_lc, "_cleanup_env", lambda env, **kw: None)
 
-        hint = _pb._remote_backend_hint("docker")
-        assert "OS: Linux 6.8.0" in hint
-        for probe_token in ("whoami", "id -un", "$HOME", "pwd"):
-            assert probe_token not in ran["cmd"]
-        for leaked in ("User:", "Home:", "Working directory:", "alice", "/srv/secret"):
-            assert leaked not in hint
 
-    def test_probe_remote_backend_tears_down_its_sandbox(self, monkeypatch):
-        """THE BUG: the probe leaked a second, permanently idle sandbox.
-
-        ``_probe_remote_backend`` spins up an environment with
-        ``task_id="prompt-backend-probe"`` purely to run one ``uname``. Container
-        backends default to ``container_persistent`` /
-        ``docker_persist_across_processes``, so that throwaway sandbox stayed up
-        for the whole process lifetime *next to* the agent's own ``default``
-        sandbox — one wasted idle container per profile, forever. The probe owns
-        that environment, so it must tear it down.
-        """
-        import agent.prompt_builder as _pb
-
-        monkeypatch.setenv("TERMINAL_ENV", "docker")
-        _pb._clear_backend_probe_cache()
-
-        cleaned = {}
-
-        class _FakeEnv:
-            def execute(self, cmd, timeout=None):
-                return {
-                    "returncode": 0,
-                    "output": (
-                        "os=Linux\nkernel=6.8.0\nhome=/root\n"
-                        "cwd=/workspace\nuser=root\n"
-                    ),
-                }
-
-            def cleanup(self, *, force_remove=False):
-                cleaned["force_remove"] = force_remove
-
-        import tools.terminal_tool_backends as _tt
-        monkeypatch.setattr(_tt, "_create_environment", lambda **kw: _FakeEnv())
-
-        assert _pb._probe_remote_backend("docker") is not None
-        # force_remove=True: persist mode would otherwise leave it running.
-        assert cleaned == {"force_remove": True}
-
-    def test_probe_remote_backend_tears_down_sandbox_on_failure(self, monkeypatch):
-        """Teardown must also run when the probe command blows up — a flaky
-        backend would otherwise leak the container the probe just created."""
-        import agent.prompt_builder as _pb
-
-        monkeypatch.setenv("TERMINAL_ENV", "docker")
-        _pb._clear_backend_probe_cache()
-
-        cleaned = []
-
-        class _ExplodingEnv:
-            def execute(self, cmd, timeout=None):
-                raise RuntimeError("backend went away")
-
-            def cleanup(self, *, force_remove=False):
-                cleaned.append(force_remove)
-
-        import tools.terminal_tool_backends as _tt
-        monkeypatch.setattr(_tt, "_create_environment", lambda **kw: _ExplodingEnv())
-
-        assert _pb._probe_remote_backend("docker") is None
-        assert cleaned == [True]
-
-    def test_probe_remote_backend_tolerates_kwargless_cleanup(self, monkeypatch):
-        """Backends that inherit the base ``cleanup(self)`` take no kwargs; the
-        probe must use the bare call instead of dying on TypeError."""
-        import agent.prompt_builder as _pb
-
-        monkeypatch.setenv("TERMINAL_ENV", "daytona")
-        _pb._clear_backend_probe_cache()
-
-        calls = []
-
-        class _LegacyEnv:
-            def execute(self, cmd, timeout=None):
-                return {
-                    "returncode": 0,
-                    "output": (
-                        "os=Linux\nkernel=6.8.0\nhome=/home/u\n"
-                        "cwd=/home/u\nuser=u\n"
-                    ),
-                }
-
-            def cleanup(self):
-                calls.append("bare")
-
-        import tools.terminal_tool_backends as _tt
-        monkeypatch.setattr(_tt, "_create_environment", lambda **kw: _LegacyEnv())
-
-        assert _pb._probe_remote_backend("daytona") is not None
-        assert calls == ["bare"]
-
-    def test_probe_remote_backend_ssh_is_probe_only_and_torn_down(self, monkeypatch):
-        """SSH probe: a normal SSHEnvironment would create remote dirs, force-upload
-        ~/.hermes and snapshot a session just to run `uname`, and its __del__ would
-        later sync_back() and close the ControlMaster shared with the agent's real
-        environment. The probe must request a probe-only instance (own socket, no
-        setup/sync) and tear it down itself."""
-        import agent.prompt_builder as _pb
-
-        monkeypatch.setenv("TERMINAL_ENV", "ssh")
-        _pb._clear_backend_probe_cache()
-
-        created, calls = {}, []
-
-        class _ProbeSshEnv:
-            def execute(self, cmd, timeout=None):
-                return {
-                    "returncode": 0,
-                    "output": (
-                        "os=Linux\nkernel=6.8.0\nhome=/home/u\n"
-                        "cwd=/home/u\nuser=u\n"
-                    ),
-                }
-
-            def cleanup(self):
-                calls.append("cleanup")
-
-        import tools.terminal_tool_backends as _tt
-
-        def _fake_create(**kw):
-            created.update(kw)
-            return _ProbeSshEnv()
-
-        monkeypatch.setattr(_tt, "_create_environment", _fake_create)
-
-        assert _pb._probe_remote_backend("ssh") is not None
-        assert created["probe_only"] is True
-        assert calls == ["cleanup"]
 
     def test_environment_hint_from_env_var_is_appended(self, monkeypatch):
         """HERMES_ENVIRONMENT_HINT lets an embedder describe the runtime env."""
         import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
         monkeypatch.setenv("HERMES_ENVIRONMENT_HINT", "Running inside an OpenShell sandbox.")
-        _pb._BACKEND_PROBE_CACHE.clear()
         result = _pb.build_environment_hints()
         assert "Running inside an OpenShell sandbox." in result
         # The factual host block must still come first.

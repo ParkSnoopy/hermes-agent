@@ -115,7 +115,7 @@ Use **Twilio direct call** with a public audio URL.
 
 Why:
 - easiest way to play a custom MP3
-- pairs well with Hermes `text_to_speech` plus a public file host or tunnel
+- works with a prerecorded MP3 and a public file host or tunnel
 
 ## Files and persistent state
 
@@ -305,10 +305,10 @@ python "$SCRIPT" twilio-call "+15551230000" --message "Hello! This is Hermes cal
 
 ### E. Call with a prerecorded / custom voice message
 
-This is the main path for reusing Hermes's existing `text_to_speech` support.
+Use a separately prepared audio file for a custom voice message.
 
 Use this when:
-- you want the call to use Hermes's configured TTS voice rather than Twilio `<Say>`
+- you want a custom recording rather than Twilio `<Say>`
 - you want a one-way voice delivery (briefing, alert, joke, reminder, status update)
 - you do **not** need a live conversational phone call
 
@@ -318,14 +318,14 @@ Generate or host audio separately, then:
 python "$SCRIPT" twilio-call "+155****0000" --audio-url "https://example.com/briefing.mp3"
 ```
 
-Recommended Hermes TTS -> Twilio Play workflow:
+Recommended prerecorded audio -> Twilio Play workflow:
 
-1. Generate the audio with Hermes `text_to_speech`.
+1. Prepare the audio separately.
 2. Make the resulting MP3 publicly reachable.
 3. Place the Twilio call with `--audio-url`.
 
 Example agent flow:
-- Ask Hermes to create the message audio with `text_to_speech`
+- Prepare the message audio separately
 - If needed, expose the file with a temporary static host / tunnel / object storage URL
 - Use `twilio-call --audio-url ...` to deliver it by phone
 
@@ -335,9 +335,9 @@ Good hosting options for the MP3:
 - any existing HTTPS URL the phone provider can fetch directly
 
 Important note:
-- Hermes TTS is great for prerecorded outbound messages
+- Prerecorded audio works for outbound messages
 - Bland/Vapi are better for **live conversational AI calls** because they handle the real-time telephony audio stack themselves
-- Hermes STT/TTS alone is not being used here as a full duplex phone conversation engine; that would require a much heavier streaming/webhook integration than this skill is trying to introduce
+- Prerecorded audio is not a full duplex phone conversation engine; that would require a much heavier streaming/webhook integration than this skill is trying to introduce
 
 ### F. Navigate a phone tree / IVR with Twilio direct calling
 

@@ -8,10 +8,10 @@ def test_terminal_and_config_secret_projections_recover_without_durable_values(t
     from tools.terminal_scope import terminal_env
     monkeypatch.setenv('HERMES_HOME', str(tmp_path))
     secret = 'opaque-terminal-header-secret'
-    cfg = {'terminal': {'docker_env': {'UNCLASSIFIED': secret}},
+    cfg = {'terminal': {'cwd': str(tmp_path)},
            'providers': {'fixture': {'extra_headers': {'X-Custom-Auth': secret}}}}
     (tmp_path / 'config.yaml').write_text(json.dumps(cfg))
-    (tmp_path / '.env').write_text('TERMINAL_SERVICE_TOKEN=' + secret + '\n')
+    (tmp_path / '.env').write_text('OPENAI_API_KEY=' + secret + '\n')
     private = {}
     policy = build_policy({'cwd': str(tmp_path), 'model': 'frozen'}, cfg, private_secrets=private)
     def owner():
@@ -21,5 +21,6 @@ def test_terminal_and_config_secret_projections_recover_without_durable_values(t
     assert secret not in json.dumps(asdict(policy))
     assert policy.config(owner()) == cfg
     with policy_scope(policy, authority=owner()):
-        assert json.loads(terminal_env('TERMINAL_DOCKER_ENV'))['UNCLASSIFIED'] == secret
-        assert terminal_env('TERMINAL_SERVICE_TOKEN') == secret
+        assert terminal_env('TERMINAL_CWD') == str(tmp_path)
+        from agent.secret_scope import get_secret
+        assert get_secret('OPENAI_API_KEY') == secret

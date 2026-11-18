@@ -15,8 +15,6 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from hermes_cli.middleware import OBSERVER_SCHEMA_VERSION
-
 logger = logging.getLogger(__name__)
 
 _QUEUE_SIZE = 1024
@@ -65,7 +63,7 @@ def _worker(dispatcher: _ConsumerDispatcher) -> None:
                 return
             context, payload = item
             payload = dict(payload)
-            payload.setdefault("telemetry_schema_version", OBSERVER_SCHEMA_VERSION)
+
             try:
                 # The worker outlives every turn and serves every profile; run the callback in the
                 # enqueuing turn's contextvars so it sees that turn's profile scope (home override,

@@ -24,6 +24,16 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _audio_playback_guard():
+    """This suite never invokes audio; avoid importing the retired voice module."""
+
+
+@pytest.fixture(autouse=True)
+def _moa_caches_isolated():
+    """No MoA state is used by these isolated tests."""
+
+
+@pytest.fixture(autouse=True)
 def _isolate_home(tmp_path, monkeypatch):
     hermes_home = tmp_path / ".hermes"
     hermes_home.mkdir()
@@ -102,6 +112,65 @@ def test_start_refuses_unsafe_url():
     res = pm.start("https://evil.example.com/abc-defg-hij")
     assert res["ok"] is False
     assert "refusing" in res["error"]
+
+
+def test_realtime_refused_before_any_local_or_remote_launch(tmp_path, monkeypatch):
+    import argparse
+    from plugins.google_meet import cli, meet_bot, process_manager as pm, tools
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("retired mode reached a launch boundary")
+
+    monkeypatch.setattr(pm, "_read_active", forbidden)
+    monkeypatch.setattr(tools, "resolve_node", forbidden)
+    monkeypatch.setattr(cli, "_remote", forbidden)
+    url = "https://meet.google.com/abc-defg-hij"
+    assert not pm.start(url, mode="realtime", out_dir=tmp_path / "out")["ok"]
+    assert not (tmp_path / "out").exists()
+    assert not json.loads(tools.handle_meet_join({"url": url, "node": "remote", "mode": "realtime"}))["success"]
+    assert cli._cmd_join(url, guest_name="Bot", duration=None, headed=False, mode="realtime", node="remote") == 2
+    parser = argparse.ArgumentParser()
+    cli.register_cli(parser)
+    for argv in (["join", url, "--mode", "realtime"], ["say", "hello"], ["install", "--realtime"]):
+        with pytest.raises(SystemExit):
+            parser.parse_args(argv)
+    monkeypatch.setenv("HERMES_MEET_MODE", "realtime")
+    monkeypatch.setenv("HERMES_MEET_URL", url)
+    monkeypatch.setenv("HERMES_MEET_OUT_DIR", str(tmp_path / "bot"))
+    assert meet_bot.run_bot() == 2
+    assert not (tmp_path / "bot").exists()
+
+
+@pytest.mark.platforms("linux")
+def test_plugin_registers_caption_tools():
+    from unittest.mock import Mock
+    from plugins.google_meet import register
+
+    ctx = Mock()
+    register(ctx)
+    names = {call.kwargs["name"] for call in ctx.register_tool.call_args_list}
+    assert names == {"meet_join", "meet_status", "meet_transcript", "meet_leave"}
+    ctx.register_hook.assert_called_once()
+
+
+def test_start_captions_without_speech_credentials(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from plugins.google_meet import process_manager as pm
+
+    captured = {}
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-key")
+    monkeypatch.setenv("HERMES_MEET_REALTIME_KEY", "synthetic-voice-key")
+    monkeypatch.setattr(pm, "_pid_alive", lambda pid: False)
+    def fake_popen(*args, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(pid=12345)
+    monkeypatch.setattr(pm.subprocess, "Popen", fake_popen)
+    result = pm.start("https://meet.google.com/abc-defg-hij", out_dir=tmp_path / "out")
+    assert result["ok"] and result["mode"] == "transcribe"
+    assert captured["env"]["HERMES_MEET_MODE"] == "transcribe"
+    assert "OPENAI_API_KEY" not in captured["env"]
+    assert "HERMES_MEET_REALTIME_KEY" not in captured["env"]
+    assert pm._read_active()["pid"] == 12345
 
 
 def test_status_reports_no_active_meeting():
@@ -199,20 +268,11 @@ def test_on_session_end_noop_when_nothing_active():
 
 
 # ---------------------------------------------------------------------------
-# v2: process_manager.enqueue_say + realtime-mode passthrough
-# ---------------------------------------------------------------------------
-
-def test_enqueue_say_requires_text():
-    from plugins.google_meet import process_manager as pm
-    assert pm.enqueue_say("")["ok"] is False
-    assert pm.enqueue_say("   ")["ok"] is False
-
-
-# ---------------------------------------------------------------------------
-# v3: NodeClient routing from tool handlers
+# Node CLI routing
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
 def test_cli_register_includes_node_subcommand():
     """`hermes meet` argparse tree includes the node subtree."""
     import argparse
@@ -228,23 +288,8 @@ def test_cli_register_includes_node_subcommand():
 
 
 # ---------------------------------------------------------------------------
-# v2.1: new _BotState fields + status dict shape
+# Admission detection
 # ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Admission detection + barge-in helper
-# ---------------------------------------------------------------------------
-
-def test_looks_like_human_speaker():
-    from plugins.google_meet.meet_bot import _looks_like_human_speaker
-
-    # Blank, "unknown", "you", and the bot's own name → not human (no barge-in)
-    for s in ("", "   ", "Unknown", "unknown", "You", "you", "Hermes Agent", "hermes agent"):
-        assert not _looks_like_human_speaker(s, "Hermes Agent"), f"{s!r} should NOT be human"
-    # Real names → human (barge-in)
-    for s in ("Alice", "Bob Lee", "@teknium"):
-        assert _looks_like_human_speaker(s, "Hermes Agent"), f"{s!r} SHOULD be human"
 
 
 def test_detect_admission_returns_false_on_error():
@@ -257,7 +302,7 @@ def test_detect_admission_returns_false_on_error():
 
 
 # ---------------------------------------------------------------------------
-# Realtime join path: late Join button, muted mic, PCM pump fed after start-up (#80875)
+# Join and caption admission
 # ---------------------------------------------------------------------------
 
 class _Toggle:
@@ -272,120 +317,40 @@ class _Toggle:
     def click(self, timeout=None): self.page.clicked.append(self.label)
 
 
-def test_join_polls_for_late_button_and_admission_unmutes_mic(tmp_path):
-    """Meet renders Join now / the mic toggle asynchronously; a one-shot click missed it (#80875).
-    The mic check is driven through ``_drain_loop``'s admission branch — the production call site."""
-    import time
-
+def test_join_and_caption_admission(tmp_path):
     from plugins.google_meet.meet_bot import _ADMISSION_PROBE_JS, _BotConfig, _BotState, _drain_loop, _join
 
     class _Page:
-        def __init__(self, ready_at, mic_muted, stop):
-            self.ready_at, self.mic_muted, self.stop, self.clicked = ready_at, mic_muted, stop, []
+        def __init__(self, stop):
+            self.stop, self.clicked, self.polls = stop, [], 0
 
         def locator(self, sel):
-            muted = "Turn on microphone" in sel
-            return _Toggle(self, lambda: self.mic_muted == muted, sel)
+            return _Toggle(self, lambda: False, sel)
 
         def get_by_role(self, role, name=None, exact=False):
-            return _Toggle(self, lambda: name == "Join now" and time.time() >= self.ready_at, name)
+            self.polls += 1
+            return _Toggle(self, lambda: name == "Join now" and self.polls >= 3, name)
 
         def evaluate(self, js):  # admitted immediately; the caption drain ends the loop after one pass
             if js is _ADMISSION_PROBE_JS:
                 return True
             self.stop["stop"] = True
-            return []
+            return [{"speaker": "Alice", "text": "hello"}]
 
         def is_closed(self): return False
 
-    def admitted(mic_muted):
-        stop = {"stop": False}
-        page = _Page(ready_at=0, mic_muted=mic_muted, stop=stop)
-        state = _BotState(tmp_path / str(mic_muted), "abc-defg-hij", "https://meet.google.com/abc-defg-hij")
-        with patch("plugins.google_meet.meet_bot.time.sleep"):
-            _drain_loop(page, _BotConfig(guest_name="Bot", duration_s=0, lobby_timeout=30), state,
-                        {"session": None}, stop)
-        assert state.in_call is True
-        return page, state
-
     stop = {"stop": False}
     state = _BotState(tmp_path, "abc-defg-hij", "https://meet.google.com/abc-defg-hij")
-    page = _Page(ready_at=time.time() + 0.6, mic_muted=True, stop=stop)
-    _join(page, _BotConfig(guest_name="Bot"), state, timeout=5.0)
+    page = _Page(stop)
+    with patch("plugins.google_meet.meet_bot.time.sleep"):
+        _join(page, _BotConfig(guest_name="Bot"), state, timeout=5.0)
     assert page.clicked == ["Join now"]
-
-    page, state = admitted(mic_muted=True)
-    assert state.mic_state == "unmuted_clicked"
-    assert any("Turn on microphone" in c for c in page.clicked)
-    assert json.loads(state.status_path.read_text(encoding="utf-8"))["micState"] == "unmuted_clicked"
-    # Control: an already-live mic is reported, never toggled off.
-    live, state = admitted(mic_muted=False)
-    assert state.mic_state == "unmuted" and live.clicked == []
-
-
-def test_pcm_pump_receives_audio_appended_after_start(tmp_path, monkeypatch):
-    """The pump used to read the empty speaker.pcm to EOF and exit before Realtime spoke (#80875)."""
-    import subprocess
-    import time
-
-    from plugins.google_meet import meet_bot
-
-    pcm, sink = tmp_path / "speaker.pcm", tmp_path / "device.bin"
-    pcm.write_bytes(b"")
-    real_popen = subprocess.Popen
-
-    def cat_popen(cmd, **kw):  # `cat` stands in for paplay: same stdin / file-EOF semantics
-        assert cmd[0] == "paplay" and cmd[-1] == "-"
-        kw["stdout"] = open(sink, "wb")
-        return real_popen(["cat"], **kw)
-
-    monkeypatch.setattr(meet_bot.subprocess, "Popen", cat_popen)
-    rt, stop = {}, {"stop": False}
-    state = meet_bot._BotState(tmp_path, "abc-defg-hij", "https://meet.google.com/abc-defg-hij")
-    meet_bot._start_pcm_pump(rt, {"platform": "linux", "write_target": "sink"}, pcm, state, stop)
-    time.sleep(0.2)
-    with open(pcm, "ab") as f:
-        f.write(b"\x01\x02" * 2000)
-    deadline = time.time() + 5
-    while time.time() < deadline and sink.stat().st_size < 4000:
-        time.sleep(0.05)
-    assert rt["pcm_pump"].poll() is None
-    assert sink.stat().st_size == 4000
-    stop["stop"] = True
-    meet_bot._teardown_realtime({**rt, "speaker_thread": None, "session": None, "bridge": None})
-    assert not rt["pcm_tail_thread"].is_alive()
-    assert state.mic_state is None and "micState" in state.status_path.read_text(encoding="utf-8")
-
-
-def test_pcm_tail_loop_swallows_only_pipe_errors(tmp_path):
-    """A closed pump pipe is expected and quiet; any other tail-thread bug must not be silenced."""
-    from types import SimpleNamespace
-
-    from plugins.google_meet.meet_bot import _pcm_tail_loop
-
-    pcm = tmp_path / "speaker.pcm"
-    pcm.write_bytes(b"\x00" * 16)
-
-    def proc(exc):
-        def write(_chunk): raise exc
-        return SimpleNamespace(poll=lambda: None, stdin=SimpleNamespace(write=write, flush=lambda: None,
-                                                                        close=lambda: None))
-
-    _pcm_tail_loop(proc(BrokenPipeError()), pcm, {"stop": False})  # quiet
-    with pytest.raises(RuntimeError):
-        _pcm_tail_loop(proc(RuntimeError("bug")), pcm, {"stop": False})
-
-
-# ---------------------------------------------------------------------------
-# Realtime session counters + cancel_response (barge-in)
-# ---------------------------------------------------------------------------
-
-def test_realtime_session_cancel_response_when_disconnected():
-    from plugins.google_meet.realtime.openai_client import RealtimeSession
-
-    sess = RealtimeSession(api_key="sk-test", audio_sink_path=None)
-    # No _ws yet — cancel should no-op and return False.
-    assert sess.cancel_response() is False
+    assert page.polls >= 3
+    with patch("plugins.google_meet.meet_bot.time.sleep"):
+        _drain_loop(page, _BotConfig(guest_name="Bot", duration_s=0, lobby_timeout=30), state, stop)
+    assert state.in_call is True
+    assert "Alice: hello" in state.transcript_path.read_text()
+    assert page.clicked == ["Join now"]
 
 
 # ---------------------------------------------------------------------------
@@ -395,7 +360,7 @@ def test_realtime_session_cancel_response_when_disconnected():
 
 
 
-@pytest.mark.platforms("linux", "macos")
+@pytest.mark.platforms("linux")
 def test_cmd_install_uses_declared_dependencies_and_pm_chromium(monkeypatch, capsys):
     import pm
 
@@ -403,8 +368,7 @@ def test_cmd_install_uses_declared_dependencies_and_pm_chromium(monkeypatch, cap
     monkeypatch.setattr(pm, "sync_venv", lambda extras, **kwargs: calls.append(("sync", extras, kwargs)))
     monkeypatch.setattr(pm, "ensure", lambda name, **kwargs: calls.append(("ensure", name, kwargs)))
     from plugins.google_meet import cli
-    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **kw: pytest.fail("direct installer subprocess"))
-    assert cli._cmd_install(realtime=False, assume_yes=True) == 0
+    assert cli._cmd_install() == 0
     assert calls == [("sync", ["google-meet"], {"explicit": True}),
                      ("ensure", "chromium", {"explicit": True})]
     from pm.features import declared_extras
@@ -413,7 +377,7 @@ def test_cmd_install_uses_declared_dependencies_and_pm_chromium(monkeypatch, cap
     assert "hermes meet setup" in capsys.readouterr().out
 
 
-@pytest.mark.platforms("linux", "macos")
+@pytest.mark.platforms("linux")
 def test_cmd_install_reports_dependency_failure(monkeypatch, capsys):
     import pm
 
@@ -422,5 +386,5 @@ def test_cmd_install_reports_dependency_failure(monkeypatch, capsys):
 
     monkeypatch.setattr(pm, "sync_venv", fail)
     from plugins.google_meet import cli
-    assert cli._cmd_install(realtime=False, assume_yes=True) == 1
+    assert cli._cmd_install() == 1
     assert "dependency resolution failed" in capsys.readouterr().out

@@ -1,7 +1,7 @@
 name: pstack
 repo: https://github.com/Cloeille/pstack
 sha: d9454cc1ecba5f28b136deacdfe2df959cf7cdec
-description: "Engineering rigor stack: poteto-mode orchestrator with 17 playbooks, plus how, architect, interrogate, swarm, unslop, and 46 other skills and principles. Disclosure — skills only, no tools or network calls of their own; when the user asks, the setup-pstack skill changes Hermes `delegation` model/provider/reasoning settings via `hermes config set`, the autopilot, shipping and babysit playbooks push and force-push the agent's own branches, squash-merge pull requests and arm hourly Hermes cron jobs to watch them, and the reflect skill files backlog issues in your team's tracker without asking per item."
+description: "Engineering skill stack with a poteto-mode orchestrator, seventeen playbooks and additional architecture, interview, swarm and editing skills. Disclosure — skills register no tools and make no network requests of their own, but their instructions can cause actions through the host's tools. On request, setup changes delegation model/provider/reasoning settings through hermes config set. Shipping/autopilot/babysit playbooks can push and force-push owned branches and squash-merge pull requests; reflect can file backlog issues without per-item approval."
 maintainer: Cloeille
 tier: community
 category: tools
@@ -14,3 +14,4 @@ capabilities:
   provides_middleware: []
   requires_env: []
 requires_hermes: ">=0.21.0"
+known_issues: ["Upstream playbook steps that arm recurring built-in host jobs require the removed scheduler and do not apply. This listing does not replace them with another automation mechanism."]

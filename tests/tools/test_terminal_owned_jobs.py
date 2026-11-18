@@ -131,6 +131,39 @@ def test_a_checkpoint_recovering_hosts_jobs_outlive_its_crash(tmp_path):
         _cleanup(owners, log, ids)
 
 
+@pytest.mark.parametrize("persist_on_release", [False, True])
+@pytest.mark.parametrize("jobs_outlive_host", [False, True])
+@pytest.mark.parametrize("worker", [False, True])
+@pytest.mark.parametrize("supervised", [False, True])
+def test_job_ownership_respects_lifecycle(monkeypatch, persist_on_release, jobs_outlive_host, worker, supervised):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from agent import runtime_session_store
+    from tools import process_registry, process_registry_ownership
+
+    monkeypatch.setattr(runtime_session_store, "is_worker_process", lambda: worker)
+    monkeypatch.setattr(process_registry, "_is_supervised_gateway_process", lambda: supervised)
+    ownership = process_registry_ownership.ProcessOwnershipMixin()
+    ownership._jobs_outlive_host = jobs_outlive_host
+    session = SimpleNamespace(_owned_pgid=None)
+    proc = SimpleNamespace(pid=4242)
+    owned, detached = Mock(return_value=proc), Mock(return_value=proc)
+    monkeypatch.setattr(process_registry_ownership, "spawn_owned", owned)
+    monkeypatch.setattr(process_registry_ownership.subprocess, "Popen", detached)
+    argv = ["local-job"]
+
+    assert ownership._spawn_job(session, argv, persist_on_release, stdin=subprocess.DEVNULL) is proc
+    if persist_on_release or jobs_outlive_host or worker or supervised:
+        detached.assert_called_once_with(argv, start_new_session=True, stdin=subprocess.DEVNULL)
+        owned.assert_not_called()
+        assert session._owned_pgid is None
+    else:
+        owned.assert_called_once_with(argv, purpose="terminal-background", stdin=subprocess.DEVNULL)
+        detached.assert_not_called()
+        assert session._owned_pgid == proc.pid
+
+
 def _record_calls(monkeypatch):
     from tools import process_registry_ownership as registry_mod
     from tools.environments import local as local_mod

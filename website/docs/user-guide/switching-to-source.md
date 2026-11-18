@@ -13,8 +13,7 @@ User data normally lives outside the application:
 
 | Host | Default data location |
 |---|---|
-| Linux, macOS, WSL, Termux | `~/.hermes/` |
-| Native Windows | `%LOCALAPPDATA%\hermes\` |
+| Linux, Termux | `~/.hermes/` |
 | Official Docker container | `/opt/data/`, mapped to host storage |
 
 `HERMES_HOME` and the selected profile can override these defaults. Record the
@@ -64,12 +63,6 @@ source ./activate
 hermes --version
 ```
 
-On native Windows, use PowerShell:
-
-```powershell
-. .\activate.ps1
-hermes --version
-```
 
 The bootstrap reads tool pins from `pm/lock.json` and delegates installation
 to PM. Current first-party code runs on Python 3.14. The wider
@@ -97,14 +90,6 @@ POSIX example:
 
 ```bash
 export HERMES_HOME="$HOME/hermes-source-data"
-hermes setup
-hermes
-```
-
-PowerShell example:
-
-```powershell
-$env:HERMES_HOME = Join-Path $HOME 'hermes-source-data'
 hermes setup
 hermes
 ```
@@ -147,8 +132,7 @@ Inspect which CLI command resolves before using `hermes` again:
 command -v hermes
 ```
 
-On Windows, use `Get-Command hermes -All`. Do not replace an unrelated command
-or execution alias without checking its owner.
+Do not replace an unrelated command or execution alias without checking its owner.
 
 A newer source revision can change data formats. Returning to an older package
 is not the reverse of a schema migration. Preserve current data and restore a

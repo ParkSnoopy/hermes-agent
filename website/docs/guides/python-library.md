@@ -21,7 +21,7 @@ source ./activate
 ```
 
 Run your application with `python your_app.py` from that activated checkout.
-For PowerShell preparation or an independent interpreter, see the
+For an independent interpreter, see the
 [PM developer workflow](../reference/package-management.md#developer-workflow).
 Hermes does not publish a supported wheel or source distribution for `requirements.txt` installs.
 
@@ -249,32 +249,6 @@ async def chat(request: ChatRequest):
     return {"response": response}
 ```
 
-### Discord Bot
-
-```python
-import discord
-from run_agent import AIAgent
-
-client = discord.Client(intents=discord.Intents.default())
-
-@client.event
-async def on_message(message):
-    if message.author == client.user:
-        return
-    if message.content.startswith("!hermes "):
-        query = message.content[8:]
-        agent = AIAgent(
-            model="anthropic/claude-sonnet-4",
-            quiet_mode=True,
-            skip_context_files=True,
-            skip_memory=True,
-            platform="discord",
-        )
-        response = agent.chat(query)
-        await message.channel.send(response[:2000])
-
-client.run("YOUR_DISCORD_TOKEN")
-```
 
 ### CI/CD Pipeline Step
 
@@ -317,7 +291,7 @@ print(review)
 | `skip_memory` | `bool` | `False` | Disable persistent memory read/write |
 | `api_key` | `str` | `None` | API key (falls back to env vars) |
 | `base_url` | `str` | `None` | Custom API endpoint URL |
-| `platform` | `str` | `None` | Platform hint (`"discord"`, `"telegram"`, etc.) |
+| `platform` | `str` | `None` | Platform/session source hint (for example, `"cli"`) |
 
 ---
 
@@ -326,7 +300,7 @@ print(review)
 :::tip
 - Set **`skip_context_files=True`** if you don't want `AGENTS.md` files from the working directory loaded into the system prompt.
 - Set **`skip_memory=True`** to prevent the agent from reading or writing persistent memory — recommended for stateless API endpoints.
-- The `platform` parameter (e.g., `"discord"`, `"telegram"`) injects platform-specific formatting hints so the agent adapts its output style.
+- The `platform` parameter supplies a session-source hint for platform-specific behavior.
 :::
 
 :::warning

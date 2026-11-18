@@ -16,9 +16,8 @@ def rehome_inbound_media(event: MessageEvent) -> None:
     """Move adapter-cached attachments into the ACTIVE profile's ``cache/`` and repoint the event.
 
     Adapters download and cache an attachment BEFORE the gateway routes the event to a profile, so
-    on a multiplexed gateway the file lands under the launch home while the routed turn's sandbox
-    mounts (``get_cache_directory_mounts``) and vision's ``_media_cache_roots`` resolve the routed
-    profile's ``cache/`` — the agent is handed a mounted, empty directory (#101134). Runs inside the
+    on a multiplexed gateway the file lands under the launch home while the routed turn and vision
+    resolve the active profile's ``cache/``. Runs inside the
     routed scope at the shared preprocessing choke point (every adapter, every media kind); a no-op
     when the active home is the launch home, and idempotent (a moved entry is no longer under it).
     """
@@ -28,7 +27,6 @@ def rehome_inbound_media(event: MessageEvent) -> None:
     active, launch = Path(get_hermes_home()), Path(get_routing_process_hermes_home())
     if hermes_home_key(active) == hermes_home_key(launch):
         return
-    from tools.credential_files import to_agent_visible_cache_path
     rewritten = list(event.media_urls)
     for i, raw in enumerate(event.media_urls):
         src = Path(raw)
@@ -47,5 +45,5 @@ def rehome_inbound_media(event: MessageEvent) -> None:
             continue
         rewritten[i] = str(dest)
         if event.text and raw in event.text:  # note an adapter already baked in (observed/replied media)
-            event.text = event.text.replace(raw, to_agent_visible_cache_path(str(dest)))
+            event.text = event.text.replace(raw, str(dest))
     event.media_urls = rewritten

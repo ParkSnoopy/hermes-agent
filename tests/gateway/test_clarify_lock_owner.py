@@ -206,7 +206,7 @@ async def test_clarify_lock_params_are_checked_by_the_declared_canonical_contrac
     mistyped field from ``ClarifyLockParams`` (``4001`` naming the field) before the handler runs."""
     from gateway.session_controls import AuthorityConnection
     from tui_gateway.contracts.registry import CANONICAL_METHODS
-    from tui_gateway.contracts.prompt_voice import ClarifyLockParams, ClarifyLockResult
+    from tui_gateway.contracts.prompt import ClarifyLockParams, ClarifyLockResult
 
     assert CANONICAL_METHODS['clarify.lock'].params is ClarifyLockParams
     assert CANONICAL_METHODS['clarify.lock'].result is ClarifyLockResult

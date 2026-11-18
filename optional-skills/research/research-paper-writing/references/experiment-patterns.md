@@ -415,38 +415,13 @@ Always include in the paper:
 
 ---
 
-## Monitoring (Cron Pattern)
-
-### Cron Prompt Template
-
-For each experiment batch, create a monitoring prompt:
-
-```
-Check the status of the [EXPERIMENT_NAME] experiment:
-
-1. Process check: ps aux | grep [PROCESS_PATTERN]
-2. Log check: tail -30 [LOG_FILE]
-3. Results check: ls [RESULT_DIR]/eval/ (or appropriate result location)
-4. If results are available:
-   - Read the result JSON files
-   - Report metrics in a table (Borda scores, accuracy, etc.)
-   - Compute key comparisons between methods
-5. If all experiments in this batch are complete:
-   - git add -A && git commit -m "[COMMIT_MESSAGE]" && git push
-   - Report final summary
-6. Key question: [SPECIFIC ANALYTICAL QUESTION]
-
-If nothing has changed since the last check, respond with [SILENT].
-```
-
-### Monitoring Best Practices
+## Monitoring Best Practices
 
 1. **Check processes first** — don't read results if the experiment is still running and results are incomplete
 2. **Read the log tail** — look for errors, progress indicators, completion messages
 3. **Count completed vs expected** — "45/150 problems done" is more useful than "some results exist"
 4. **Report in structured tables** — always include key metrics in a table
 5. **Answer the key question** — each experiment should have a specific analytical question to answer when done
-6. **[SILENT] for no-news** — suppress notifications when nothing has changed
 7. **Commit on completion** — every completed batch gets committed with a descriptive message
 
 ### Example Monitoring Report

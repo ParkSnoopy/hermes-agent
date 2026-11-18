@@ -55,7 +55,7 @@ _API_KEYS: dict[str, str | tuple[str, ...]] = {
     "Tavily": "TAVILY_API_KEY", "Perplexity": "PERPLEXITY_API_KEY", "Keenable": "KEENABLE_API_KEY",
     "Browser Use": "BROWSER_USE_API_KEY",  # Optional — local browser works without this
     "Browserbase": "BROWSERBASE_API_KEY",  # Optional — direct credentials only
-    "FAL": "FAL_KEY", "ElevenLabs": "ELEVENLABS_API_KEY", "GitHub": "GITHUB_TOKEN"}
+    "FAL": "FAL_KEY", "GitHub": "GITHUB_TOKEN"}
 
 # OAuth detail rows: (label, status key, formatter, gate) — see _oauth_block.
 _FILE_REFRESH_ROWS = (
@@ -84,8 +84,7 @@ _APIKEY_PROVIDERS = {
 _FEATURE_STATES = (
     (lambda f, _: f.managed_by_nous, lambda f: "active via Nous subscription"),
     (lambda f, _: f.active, lambda f: f"active via {f.current_provider or 'configured provider'}"),
-    (lambda f, auth: f.included_by_default and auth, lambda f: "included by subscription, not currently selected"),
-    (lambda f, auth: f.key == "modal" and auth, lambda f: "available via subscription (optional)"))
+    (lambda f, auth: f.included_by_default and auth, lambda f: "included by subscription, not currently selected"))
 
 
 def _render_api_keys(ctx):
@@ -173,7 +172,7 @@ def _render_nous_gateway(ctx):
         # information, cannot enable the Tool Gateway.
         _status._section("Nous Tool Gateway")
         message = format_nous_portal_entitlement_message(
-            ctx.nous_account_info, capability="managed web, image, TTS, STT, browser, and Modal tools"
+            ctx.nous_account_info, capability="managed web, image, and browser tools"
         )
         for line in (message or "").splitlines():
             print(f"  {line}")

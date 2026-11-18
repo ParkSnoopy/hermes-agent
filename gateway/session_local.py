@@ -105,7 +105,7 @@ class LocalSessionAdapter(BasePlatformAdapter):
             # A structured decline releases the wait at once and skips the plain-text re-ask
             # (an ordinary failure would fall back to a send() that ACKs, and the turn would
             # wait the whole clarify timeout).
-            from gateway.relay.egress import EGRESS_DECLINE_CODE
+            from gateway.delivery_refusal import EGRESS_DECLINE_CODE
             return SendResult(success=False, error=error, error_kind='forbidden',
                               raw_response={'success': False, 'code': EGRESS_DECLINE_CODE, 'error': error})
         # Local sessions keep the base prompt: a choice question also captures typed text.
@@ -414,10 +414,10 @@ def _reasoning_fields(agent, policy, model, authority=None, override=None):
     resolves (a following session's current profile): a resumed Desktop slice holds its reasoning pill
     pending until ``reasoning_effort`` arrives."""
     from agent.fast_mode import parse_service_tier
-    from agent.voice_turn_route import session_runtime_view
+
     if agent is None and policy is None:
         return {}
-    view = session_runtime_view(agent) if agent is not None else None
+    view = agent
     if view is None:
         from hermes_constants import resolve_reasoning_config
         effective, next_model = policy.effective(authority, secrets=False)

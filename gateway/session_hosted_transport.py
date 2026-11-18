@@ -10,7 +10,6 @@ import base64
 from dataclasses import asdict
 import hashlib
 import json
-import os
 from pathlib import Path
 import threading
 import time
@@ -26,8 +25,8 @@ _BINDING = 'gateway.hosted.transport.v1:'
 _OPERATIONS = frozenset({'resolve_exact', 'create', 'resume', 'submit', 'history', 'results',
                          'info', 'interrupt', 'discard', 'approve'})
 # One chunk per private-socket exchange. The response is a single JSON line capped at
-# gateway.control_socket._MAX_RESPONSE_BYTES (512 KiB) on both the POSIX socket and the
-# Windows pipe: 360 KiB raw -> 480 KiB base64, leaving 32 KiB for the envelope (owner
+# gateway.control_socket._MAX_RESPONSE_BYTES (512 KiB): 360 KiB raw -> 480 KiB
+# base64, leaving 32 KiB for the envelope (owner
 # subject, target home, digest); the attachment attest result carries no prompt/manifest.
 _CHUNK_BYTES = 360 * 1024
 _CAPS = frozenset({'session:create', 'session:read', 'session:submit',
@@ -56,18 +55,14 @@ def owner_request(home, verb, params, *, timeout=30):
     request = json.dumps({'protocol': 1, 'id': 1, 'verb': verb, 'params': params}).encode() + b'\n'
     if len(request) > 65536:
         raise RuntimeStoreError('request_too_large')
-    if os.name == 'nt':
-        from gateway.runtime_bootstrap_windows import query_runtime_control
-        raw = query_runtime_control(home, request, timeout)
-    else:
-        from hermes_cli.gateway_runtime_discovery import connect_private
-        from gateway.control_socket import _read_response_line
-        with connect_private(home, timeout) as peer:
-            peer.sendall(request)
-            def read():
-                peer.settimeout(max(0.001, deadline - time.monotonic()))
-                return peer.recv(65536)
-            raw = _read_response_line(read, deadline)
+    from hermes_cli.gateway_runtime_discovery import connect_private
+    from gateway.control_socket import _read_response_line
+    with connect_private(home, timeout) as peer:
+        peer.sendall(request)
+        def read():
+            peer.settimeout(max(0.001, deadline - time.monotonic()))
+            return peer.recv(65536)
+        raw = _read_response_line(read, deadline)
     if not raw:
         raise RuntimeStoreError('runtime_draining')
     response = json.loads(raw)

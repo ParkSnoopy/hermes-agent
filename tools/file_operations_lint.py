@@ -199,22 +199,20 @@ class LintMixin:
         import shutil
         import subprocess
 
-        from hermes_cli._subprocess_compat import windows_hide_flags
         from hermes_constants import with_hermes_node_path
-        from tools.environments.local import _IS_WINDOWS, _msys_to_windows_path, hermes_subprocess_env
+        from tools.environments.local import hermes_subprocess_env
 
         tool, *args = _MANAGED_NODE_LINTERS[ext]
         executable = shutil.which(tool, path=with_hermes_node_path({"PATH": ""})["PATH"])
         if executable is None:
             return None
         cwd = getattr(self.env, "cwd", None) or self.cwd
-        if _IS_WINDOWS:
-            path, cwd = _msys_to_windows_path(path), cwd and _msys_to_windows_path(cwd)
+
         try:
             proc = subprocess.run(
                 [executable, *args, path], cwd=cwd or None, env=with_hermes_node_path(hermes_subprocess_env()),
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace", timeout=30, creationflags=windows_hide_flags(), check=False)
+                text=True, encoding="utf-8", errors="replace", timeout=30, check=False)
         except subprocess.TimeoutExpired:
             return ExecuteResult(stdout=f"{tool} timed out after 30s", exit_code=124)
         return ExecuteResult(stdout=proc.stdout or "", exit_code=proc.returncode)
@@ -243,8 +241,7 @@ class LintMixin:
         ))
 
     def _lsp_local_only(self) -> bool:
-        """True iff the backend's files are the host's (``uses_host_filesystem``). LSP servers run on
-        the host and can't see files inside Docker/Modal/SSH/Daytona or a confining local sandbox."""
+        """Whether this file operation uses the host filesystem visible to LSP."""
         from tools.environments.base import env_uses_host_filesystem
 
         return env_uses_host_filesystem(getattr(self, "env", None))  # tests may build via __new__
@@ -252,7 +249,7 @@ class LintMixin:
     def _local_workspace_untrusted(self) -> bool:
         """True iff on a local backend the linter's cwd lies outside every trusted workspace
         (``workspace.is_trusted_workspace``): ``npx`` and rustup resolve the toolchain from there, not
-        from the linted file's directory.  Sandboxed backends answer False: their toolchain is not the host's."""
+        from the linted file's directory."""
         if not self._lsp_local_only():
             return False
         from agent.lsp.manager import parse_trusted_workspaces
@@ -263,7 +260,7 @@ class LintMixin:
         return not is_trusted_workspace(getattr(self.env, "cwd", None) or self.cwd, trusted, operator_workspace_roots())
 
     def _lsp_service(self):
-        """The active LSPService, or None on a non-local backend / any failure.
+        """The active LSPService, or None when unavailable.
         LSP is an enrichment layer and must never break a write."""
         if not self._lsp_local_only():
             return None

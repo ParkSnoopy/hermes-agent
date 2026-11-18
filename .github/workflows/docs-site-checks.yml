@@ -52,7 +52,4 @@ jobs:
         run: just docs-lint-diagrams
 
       - name: Build Docusaurus
-        # Build only the default (en) locale in CI — the full bilingual
-        # build runs in deploy-site.yml on push-to-main / release.
-        # Same pattern Docusaurus uses internally (build:fast --locale en).
         run: just docs-build

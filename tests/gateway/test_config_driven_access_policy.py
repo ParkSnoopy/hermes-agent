@@ -102,26 +102,6 @@ def test_base_adapter_defaults_to_not_owning_access_policy():
     assert BasePlatformAdapter.enforces_own_access_policy.fget(object()) is False
 
 
-@pytest.mark.parametrize(
-    "module_path, class_name",
-    [
-        ("plugins.platforms.wecom.adapter", "WeComAdapter"),
-        ("plugins.platforms.weixin.adapter", "WeixinAdapter"),
-        ("plugins.platforms.qqbot.adapter", "QQAdapter"),
-        ("plugins.platforms.whatsapp.adapter", "WhatsAppAdapter"),
-    ],
-)
-def test_own_policy_adapters_declare_the_flag(module_path, class_name):
-    """The config-policy adapters override the flag to True."""
-    import importlib
-
-    module = importlib.import_module(module_path)
-    adapter_cls = getattr(module, class_name)
-    # Property is overridden on the subclass and returns True regardless of
-    # instance state (it reflects a static capability, not runtime config).
-    value = adapter_cls.enforces_own_access_policy.fget(object.__new__(adapter_cls))
-    assert value is True
-
 
 # ---------------------------------------------------------------------------
 # Layer 2: gateway trusts the adapter-enforced flag
@@ -234,29 +214,6 @@ def test_own_policy_open_group_not_authorized_without_allowlist(monkeypatch, pla
 
     assert runner._is_user_authorized(_source(platform, chat_type="group")) is False
 
-
-@pytest.mark.parametrize(
-    "module_path, class_name, dm_helper",
-    [
-        ("plugins.platforms.whatsapp.adapter", "WhatsAppAdapter", "_is_dm_allowed"),
-        ("plugins.platforms.wecom.adapter", "WeComAdapter", "_is_dm_allowed"),
-        ("plugins.platforms.weixin.adapter", "WeixinAdapter", "_is_dm_allowed"),
-        ("plugins.platforms.qqbot.adapter", "QQAdapter", "_is_dm_allowed"),
-    ],
-)
-def test_pairing_dm_policy_strict_intake_auth_denies_unknown(
-    monkeypatch, module_path, class_name, dm_helper,
-):
-    """Default ``dm_policy: pairing`` must not admit senders via strict auth."""
-    _clear_auth_env(monkeypatch)
-    import importlib
-
-    from gateway.config import PlatformConfig
-
-    module = importlib.import_module(module_path)
-    adapter_cls = getattr(module, class_name)
-    adapter = adapter_cls(PlatformConfig(enabled=True, extra={"dm_policy": "pairing"}))
-    assert getattr(adapter, dm_helper)("unknown-user") is False
 
 
 def test_wecom_open_group_with_per_group_sender_allowlist_is_authorized(monkeypatch):

@@ -15,11 +15,11 @@ CHAT = '15551234567@s.whatsapp.net'
 
 @pytest.mark.asyncio
 async def test_path_text_typed_command_is_admitted_as_text(tmp_path, monkeypatch):
-    from plugins.platforms.whatsapp.adapter import WhatsAppAdapter
-    monkeypatch.setenv('WHATSAPP_ALLOWED_USERS', '15551234567')
+    from gateway.platforms.api_server import APIServerAdapter
+    monkeypatch.setenv('GATEWAY_ALLOW_ALL_USERS', 'true')
     runner = GatewayRunner(GatewayConfig(sessions_dir=tmp_path / 'sessions'))
-    adapter = WhatsAppAdapter(PlatformConfig(enabled=True, extra={'session_path': str(tmp_path / 'wa')}))
-    adapter.gateway_runner, runner.adapters = runner, {Platform.WHATSAPP: adapter}
+    adapter = APIServerAdapter(PlatformConfig(enabled=True))
+    adapter.gateway_runner, runner.adapters = runner, {Platform.API_SERVER: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='path')
     runner._wire_adapter_handlers(adapter)
     source = adapter.build_source(chat_id=CHAT, user_id=CHAT, chat_type='dm')

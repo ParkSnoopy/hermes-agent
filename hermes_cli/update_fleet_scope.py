@@ -69,7 +69,7 @@ def gateway_pid_home(pid: int) -> str | None:
     """The home gateway *pid* runs on: its live environment, else the exact-birth ledger witness;
     ``None`` when neither proves one. Discovery, the Windows pause record and its readiness check
     share it, so the home discovery proved is the home the restart debt keeps."""
-    from hermes_cli.dashboard_procs import _hermes_home_for_pid
+    from hermes_cli.process_identity import _hermes_home_for_pid
     try:
         home = _hermes_home_for_pid(pid)
     except Exception:  # health: allow BLE001 -- tri-state resolver: any environment-read failure is "unknown" and the ledger witness decides
@@ -98,7 +98,7 @@ def partition_gateway_pids_by_scope(pids, scope: set[Path] | None = None) -> tup
             home = None
             if verdict is False:
                 with suppress(Exception):
-                    from hermes_cli.dashboard_procs import _hermes_home_for_pid
+                    from hermes_cli.process_identity import _hermes_home_for_pid
                     home = _hermes_home_for_pid(pid)
             foreign.append((pid, home))
     return owned, foreign
@@ -113,7 +113,7 @@ def systemd_unit_hermes_home(scope_cmd: list, svc_name: str) -> str | None:
     pid = _unit_main_pid(scope_cmd, svc_name)
     if pid > 0:
         with suppress(Exception):
-            from hermes_cli.dashboard_procs import _hermes_home_for_pid
+            from hermes_cli.process_identity import _hermes_home_for_pid
             if (home := _hermes_home_for_pid(pid)) is not None:
                 return home
     try:
@@ -142,23 +142,6 @@ def systemd_unit_in_update_scope(scope_cmd: list, svc_name: str, scope: set[Path
     if home is None:
         return None
     return home_in_update_scope(home, scope)
-
-
-def launchd_label_foreign_home(label: str, scope: set[Path] | None = None) -> str | None:
-    """The HERMES_HOME a derived launchd label's installed plist pins when that home is NOT one of
-    this update's — labels are account-global, so root B's default profile derives the same bare
-    ``ai.hermes.gateway`` root A installed. ``None`` = ours, or no/unreadable plist (the locate step
-    decides whether a job exists; only a proven foreign home is refused)."""
-    import plistlib
-    with suppress(Exception):
-        from hermes_cli.gateway import get_launchd_plist_path
-        plist_path = get_launchd_plist_path().with_name(f"{label}.plist")
-        if not plist_path.exists():
-            return None
-        data = plistlib.loads(plist_path.read_bytes())
-        pinned = str(data["EnvironmentVariables"]["HERMES_HOME"])
-        return None if home_in_update_scope(pinned, scope) else pinned
-    return None
 
 
 def describe_skipped_runtime(kind: str, name: str, home: str | None) -> str:

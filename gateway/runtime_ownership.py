@@ -15,7 +15,7 @@ from pathlib import Path
 import stat
 import threading
 import time
-from hermes_dir_acl import make_user_dir
+from hermes_user_dirs import make_user_dir
 
 logger = logging.getLogger(__name__)
 

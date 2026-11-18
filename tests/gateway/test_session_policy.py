@@ -14,15 +14,12 @@ def test_policy_selects_surface_and_isolates_cwd(tmp_path):
     cfg = {'platform_toolsets': {'cli': ['terminal']}}
     before = dict(os.environ)
     policies = []
-    for source in ('cli', 'tui', 'gui'):
+    for source in ('cli', 'tui'):
         cwd = tmp_path / source
         cwd.mkdir()
         policies.append(build_policy({'source': source, 'cwd': str(cwd), 'model': source}, cfg))
-    assert policies[2].platform == 'desktop'
-    assert 'desktop_ui' in policies[2].toolsets
-    assert all('desktop_ui' not in p.toolsets for p in policies[:2])
-    # Platform-gated toolsets (catalog) ride on the Desktop surface only, like the native TUI factory.
-    assert 'catalog' in policies[2].toolsets and all('catalog' not in p.toolsets for p in policies[:2])
+    assert [p.platform for p in policies] == ['cli', 'tui']
+    assert all('desktop_ui' not in p.toolsets for p in policies)
     cfg['platform_toolsets']['cli'].clear()
     assert 'terminal' in policies[0].toolsets
 
@@ -181,7 +178,7 @@ def test_provider_change_drops_the_old_providers_context_window(tmp_path):
     assert alias.config()['model']['context_length'] == 8192
 
 def test_provider_pick_over_auto_template_sends_its_key_to_its_own_endpoint(tmp_path, monkeypatch):
-    """#139018: the install template (`provider: auto` + OpenRouter base_url) plus a Desktop
+    """#139018: the install template (`provider: auto` + OpenRouter base_url) plus a
     Google AI Studio pick resolved provider=gemini against openrouter.ai, so the Google key went
     to OpenRouter (401). The frozen route must resolve to Google's own endpoint."""
     from gateway.session_policy import build_policy
@@ -190,7 +187,7 @@ def test_provider_pick_over_auto_template_sends_its_key_to_its_own_endpoint(tmp_
     monkeypatch.setenv('OPENROUTER_API_KEY', 'sk-openrouter')
     cfg = {'model': {'default': 'anthropic/claude-opus-4.6', 'provider': 'auto',
                      'base_url': 'https://openrouter.ai/api/v1'}}
-    policy = build_policy(dict(cwd=str(tmp_path), source='gui', model='gemini-flash-latest', provider='gemini'), cfg)
+    policy = build_policy(dict(cwd=str(tmp_path), source='tui', model='gemini-flash-latest', provider='gemini'), cfg)
     with frozen_runtime_config(policy.config()):
         runtime = resolve_runtime_provider(requested='gemini', target_model='gemini-flash-latest')
     assert (runtime['provider'], runtime['api_key']) == ('gemini', 'sk-google')

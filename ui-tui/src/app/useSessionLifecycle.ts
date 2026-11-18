@@ -17,10 +17,10 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { STARTUP_WORKSPACE_CWD } from '../config/env.js'
 import { buildSetupRequiredSections, setupRequiredTitle } from '../content/setup.js'
+import { sessionEn } from '../copy/session.js'
 import { introMsg, toTranscriptMessages } from '../domain/messages.js'
 import { ZERO } from '../domain/usage.js'
 import { type GatewayClient } from '../gatewayClient.js'
-import { t } from '../i18n/runtime.js'
 import { localCreationOptions } from '../launchOptions.js'
 import { migratePendingInputs } from '../lib/pendingInputs.js'
 import { asRpcResult } from '../lib/rpc.js'
@@ -44,11 +44,11 @@ const usageFrom = (info: null | SessionInfo): Usage => (info?.usage ? { ...ZERO,
 
 const statusFromLiveSession = (status?: string, running = false) => {
   if (status === 'waiting') {
-    return t('session.status.waitingForInput')
+    return sessionEn.session.status.waitingForInput
   }
 
   if (status === 'starting') {
-    return t('session.status.startingAgent')
+    return sessionEn.session.status.startingAgent
   }
 
   return running || status === 'working' ? 'running…' : 'ready'
@@ -148,8 +148,6 @@ export interface UseSessionLifecycleOptions {
   setLastUserMsg: StateSetter<string>
   setSessionStartedAt: StateSetter<number>
   setStickyPrompt: StateSetter<string>
-  setVoiceProcessing: StateSetter<boolean>
-  setVoiceRecording: StateSetter<boolean>
   sys: (text: string) => void
 }
 
@@ -184,8 +182,6 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
     setLastUserMsg,
     setSessionStartedAt,
     setStickyPrompt,
-    setVoiceProcessing,
-    setVoiceRecording,
     sys
   } = opts
 
@@ -383,8 +379,6 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
     cancelResumeScrollRef.current?.()
     cancelResumeScrollRef.current = null
     turnController.fullReset()
-    setVoiceRecording(false)
-    setVoiceProcessing(false)
     patchUiState({ bgTasks: new Set(), info: null, sid: null, storedSid: null, usage: ZERO })
     setHistoryItems([])
     setLastUserMsg('')
@@ -393,7 +387,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
     // Half-prune: new session has new keys, but keep a warm pool in case
     // the user resumes back to the prior session.
     evictInkCaches('half')
-  }, [composerActions, setHistoryItems, setLastUserMsg, setStickyPrompt, setVoiceProcessing, setVoiceRecording])
+  }, [composerActions, setHistoryItems, setLastUserMsg, setStickyPrompt])
 
   useEffect(
     () => () => {
@@ -437,7 +431,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
 
         if (setup?.provider_configured === false) {
           panel(setupRequiredTitle(), buildSetupRequiredSections())
-          patchUiState({ status: t('session.status.setupRequired') })
+          patchUiState({ status: sessionEn.session.status.setupRequired })
 
           return null
         }
@@ -485,7 +479,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
           gatewayConnected: true,
           info,
           sid: r.session_id,
-          status: gw.isCanonical || info?.version ? 'ready' : t('session.status.startingAgent'),
+          status: gw.isCanonical || info?.version ? 'ready' : sessionEn.session.status.startingAgent,
           storedSid,
           usage: usageFrom(info)
         })
@@ -512,9 +506,9 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
               }
 
               const nextTitle = (result.title ?? requestedTitle).trim()
-              const suffix = result.pending ? t('session.lifecycle.titleQueuedSuffix') : ''
+              const suffix = result.pending ? sessionEn.session.lifecycle.titleQueuedSuffix : ''
               patchUiState({ sessionTitle: nextTitle })
-              sys(`${t('session.lifecycle.sessionTitleSet', nextTitle)}${suffix}`)
+              sys(`${sessionEn.session.lifecycle.sessionTitleSet(nextTitle)}${suffix}`)
             })
             .catch((err: unknown) => {
               if (getUiState().sid !== r.session_id) {
@@ -522,7 +516,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
               }
 
               const message = err instanceof Error ? err.message : String(err)
-              sys(`warning: ${t('session.lifecycle.failedToSetTitle', message)}`)
+              sys(`warning: ${sessionEn.session.lifecycle.failedToSetTitle(message)}`)
             })
         }
 
@@ -558,7 +552,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
   )
 
   const newLiveSession = useCallback(
-    (msg = t('session.lifecycle.newLiveSessionStarted'), title?: string) => {
+    (msg = sessionEn.session.lifecycle.newLiveSessionStarted, title?: string) => {
       patchOverlayState({ sessions: false })
 
       return startNewSession(msg, title, true)
@@ -573,7 +567,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
       const previousSid = getUiState().sid
       const previousSubscription = releasedOnLeave(previousSid, canonicalSubscriptions.current, previousSid !== id)
       patchOverlayState({ sessions: false })
-      patchUiState({ status: t('session.status.switchingSession') })
+      patchUiState({ status: sessionEn.session.status.switchingSession })
       // The card belongs to the session being left; the activated one answers with its own.
       clearConnectionOperation()
 
@@ -599,7 +593,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
           }
 
           if (!r) {
-            sys(`error: ${t('session.common.invalidResponse', 'session.activate')}`)
+            sys(`error: ${sessionEn.session.common.invalidResponse('session.activate')}`)
 
             return patchUiState({ status: 'ready' })
           }
@@ -678,7 +672,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
         current.sid === id || current.storedSid === id ? current : { ...current, sid: id, storedSid: id }
 
       patchOverlayState({ sessions: false })
-      patchUiState({ status: t('session.status.resuming') })
+      patchUiState({ status: sessionEn.session.status.resuming })
 
       return (gw.isCanonical ? Promise.resolve(null) : rpc<SetupStatusResponse>('setup.status', {}))
         .then(setup => {
@@ -688,7 +682,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
 
           if (setup?.provider_configured === false) {
             panel(setupRequiredTitle(), buildSetupRequiredSections())
-            patchUiState({ status: t('session.status.setupRequired') })
+            patchUiState({ status: sessionEn.session.status.setupRequired })
 
             return
           }
@@ -715,7 +709,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
               }
 
               if (!r) {
-                sys(`error: ${t('session.common.invalidResponse', 'session.resume')}`)
+                sys(`error: ${sessionEn.session.common.invalidResponse('session.resume')}`)
 
                 return patchUiState({ status: 'ready' })
               }
@@ -793,12 +787,12 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
   )
 
   const guardBusySessionSwitch = useCallback(
-    (what = t('session.lifecycle.switchSessions')) => {
+    (what = sessionEn.session.lifecycle.switchSessions) => {
       if (!getUiState().busy) {
         return false
       }
 
-      sys(t('session.lifecycle.interruptBeforeSwitch', what))
+      sys(sessionEn.session.lifecycle.interruptBeforeSwitch(what))
 
       return true
     },

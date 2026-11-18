@@ -11,7 +11,6 @@ from __future__ import annotations
 from contextlib import suppress
 import csv
 import logging
-import os
 import re
 import shutil
 import subprocess
@@ -56,7 +55,7 @@ _POOL_RAM_FRACTION = 0.75
 
 # cuDeviceGetAttribute enum: device is integrated with host memory.
 _CU_DEVICE_ATTRIBUTE_INTEGRATED = 18
-_NVIDIA_VENDOR_ID = 0x10DE
+
 # Engines whose devices the ggml probe reports; the CPU, CUDA and Metal builds answer elsewhere.
 _GPU_ENGINE_BACKENDS = ("vulkan", "hip")
 
@@ -123,57 +122,14 @@ def _linux_ram_from_meminfo(text: str) -> tuple[int, int] | None:
         return None
 
 
-def _windows_memory_status():
-    """GlobalMemoryStatusEx, or None off Windows."""
-    import ctypes
-
-    class MEMORYSTATUSEX(ctypes.Structure):
-        _fields_ = ([("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong)]
-                    + [(name, ctypes.c_ulonglong) for name in (
-                        "ullTotalPhys", "ullAvailPhys", "ullTotalPageFile", "ullAvailPageFile",
-                        "ullTotalVirtual", "ullAvailVirtual", "ullAvailExtendedVirtual")])
-
-    try:
-        stat = MEMORYSTATUSEX()
-        stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
-            return None
-        return stat
-    except (AttributeError, OSError):
-        return None
-
-
 def _ram_bytes() -> tuple[int, int]:
-    """(total, available) physical memory, cross-platform stdlib."""
-    stat = _windows_memory_status()
-    if stat is not None:
-        return stat.ullTotalPhys, stat.ullAvailPhys
+    """(total, available) physical memory from Linux procfs or getconf."""
     try:
-        if sys.platform == "darwin":
-            # macOS getconf has no _PHYS_PAGES/_AVPHYS_PAGES (exit 64) — the POSIX branch would
-            # return (0, 0) and every model would read unavailable. sysctl is the platform truth.
-            total = int(_stdout("/usr/sbin/sysctl", "-n", "hw.memsize").strip() or 0)
-            if total <= 0:
-                return 0, 0
-            avail = total // 2  # conservative fallback
-            with suppress(OSError, ValueError):
-                out = _stdout("/usr/bin/vm_stat")
-                page_m = re.search(r"page size of (\d+)", out)
-                page = int(page_m.group(1)) if page_m else 16384
-                # free + inactive + purgeable ≈ reclaimable-on-demand; the speculative pool is
-                # dropped by the OS under pressure too.
-                pages = sum(int(m.group(1)) for key in (
-                    "Pages free", "Pages inactive", "Pages purgeable", "Pages speculative")
-                    if (m := re.search(rf"{key}:\s+(\d+)\.", out)))
-                if pages > 0:
-                    avail = pages * page
-            return total, avail
-        if sys.platform.startswith("linux"):
-            meminfo = _linux_meminfo_text()
-            if meminfo is not None:
-                linux_ram = _linux_ram_from_meminfo(meminfo)
-                if linux_ram is not None:
-                    return linux_ram
+        meminfo = _linux_meminfo_text()
+        if meminfo is not None:
+            linux_ram = _linux_ram_from_meminfo(meminfo)
+            if linux_ram is not None:
+                return linux_ram
         # POSIX
         page = int(_stdout("getconf", "PAGE_SIZE") or 4096)
         total = int(_stdout("getconf", "_PHYS_PAGES") or 0) * page
@@ -193,22 +149,12 @@ _smi_path_cache: tuple[str | None] | None = None
 
 def _nvidia_smi_path() -> str | None:
     """Absolute path to nvidia-smi, or None. PATH first (respects user overrides), then the
-    driver's known install locations on Windows and WSL."""
+    driver's known install location on WSL."""
     global _smi_path_cache
     if _smi_path_cache is not None:
         return _smi_path_cache[0]
     found = shutil.which("nvidia-smi")
-    if found is None and os.name == "nt":
-        windir = os.environ.get("SystemRoot", r"C:\Windows")
-        candidates = (
-            # DCH drivers (every modern install) place it in System32.
-            Path(windir) / "System32" / "nvidia-smi.exe",
-            # Legacy standalone drivers used NVSMI, never on PATH.
-            Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
-            / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe",
-        )
-        found = next((str(c) for c in candidates if c.exists()), None)
-    elif found is None and sys.platform.startswith("linux"):
+    if found is None:
         # The Windows display driver exposes nvidia-smi here inside WSL, but does not guarantee
         # that the directory is present on PATH.
         candidate = Path("/usr/lib/wsl/lib/nvidia-smi")
@@ -229,9 +175,7 @@ def _nvidia_vram() -> tuple[int, int, str, int | None] | None:
 _gpu_query_cache: tuple[float, dict | None] | None = None
 # The statusbar polls /api/local-models/hardware every 5s and the endpoint needs
 # name/util/vram; the budget probe needs total/free. One shared query (with a TTL
-# shorter than the poll) serves both, so one poll = one nvidia-smi spawn (#120262)
-# instead of two, and the spawn carries CREATE_NO_WINDOW so a console-less backend
-# never flashes a window (#101895).
+# shorter than the poll) serves both, so one poll = one nvidia-smi spawn (#120262).
 _GPU_QUERY_TTL_S = 4.0
 
 
@@ -252,13 +196,12 @@ def _cached_nvidia_gpu_query(ttl_s: float = _GPU_QUERY_TTL_S) -> dict | None:
         _gpu_query_cache = (now, None)
         return None
 
-    from hermes_cli._subprocess_compat import windows_hide_flags
     with suppress(OSError, ValueError, subprocess.TimeoutExpired):
         out = subprocess.run(
             [exe, "--query-gpu=memory.total,memory.free,name,pci.device_id,memory.used,utilization.gpu",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
-            creationflags=windows_hide_flags(), check=False)
+            check=False)
         if out.returncode != 0 or not out.stdout.strip():
             _gpu_query_cache = (now, None)
             return None
@@ -288,7 +231,7 @@ def _cuda_driver_pool() -> tuple[int, bool | None] | None:
     carve-out devices, several times what nvidia-smi reports)."""
     import ctypes
 
-    for name in ("nvcuda.dll", "libcuda.so.1", "libcuda.so"):
+    for name in ("libcuda.so.1", "libcuda.so"):
         try:
             cuda = ctypes.CDLL(name)
             break
@@ -418,24 +361,8 @@ def _uma_budget(base: int, total: int, *, gpu_name: str = "",
                           gpu_pci_id=gpu_pci_id, lazy_reads=lazy_reads)
 
 
-def _windows_commit_room(own_bytes: int = 0) -> int | None:
-    """Commit the managed server may take on Windows right now, or None off Windows.
-
-    Windows charges every GPU allocation to commit: the RAM Windows can see plus the page file.
-    Memory carved out for the GPU is invisible to Windows, so a bigger carve-out leaves less
-    commit for the model it was meant to hold. ``own_bytes`` is what the managed server holds now
-    and frees before the new instance loads. A desktop margin stays free.
-    """
-    stat = _windows_memory_status()
-    if stat is None or not stat.ullTotalPageFile:
-        return None
-    margin = max(_MARGIN_FLOOR, int(stat.ullTotalPhys * _MARGIN_FRACTION))
-    return max(0, int(stat.ullAvailPageFile) + max(0, own_bytes) - margin)
-
-
 def model_commit_bytes(model_bytes: int) -> int:
-    """What Windows charges to commit for a model estimated at ``model_bytes`` of device memory:
-    the estimate runs ~20% under the charge, which is the UMA headroom."""
+    """Convert a headroom-adjusted model estimate to its resource charge."""
     return int(model_bytes / (1 - _UMA_HEADROOM_FRACTION))
 
 
@@ -443,7 +370,7 @@ def prompt_cache_bytes(live: HardwareBudget | None, model_bytes: int, residents:
     """Size for llama-server's prompt cache beside a model of ``model_bytes`` (the estimate the
     window was planned with), or None when the engine default applies.
 
-    Windows unified memory only: each loaded model's cache comes out of the same commit as the
+    When a resource limit is supplied, each loaded model's cache comes out of the same room as the
     models, so each of the ``residents`` models the router may hold at once (its ``--models-max``)
     gets an even share of what they leave.
     """
@@ -457,43 +384,10 @@ def prompt_cache_bytes(live: HardwareBudget | None, model_bytes: int, residents:
 
 
 def usable_beside_prompt_cache(live: HardwareBudget, residents: int = 1) -> int:
-    """Device memory a model may plan with on Windows unified memory and still leave each of the
+    """Device memory a model may plan with and still leave each of the
     ``residents`` models the smallest useful prompt cache: the inverse of ``prompt_cache_bytes``."""
     share = live.commit_room_bytes // max(1, residents) - _PROMPT_CACHE_MIN
     return min(live.usable_vram_bytes, max(0, int(share * (1 - _UMA_HEADROOM_FRACTION))))
-
-
-def _gpu_engine_runs_the_model() -> bool:
-    """Whether a Vulkan/HIP engine runs the model: the serving or installed engine, else the one
-    setup would install for ``local_runtime.backend``. False when the engine can't be resolved."""
-    with suppress(Exception):
-        engine = _configured_engine()
-        if engine is not None:
-            return engine.backend in _GPU_ENGINE_BACKENDS
-        from hermes_cli.config import load_config_readonly
-        from hermes_cli.local_runtime.binaries import resolve_backend
-
-        section = load_config_readonly().get("local_runtime") or {}
-        return resolve_backend(section.get("backend") or "auto") in _GPU_ENGINE_BACKENDS
-    return False
-
-
-def _windows_igpu_bytes(device: dict | None) -> int | None:
-    """What Windows lets the integrated GPU allocate (Task Manager's GPU memory), or None.
-
-    The adapter is the one the engine named, else the only non-NVIDIA hardware adapter when a
-    Vulkan/HIP engine will run the model; the CPU engine (chosen, or the only build for a Snapdragon)
-    keeps the model in system RAM. Not the engine's own figure: ggml-vulkan sums every memory heap
-    of an integrated GPU, host-visible ones included, so it can exceed what Windows grants.
-    """
-    from hermes_platform.host.gpu_adapters import windows_gpu_adapters
-
-    hardware = [a for a in windows_gpu_adapters() if not a.software]
-    named = [a for a in hardware if device is not None and a.description == device["description"]]
-    candidates = named or [a for a in hardware if a.vendor_id != _NVIDIA_VENDOR_ID]
-    if len(candidates) != 1 or (device is None and not _gpu_engine_runs_the_model()):
-        return None
-    return candidates[0].memory_bytes
 
 
 def probe_budget(*, planning: bool = False) -> HardwareBudget:
@@ -509,9 +403,8 @@ def probe_budget(*, planning: bool = False) -> HardwareBudget:
 
     # Unified-memory NVIDIA: the CUDA allocator pool is the real capacity. Classification comes
     # from the driver API/engine and must not require nvidia-smi (stripped-PATH sessions lose smi
-    # but nvcuda loads via the system loader). Deliberately NOT clamped to OS RAM: carved-out
-    # memory is invisible to GlobalMemoryStatusEx, so a RAM clamp would throw away exactly that
-    # capacity. On Windows, commit narrows the launch window instead (``launch_budget``).
+    # but libcuda loads via the system loader). Deliberately not clamped to OS RAM: the
+    # allocator pool can include carved-out memory absent from the OS RAM reading.
     unified = _unified_pool_bytes(vram[0] if vram else 0, ram_total)
     if unified is not None:
         logger.info(
@@ -540,11 +433,9 @@ def probe_budget(*, planning: bool = False) -> HardwareBudget:
             return HardwareBudget(usable_vram_bytes=max(0, total - margin), total_device_bytes=total,
                                   ram_available_bytes=ram_total if planning else ram_avail,
                                   uma=False, gpu_name=device["description"], platform=sys.platform)
-        # Integrated GPU, Metal, CPU, or no answer: budget from RAM as unified memory, capped at what
-        # Windows lets an integrated GPU allocate (18 GB of 31.5 on an Arc B390). llama.cpp loads
-        # lazy tensors up front on an AMD/Intel integrated GPU, where reading them on demand halved
-        # prefill (#28160).
-        pool = min(ram_total, _windows_igpu_bytes(device) or ram_total)
+        # Integrated GPU, CPU, or no answer: budget from RAM as unified memory.
+        # AMD/Intel integrated GPUs benefit from loading tensors up front.
+        pool = ram_total
         return _uma_budget(pool if planning else min(pool, ram_avail), pool,
                            lazy_reads=gpu_class() not in ("amd", "intel"))
 
@@ -567,16 +458,11 @@ def launch_budget(capacity: HardwareBudget, *, own_bytes: int = 0) -> HardwareBu
     ``own_bytes`` is the device-memory estimate of what the managed server holds now and frees
     before the new instance loads. A stopped server's memory reads as free by the time its process
     has exited (measured on Windows: free memory was fully back at the first reading after exit).
-    Unified memory: free commit on Windows (the model and its prompt cache must fit there), with
-    ``own_bytes`` converted to the commit Windows charged for it, else None (its live budget is
-    already free memory). None too when the device query fails, so callers keep the capacity plan.
+    Unified memory returns None; its live budget already reflects free memory. None too when the
+    device query fails, so callers keep the capacity plan.
     """
     if capacity.uma:
-        room = _windows_commit_room(model_commit_bytes(own_bytes) if own_bytes > 0 else 0)
-        if room is None:
-            return None
-        usable = min(capacity.usable_vram_bytes, int(room * (1 - _UMA_HEADROOM_FRACTION)))
-        return replace(capacity, usable_vram_bytes=usable, commit_room_bytes=room)
+        return None
     vram = _nvidia_vram()
     if vram is not None:
         total, free = vram[0], vram[1]

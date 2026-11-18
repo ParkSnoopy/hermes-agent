@@ -12,7 +12,6 @@ import { patchUiState, resetUiState } from '../app/uiStore.js'
 import { StatusRule } from '../components/appChrome.js'
 import { AppLayout } from '../components/appLayout.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { DEFAULT_VOICE_RECORD_KEY } from '../lib/platform.js'
 import { DEFAULT_THEME } from '../theme.js'
 
 type StatusRuleProps = React.ComponentProps<typeof StatusRule>
@@ -90,7 +89,6 @@ const idleProps: StatusRuleProps = {
   t: DEFAULT_THEME,
   turnStartedAt: null,
   usage: { context_max: 200_000, context_percent: 25, context_used: 50_000, total: 50_000 },
-  voiceLabel: ''
 }
 
 // Busy swaps the idle read-out for the FaceTicker, which owns the glyph +
@@ -156,7 +154,6 @@ const layoutProps: AppLayoutProps = {
     queuedDisplay: [],
     submit: () => {},
     updateInput: () => {},
-    voiceRecordKey: DEFAULT_VOICE_RECORD_KEY
   },
   mouseTracking: 'off',
   progress: { showProgressArea: false },
@@ -170,7 +167,6 @@ const layoutProps: AppLayoutProps = {
     statusColor: DEFAULT_THEME.color.ok,
     stickyPrompt: '',
     turnStartedAt: null,
-    voiceLabel: ''
   },
   transcript: {
     historyItems: [],

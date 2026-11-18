@@ -11,7 +11,7 @@ from pathlib import Path
 
 from tui_gateway import server
 
-_SECRETS = {"FAKE_TTS_KEY": "tts-FAKE-111", "FAKE_STT_KEY": "stt-FAKE-222", "FAKE_MCP_TOKEN": "mcp-FAKE-333"}
+_SECRETS = {"FAKE_MCP_TOKEN": "mcp-FAKE-333"}
 
 
 def _ok(method: str, params: dict) -> dict:
@@ -28,8 +28,7 @@ def test_new_bot_config_keeps_launch_env_refs_not_their_values(tmp_path, monkeyp
     for name, value in _SECRETS.items():
         monkeypatch.setenv(name, value)
     (home / "config.yaml").write_text(
-        "tts:\n  provider: elevenlabs\n  elevenlabs:\n    api_key: ${FAKE_TTS_KEY}\n"
-        "stt:\n  provider: openai\n  openai:\n    api_key: ${FAKE_STT_KEY}\n"
+
         "mcp_servers:\n  tracker:\n    command: tracker-mcp\n    env:\n      TRACKER_TOKEN: ${FAKE_MCP_TOKEN}\n",
         encoding="utf-8")
 

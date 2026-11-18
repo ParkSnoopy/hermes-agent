@@ -1,6 +1,6 @@
 import type { SessionSteerResponse } from '@hermes/shared/gateway-types'
 
-import { t } from '../i18n/runtime.js'
+import { slashCmdEn } from '../copy/slashCmd.js'
 
 import type { ComposerActions, GatewayRpc } from './interfaces.js'
 import { isCurrentDestination, type SubmissionDestination } from './submissionDestination.js'
@@ -38,9 +38,9 @@ export async function steerOrQueue(opts: {
   }
 
   if (result?.status === 'queued') {
-    return status(t('slashCmd.core.steer.queued', previewOf(text)))
+    return status(slashCmdEn.slashCmd.core.steer.queued(previewOf(text)))
   }
 
   enqueue(text, text, destination)
-  status(t('slashCmd.core.steer.rejected'))
+  status(slashCmdEn.slashCmd.core.steer.rejected)
 }

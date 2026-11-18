@@ -6,8 +6,7 @@ Behavior tests: tests/ci/test_required_results.py
 Input: the JSON ``toJSON(needs)`` of the all-checks-pass job on stdin.
 Failures always fail the gate. A skipped or missing update/E2E consumer also
 fails whenever ``detect.outputs`` selects its lane. Other skips additionally
-fail in release mode unless the job is in :data:`EXCLUDED_JOBS` (the deferred
-Desktop E2E). The PR-only checks are steps of ``repo-guards``, a job that runs
+fail in release mode. The PR-only checks are steps of ``repo-guards``, a job that runs
 on every event, so none of them reaches the gate as a skip. The OSV scan is
 advisory in its findings only — its execution is required.
 
@@ -22,22 +21,16 @@ import os
 import sys
 from typing import Any
 
-# The deferred Desktop E2E: the only skip a strict run tolerates.
-DEFERRED_JOBS = ("e2e-desktop",)
-EXCLUDED_JOBS = frozenset(DEFERRED_JOBS)
-
 NEEDS_JSON_OUTPUT = "needs-json"
 
-# Reusable-workflow parents of the update/E2E consumers, and of the real
-# remote-backend and catalog lanes. The actual detect outputs already arrive in
+# Reusable-workflow parents of the update/E2E consumers and catalog lane.
+# The actual detect outputs already arrive in
 # toJSON(needs); a selected consumer cannot skip merely because this is a PR
 # rather than a release.
 _UPDATE_CONSUMER_LANES = {
     "tests": ("python", "e2e", "e2e_upgrade"),
-    "tests-os": ("python", "desktop_updater", "e2e", "e2e_upgrade"),
-    "e2e-desktop-update": ("e2e_desktop_update",),
-    "remote-backends": ("remote_backends",),
     "catalog-tests": ("catalog",),
+    "bootstrap-installer": ("bootstrap",),
 }
 
 
@@ -63,7 +56,7 @@ def evaluate_gate(
         result = (info or {}).get("result")
         if result == "success":
             continue
-        if result == "skipped" and name not in required and (not release or name in EXCLUDED_JOBS):
+        if result == "skipped" and name not in required and not release:
             allowed_skips.append(name)
             continue
         failed.append(name)
@@ -97,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--release",
         action="store_true",
-        help="Strict mode: a skipped excluded job is the only tolerated skip.",
+        help="Strict mode: every dependency must succeed; skipped jobs fail.",
     )
     args = parser.parse_args(argv)
 

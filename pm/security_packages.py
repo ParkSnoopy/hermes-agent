@@ -14,7 +14,7 @@ from pm.lock import Lockfile
 from pm.package import InstallError
 from pm.packages import BinaryPackage, _RUST_TRIPLE
 from pm.registry import register
-from pm.store import MUSL_TARGETS, flatten_single_dir
+from pm.store import ALL_TARGETS, MUSL_TARGETS, flatten_single_dir
 
 
 @register
@@ -27,9 +27,10 @@ class Bws(BinaryPackage):
     def fetch_url(self, version: str, target: str) -> str:
         # The static musl build runs on glibc too. One portable Linux artifact
         # removes the consumer's ldd probe without losing musl support.
+        if target not in ALL_TARGETS:
+            raise InstallError(self.name, f"unsupported target: {target}")
         triple = _RUST_TRIPLE[target].replace("linux-gnu", "linux-musl")
-        platform = "macos-universal" if target.startswith("darwin") else triple
-        return f"https://github.com/bitwarden/sdk-sm/releases/download/bws-v{version}/bws-{platform}-{version}.zip"
+        return f"https://github.com/bitwarden/sdk-sm/releases/download/bws-v{version}/bws-{triple}-{version}.zip"
 
     def stage(self, store, staged: Path, version: str, target: str) -> None:
         super().stage(store, staged, version, target)

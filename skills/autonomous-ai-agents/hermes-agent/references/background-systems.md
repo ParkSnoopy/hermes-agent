@@ -18,31 +18,10 @@ Spawn a subagent with an isolated context + terminal session.
   (can spawn its own workers, bounded by `delegation.max_spawn_depth`).
 - **Not durable.** A backgrounded child is still process-local — if the
   parent process exits, the child is lost. For work that must outlive
-  the process, use `cronjob` or
+  the process, use
   `terminal(background=True, notify_on_complete=True)`.
 
 Config: `delegation.*` in `config.yaml`.
-
-### Cron (scheduled jobs)
-
-Durable scheduler — `cron/jobs.py` + `cron/scheduler.py`. Drive it via
-the `cronjob` tool, the `hermes cron` CLI (`list`, `add`, `edit`,
-`pause`, `resume`, `run`, `remove`), or the `/cron` slash command.
-
-- **Schedules:** duration (`"30m"`, `"2h"`), "every" phrase
-  (`"every monday 9am"`), 5-field cron (`"0 9 * * *"`), or ISO timestamp.
-- **Per-job knobs:** `skills`, `model`/`provider` override, `script`
-  (pre-run data collection; `no_agent=True` makes the script the whole
-  job), `context_from` (chain job A's output into job B), `workdir`
-  (run in a specific dir with its `AGENTS.md` / `CLAUDE.md` loaded),
-  multi-platform delivery.
-- **Invariants:** 3-minute hard interrupt per run, `.tick.lock` file
-  prevents duplicate ticks across processes, cron sessions pass
-  `skip_memory=True` by default, and cron deliveries are framed with a
-  header/footer instead of being mirrored into the target gateway
-  session (keeps role alternation intact).
-
-User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/cron
 
 ### Curator (skill lifecycle)
 
@@ -70,34 +49,3 @@ so nothing is lost.
 Config: `curator.*` (`enabled`, `interval_hours`, `min_idle_hours`,
 `stale_after_days`, `archive_after_days`, `backup.*`).
 User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/curator
-
-### Kanban (multi-agent work queue)
-
-Durable SQLite board for multi-profile / multi-worker collaboration.
-Users drive it via `hermes kanban <verb>`; dispatcher-spawned workers
-see a focused `kanban_*` toolset gated by `HERMES_KANBAN_TASK`, and
-orchestrator profiles can opt into the broader `kanban` toolset. Normal
-sessions still have zero `kanban_*` schema footprint unless configured.
-
-- **CLI verbs (common):** `init`, `create`, `list` (alias `ls`),
-  `show`, `assign`, `link`, `unlink`, `comment`, `complete`, `block`,
-  `unblock`, `archive`, `tail`. Less common: `watch`, `stats`, `runs`,
-  `log`, `dispatch`, `daemon`, `gc`.
-- **Worker/orchestrator toolset:** `kanban_show`, `kanban_complete`,
-  `kanban_block`, `kanban_heartbeat`, `kanban_comment`, `kanban_create`,
-  `kanban_link`; profiles that explicitly enable the `kanban` toolset
-  outside a dispatcher-spawned task also get `kanban_list` and
-  `kanban_unblock` for board routing.
-- **Dispatcher** runs inside the gateway by default
-  (`kanban.dispatch_in_gateway: true`) — reclaims stale claims,
-  promotes ready tasks, atomically claims, spawns assigned profiles.
-  Auto-blocks a task after `failure_limit` consecutive spawn failures
-  (default 2; configurable via `kanban.failure_limit` or per-task
-  `max_retries`).
-- **Isolation:** board is the hard boundary (workers get
-  `HERMES_KANBAN_BOARD` pinned in env); tenant is a soft namespace
-  within a board for workspace-path + memory-key isolation.
-
-Project-linked tasks (worktree + branch by default under a Project's primary folder, when it has one):
-`references/projects-and-folders.md`.
-User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban

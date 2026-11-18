@@ -53,8 +53,12 @@ def _authorize_control(authority, actor, ref, params, owner=None):
         if ref.session_id not in authority.sessions:
             from hermes_state_mutation_binding import authorize_history
             with authority.db._read_ctx() as conn:
-                from gateway.session_local_migration import require_history_claim
-                require_history_claim(authority, conn, actor, ref.session_id)
+                from hermes_state_mutation_binding import BINDING_PREFIX
+                row = conn.execute('SELECT session_key, chat_id, origin_json FROM sessions WHERE id=?',
+                                   (ref.session_id,)).fetchone()
+                if row is not None and not any(row) and not conn.execute(
+                        'SELECT 1 FROM state_meta WHERE key=?', (BINDING_PREFIX + ref.session_id,)).fetchone():
+                    raise RuntimeStoreError('permission_denied')
                 cold_history = authorize_history(conn, actor, ref.session_id)
         if not cold_history:
             operation = params.get('operation')
@@ -265,9 +269,7 @@ async def write_mutation(authority, ref, params, editor_servers, *, principal_id
             # state.db or a contended writer lock never stalls other clients (main 1769024ca3b).
             commit = partial(mutate_runtime_session, authority.db, **fields,
                              _prepared=prepared, _authorize_write=authorize_write)
-            if operation == 'delete':
-                from gateway.session_onboarding import ending_run_on_delete
-                commit = partial(ending_run_on_delete, authority.db, ref.session_id, commit)
+
             try:
                 result = await asyncio.to_thread(commit)
             finally:
@@ -420,9 +422,8 @@ def retire_live_sessions(authority, session_ids, *, require_fence=False):
                 strip(session_ids)
             except Exception:
                 logger.warning('could not strip retired routes from sessions.json', exc_info=True)
-    from gateway.session_policy import release_launch_secrets, release_session_workspaces
+    from gateway.session_policy import release_launch_secrets
     release_launch_secrets(authority, session_ids)
-    release_session_workspaces(authority, session_ids)
     from tools.async_delegation import allow_for_session
     from gateway.session_vault_prompt import release_unlocks
     for sid in session_ids:

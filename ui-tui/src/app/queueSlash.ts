@@ -1,5 +1,6 @@
+import { canonicalEn } from '../copy/canonical.js'
+import { slashCmdEn } from '../copy/slashCmd.js'
 import type { QueueItem } from '../hooks/useQueue.js'
-import { t } from '../i18n/runtime.js'
 import { savePendingInput } from '../lib/pendingInputs.js'
 
 const LIST_VERBS = new Set(['list', 'ls', 'show'])
@@ -7,10 +8,10 @@ const REMOVE_VERBS = new Set(['rm', 'remove', 'delete', 'del', 'pop'])
 const EDIT_VERBS = new Set(['edit', 'set'])
 
 const USAGE_KEY = {
-  add: 'slashCmd.core.queue.usageAdd',
-  edit: 'slashCmd.core.queue.usageEdit',
-  move: 'slashCmd.core.queue.usageMove',
-  remove: 'slashCmd.core.queue.usageRemove'
+  add: slashCmdEn.slashCmd.core.queue.usageAdd,
+  edit: slashCmdEn.slashCmd.core.queue.usageEdit,
+  move: slashCmdEn.slashCmd.core.queue.usageMove,
+  remove: slashCmdEn.slashCmd.core.queue.usageRemove
 } as const
 
 export type QueuePlan =
@@ -161,12 +162,12 @@ const shownRows = (surface: QueueSurface) =>
 
 const listNotice = (rows: string[]) => {
   if (!rows.length) {
-    return `${t('slashCmd.core.queue.empty')}  ${t('slashCmd.core.queue.usage')}`
+    return `${slashCmdEn.slashCmd.core.queue.empty}  ${slashCmdEn.slashCmd.core.queue.usage}`
   }
 
   const lines = rows.map((row, index) => `  ${index + 1}. ${clip(row)}`)
 
-  return `${t('slashCmd.core.queue.pendingHeader', String(rows.length))}\n${lines.join('\n')}`
+  return `${slashCmdEn.slashCmd.core.queue.pendingHeader(String(rows.length))}\n${lines.join('\n')}`
 }
 
 const outOfRange = (index: number, size: number) => index < 1 || index > size
@@ -183,20 +184,20 @@ const clearQueue = (surface: QueueSurface) => {
 
   surface.refresh()
 
-  return t(count === 1 ? 'slashCmd.core.queue.clearedOne' : 'slashCmd.core.queue.clearedOther', String(count))
+  return (count === 1 ? slashCmdEn.slashCmd.core.queue.clearedOne(String(count)) : slashCmdEn.slashCmd.core.queue.clearedOther(String(count)))
 }
 
 const removeItem = (index: number, surface: QueueSurface) => {
   const rows = shownRows(surface)
 
   if (outOfRange(index, rows.length)) {
-    return t('slashCmd.core.queue.notFound', String(index), String(rows.length))
+    return slashCmdEn.slashCmd.core.queue.notFound(String(index), String(rows.length))
   }
 
   const item = surface.items[index - 1]
 
   if (item?.inFlight) {
-    return t('slashCmd.core.queue.alreadyStarted', String(index))
+    return slashCmdEn.slashCmd.core.queue.alreadyStarted(String(index))
   }
 
   const preview = clip(item?.display ?? rows[index - 1] ?? '')
@@ -204,7 +205,7 @@ const removeItem = (index: number, surface: QueueSurface) => {
   surface.removeAt(index - 1)
   surface.refresh()
 
-  return t('slashCmd.core.queue.removed', String(index), preview)
+  return slashCmdEn.slashCmd.core.queue.removed(String(index), preview)
 }
 
 const editItem = (plan: Extract<QueuePlan, { kind: 'edit' }>, surface: QueueSurface) => {
@@ -212,17 +213,17 @@ const editItem = (plan: Extract<QueuePlan, { kind: 'edit' }>, surface: QueueSurf
   const index = plan.index - 1
 
   if (outOfRange(plan.index, size)) {
-    return t('slashCmd.core.queue.notFound', String(plan.index), String(size))
+    return slashCmdEn.slashCmd.core.queue.notFound(String(plan.index), String(size))
   }
 
   if (isServerRow(index, surface)) {
-    return t('slashCmd.core.queue.gatewayFifo')
+    return slashCmdEn.slashCmd.core.queue.gatewayFifo
   }
 
   const item = surface.items[index]
 
   if (!item || item.inFlight) {
-    return t('slashCmd.core.queue.alreadyStarted', String(plan.index))
+    return slashCmdEn.slashCmd.core.queue.alreadyStarted(String(plan.index))
   }
 
   const previous = { display: item.display, text: item.text }
@@ -236,12 +237,12 @@ const editItem = (plan: Extract<QueuePlan, { kind: 'edit' }>, surface: QueueSurf
     item.text = previous.text
     item.display = previous.display
 
-    return t('canonical.queue.notSavedDraftKept', (error as Error).message)
+    return canonicalEn.canonical.queue.notSavedDraftKept((error as Error).message)
   }
 
   surface.refresh()
 
-  return t('slashCmd.core.queue.updated', String(plan.index), clip(plan.text))
+  return slashCmdEn.slashCmd.core.queue.updated(String(plan.index), clip(plan.text))
 }
 
 const restamp = (items: QueueItem[]) => {
@@ -257,18 +258,18 @@ const moveItem = (from: number, to: number, surface: QueueSurface) => {
   const size = shownRows(surface).length
 
   if (outOfRange(from, size) || outOfRange(to, size)) {
-    return t('slashCmd.core.queue.moveOutOfRange', String(size))
+    return slashCmdEn.slashCmd.core.queue.moveOutOfRange(String(size))
   }
 
   if (isServerRow(from - 1, surface) || isServerRow(to - 1, surface)) {
-    return t('slashCmd.core.queue.gatewayFifo')
+    return slashCmdEn.slashCmd.core.queue.gatewayFifo
   }
 
   const source = surface.items[from - 1]
   const target = surface.items[to - 1]
 
   if (!source || !target || source.inFlight || target.inFlight) {
-    return t('slashCmd.core.queue.alreadyStarted', String(from))
+    return slashCmdEn.slashCmd.core.queue.alreadyStarted(String(from))
   }
 
   if (from !== to) {
@@ -280,13 +281,13 @@ const moveItem = (from: number, to: number, surface: QueueSurface) => {
 
   surface.refresh()
 
-  return t('slashCmd.core.queue.moved', String(from), String(to))
+  return slashCmdEn.slashCmd.core.queue.moved(String(from), String(to))
 }
 
 /** Apply a management plan to the live composer queue. Enqueue stays with the submit path. */
 export function applyQueuePlan(plan: Exclude<QueuePlan, { kind: 'enqueue' }>, surface: QueueSurface): string {
   if (plan.kind === 'usage') {
-    return t(USAGE_KEY[plan.key])
+    return USAGE_KEY[plan.key]
   }
 
   if (plan.kind === 'list') {

@@ -246,9 +246,6 @@ def private_control_query(home: Path, request: bytes, timeout: float = 5) -> byt
     """Send one request line to *home*'s gateway control socket as this OS user; the raw answer.
 
     The socket authenticates the peer (same user only), which is what lets a private verb answer."""
-    if os.name == "nt":
-        from gateway.runtime_bootstrap_windows import query_runtime_control
-        return query_runtime_control(home, request, timeout)
     from hermes_cli.gateway_runtime_discovery import connect_private
     deadline = time.monotonic() + timeout
     with connect_private(home, timeout) as peer:

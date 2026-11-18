@@ -23,7 +23,7 @@ import uuid
 from collections import deque
 from contextlib import contextmanager, suppress
 from pathlib import Path
-from hermes_dir_acl import make_user_dir
+from hermes_user_dirs import make_user_dir
 
 from hermes_constants import get_hermes_home, mkdir_under_hermes_home
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TypeVar, cast
@@ -53,9 +53,9 @@ from hermes_state_readpool import _READ_POOL_MAX, _proc_fd_targets, _read_budget
 from hermes_state_sessions import SessionSessionsMixin
 from hermes_state_fts import SessionFtsSetupMixin
 from hermes_state_portability import SessionPortabilityMixin
-from hermes_state_telegram import SessionTelegramTopicsMixin
+
 from hermes_state_profile_repair import SessionProfileRepairMixin
-from hermes_state_schema import SessionSchemaMixin
+from hermes_state_schema import SessionSchemaMixin, require_current_schema
 import hermes_state_holders as _state_holders
 import hermes_state_lockguard as _lockguard
 from hermes_state_lockowners import log_write_lock_holders
@@ -156,12 +156,8 @@ def _compression_lock_holder_process_is_dead(holder: str) -> bool:
             return not psutil.pid_exists(pid)  # recycled PIDs read as alive (conservative)
         except Exception:
             return False
-    # psutil-less fallback is POSIX-only: on Windows os.kill(pid, 0) maps sig=0 to
-    # CTRL_C_EVENT and can kill the target's console group.
-    if os.name == "nt":
-        return False
     try:
-        os.kill(pid, 0)  # windows-footgun: ok — nt early-returns just above
+        os.kill(pid, 0)
     except ProcessLookupError:
         return True
     except (OSError, OverflowError):  # PermissionError is an OSError: alive but foreign
@@ -259,9 +255,6 @@ def _secure_state_db_files(db_path: Path, *, create_main: bool = False) -> None:
     close, checkpoint, and unlink the sidecars while long-lived holders
     (gateway, desktop ``hermes serve``) keep using the deleted inodes.
     """
-    if os.name == "nt":
-        return
-
     main_path = db_path
     if create_main:
         # O_EXCL: only a brand-new inode gets a descriptor. Opening an existing
@@ -422,7 +415,7 @@ _repair_attempt_lock = threading.Lock()
 # Cross-process schema-surgery lock timeout (``_repair_attempt_lock`` covers one interpreter
 # only); sized for the slowest legitimate holder (VACUUM, multi-GB DB).
 _REPAIR_LOCK_TIMEOUT_SECONDS = 120.0
-_IS_WINDOWS = sys.platform == "win32"
+
 
 
 def _close_time_checkpoint_configurable() -> bool:
@@ -463,7 +456,7 @@ def _foreign_state_db_holders(db_path: Path) -> list[tuple[int, str]]:
 
 class SessionDB(
     SessionSessionsMixin, SessionFtsSetupMixin, SessionSearchMixin, SessionSchemaMixin,
-    SessionPortabilityMixin, SessionTelegramTopicsMixin, SessionCompressionMixin,
+    SessionPortabilityMixin, SessionCompressionMixin,
     SessionGatewayMixin, SessionMaintenanceMixin, SessionUsageMixin, SessionTitlesMixin,
     SessionMessagesMixin, SessionPruneRewriteMixin, SessionApiContentMixin, SessionCoverageMixin, SessionRewindMixin, SessionProfileRepairMixin,
     SessionPromptRefreshMixin,
@@ -475,7 +468,7 @@ class SessionDB(
     # See #60609.  `recovered` = placeholders `hermes sessions recover` synthesizes for
     # orphaned messages (no live owner, never stamped ended_at); without it they are immortal.
     _AUTO_PRUNE_STALE_OPEN_SOURCES: tuple[str, ...] = (
-        "cli", "cron", "kanban", "acp", "api_server", "subagent", "tool", "recovered",
+        "cli", "cron", "acp", "api_server", "subagent", "tool", "recovered",
     )
 
     # ── Write-contention tuning ──
@@ -681,6 +674,12 @@ class SessionDB(
         malformed sqlite_master), generation stamp."""
         # Never materialize a deleted/archived named profile's home: a multiplexer or Desktop backend
         # still holding the profile's route would otherwise re-scaffold it on the next turn (#94590).
+        if self.db_path.exists() and not has_invalid_sqlite_header_preopen(self.db_path):
+            conn = self._connect_read_only(timeout=_READ_BUSY_TIMEOUT_S)
+            try:
+                require_current_schema(conn)
+            finally:
+                self._close_connection_quietly(conn)
         mkdir_under_hermes_home(self.db_path.parent)
         try:
             # Serialize zero-byte check, quarantine, connect and schema commit so concurrent
@@ -739,6 +738,7 @@ class SessionDB(
                 self._conn = conn = self._connect_read_only(timeout=_READ_BUSY_TIMEOUT_S)
                 try:
                     apply_database_pragmas(conn, db_label="state.db")
+                    require_current_schema(conn)
                     cursor = conn.cursor()
                     self._fts_enabled = self._fts_table_probe(cursor, "messages_fts") is True
                     if self._fts_enabled:
@@ -1666,50 +1666,6 @@ class SessionDB(
         else:
             self._write_sql(sql, (key, value))
 
-    def retag_kanban_worker_sessions(self, workspaces_root: str) -> int:
-        """Retag legacy kanban worker rows from ``cli`` to ``kanban`` by cwd under the board's workspaces
-        root; gated once per root via state_meta. Returns rows retagged."""
-        prefix = str(workspaces_root).rstrip("/\\")
-        if not prefix:
-            return 0
-        gate = f"kanban_worker_source_retagged:{prefix}"
-        if self.get_meta(gate) == "1":
-            return 0
-        def _do(conn):
-            esc = _escape_like(prefix)
-            cursor = conn.execute(
-                "UPDATE sessions SET source = 'kanban' "
-                "WHERE source = 'cli' AND (cwd = ? OR cwd LIKE ? ESCAPE '\\' "
-                "OR cwd LIKE ? ESCAPE '\\')",
-                (prefix, f"{esc}/%", f"{esc}\\\\%"),
-            )
-            # rowcount BEFORE set_meta reuses this cursor for its INSERT.
-            retagged = cursor.rowcount or 0
-            self.set_meta(gate, "1", cursor=cursor)
-            return retagged
-        return self._execute_write(_do)
-
-    def is_kanban_owned_session(self, session_id: str) -> bool:
-        """True when this session — or any segment of the compression lineage a resume would
-        materialize — belongs to the Kanban dispatcher (``source``/``created_source`` =
-        ``'kanban'``): the transcript of a worker run, not a human conversation (#68779).
-
-        Both columns are checked: ``source`` is live routing state the dispatcher tags
-        (``HERMES_SESSION_SOURCE=kanban``) and the legacy retag rewrites, while immutable
-        ``created_source`` survives later surface flips. The lineage is the VERIFIED
-        compression chain (``_resume_lineage_ids``) — exactly the rows a resume loads — so a
-        worker transcript stays kanban-owned across rotations, while a delegate/branch child
-        of a worker (a DIFFERENT conversation) is not swept in. Plain classification, not a
-        gate: the resume-time guard (``hermes_cli/kanban_resume_guard.py``) owns the decision
-        and the dispatcher-owned exemption."""
-        lineage = self._resume_lineage_ids(session_id)
-        if not lineage:
-            return False
-        rows = self._read_all(
-            f"SELECT 1 FROM sessions WHERE id IN ({_placeholders(lineage)}) "
-            "AND (source = 'kanban' OR created_source = 'kanban') LIMIT 1",
-            tuple(lineage))
-        return bool(rows)
 
     def list_meta_prefix(self, prefix: str) -> list[tuple[str, str]]:
         """``[(key, value), ...]`` for state_meta keys starting with the literal

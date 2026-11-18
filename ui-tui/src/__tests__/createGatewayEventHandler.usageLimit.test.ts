@@ -32,7 +32,6 @@ const handlerCtx = (
     submission: { submitRef: { current: submit } },
     system: { bellOnComplete: false, sys: vi.fn() },
     transcript: { appendMessage: vi.fn(), panel: vi.fn(), setHistoryItems: vi.fn() },
-    voice: { setProcessing: vi.fn(), setRecording: vi.fn(), setVoiceEnabled: vi.fn() }
   }) as any
 
 const limitEvent = {

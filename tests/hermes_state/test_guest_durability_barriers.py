@@ -15,6 +15,16 @@ import hermes_state
 from hermes_state_repair import apply_durability_barriers
 
 
+@pytest.fixture(autouse=True)
+def _moa_caches_isolated():
+    pass
+
+
+@pytest.fixture(autouse=True)
+def _isolate_computer_use_approval_state():
+    pass
+
+
 def _config(monkeypatch, database_section):
     import hermes_cli.config as config_mod
 

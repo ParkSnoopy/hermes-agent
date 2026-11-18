@@ -1,4 +1,4 @@
-"""Lane-private harness for the C12 messaging exactly-once suite (test_messaging_exactly_once.py).
+"""Lane-private transport harness for the gateway approval-boundary suite.
 
 What is real and what is fake:
 
@@ -41,12 +41,9 @@ POLL = 0.02
 DEADLINE = 120.0
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
-# Per-platform send/edit semantics (what the real service enforces, not what Hermes believes).
+# In-memory transport semantics for the approval tests; no external service is emulated.
 PROFILES: dict[str, dict[str, Any]] = {
-    "telegram": {"max_len": 4096, "edits": True, "threads": False},
-    "discord": {"max_len": 2000, "edits": True, "threads": True},
-    "slack": {"max_len": 3900, "edits": True, "threads": True},
-    "noedit": {"max_len": 4096, "edits": False, "threads": False},
+    "local": {"max_len": 4096, "edits": True, "threads": False},
 }
 
 

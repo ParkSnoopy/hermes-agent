@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, NamedTuple, Optional
 from urllib.parse import urlparse
 import httpx
-from hermes_dir_acl import make_user_dir
+from hermes_user_dirs import make_user_dir
 
 # ``agent.auxiliary_client`` costs ~50 ms cold; only the handlers need it. Both names stay
 # module attributes so tests can patch ``tools.vision_tools.async_call_llm`` (truthy-skip: mocks win).
@@ -400,23 +400,11 @@ def _build_scale_note(scale_info: Optional[dict], crop_offset: Optional[dict]) -
 
 
 def _import_pillow_for_resize():
-    """Return ``PIL.Image`` or None (Pillow is a lazy-installable soft dependency). ``prompt=False``:
-    a blocking input() deadlocks the CLI where prompt_toolkit owns stdin; the install is already
-    gated by security.allow_lazy_installs."""
+    """Return ``PIL.Image`` or None if the core dependency is unavailable."""
     try:
         from PIL import Image
     except ImportError:
-        try:
-            # pm-era wiring: never raise a blocking input() prompt mid-session. Under the
-            # interactive CLI prompt_toolkit owns stdin, so a bare input() deadlocks the
-            # terminal (#40490). The install is already gated by security.allow_lazy_installs,
-            # so reaching here is opt-in.
-            from pm import ensure_import
-
-            ensure_import("vision")
-            from PIL import Image
-        except Exception:
-            return None
+        return None
     return Image
 
 
@@ -1068,37 +1056,22 @@ def _video_to_base64_data_url(video_path: Path, mime_type: Optional[str] = None)
 
 
 async def _materialize_video(video_url: str, task_id: Optional[str], temp_paths: list) -> Path:
-    """Local video path for a terminal-backend path, local file, or HTTP(S) URL. Only files created
-    here are appended to ``temp_paths`` — never user-provided paths. Terminal-backend reads use the
-    shared media resolver with ``permitted=("video",)`` — the exact pipeline vision_analyze uses
-    (media-cache host reads, bounded in-sandbox exec-read, credential-read guard, ingest cap)."""
-    from tools.image_source import (
-        ImageResolutionError, ResolveContext, _is_local_terminal_backend, resolve_image_source,
-    )
+    """Resolve a task-local video or download an HTTP(S) source.
+
+    Only files created here are appended to ``temp_paths`` — never user-provided paths."""
     source = video_url.removeprefix("file://")
-    local_path = Path(os.path.expanduser(source))
     lowered = (video_url or "").strip().lower()
     path_like = bool(lowered) and not lowered.startswith(("http://", "https://", "data:"))
-    if not _is_local_terminal_backend() and path_like:
-        logger.info("Reading video source via terminal backend: %s", video_url)
-        suffix = Path(source).suffix.lower()
-        if suffix not in _VIDEO_MIME_TYPES:
-            raise ValueError(_unsupported_video_format(suffix))
-        try:
-            resolved = await resolve_image_source(
-                video_url, ResolveContext(task_id=task_id), permitted=("video",))
-        except ImageResolutionError as exc:
-            raise ValueError(f"Could not read video from terminal backend: {exc}") from exc
-        temp_dir = _secure_cache_dir("cache/video", "temp_video_files")
-        path = temp_dir / f"terminal_video_{uuid.uuid4()}{suffix}"
-        _write_private_bytes(path, resolved.data)
-        temp_paths.append(path)
-        return path
-    if local_path.is_file():
-        from agent.file_safety import raise_if_read_blocked
-        raise_if_read_blocked(str(local_path))
-        logger.info("Using local video file: %s", video_url)
-        return local_path
+    if path_like:
+        from agent.file_safety import get_nt_namespace_error, raise_if_read_blocked
+        from tools.file_tools_paths import _resolve_path_for_task
+        if reason := get_nt_namespace_error(source, verb="Read"):
+            raise ValueError(reason)
+        local_path = _resolve_path_for_task(source, task_id or "default")
+        if local_path.is_file():
+            raise_if_read_blocked(str(local_path))
+            logger.info("Using local video file: %s", video_url)
+            return local_path
     if await _validate_image_url_async(video_url):
         blocked = check_website_access(video_url)
         if blocked:

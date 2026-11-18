@@ -34,19 +34,15 @@ def test_cli_completion_line_prefers_user_summary_over_blocked_text():
 
 
 
-def test_prompt_title_reaches_the_plain_prompt_and_only_title_aware_callbacks(monkeypatch, capsys):
+def test_prompt_title_reaches_the_plain_prompt_and_callbacks(monkeypatch, capsys):
     from tools import approval_prompt as ap
     seen = {}
-
-    def legacy_cb(command, description, *, allow_permanent=True):
-        seen["legacy"] = (command, description)
-        return "once"
 
     def aware_cb(command, description, *, allow_permanent=True, title=None):
         seen["title"] = title
         return "once"
 
-    assert ap.prompt_dangerous_approval("x", "d", approval_callback=legacy_cb, title="Save to memory?") == "once"
+
     assert ap.prompt_dangerous_approval("x", "d", approval_callback=aware_cb, title="Save to memory?") == "once"
     assert seen["title"] == "Save to memory?"
 

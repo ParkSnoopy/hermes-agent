@@ -6,9 +6,6 @@ It now overrides two hooks. Slack and Discord parsed ``Retry-After`` by hand and
 the numeric form; both now go through ``agent.retry_utils.parse_retry_after_seconds``.
 """
 
-from email.utils import format_datetime
-from datetime import datetime, timedelta, timezone, UTC
-from types import SimpleNamespace
 from typing import Any, Dict
 
 import pytest
@@ -21,7 +18,7 @@ class _Adapter(BasePlatformAdapter):
     """Sends fail with a scripted list of results; records every call."""
 
     def __init__(self, results):
-        super().__init__(PlatformConfig(enabled=True), Platform.TELEGRAM)
+        super().__init__(PlatformConfig(enabled=True), Platform.API_SERVER)
         self._results = list(results)
         self.sent: list = []
 
@@ -74,27 +71,3 @@ async def test_server_retry_after_is_honoured_by_every_adapter(monkeypatch):
     result = await adapter._send_with_retry("c", "hello", base_delay=2.0)
     assert result.success and adapter.sent == ["hello", "hello"]
     assert slept == [7.0]
-
-
-def _http_date_in(seconds: int) -> str:
-    return format_datetime(datetime.now(UTC) + timedelta(seconds=seconds), usegmt=True)
-
-
-def test_slack_retry_after_understands_http_date():
-    from plugins.platforms.slack.adapter import SlackAdapter
-    exc = SimpleNamespace(response=SimpleNamespace(headers={"Retry-After": _http_date_in(90)}))
-    seconds = SlackAdapter._retry_after_from_exc(exc)
-    assert seconds is not None and 80 <= seconds <= 90
-    assert SlackAdapter._retry_after_from_exc(SimpleNamespace(response=None)) is None
-
-
-def test_discord_retry_after_understands_http_date_and_reset_after():
-    from plugins.platforms.discord.adapter import DiscordAdapter
-    extract = DiscordAdapter._extract_discord_retry_after
-    dated = SimpleNamespace(response=SimpleNamespace(headers={"retry-after": _http_date_in(90)}))
-    seconds = extract(dated)
-    assert seconds is not None and 80 <= seconds <= 90
-    reset = SimpleNamespace(response=SimpleNamespace(headers={"X-RateLimit-Reset-After": "0.25"}))
-    assert extract(reset) == 1.0  # floored: a sub-second hint must not hot-loop
-    assert extract(SimpleNamespace(retry_after=12)) == 12.0
-    assert extract(SimpleNamespace()) is None

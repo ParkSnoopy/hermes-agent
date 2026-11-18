@@ -9,12 +9,9 @@ from __future__ import annotations
 
 import os
 
-from agent.i18n import t
 from hermes_cli.gateway_client import GatewayClientError
 
 
-def _t(key, **kw):
-    return t(f"cli.commands.{key}", **kw)
 
 
 def _checkpoint_rows(result):
@@ -34,11 +31,11 @@ def rollback(cli, connection, command):
         if not args:
             listed = connection.call("rollback.list", session_id=sid)
             if not listed.get("enabled"):
-                return print("\n".join(f"  {line}" if line else "" for line in _t("rollback.not_enabled").splitlines()))
+                return print("\n".join(f"  {line}" if line else "" for line in 'Checkpoints are not enabled.\nEnable with: hermes --checkpoints\nOr in config.yaml: checkpoints: { enabled: true }'.splitlines()))
             return print(format_checkpoint_list(_checkpoint_rows(listed), cwd))
         if args[0].lower() == "diff":
             if len(args) < 2:
-                return print(f"  {_t('rollback.usage_diff')}")
+                return print(f"  {'Usage: /rollback diff <N>'}")
             return _diff(connection.call("rollback.diff", session_id=sid, hash=args[1]))
         params = {"session_id": sid, "hash": args[0]}
         if len(args) > 1:
@@ -53,14 +50,14 @@ def rollback(cli, connection, command):
 def _diff(result):
     stat, diff = result.get("stat", ""), result.get("diff", "")
     if not stat and not diff:
-        return print(f"  {_t('rollback.no_changes_since')}")
+        return print(f"  {'No changes since this checkpoint.'}")
     if stat:
         print(f"\n{stat}")
     if diff:
         lines = diff.splitlines()
         if len(lines) > 80:  # main's terminal-flood limit
             print("\n".join(lines[:80]))
-            print(f"\n  {_t('rollback.more_lines', count=len(lines) - 80)}")
+            print(f"\n  {(f'... ({len(lines) - 80} more lines, showing first 80)')}")
         else:
             print(f"\n{diff}")
 
@@ -69,14 +66,14 @@ def _restored(cli, connection, result, file_path):
     if not result.get("success"):
         return print(f"  ❌ {result.get('error')}")
     restored = {"hash": result.get("restored_to", ""), "reason": result.get("reason", "")}
-    print(f"  {_t('rollback.restored_file', file=file_path, **restored)}" if file_path
-          else f"  {_t('rollback.restored_all', **restored)}")
+    print(f"  {('✅ Restored {file} from checkpoint {hash}: {reason}').format(file=file_path, **restored)}" if file_path
+          else f"  {('✅ Restored to checkpoint {hash}: {reason}').format(**restored)}")
     from hermes_cli.cli_commands_session_tools import _rollback_kept
     _rollback_kept(result)  # the in-process CLI's own lines
-    print(f"  {_t('rollback.snapshot_saved')}")
+    print(f"  {'A pre-rollback snapshot was saved automatically.'}")
     if result.get("history_removed"):
         snapshot = connection.call("session.resume", session_id=cli.session_id)
         connection.state(cli.session_id).adopt_snapshot(snapshot)
         cli.conversation_history = [{k: v for k, v in m.items() if k != "row_id"}
                                     for m in snapshot.get("messages") or [] if not m.get("archived")]
-        print(f"  {_t('rollback.chat_turn_undone')}")
+        print(f"  {'Chat turn undone to match restored file state.'}")

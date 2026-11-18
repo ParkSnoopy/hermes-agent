@@ -5,6 +5,8 @@ import { stripAnsi } from '@hermes/shared/ansi'
 import React from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { subscriptionEn } from '../copy/subscription.js'
+
 const inputHarness = vi.hoisted(() => ({
   handler: undefined as undefined | ((input: string, key: Record<string, boolean>) => void)
 }))
@@ -26,7 +28,6 @@ import type { SubscriptionStateResponse } from '@hermes/shared/gateway-types'
 
 import type { SubscriptionOverlayState } from '../app/interfaces.js'
 import { SubscriptionOverlay } from '../components/subscriptionOverlay.js'
-import { applyLocale, messages, resetLocale } from '../i18n/runtime.js'
 import { DEFAULT_THEME } from '../theme.js'
 
 const t = DEFAULT_THEME
@@ -393,42 +394,6 @@ describe('SubscriptionOverlay — step-up', () => {
     expect(out).toContain('Allow Remote Spending')
     expect(out).not.toContain('billing:manage')
   })
-
-  it('repeat scope denial after the grant resolves its message from the active locale', async () => {
-    // The post-grant replay result used to be a module-level constant; a pack
-    // installed after import must still be observed.
-    applyLocale('xx', {
-      lang: 'xx',
-      messages: { 'subscription.result.scopeStillDenied': 'STILL-DENIED-XX' },
-      surface: 'tui'
-    })
-
-    try {
-      const onPatch = vi.fn()
-      const preview = vi.fn(() => Promise.resolve({ ok: false, error: 'insufficient_scope' }))
-
-      const mounted = mount(
-        at('stepup', subscriber(), {
-          ctx: { ...ctx, preview } as SubscriptionOverlayState['ctx'],
-          stepUpRetry: { kind: 'preview', tierId: 'ultra' }
-        }),
-        onPatch
-      )
-
-      inputHarness.handler?.('', { return: true }) // Allow Remote Spending → granted
-      await vi.waitFor(() => expect(mounted.output()).toContain(messages().subscription.stepUp.granted))
-      inputHarness.handler?.('', { return: true }) // Continue → replay with allowStepUp=false
-      await vi.waitFor(() => expect(preview).toHaveBeenCalled())
-      await vi.waitFor(() => expect(onPatch).toHaveBeenCalledWith(expect.objectContaining({ screen: 'result' })))
-      mounted.cleanup()
-
-      const patch = onPatch.mock.calls.at(-1)?.[0] as Partial<SubscriptionOverlayState>
-
-      expect(patch.result).toMatchObject({ message: 'STILL-DENIED-XX', ok: false })
-    } finally {
-      resetLocale()
-    }
-  })
 })
 
 describe('SubscriptionOverlay — picker', () => {
@@ -579,7 +544,7 @@ describe('SubscriptionOverlay — upgrade response mapping', () => {
   it('already_on_tier remains an immediate success', async () => {
     const patch = await applyUpgrade({ ok: true, status: 'already_on_tier', target_tier_name: 'Ultra' })
 
-    expect(patch.result).toMatchObject({ message: messages().subscription.result.alreadyOn('Ultra'), ok: true })
+    expect(patch.result).toMatchObject({ message: subscriptionEn.subscription.result.alreadyOn('Ultra'), ok: true })
     expect(patch.result).not.toHaveProperty('pendingTierId')
   })
 

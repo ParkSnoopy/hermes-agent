@@ -178,10 +178,8 @@ def _authorize_write(connection, ref, params):
     return policy
 
 
-# Profile settings main's sidecar wrote for Desktop's toggles (``tui_gateway/server.py::_DISPLAY_TOGGLE_KEYS``)
-# and its voice-engine pick: config.yaml leaves with main's validation.
+# Profile settings main's sidecar wrote for Desktop's toggles.
 _DISPLAY_TOGGLE_KEYS = frozenset({'display.message_reactions', 'display.in_app_tips', 'display.in_app_tours'})
-_VOICE_CHAT_MODES = frozenset({'chained', 'gpt-live'})
 
 
 async def config_set(connection, ref, params):
@@ -195,13 +193,15 @@ async def config_set(connection, ref, params):
         raise RuntimeStoreError('invalid_params')
     policy = _authorize_write(connection, ref, params)
     value = params.get('value')
+    if key.startswith('voice.'):
+        raise RuntimeStoreError('invalid_params')
     if key == 'fast':
         return await _set_fast(connection, ref, policy, value)
     if key == 'personality':
         return await asyncio.to_thread(_set_personality, connection, value)
     if key in ('approvals.mode', 'approval_mode'):
         return await asyncio.to_thread(_set_approval_mode, connection, value)
-    if key in _DISPLAY_TOGGLE_KEYS or key == 'voice.voice_chat_mode':
+    if key in _DISPLAY_TOGGLE_KEYS:
         return {'key': key, **await asyncio.to_thread(_write_profile_config, connection,
                                                       lambda cfg: _set_profile_leaf(cfg, key, value))}
     if key == 'daybreak':
@@ -320,14 +320,9 @@ def _set_personality(connection, value):
 
 def _set_profile_leaf(cfg, key, value):
     section, leaf = key.split('.', 1)
-    if key == 'voice.voice_chat_mode':
-        new = _word(value)
-        if new not in _VOICE_CHAT_MODES:
-            raise RuntimeStoreError('invalid_params')
-    else:
-        new = {**_BOOL_WORDS, '1': True, '0': False}.get(_word(value))
-        if new is None:
-            raise RuntimeStoreError('invalid_params')
+    new = {**_BOOL_WORDS, '1': True, '0': False}.get(_word(value))
+    if new is None:
+        raise RuntimeStoreError('invalid_params')
     if not isinstance(cfg.get(section), dict):
         cfg[section] = {}
     cfg[section][leaf] = new

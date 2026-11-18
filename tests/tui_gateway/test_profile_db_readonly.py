@@ -3,15 +3,15 @@
 A named-profile backend serving RPCs about a different profile (desktop app-global remote
 mode, profile switcher) used to acquire() a WRITER on that profile's state.db per RPC and
 close it in the handler's finally. Reads never need that lock, and the writer's close
-participated in the deleted-WAL incident class. Read paths now open read-only, mirroring
-hermes_cli.web_routers.profiles._read_profile_db; the few RPCs that genuinely write
-(move-cwd, delete, set_hidden, foreign import) opt in with writer=True, and the two
+participated in the deleted-WAL incident class. Read paths now open read-only; the few RPCs
+that genuinely write (move-cwd, delete, set_hidden) opt in with writer=True, and the two
 opportunistic writes reachable from read RPCs (repo-root backfill, Bot Chat unarchive)
 either skip or escalate to a short-lived writer instead of writing on the reader.
 """
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 from tui_gateway import server
@@ -37,6 +37,22 @@ def test_foreign_profile_db_is_read_only(monkeypatch, tmp_path):
         assert db is not None
         assert db.read_only is True
         assert db.get_session("seed") is not None
+
+
+def test_foreign_profile_read_refuses_old_schema_without_changing_it(monkeypatch, tmp_path):
+    foreign = tmp_path / "profiles" / "old"
+    foreign.mkdir(parents=True)
+    path = foreign / "state.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY)")
+        conn.execute("INSERT INTO sessions VALUES ('kept')")
+    before = path.read_bytes()
+    monkeypatch.setattr(server, "_profile_home", lambda name: foreign)
+
+    with server._profile_db({"profile": "old"}) as db:
+        assert db is None
+
+    assert path.read_bytes() == before
 
 
 def test_fresh_served_profile_store_is_seeded_for_its_first_read(monkeypatch, tmp_path):

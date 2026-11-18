@@ -71,8 +71,7 @@ def test_local_browser_row_ready_only_when_setup_would_be_a_noop(harness, chromi
 
 
 @pytest.mark.parametrize("key,extra", [
-    ("ddgs", "ddgs"), ("faster_whisper", "stt-whisper"),
-    ("kittentts", "kittentts"), ("piper", "piper"),
+    ("ddgs", "ddgs"),
 ])
 @pytest.mark.parametrize("refused", [False, True])
 def test_importable_sdk_does_not_bypass_pm_constraints(monkeypatch, capsys, key, extra, refused):

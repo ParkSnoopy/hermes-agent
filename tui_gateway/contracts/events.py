@@ -83,25 +83,7 @@ class SetupReadyPayload(OpenPayload):
     finished_at: float
 
 
-class OnboardingOutcome(WireEnum):
-    done = "done"
-    skipped = "skipped"
-    replaced = "replaced"
-    deleted = "deleted"
 
-
-class OnboardingEndedPayload(Payload):
-    """``agent/onboarding_record.py::_transition``: the run ``run_id`` stopped being in progress.
-    ``stored_session_id`` is its chat at the compression tip. ``done``: the first-task card was answered;
-    ``skipped``: Skip setup; ``replaced``: a rerun opened a new run; ``deleted``: its chat was deleted."""
-
-    run_id: str
-    stored_session_id: str
-    outcome: OnboardingOutcome
-
-
-event("onboarding.ended", OnboardingEndedPayload,
-      doc="A first-run onboarding run ended; sent to every connected window.")
 event("setup.ready", SetupReadyPayload,
       doc="The free-tier bootstrap finished (broadcast); the desktop's setup gate reads the record.")
 
@@ -506,18 +488,6 @@ event("notification.show", NotificationShowPayload, doc="Show / replace a keyed 
 event("notification.clear", NotificationClearPayload, doc="Withdraw the notice with this key.")
 
 
-class TipShowPayload(Payload):
-    """``tools/tip_tool.py``."""
-
-    selector: str
-    text: str
-    title: str | None = None
-    side: str | None = None
-
-
-event("tip.show", TipShowPayload, doc="Point at a desktop element with a one-line tip bubble.")
-
-
 # ── session lifecycle ─────────────────────────────────────────────────────────────────────────
 
 
@@ -708,37 +678,8 @@ event("moa.progress", MoaProgressPayload, doc="MoA reference fan-out progress (n
 event("moa.phase", MoaPhasePayload, doc="MoA phase transition (currently only ``aggregator``).")
 
 
-# ── desktop GUI (tools/desktop_ui emitters) ──────────────────────────────────────────────────
-
-
-class PreviewOpenPayload(Payload):
-    """``tools/open_preview_tool.py``."""
-
-    url: str
-    label: str = ""
-
-
-class PreviewClosePayload(Payload):
-    """``tools/preview_tool.py`` / ``tools/close_preview_tool.py``; ``url`` '' closes every tab."""
-
-    url: str = ""
-
-
-event("preview.open", PreviewOpenPayload, doc="Open a URL / file in the desktop preview pane.")
-event("preview.close", PreviewClosePayload, doc="Close the preview pane or one tab.")
-
-
-class PaneRevealPayload(OpenPayload):
-    """``tools/focus_pane_tool.py``."""
-
-    pane: str
-
-
-event("pane.reveal", PaneRevealPayload, doc="Focus / reveal a named desktop pane.")
-
-
 class MessageReactionPayload(Payload):
-    """``tools/react_to_message_tool.py``."""
+    """``methods_session`` reaction updates for subscribed clients."""
 
     row_id: int
     reactions: list[MessageReaction]
@@ -771,47 +712,6 @@ class BrowserProgressPayload(Payload):
 
 
 event("browser.progress", BrowserProgressPayload, doc="Browser (CDP) connect / install progress line.")
-
-
-# ── voice ─────────────────────────────────────────────────────────────────────────────────────
-
-
-event("voice.interrupted", None, doc="Barge-in: the spoken interjection interrupted the turn; no payload.")
-
-
-class VoiceStatusPayload(Payload):
-    """``methods_voice._vr_on_status``; states come from the recorder (idle / listening / transcribing …)."""
-
-    state: str
-
-
-class VoicePartialPayload(Payload):
-    """``methods_voice`` voice.record ``on_partial`` — live STT text so far (``stt.streaming``)."""
-
-    text: str
-
-
-class VoiceTranscriptPayload(Payload):
-    """``methods_voice._vr_transcript`` / ``_deliver_fd_transcript`` / typed stop phrase in methods_prompt."""
-
-    text: str | None = None
-    stop_phrase: bool | None = None
-    typed: bool | None = None
-    no_speech_limit: bool | None = None
-
-
-class WakeDetectedPayload(Payload):
-    """``methods_voice`` wake detector ``_on_detect``."""
-
-    phrase: str
-    profile: str | None = None
-    start_new_session: bool
-
-
-event("voice.status", VoiceStatusPayload, doc="Voice recorder state changed.")
-event("voice.partial", VoicePartialPayload, doc="Live STT text so far while the user is still speaking.")
-event("voice.transcript", VoiceTranscriptPayload, doc="A voice capture produced text (or a stop phrase / silence limit).")
-event("wake.detected", WakeDetectedPayload, doc="A wake phrase fired.")
 
 
 # ── pets ──────────────────────────────────────────────────────────────────────────────────────
@@ -858,7 +758,6 @@ class ChangeSignalPayload(OpenPayload):
     """``change_watcher._CHANGE_WATCHES`` payload fn — ``{}`` for every watch except pet.changed."""
 
 
-event("cron.changed", ChangeSignalPayload, doc="cron/jobs.json moved; refetch the cron list.")
 event("sessions.changed", ChangeSignalPayload, doc="state.db moved; refetch the session list.")
 event("platforms.changed", ChangeSignalPayload, doc="gateway_state.json moved; refetch platform status.")
 event("projects.changed", ChangeSignalPayload, doc="projects.db moved; refetch the project list + tree.")
@@ -873,16 +772,15 @@ __all__ = [
     "ErrorSurface", "FreeTierChallengePayload", "GatewayReadyPayload",
     "MessageCompletePayload", "MessageInterimPayload", "MessageReaction", "MessageReactionPayload", "MoaAggregatingPayload",
     "MoaPhasePayload", "MoaProgressPayload", "MoaReferencePayload", "NoticePayload",
-    "NotificationClearPayload", "NotificationShowPayload", "OpenPayload", "PaneRevealPayload",
-    "PetChangedPayload", "PetGenerateProgressPayload", "PetHatchProgressPayload", "PreviewClosePayload",
-    "PreviewOpenPayload", "PreviewRestartProgressPayload", "ReactionPayload", "ResumePhaseStatus",
+    "NotificationClearPayload", "NotificationShowPayload", "OpenPayload",
+    "PetChangedPayload", "PetGenerateProgressPayload", "PetHatchProgressPayload",
+    "PreviewRestartProgressPayload", "ReactionPayload", "ResumePhaseStatus",
     "ReviewSummaryPayload", "SessionControlSnapshot", "SessionControlUpdatePayload",
     "SessionReclaimedPayload", "SessionResumeProgressPayload", "SessionTitlePayload", "SessionUsagePayload",
     "SetupReadyPayload", "SideAgentCompletePayload", "SkinPayload", "StatusUpdatePayload",
     "StreamDeltaPayload", "SubagentEventPayload", "SubagentOutputTailEntry", "TerminalClosePayload",
-    "TerminalOutputPayload", "TipShowPayload", "TodoUpdatedPayload", "ToolCompletePayload",
+    "TerminalOutputPayload", "TodoUpdatedPayload", "ToolCompletePayload",
     "ToolGeneratingPayload", "ToolLabel", "ToolLabelKind", "ToolOutputRiskPayload", "ToolProgressPayload",
     "ToolStartPayload",
-    "TurnStatus", "VoicePartialPayload", "VoiceStatusPayload",
-    "VoiceTranscriptPayload", "WakeDetectedPayload",
+    "TurnStatus",
 ]

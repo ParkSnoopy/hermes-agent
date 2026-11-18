@@ -29,7 +29,7 @@ IDEMPOTENT_TOOL_NAMES = frozenset({
 MUTATING_TOOL_NAMES = frozenset({
     "terminal", "execute_code", "write_file", "patch", "todo_list", "memory", "skill_manage",
     "browser_click", "browser_type", "browser_press", "browser_scroll", "browser_navigate",
-    "send_message", "cronjob_manage", "delegate_task", "process_manage",
+    "send_message", "delegate_task", "process_manage",
 })
 
 # Pollers: legitimately re-invoked with identical args; the identical-call NOTICE never fires.
@@ -62,12 +62,12 @@ FAILURE_TOLERANT_TOOL_NAMES = frozenset({
 # this turn: the next retry is a new experiment (edit -> re-run), not a replay.
 PROGRESS_RESET_TOOL_NAMES = frozenset({
     "write_file", "patch", "terminal", "execute_code", "browser_click", "browser_type", "browser_press",
-    "browser_navigate", "process_manage", "process", "delegate_task", "send_message", "cronjob",
-    "cronjob_manage", "todo", "todo_list", "memory", "skill_manage",
+    "browser_navigate", "process_manage", "process", "delegate_task", "send_message",
+    "todo_list", "memory", "skill_manage",
 })
 
 _BOOL_FIELDS = ("warnings_enabled", "hard_stop_enabled", "non_interactive_hard_stop_enabled")
-# Threshold field -> (nested section, nested key). The flat legacy key is the field name itself.
+# Threshold field -> (nested section, nested key).
 _THRESHOLD_SOURCES: dict[str, tuple[str, str]] = {
     "exact_failure_warn_after": ("warn_after", "exact_failure"),
     "same_tool_failure_warn_after": ("warn_after", "same_tool_failure"),
@@ -136,7 +136,7 @@ class ToolCallGuardrailConfig:
     def from_mapping(
         cls, data: Mapping[str, Any] | None, *, platform: str | None = None,
     ) -> ToolCallGuardrailConfig:
-        """Build config from `tool_loop_guardrails`; nested ``warn_after`` / ``hard_stop_after`` win over flat legacy keys."""
+        """Build config from the nested `tool_loop_guardrails` thresholds."""
         if not isinstance(data, Mapping):
             data = {}
         d = cls()
@@ -146,7 +146,7 @@ class ToolCallGuardrailConfig:
 
         def threshold(name: str, section_name: str, key: str) -> int:
             section = data.get(section_name)
-            nested = section.get(key, data.get(name)) if isinstance(section, Mapping) else data.get(name)
+            nested = section.get(key) if isinstance(section, Mapping) else None
             return _int_at_least(nested, getattr(d, name), 1)
 
         thresholds = {name: threshold(name, *src) for name, src in _THRESHOLD_SOURCES.items()}

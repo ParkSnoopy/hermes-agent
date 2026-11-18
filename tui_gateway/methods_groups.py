@@ -12,8 +12,6 @@ import os
 import threading
 import uuid
 
-# Imported, so never rebound: it reads the bound server from this module, not server.py's globals.
-from .methods_groups_forward import forward_bound as _forward_to_owner
 
 _registry = HandlerRegistry()
 method = _registry.method
@@ -197,12 +195,11 @@ def _room_method(
     the request (``admits``: no service to take it; or an error marked ``admitted = False``)
     adds ``{"admitted": false}``."""
     error_class = _room_error_class  # closure cell: handlers run under server.py globals
-    owner_call = _forward_to_owner
+
 
     def dec(fn):
         def handler(rid, params: dict) -> dict:
-            if (forwarded := owner_call(rid, name, params)) is not None:
-                return forwarded
+
             args = (rid, params)
             if service_code is not None:
                 service = get_hosted_room_service()
@@ -228,10 +225,9 @@ def _room_method(
 
 
 @method("groups.capabilities")
-def _(rid, params: dict, _catalog=_local_catalog, _methods=_METHODS, _owner=_forward_to_owner) -> dict:
+def _(rid, params: dict, _catalog=_local_catalog, _methods=_METHODS) -> dict:
     """Describe the hosted-room protocol implemented by this gateway."""
-    if (forwarded := _owner(rid, "groups.capabilities", params)) is not None:
-        return forwarded
+
     from gateway.hosted_rooms import MAX_LOG_LIMIT, PROTOCOL_VERSION, local_authority_gateway_id
     service = get_hosted_room_service()
     driver_ready = bool(service and service.runtime.status()["running"])
@@ -434,8 +430,7 @@ def _(rid, params: dict, db_path) -> dict:
         db_path, include_disbanded=params.get("include_disbanded") is True, limit=limit,
         offset=offset)
     next_offset = offset + limit if len(rooms) == limit else None
-    from tui_gateway.methods_groups_forward import local_rooms
-    return _ok(rid, {"rooms": local_rooms(rooms), "next_offset": next_offset})
+    return _ok(rid, {"rooms": rooms, "next_offset": next_offset})
 
 
 @_room_method(

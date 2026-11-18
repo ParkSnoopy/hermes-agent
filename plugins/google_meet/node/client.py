@@ -42,6 +42,8 @@ class NodeClient:
 
     def start_bot(self, url: str, guest_name: str = "Hermes Agent", duration: Optional[str] = None,
                   headed: bool = False, mode: str = "transcribe") -> dict[str, Any]:
+        if not isinstance(mode, str) or mode.strip().lower() != "transcribe":
+            raise ValueError("mode must be 'transcribe'; other modes are unsupported")
         payload: dict[str, Any] = {"url": url, "guest_name": guest_name, "headed": bool(headed), "mode": mode}
         if duration is not None:
             payload["duration"] = duration
@@ -56,8 +58,6 @@ class NodeClient:
     def transcript(self, last: Optional[int] = None) -> dict[str, Any]:
         return self._rpc("transcript", {} if last is None else {"last": int(last)})
 
-    def say(self, text: str) -> dict[str, Any]:
-        return self._rpc("say", {"text": str(text)})
 
     def ping(self) -> dict[str, Any]:
         return self._rpc("ping", {})

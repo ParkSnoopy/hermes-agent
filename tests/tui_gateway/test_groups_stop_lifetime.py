@@ -1,4 +1,4 @@
-"""Both room-control transports must stop newer work on a fresh Stop or Disband."""
+"""Room controls must stop newer work on a fresh Stop or Disband."""
 
 import time
 from types import SimpleNamespace
@@ -12,11 +12,8 @@ from tests.tui_gateway.test_hosted_room_service import _FakeRPC
 from tests.tui_gateway.test_hosted_room_stop_replay import _service
 
 
-@pytest.fixture(params=["canonical", "standalone"])
-def controls(request, tmp_path, monkeypatch):
-    import tui_gateway.server as srv
-    from tui_gateway import methods_groups_forward
-
+@pytest.fixture
+def controls(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     with SessionDB(tmp_path / "state.db") as db:
         service = _service(db.db_path)
@@ -24,20 +21,14 @@ def controls(request, tmp_path, monkeypatch):
             {"member_id": "default", "profile": "default", "handle": "hermes"},
             {"member_id": "ops", "profile": "ops", "handle": "ops"}])
         monkeypatch.setattr(service.runtime, "status", lambda: {"running": True})
-        monkeypatch.setattr(srv, "get_hosted_room_service", lambda: service)
-        monkeypatch.setattr(methods_groups_forward, "owner_endpoint", lambda _home: None)
+
         # Ownership is supplied by the authenticated connection in production.
         service.authorize_room = lambda *_args, **_kwargs: None
         authority = SimpleNamespace(db=db, hosted_room_service=service)
 
         def call(method, **params):
             params = {"room_id": "room", **params}
-            if request.param == "canonical":
-                return _group(authority, SimpleNamespace(subject="alice"), method, params)
-            result = srv._methods[method](1, params)
-            if "error" in result:
-                raise RuntimeError(result["error"]["message"])
-            return result["result"]
+            return _group(authority, SimpleNamespace(subject="alice"), method, params)
 
         yield service, call
 

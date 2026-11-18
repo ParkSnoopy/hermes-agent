@@ -45,7 +45,7 @@ REQUIRED_KEYS = frozenset(
         "completion_menu_current_bg",
         "selection_bg",
         "shell_dollar",
-        "voice_status_bg",
+
     }
 )
 
@@ -85,7 +85,7 @@ FILLS = (
     "completion_menu_bg",
     "completion_menu_current_bg",
     "selection_bg",
-    "voice_status_bg",
+
 )
 
 STRONG_MIN = 3.9

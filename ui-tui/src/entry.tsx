@@ -7,8 +7,8 @@ import type { FrameEvent } from '@hermes/ink'
 
 import { setRpcErrorLogSink } from './app/userMessages.js'
 import { DASHBOARD_TUI_MODE, NATIVE_MODE, TERMUX_TUI_MODE } from './config/env.js'
+import { chatBitsEn } from './copy/chatBits.js'
 import { GatewayClient } from './gatewayClient.js'
-import { messages } from './i18n/runtime.js'
 import { setupGracefulExit } from './lib/gracefulExit.js'
 import { formatBytes, type HeapDumpResult, performHeapDump } from './lib/memory.js'
 import { type MemorySnapshot, startMemoryMonitor } from './lib/memoryMonitor.js'
@@ -17,7 +17,7 @@ import { recordParentLifecycle } from './lib/parentLog.js'
 import { clearNativeTuiFrame, resetTerminalModes } from './lib/terminalModes.js'
 
 if (!process.stdin.isTTY) {
-  console.log(messages().chatBits.entry.noTty)
+  console.log(chatBitsEn.chatBits.entry.noTty)
   process.exit(0)
 }
 
@@ -60,12 +60,12 @@ const gw = new GatewayClient()
 setRpcErrorLogSink(line => gw.recordLog(line))
 gw.start()
 
-// Resolved at call time (never at import) so a locale installed later applies.
+
 const dumpNotice = (snap: MemorySnapshot, dump: HeapDumpResult | null) =>
-  `${messages().chatBits.entry.memoryDump(
+  `${chatBitsEn.chatBits.entry.memoryDump(
     snap.level,
     formatBytes(snap.heapUsed),
-    dump?.heapPath ?? dump?.diagPath ?? messages().chatBits.entry.dumpFailed
+    dump?.heapPath ?? dump?.diagPath ?? chatBitsEn.chatBits.entry.dumpFailed
   )}\n`
 
 let consecutiveDeadStreamErrors = 0
@@ -136,7 +136,7 @@ const stopMemoryMonitor = startMemoryMonitor({
       `hermes-tui lifecycle: memory critical exit heap=${formatBytes(snap.heapUsed)} rss=${formatBytes(snap.rss)}\n`
     )
     process.stderr.write(dumpNotice(snap, dump))
-    process.stderr.write(`${messages().chatBits.entry.exitingOom}\n`)
+    process.stderr.write(`${chatBitsEn.chatBits.entry.exitingOom}\n`)
     process.exit(137)
   },
   onHigh: (snap, dump) => process.stderr.write(dumpNotice(snap, dump)),
@@ -148,7 +148,7 @@ const stopMemoryMonitor = startMemoryMonitor({
     recordParentLifecycle(
       `memory-warning fast heap growth heap=${formatBytes(snap.heapUsed)} rss=${formatBytes(snap.rss)}`
     )
-    process.stderr.write(`${messages().chatBits.entry.heapClimbing(formatBytes(snap.heapUsed))}\n`)
+    process.stderr.write(`${chatBitsEn.chatBits.entry.heapClimbing(formatBytes(snap.heapUsed))}\n`)
   }
 })
 

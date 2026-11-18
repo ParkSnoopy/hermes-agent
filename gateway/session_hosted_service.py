@@ -262,9 +262,9 @@ class CanonicalHostedRoomService(HostedControls, HostedRoomService):
         return self.member_rpcs[key]
 
     def _stopping_attempt_homes(self, room_id, member, task_id=None):
-        from gateway.session_hosted_member_homes import legacy_stop_homes, stopping_attempt_homes
+        from gateway.session_hosted_member_homes import stopping_attempt_homes
         db = self.authority.db
-        return stopping_attempt_homes(db, room_id, member) | legacy_stop_homes(db, room_id, member, task_id)
+        return stopping_attempt_homes(db, room_id, member)
 
     def _stop_pending_refusal(self, room_id, deferred):
         """Name an unconfigured member profile whose unknown home keeps a turn deferred."""
@@ -276,9 +276,9 @@ class CanonicalHostedRoomService(HostedControls, HostedRoomService):
     def _stop_deferred_peer(self, room_id, task):
         """Also settle a local member's deferred turn once its profile is no longer served here and
         nothing on this host can run it (``unserved_member_stopped``): its daemon never answers."""
-        from gateway.session_hosted_member_homes import unsettled_legacy_homes, unserved_member_stopped
+        from gateway.session_hosted_member_homes import unserved_member_stopped
         if super()._stop_deferred_peer(room_id, task):
-            return not unsettled_legacy_homes(self, room_id, task)
+            return True
         from tui_gateway.hosted_room_service import task_member_id
         return (not self._member_is_peer(room_id, task_member_id(task))
                 and unserved_member_stopped(self, room_id, task))
@@ -339,8 +339,6 @@ async def _ensure_hosted_service(runner, authority):
         service = getattr(authority, 'hosted_room_service', None)
         if service is None:
             loop = asyncio.get_running_loop()
-            from gateway.hosted_rooms_gateway_import import import_standalone_rooms
-            await asyncio.to_thread(import_standalone_rooms, Path(authority.db.db_path), runtime_epoch=authority.epoch)
             service = await asyncio.to_thread(CanonicalHostedRoomService, authority, loop)
             authority.hosted_room_service = service
         if not getattr(service, '_transport_installed', False):
@@ -361,8 +359,7 @@ def start_ready_hosted_services(runner):
     for service in services:
         # start() only releases its thread; preparation and disk access happened above.
         service.start()
-    from gateway.hosted_rooms_gateway_import import import_after_ready
-    import_after_ready(serving_authorities(runner))
+
 
 
 async def stop_hosted_service(runner, timeout=5):

@@ -64,7 +64,6 @@ async def test_secondary_boot_extends_systemd_start_timeout(tmp_path, monkeypatc
     runner._sync_voice_mode_state_to_adapter = lambda *a: None
     runner._restore_secondary_completion_ledgers = lambda *a: None
     runner._adapter_credential_claim = lambda *a: None
-    runner._adapter_listener_claim = lambda *a: None
     runner._create_adapter = lambda platform, config: SimpleNamespace(platform=platform)
     seen_before_connect: list[list[str]] = []
 

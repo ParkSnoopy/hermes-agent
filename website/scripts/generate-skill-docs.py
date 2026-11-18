@@ -25,7 +25,6 @@ import hermes_yaml as yaml
 
 DOCS = REPO / "website" / "docs"
 SKILLS_PAGES = DOCS / "user-guide" / "skills"
-ZH_HANS_DOCS = REPO / "website" / "i18n" / "zh-Hans" / "docusaurus-plugin-content-docs" / "current"
 
 SKILL_SOURCES = [
     ("bundled", REPO / "skills"),
@@ -728,7 +727,7 @@ def write_sidebar(entries):
 
 
 def prune_stale_pages(written: set[Path]) -> int:
-    """Delete generated pages this run did not write, plus their zh-Hans mirror twins.
+    """Delete generated pages this run did not write.
 
     A skill that moves category, merges into a sibling, or leaves the shipped set
     otherwise keeps its old page forever: the catalogs and sidebar stop pointing at
@@ -742,16 +741,7 @@ def prune_stale_pages(written: set[Path]) -> int:
             if page.resolve() in written:
                 continue
             page.unlink()
-            twin = ZH_HANS_DOCS / page.relative_to(DOCS)
-            if twin.exists():
-                twin.unlink()
             pruned += 1
-        # Mirror copies whose English page is already gone (a hand-deleted page).
-        zh_kind = ZH_HANS_DOCS / SKILLS_PAGES.relative_to(DOCS) / kind
-        for twin in sorted(zh_kind.rglob("*.md")) if zh_kind.exists() else []:
-            if not (DOCS / twin.relative_to(ZH_HANS_DOCS)).exists():
-                twin.unlink()
-                pruned += 1
     return pruned
 
 

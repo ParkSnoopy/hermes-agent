@@ -57,22 +57,16 @@
           "anthropic"
           "azure-identity"
           "bedrock"
-          "daytona"
-          "dingtalk"
-          "edge-tts"
+
+
           "exa"
           "fal"
-          "feishu"
+
           "firecrawl"
-          "messaging"
-          "modal"
+
+
           "parallel-web"
-          "tts-premium"
-          "vercel"
-          "voice"
-        ]
-        # matrix is Linux-only (oqs/liboqs lacks aarch64-darwin wheels).
-        ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ "matrix" ];
+        ];
       };
     in
     {
@@ -87,17 +81,9 @@
 
         inherit minimal;
 
-        # Ships discord.py + python-telegram-bot + slack-sdk so a plain
-        # `nix profile install .#messaging` connects to Discord/Telegram/Slack
-        # on first run — lazy-install can't write to the read-only /nix/store.
-        messaging = minimal.override {
-          defaultDependencyGroups = [ "messaging" ];
-        };
 
         tui = full.hermesTui;
-        web = full.hermesWeb;
-        webapp = full.hermesWebapp;
-        desktop = full.hermesDesktop;
+
 
         # The fixed-output pnpm store every frontend installs from; its hash
         # lives in nix/pnpm-deps-hash (`nix run .#update-pnpm-lockfile`).

@@ -21,6 +21,7 @@ import pytest
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 
 def _declared_tree(root, startup_files):
@@ -272,7 +273,7 @@ def test_the_preflight_reads_every_critical_file_in_one_git_spawn(tmp_path, monk
 
 def test_the_tree_move_marker_records_the_absolute_git_the_repair_reruns(tmp_path, monkeypatch):
     """The next launch's repair cannot ask ``pm`` for the store git when the move tore a module ``pm``
-    imports, so the marker carries the absolute git this run resolved (PATH or ``expose_pm_git``)."""
+    imports, so the marker carries the absolute Git executable this run resolved."""
     from hermes_cli import _early_recovery
     from hermes_cli import update_cmd_commit as commit
 
@@ -281,6 +282,8 @@ def test_the_tree_move_marker_records_the_absolute_git_the_repair_reruns(tmp_pat
     fake.parent.mkdir(parents=True)
     fake.write_text("", encoding="utf-8")
     monkeypatch.setattr("shutil.which", lambda name: str(fake) if name == "git" else None)
+    # This marker-only fixture has no Git objects to publish as a recovery closure.
+    monkeypatch.setattr(commit, "publish_recovery_closure", Mock(side_effect=OSError("no Git objects")))
     marker = commit.arm_tree_move(["git", "-c", "gc.autoDetach=false"], tmp_path, pre="a" * 40,
                                   target="b" * 40, stash=None)
     fields = dict(line.partition("=")[::2] for line in marker.read_text(encoding="utf-8").splitlines())
@@ -354,3 +357,17 @@ def test_a_marker_arm_that_times_out_still_rolls_the_broken_pull_back(tmp_path, 
     assert "Rollback complete" in capsys.readouterr().out
     assert git("rev-parse", "HEAD") == previous
     assert source.read_text(encoding="utf-8") == "print('runnable')\n"
+
+
+def test_slow_target_read_skips_preflight(monkeypatch, capsys):
+    """A timed-out object read skips the preflight rather than aborting the update."""
+    import subprocess
+    from pathlib import Path
+    from hermes_cli import update_cmd_commit
+
+    def slow(git_cmd, args, **kwargs):
+        raise subprocess.TimeoutExpired([*git_cmd, *args], 120)
+
+    monkeypatch.setattr(update_cmd_commit, "run_git", slow)
+    assert update_cmd_commit.target_syntax_error(["git"], Path("."), "a" * 40, ["cli.py", "run_agent.py"]) is None
+    assert "Syntax preflight skipped (slow object fetch)" in capsys.readouterr().out

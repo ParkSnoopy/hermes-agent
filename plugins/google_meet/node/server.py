@@ -9,19 +9,18 @@ via ``hermes meet node approve <name> <url> <token>``. ``websockets`` is importe
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import json
+
 import secrets
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from hermes_constants import get_hermes_home
-from plugins.google_meet._jsonfile import read_json, say_queue_lock
+from plugins.google_meet._jsonfile import read_json
 from utils import atomic_json_write
 from plugins.google_meet.node import protocol as _proto
 
-_START_BOT_KEYS = ("url", "guest_name", "duration", "headed", "auth_state", "session_id", "out_dir")
+_START_BOT_KEYS = ("url", "guest_name", "duration", "headed", "auth_state", "session_id", "out_dir", "mode")
 
 
 class _RpcError(Exception):
@@ -33,22 +32,11 @@ def _rpc_start_bot(payload: dict[str, Any], pm) -> dict[str, Any]:
     kwargs = {k: payload[k] for k in _START_BOT_KEYS if k in payload}
     if "url" not in kwargs:
         raise _RpcError("missing 'url' in payload")
+    mode = kwargs.get("mode", "transcribe")
+    if not isinstance(mode, str) or mode.strip().lower() != "transcribe":
+        raise _RpcError("mode must be 'transcribe'; other modes are unsupported")
     return pm.start(**kwargs)
 
-
-def _rpc_say(payload: dict[str, Any], pm) -> dict[str, Any]:
-    # The bot-side consumer only exists in realtime mode: ok=True means "enqueued", not "spoken".
-    text = payload.get("text", "")
-    active = pm._read_active()
-    enqueued = False
-    if active and active.get("out_dir"):
-        with contextlib.suppress(OSError):
-            queue = Path(active["out_dir"]) / "say_queue.jsonl"
-            queue.parent.mkdir(parents=True, exist_ok=True)
-            with say_queue_lock(queue), queue.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps({"text": text, "ts": time.time()}) + "\n")
-            enqueued = True
-    return {"ok": True, "enqueued": enqueued, "text": text}
 
 
 # request type → fn(payload, pm) returning the response payload.
@@ -56,8 +44,7 @@ _RPC = {
     "start_bot": _rpc_start_bot,
     "stop": lambda p, pm: pm.stop(reason=p.get("reason", "requested")),
     "status": lambda p, pm: pm.status(),
-    "transcript": lambda p, pm: pm.transcript(last=p.get("last")),
-    "say": _rpc_say}
+    "transcript": lambda p, pm: pm.transcript(last=p.get("last"))}
 
 
 class NodeServer:

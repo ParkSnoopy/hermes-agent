@@ -51,7 +51,7 @@ def test_a_refresh_over_a_guest_in_the_shared_store_records_no_move(portal, monk
     mine, sibling = os.environ["HERMES_HOME"], tmp_path / "sibling-profile"
     sibling.mkdir()
     _gh._persist(_gh._account())
-    auth_nous._clear_shared_nous_state("logout")
+    auth_nous._clear_shared_nous_state()
     anon = _guest_in(monkeypatch, sibling)
 
     monkeypatch.setenv("HERMES_HOME", mine)
@@ -67,7 +67,7 @@ def test_a_refresh_still_publishes_the_rotated_token_for_profiles_on_the_same_ac
     from hermes_cli import auth_nous
     _gh._persist(_gh._account(refresh="rt_1"))
     if emptied:
-        auth_nous._clear_shared_nous_state("logout")
+        auth_nous._clear_shared_nous_state()
     _refresh_access_token()
     assert auth_nous._read_shared_nous_state()["refresh_token"] == "rt_2"
 

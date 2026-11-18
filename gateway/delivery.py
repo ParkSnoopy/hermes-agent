@@ -1,5 +1,4 @@
-"""Delivery routing for cron job outputs and agent responses, by target: explicit ("telegram:123456789"),
-platform home channel ("telegram"), origin (back to where the job was created), or local (files)."""
+"""Route cron outputs and responses to explicit plugin targets, home channels, origins, or local files."""
 
 import logging
 import re
@@ -16,8 +15,8 @@ from .dead_targets import DeadTargetRegistry, classify_dead_error
 
 logger = logging.getLogger(__name__)
 
-# Cap before gateway-level truncation of cron output for non-chunking platform delivery. Telegram's hard
-# API limit is 4096; the headroom covers the "full output saved to …" footer. Adapters that split long
+# Cap before gateway-level truncation of cron output for non-chunking platform delivery.
+# The headroom covers the "full output saved to …" footer. Adapters that split long
 # messages natively (splits_long_messages) bypass this entirely.
 MAX_PLATFORM_OUTPUT = 4000
 # Matches strings that are *only* a "silence" narration with optional markdown wrappers (*(silent)*,
@@ -27,7 +26,7 @@ _SILENCE_NARRATION = re.compile(
     r'|^[\s*_~`]*[\U0001F507\.\u2026]+[\s*_~`]*$',
     re.IGNORECASE,
 )
-_THREAD_ROUTING_KEYS = ("thread_id", "message_thread_id", "direct_messages_topic_id", "telegram_direct_messages_topic_id")
+
 
 
 def _is_silence_narration(content: Optional[str]) -> bool:
@@ -52,52 +51,22 @@ class DeliveryTransport:
     config: Optional[PlatformConfig]
     transport_platform: Platform
 
-    @property
-    def is_relay(self) -> bool:
-        return self.transport_platform == Platform.RELAY
-
     async def send(self, logical_platform: Platform, chat_id: str, content: str,
                    metadata: Optional[dict[str, Any]]) -> Any:
-        """Send through this transport while preserving the logical platform."""
-        return await (self.adapter.send_for_platform(logical_platform, chat_id, content, metadata=metadata)
-                      if self.is_relay else self.adapter.send(chat_id, content, metadata=metadata))
+        """Send through the resolved adapter."""
+        return await self.adapter.send(chat_id, content, metadata=metadata)
 
 
 def resolve_delivery_transport(platform: Platform, config: GatewayConfig,
                                adapters: Optional[dict[Platform, Any]]) -> Optional[DeliveryTransport]:
-    """Resolve a logical platform to its live delivery transport. A concrete native adapter always wins;
-    Relay is eligible only when its authenticated transport explicitly advertises that it fronts the
-    logical platform, so restart-time delivery is independent of per-chat caches without letting Relay
-    hijack unrelated platform targets."""
+    """Resolve a platform to its enabled live adapter."""
     live_adapters = adapters or {}
     native, native_config = live_adapters.get(platform), config.platforms.get(platform)
-    # Explicitly supplied live adapters with no config block are honored, but an
-    # explicitly disabled native adapter never shadows an enabled Relay transport.
+    # Explicitly supplied live adapters with no config block are honored.
     if native is not None and (native_config is None or native_config.enabled):
         return DeliveryTransport(native, native_config, platform)
-    relay, relay_config = live_adapters.get(Platform.RELAY), config.platforms.get(Platform.RELAY)
-    fronts_platform = getattr(relay, "fronts_platform", None)
-    if (relay is not None and (relay_config is None or relay_config.enabled)
-            and callable(fronts_platform) and fronts_platform(platform)):
-        return DeliveryTransport(relay, relay_config, Platform.RELAY)
     return None
 
-
-def looks_like_telegram_private_chat_id(chat_id: Optional[str]) -> bool:
-    """True when ``chat_id`` is a positive int — Telegram's private-chat shape (groups/channels are negative).
-    Single source of truth, reused by the handoff seed path in ``gateway/run.py`` so handoff-created DM
-    topics key the same way as inbound DM-topic messages."""
-    try:
-        return int(chat_id) > 0
-    except (TypeError, ValueError):
-        return False
-
-
-def _looks_like_int(value: Optional[str]) -> bool:
-    try:
-        return int(value) is not None
-    except (TypeError, ValueError):
-        return False
 
 
 def _send_result_error(result: Any) -> Optional[str]:
@@ -108,7 +77,7 @@ def _send_result_error(result: Any) -> Optional[str]:
 
 @dataclass
 class DeliveryTarget:
-    """One target: "origin", "local", "telegram" (home channel) or "telegram:123456[:thread]"."""
+    """One origin, local, plugin home-channel, or explicit ``<platform>:<chat>[:thread]`` target."""
     platform: Platform
     chat_id: Optional[str] = None  # None means use home channel
     thread_id: Optional[str] = None
@@ -149,28 +118,6 @@ class DeliveryTarget:
         parts = [self.platform.value, self.chat_id, self.thread_id if self.chat_id else None]
         return ":".join(p for p in parts if p)
 
-
-async def _ensure_named_dm_topic(adapter: Any, chat_id: str, name: str, *, refresh: bool) -> str:
-    """Create (or force-recreate) a named Telegram private DM topic; return its thread id."""
-    verb, ensure_dm_topic = "refresh" if refresh else "create", getattr(adapter, "ensure_dm_topic", None)
-    if ensure_dm_topic is None:
-        raise RuntimeError(f"Telegram adapter cannot {verb} named private DM topics")
-    # The topic is persisted in the bot owner's config.yaml, not that of the profile delivering
-    # through it (a credentialless satellite's cron job sends via the primary's bot).
-    from hermes_constants import get_routing_process_hermes_home, reset_hermes_home_override, set_hermes_home_override
-    owner = getattr(adapter, "_owner_profile", None)  # None = the launch (primary) profile's bot
-    if isinstance(owner, str) and owner:
-        from hermes_cli.profiles import get_profile_dir
-        token = set_hermes_home_override(get_profile_dir(owner))
-    else:
-        token = set_hermes_home_override(get_routing_process_hermes_home())
-    try:
-        thread_id = await ensure_dm_topic(chat_id, name, **({"force_create": True} if refresh else {}))
-    finally:
-        reset_hermes_home_override(token)
-    if not thread_id:
-        raise RuntimeError(f"Failed to {verb} Telegram private DM topic '{name}'")
-    return str(thread_id)
 
 
 class DeliveryRouter:
@@ -305,39 +252,13 @@ class DeliveryRouter:
             return {"success": True, "filtered": "silence_narration", "delivered": False}
 
         send_metadata = dict(metadata or {})
-        home = self.config.get_home_channel(target.platform) if transport.is_relay else None
-        if home is not None and home.chat_id == target.chat_id:
-            send_metadata.update({k: v for k, v in (("user_id", home.user_id), ("scope_id", home.scope_id)) if v})
 
         # Caller-supplied thread routing always wins over target.thread_id.
-        named_topic: Optional[str] = None  # named Telegram private topic created for this send
         thread_id = target.thread_id
-        if thread_id and not any(key in send_metadata for key in _THREAD_ROUTING_KEYS):
+        if thread_id and "thread_id" not in send_metadata:
             send_metadata["thread_id"] = thread_id
-            if target.platform == Platform.TELEGRAM and looks_like_telegram_private_chat_id(target.chat_id):
-                if not _looks_like_int(thread_id):
-                    # Named topic: create via createForumTopic, use message_thread_id directly.
-                    named_topic = thread_id
-                    send_metadata["thread_id"] = await _ensure_named_dm_topic(adapter, target.chat_id, thread_id, refresh=False)
-                    send_metadata["telegram_dm_topic_created_for_send"] = True
-                elif send_metadata.get("telegram_reply_to_message_id") is None:
-                    # Legacy numeric private topic ids not created by this send path need a reply
-                    # anchor to stay visible in the requested lane.
-                    raise RuntimeError(
-                        "Telegram private DM topic delivery requires telegram_reply_to_message_id; "
-                        "send to the bare chat or provide a reply anchor"
-                    )
-                else:
-                    send_metadata["telegram_dm_topic_reply_fallback"] = True
-
-        for retry in (False, True):
-            result = await transport.send(target.platform, target.chat_id, content, metadata=send_metadata or None)
-            error = _send_result_error(result)
-            if retry or error is None or not named_topic or "thread not found" not in error.lower():
-                break
-            # The named topic vanished under us: recreate it once and resend.
-            send_metadata["thread_id"] = await _ensure_named_dm_topic(adapter, target.chat_id, named_topic, refresh=True)
-            send_metadata["telegram_dm_topic_created_for_send"] = True
+        result = await transport.send(target.platform, target.chat_id, content, metadata=send_metadata or None)
+        error = _send_result_error(result)
         if error is not None:
             from gateway.platforms.base import BasePlatformAdapter
             if BasePlatformAdapter._is_partial_delivery(result):

@@ -727,13 +727,9 @@ def test_prologue_titles_the_surfaces_a_person_reads(platform):
     assert _title_turn(platform).called
 
 
-@pytest.mark.parametrize("platform", ["cron", "CRON", "subagent"])
+@pytest.mark.parametrize("platform", ["subagent"])
 def test_prologue_does_not_title_machine_driven_runs(platform):
-    """Cron names its own session after the job, and nobody opens a subagent's.
-
-    Both would otherwise pay a side-LLM call per run for a name that is either
-    overwritten or never read.
-    """
+    """A subagent gets a derived title without a side-LLM call."""
     assert not _title_turn(platform).called
 
 
@@ -751,13 +747,6 @@ def test_prologue_names_a_subagent_run_after_its_goal_without_a_model_call():
     agent._session_db.set_auto_title.assert_called_once_with(
         "sess-1", "Subagent: Audit the billing module", source="derived")
 
-
-def test_prologue_leaves_cron_runs_untitled():
-    agent = _TitlingAgent("cron")
-    from agent import turn_context
-
-    turn_context._maybe_title_session_at_turn_start(agent, [{"role": "user", "content": "Run the job"}])
-    assert not agent._session_db.set_auto_title.called
 
 
 def test_prologue_forwards_the_submit_title_preview_to_the_titler():

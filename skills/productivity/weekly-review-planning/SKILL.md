@@ -13,7 +13,7 @@ metadata:
 
 # Weekly Review and Planning
 
-Run a bounded weekly reset across the user's chosen systems. This is a concrete recurring task, not a generic productivity methodology — the `weekly-review` Automation Blueprint schedules it as a cron job.
+Run a bounded weekly reset across the user's chosen systems. This is a concrete recurring task, not a generic productivity methodology.
 
 ## When to Use
 
@@ -21,7 +21,6 @@ Run a bounded weekly reset across the user's chosen systems. This is a concrete 
 - "What did I commit to and what is slipping?"
 - "Plan next week from my calendar, tasks, and notes."
 - "Find stale projects and waiting items."
-- A cron tick fires for a scheduled weekly review.
 
 Don't use for: daily briefs (see the `google-workspace` daily-brief reference) or single-inbox triage (`email-inbox-triage`).
 

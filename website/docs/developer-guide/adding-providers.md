@@ -214,7 +214,7 @@ If aliases are missing here, the provider may authenticate correctly but still f
 
 ## Step 4: Resolve runtime data in `hermes_cli/runtime_provider.py`
 
-`resolve_runtime_provider()` is the shared path used by CLI, gateway, cron, ACP, and helper clients.
+`resolve_runtime_provider()` is the shared path used by CLI, gateway, ACP, and helper clients.
 
 Add a branch that returns a dict with at least:
 

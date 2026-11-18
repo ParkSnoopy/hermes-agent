@@ -1,4 +1,4 @@
-"""Real owner, real delegation, authenticated viewers: a child's live progress with no file reads.
+"""Real owner, real delegation, operator viewers: a child's live progress with no file reads.
 
 A loopback model drives one turn: the parent delegates an orchestrator child, which delegates a leaf
 whose terminal command waits on a release file. While the leaf's tool runs, a second viewer of the
@@ -66,26 +66,21 @@ class Peer(BaseHTTPRequestHandler):
 
 
 class Viewer:
-    """One authenticated socket: RPC replies by id, every event frame kept."""
+    """Capture authority fanout frames while dispatching directly to the owner."""
 
-    def __init__(self, ws):
-        self.ws, self.events, self.waiters, self.rid = ws, [], {}, 0
-        self.task = asyncio.create_task(self.read())
+    def __init__(self, authority, actor):
+        from gateway.session_controls import AuthorityConnection
+        self.events = []
+        self.connection = AuthorityConnection(authority, self, {'user_id': actor}, operator=True)
 
-    async def read(self):
-        async for raw in self.ws:
-            frame = json.loads(raw)
-            if frame.get('id') in self.waiters:
-                self.waiters.pop(frame['id']).set_result(frame)
-            elif frame.get('method') == 'event':
-                self.events.append(frame['params'])
+    def write(self, frame):
+        if frame.get('method') == 'event':
+            self.events.append(frame['params'])
+        return True
 
     async def rpc(self, method, **params):
-        self.rid += 1
-        future = asyncio.get_running_loop().create_future()
-        self.waiters[self.rid] = future
-        await self.ws.send(json.dumps({'jsonrpc': '2.0', 'id': self.rid, 'method': method, 'params': params}))
-        frame = await asyncio.wait_for(future, 20)
+        frame = await self.connection.dispatch({'jsonrpc': '2.0', 'id': method,
+                                                'method': method, 'params': params})
         return frame.get('result', frame.get('error'))
 
     def subagent_frames(self):
@@ -96,29 +91,19 @@ class Viewer:
 
 
 async def probe(release, started):
-    import websockets
     from gateway.run import GatewayRunner
-    from gateway.run_api import start_gateway_api, stop_gateway_api
     from gateway.session_authority import initialize_session_authority
-    from hermes_cli import web_server
-    from hermes_cli.dashboard_auth.ws_tickets import mint_ticket
 
     runner = GatewayRunner()
-    await initialize_session_authority(runner, profile_id='fixture', instance_id='subagent-live')
-    api = await start_gateway_api(runner)
-    web_server.app.state.auth_required = True
-    origin = api.api_origin.replace('http:', 'ws:')
-
-    async def viewer(actor):
-        ticket = mint_ticket(user_id=actor, provider='fixture')
-        return Viewer(await websockets.connect(f'{origin}/api/ws?ticket={ticket}', max_size=8 * 1024 * 1024))
+    authority = await initialize_session_authority(runner, profile_id=os.environ['HERMES_HOME'],
+                                                   instance_id='subagent-live')
 
     receipt, viewers = {}, []
     try:
-        owner, peer, foreign = viewers[:] = [await viewer(a) for a in ('owner', 'peer_operator', 'foreign_viewer')]
-        sid = (await owner.rpc('session.create', request_id='live-parent', source='gui',
+        owner, peer, foreign = viewers[:] = [Viewer(authority, a) for a in ('owner', 'peer_operator', 'foreign_viewer')]
+        sid = (await owner.rpc('session.create', request_id='live-parent', source='tui',
                                toolsets=['terminal', 'delegation']))['session_id']
-        other = (await foreign.rpc('session.create', request_id='live-other', source='gui', toolsets=[]))['session_id']
+        other = (await foreign.rpc('session.create', request_id='live-other', source='tui', toolsets=[]))['session_id']
         await owner.rpc('session.resume', session_id=sid)
         await peer.rpc('session.resume', session_id=sid)
         await foreign.rpc('session.resume', session_id=other)
@@ -148,8 +133,8 @@ async def probe(release, started):
         receipt['session_id'] = sid
     finally:
         for v in viewers:
-            await v.ws.close()
-        await stop_gateway_api(api)
+            await v.connection.close()
+        runner.session_store.close_all_db_handles()
     Path(os.environ['HERMES_HOME'], 'receipt.json').write_text(json.dumps(receipt))
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from agent.model_metadata import estimate_messages_tokens_rough
 
@@ -36,7 +36,7 @@ class PreLlmSkipMixin:
             float, 0.0, _FALLBACK_PROBE_AT_MODEL_CONFIG_KEY, 0.0,
         )
 
-    def _fallback_streak_skip(self, telemetry: dict[str, Any]) -> bool:
+    def _fallback_streak_skip(self) -> bool:
         """Pre-LLM skip while two summaries in a row fell back: compact deterministically instead of
         paying for a summary model that keeps failing (#63008). One probe per recovery window; a
         healthy summary resets the streak, another fallback benches it again."""
@@ -56,7 +56,6 @@ class PreLlmSkipMixin:
         if not self._fallback_probe_at or self._fallback_probe_at - now > self._ANTI_THRASH_RECOVERY_SECONDS:
             self._set_fallback_probe_at(now + self._ANTI_THRASH_RECOVERY_SECONDS)
         self._last_feasibility_skip = True
-        telemetry["failure_class"] = "summary_model_benched"
         if not self.quiet_mode:
             logger.warning(
                 "Compression: %d fallback summaries in a row — skipping LLM summarization, proceeding with "
@@ -66,27 +65,22 @@ class PreLlmSkipMixin:
         return True
 
     def _feasibility_skip(
-        self, telemetry: dict[str, Any], turns_to_summarize: list[dict[str, Any]],
+        self, turns_to_summarize: list[dict[str, Any]],
         compress_start: int, compress_end: int,
     ) -> bool:
         """Pre-LLM skip after a real-usage ineffectiveness strike (reads the counter, never writes)."""
         if self._ineffective_compression_count < 1:
             return False
-        # Reuse the telemetry estimate so log and telemetry agree; None means the regions helper
-        # no-op'd (0 is valid).
-        middle_tokens = telemetry.get("middle_window_tokens")
-        middle_tokens = estimate_messages_tokens_rough(turns_to_summarize) if middle_tokens is None else middle_tokens
+        middle_tokens = estimate_messages_tokens_rough(turns_to_summarize)
         if middle_tokens >= int(self.threshold_tokens * _FEASIBILITY_SKIP_MIDDLE_FRACTION):
             return False
         self._last_feasibility_skip = True
-        self._prellm_skip_count += 1
-        telemetry["prellm_skip_count"] = self._prellm_skip_count
         if not self.quiet_mode:
             logger.warning(
                 "Compression: middle section (%d tokens at indices %d-%d) is below %.0f%% of threshold (%d tokens) — "
-                "skipping LLM summarization, proceeding with deterministic message dropping. prellm_skip_count=%d",
+                "skipping LLM summarization, proceeding with deterministic message dropping.",
                 middle_tokens, compress_start, compress_end,
                 _FEASIBILITY_SKIP_MIDDLE_FRACTION * 100,
-                self.threshold_tokens, self._prellm_skip_count,
+                self.threshold_tokens,
             )
         return True

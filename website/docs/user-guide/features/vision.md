@@ -46,47 +46,25 @@ Hermes now treats paste as a layered flow:
 - native clipboard / OSC52 text fallback if the terminal did not deliver text cleanly
 - image attach when the clipboard or pasted payload resolves to an image or image path
 
-This means pasted macOS screenshot temp paths and `file://...` image URIs can attach immediately instead of sitting in the composer as raw text.
+This means pasted screenshot paths and `file://...` image URIs can attach immediately instead of sitting in the composer as raw text.
 
 :::warning
 If your clipboard has **only an image** (no text), terminals still cannot send binary image bytes directly. Use `/paste` as the explicit image-attach fallback.
 :::
 
-### `/terminal-setup` for VS Code / Cursor / Windsurf
-
-If you run the TUI inside a local VS Code-family integrated terminal on macOS, Hermes can install the recommended `workbench.action.terminal.sendSequence` bindings for better multiline and undo/redo parity:
-
-```text
-/terminal-setup
-```
-
-This is especially useful when `Cmd+Enter`, `Cmd+Z`, or `Shift+Cmd+Z` are being intercepted by the IDE. Run it on the local machine only — not inside an SSH session.
-
 ## Platform Compatibility
 
-| Environment | `/paste` | Cmd/Ctrl+V | `/terminal-setup` | Notes |
-|---|:---:|:---:|:---:|---|
-| **macOS Terminal / iTerm2** | ✅ | ✅ | n/a | Best experience — native clipboard + screenshot-path recovery |
-| **Apple Terminal** | ✅ | ✅ | n/a | If Cmd+←/→/⌫ gets rewritten, use Ctrl+A / Ctrl+E / Ctrl+U fallbacks |
-| **Linux X11 desktop** | ✅ | ✅ | n/a | Requires `xclip` (`apt install xclip`) |
-| **Linux Wayland desktop** | ✅ | ✅ | n/a | Requires `wl-paste` (`apt install wl-clipboard`) |
-| **WSL2 (Windows Terminal)** | ✅ | ✅ | n/a | Uses `powershell.exe` — no extra install needed |
-| **VS Code / Cursor / Windsurf (local)** | ✅ | ✅ | ✅ | Recommended for better Cmd+Enter / undo / redo parity |
-| **VS Code / Cursor / Windsurf (SSH)** | ❌² | ❌² | ❌³ | Run `/terminal-setup` on the local machine instead |
-| **SSH terminal (any)** | ❌² | ❌² | n/a | Remote clipboard not accessible |
+| Environment | `/paste` | Ctrl+V | Notes |
+|---|:---:|:---:|---|
+| **Linux X11 desktop** | ✅ | ✅ | Requires `xclip` (`apt install xclip`) |
+| **Linux Wayland desktop** | ✅ | ✅ | Requires `wl-paste` (`apt install wl-clipboard`) |
+| **SSH terminal** | ❌² | ❌² | Remote clipboard not accessible |
 
 ² See [SSH & Remote Sessions](#ssh--remote-sessions) below
-³ The command writes local IDE keybindings and should not be run from the remote host
+
 
 ## Platform-Specific Setup
 
-### macOS
-
-**No setup required.** Hermes uses `osascript` (built into macOS) to read the clipboard. For faster performance, optionally install `pngpaste`:
-
-```bash
-brew install pngpaste
-```
 
 ### Linux (X11)
 
@@ -125,33 +103,10 @@ echo $XDG_SESSION_TYPE
 ```
 :::
 
-### WSL2
-
-**No extra setup required.** Hermes detects WSL2 automatically (via `/proc/version`) and uses `powershell.exe` to access the Windows clipboard through .NET's `System.Windows.Forms.Clipboard`. This is built into WSL2's Windows interop — `powershell.exe` is available by default.
-
-The clipboard data is transferred as base64-encoded PNG over stdout, so no file path conversion or temp files are needed.
-
-:::info WSLg Note
-If you're running WSLg (WSL2 with GUI support), Hermes tries the PowerShell path first, then falls back to `wl-paste`. WSLg's clipboard bridge only supports BMP format for images — Hermes auto-converts BMP to PNG using Pillow (if installed) or ImageMagick's `convert` command.
-:::
-
-#### Verify WSL2 clipboard access
-
-```bash
-# 1. Check WSL detection
-grep -i microsoft /proc/version
-
-# 2. Check PowerShell is accessible
-which powershell.exe
-
-# 3. Copy an image, then check
-powershell.exe -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::ContainsImage()"
-# Should print "True"
-```
 
 ## SSH & Remote Sessions
 
-**Clipboard image paste does not fully work over SSH.** When you SSH into a remote machine, the Hermes CLI runs on the remote host. Clipboard tools (`xclip`, `wl-paste`, `powershell.exe`, `osascript`) read the clipboard of the machine they run on — which is the remote server, not your local machine. Your local clipboard image is therefore inaccessible from the remote side.
+**Clipboard image paste does not fully work over SSH.** When you SSH into a remote machine, the Hermes CLI runs on the remote host. Clipboard tools (`xclip`, `wl-paste`) read the clipboard of the machine they run on — which is the remote server, not your local machine. Your local clipboard image is therefore inaccessible from the remote side.
 
 Text can sometimes still bridge through terminal paste or OSC52, but image clipboard access and local screenshot temp paths remain tied to the machine running Hermes.
 
@@ -161,7 +116,7 @@ Text can sometimes still bridge through terminal paste or OSC52, but image clipb
 
 2. **Use a URL** — If the image is accessible online, just paste the URL in your message. The agent can use `vision_analyze` to look at any image URL directly.
 
-3. **X11 forwarding** — Connect with `ssh -X` to forward X11. This lets `xclip` on the remote machine access your local X11 clipboard. Requires an X server running locally (XQuartz on macOS, built-in on Linux X11 desktops). Slow for large images.
+3. **X11 forwarding** — Connect with `ssh -X` to forward X11. This lets `xclip` on the remote machine access your local X11 clipboard. Requires a local X server. Slow for large images.
 
 4. **Use a messaging platform** — Send images to Hermes via Telegram, Discord, Slack, or WhatsApp. These platforms handle image upload natively and are not affected by clipboard/terminal limitations.
 
@@ -177,7 +132,7 @@ Terminals are **text-based** interfaces. When you press Ctrl+V (or Cmd+V), the t
 
 If the clipboard contains only an image (no text), the terminal has nothing to send. There is no standard terminal escape sequence for binary image data. The terminal simply does nothing.
 
-This is why Hermes uses a separate clipboard check — instead of receiving image data through the terminal paste event, it calls OS-level tools (`osascript`, `powershell.exe`, `xclip`, `wl-paste`) directly via subprocess to read the clipboard independently.
+This is why Hermes uses a separate clipboard check — instead of receiving image data through the terminal paste event, it calls OS-level tools (`xclip`, `wl-paste`) directly via subprocess to read the clipboard independently.
 
 ## Supported Models
 
@@ -244,7 +199,7 @@ vision:
 
 ### Images in follow-up turns: `vision.replay_recent_images`
 
-The session database stores user messages as text, with one `[screenshot]` line per attached image. A turn whose history is rebuilt from the database (every request to the [API server](api-server.md) that continues a session with `X-Hermes-Session-Id`, `hermes chat --resume`, a gateway restart) used to show the model that placeholder, so a follow-up question about a photo sent one message earlier got a guess.
+The session database stores user messages as text, with one `[screenshot]` line per attached image. A turn whose history is rebuilt from the database (every request to the API server that continues a session with `X-Hermes-Session-Id`, `hermes chat --resume`, a gateway restart) used to show the model that placeholder, so a follow-up question about a photo sent one message earlier got a guess.
 
 When the model takes images natively (see [Image Routing](#image-routing-vision-capable-vs-text-only-models)), Hermes now sends the most recent images again, in their original message:
 

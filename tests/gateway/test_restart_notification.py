@@ -92,74 +92,10 @@ async def test_restart_command_uses_atomic_json_writes_for_marker_files(tmp_path
     await runner._handle_restart_command(event)
 
     names = [name for name, _payload, _kwargs in calls]
-    assert names == [".restart_notify.json", ".restart_last_processed.json"]
+    assert names == [".restart_notify.json"]
     assert calls[0][1]["chat_id"] == "42"
-    assert calls[1][1]["platform"] == "telegram"
 
 
-@pytest.mark.asyncio
-async def test_sethome_updates_running_config_for_same_process_restart(tmp_path, monkeypatch):
-    """/sethome persists to env and updates in-memory config before restart."""
-    monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
-
-    saved = {}
-
-    def _fake_save_env_value(key, value):
-        saved[key] = value
-
-    monkeypatch.setattr("hermes_cli.config.save_env_value", _fake_save_env_value)
-    monkeypatch.setattr("gateway.slash_commands.persist_home_channel", lambda home, **kwargs: None)
-
-    runner, _adapter = make_restart_runner()
-    source = make_restart_source(chat_id="home-42")
-    source.chat_name = "Ops Home"
-    event = MessageEvent(
-        text="/sethome",
-        message_type=MessageType.TEXT,
-        source=source,
-        message_id="m-home",
-    )
-
-    await runner._handle_set_home_command(event)
-
-    home = runner.config.get_home_channel(Platform.TELEGRAM)
-    assert saved["TELEGRAM_HOME_CHANNEL"] == "home-42"
-    assert home is not None
-    assert home.chat_id == "home-42"
-    assert home.name == "Ops Home"
-
-
-@pytest.mark.asyncio
-async def test_sethome_preserves_thread_target_for_same_process_restart(tmp_path, monkeypatch):
-    """/sethome from a topic/thread stores the thread-aware home target."""
-    monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
-
-    saved = {}
-
-    def _fake_save_env_value(key, value):
-        saved[key] = value
-
-    monkeypatch.setattr("hermes_cli.config.save_env_value", _fake_save_env_value)
-    monkeypatch.setattr("gateway.slash_commands.persist_home_channel", lambda home, **kwargs: None)
-
-    runner, _adapter = make_restart_runner()
-    source = make_restart_source(chat_id="parent-42", thread_id="topic-7")
-    source.chat_name = "Ops Topic"
-    event = MessageEvent(
-        text="/sethome",
-        message_type=MessageType.TEXT,
-        source=source,
-        message_id="m-home-thread",
-    )
-
-    await runner._handle_set_home_command(event)
-
-    home = runner.config.get_home_channel(Platform.TELEGRAM)
-    assert saved["TELEGRAM_HOME_CHANNEL"] == "parent-42"
-    assert saved["TELEGRAM_HOME_CHANNEL_THREAD_ID"] == "topic-7"
-    assert home is not None
-    assert home.chat_id == "parent-42"
-    assert home.thread_id == "topic-7"
 
 
 # ── home-channel startup notifications ─────────────────────────────────────
@@ -178,16 +114,7 @@ async def test_send_home_channel_startup_notification_preserves_thread_metadata(
         name="Ops Topic",
         thread_id="777",
     )
-    # Declare the DM-topic lookup on the adapter CLASS, not the instance.
-    # _is_telegram_dm_topic_target resolves _get_dm_topic_info via type(adapter)
-    # so a MagicMock auto-attribute (instance-level) is intentionally ignored;
-    # a real adapter exposes the method on its class. Mirrors the fake-adapter
-    # pattern in test_telegram_topic_mode.py.
-    class _DmTopicAdapter(type(adapter)):
-        def _get_dm_topic_info(self, chat_id, thread_id):
-            return {"name": "Ops Topic"}
 
-    adapter.__class__ = _DmTopicAdapter
     adapter.send = AsyncMock(return_value=SendResult(success=True, message_id="home"))
 
     delivered = await runner._send_home_channel_startup_notifications()
@@ -196,91 +123,13 @@ async def test_send_home_channel_startup_notification_preserves_thread_metadata(
     adapter.send.assert_called_once_with(
         "parent-42",
         "♻️ Gateway online — Hermes is back and ready.",
-        metadata={
-            "thread_id": "777",
-            "telegram_dm_topic_reply_fallback": True,
-            "direct_messages_topic_id": "777",
-        },
+        metadata={"thread_id": "777"},
     )
 
-
-@pytest.mark.asyncio
-async def test_relay_fronted_logical_home_gets_startup_notification(tmp_path, monkeypatch):
-    monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
-
-    runner, _native = make_restart_runner()
-    relay = MagicMock()
-    relay.fronts_platform.side_effect = lambda platform: platform == Platform.SLACK
-    relay.send_for_platform = AsyncMock(return_value=SendResult(success=True, message_id="home"))
-    runner.adapters = {Platform.RELAY: relay}
-    runner.config.platforms = {
-        Platform.RELAY: PlatformConfig(enabled=True),
-        Platform.SLACK: PlatformConfig(
-            enabled=False,
-            home_channel=HomeChannel(
-                platform=Platform.SLACK,
-                chat_id="D123",
-                name="Owner DM",
-                user_id="U123",
-                scope_id="T123",
-            ),
-        ),
-    }
-
-    delivered = await runner._send_home_channel_startup_notifications()
-
-    assert delivered == {("slack", "D123", None)}
-    relay.send_for_platform.assert_awaited_once()
-    assert relay.send_for_platform.await_args.args[:3] == (
-        Platform.SLACK,
-        "D123",
-        "♻️ Gateway online — Hermes is back and ready.",
-    )
-    assert relay.send_for_platform.await_args.kwargs["metadata"]["user_id"] == "U123"
-    assert relay.send_for_platform.await_args.kwargs["metadata"]["scope_id"] == "T123"
 
 
 # ── _send_restart_notification ───────────────────────────────────────────
 
-
-@pytest.mark.asyncio
-async def test_relay_restart_notification_uses_logical_platform_and_owner(tmp_path, monkeypatch):
-    monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
-    notify_path = tmp_path / ".restart_notify.json"
-    notify_path.write_text(
-        json.dumps(
-            {
-                "platform": "slack",
-                "chat_id": "D123",
-                "chat_type": "dm",
-                "user_id": "U123",
-                "scope_id": "T123",
-                "delivered_via_upstream_relay": True,
-            }
-        )
-    )
-
-    runner, _native = make_restart_runner()
-    relay = MagicMock()
-    relay.fronts_platform.side_effect = lambda platform: platform == Platform.SLACK
-    relay.send_for_platform = AsyncMock(
-        return_value=SendResult(success=True, message_id="restart")
-    )
-    runner.adapters = {Platform.RELAY: relay}
-    runner.config.platforms = {
-        Platform.RELAY: PlatformConfig(enabled=True),
-        Platform.SLACK: PlatformConfig(enabled=False),
-    }
-
-    delivered_target = await runner._send_restart_notification()
-
-    assert delivered_target == ("slack", "D123", None)
-    relay.send_for_platform.assert_awaited_once()
-    assert relay.send_for_platform.await_args.args[0:2] == (Platform.SLACK, "D123")
-    metadata = relay.send_for_platform.await_args.kwargs["metadata"]
-    assert metadata["user_id"] == "U123"
-    assert metadata["scope_id"] == "T123"
-    assert not notify_path.exists()
 
 
 @pytest.mark.asyncio

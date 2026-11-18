@@ -54,9 +54,8 @@ def build_approvals_parser(subparsers, *, cmd_approvals: Callable) -> None:
             "deny rule). Tip: use `--` before the command so its own flags "
             "aren't parsed: hermes approvals test -- rm -rf ./build")
     test_parser.add_argument(
-        "--env-type", dest="env_type", default="local",
-        help="Terminal backend type to evaluate against (default: local; "
-        "isolated container backends like docker skip the guards)")
+        "--env-type", dest="env_type", default="local", choices=("local",),
+        help="Terminal environment to evaluate (only local is supported)")
     add_json_flag(test_parser, "Emit machine-readable JSON instead of human-readable text")
     test_parser.add_argument(
         "command_words",

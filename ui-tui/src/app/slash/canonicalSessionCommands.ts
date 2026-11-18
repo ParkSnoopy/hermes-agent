@@ -1,15 +1,15 @@
+import type { SessionStats } from '@hermes/shared/gateway-events'
+import type { BillingStateResponse, RollbackListResponse } from '@hermes/shared/gateway-types'
 // Ink slash commands whose legacy RPCs (`session.title`, `session.undo`, `session.usage`, the
 // `/tools` slash worker) the canonical gateway does not serve, mapped onto what it does serve:
 // `session.mutate` rename / rewind (`gateway/session_mutations.py`), the committed admission
 // result (`prompt.receipt include_result`) and the frozen launch policy (`session.info`).
-
-import type { SessionStats } from '@hermes/shared/gateway-events'
-import type { BillingStateResponse, RollbackListResponse } from '@hermes/shared/gateway-types'
 import { JsonRpcGatewayError } from '@hermes/shared/json-rpc-channel'
 import { CANONICAL_REASONING_EFFORTS } from '@hermes/shared/slash-input'
 
+import { canonicalEn } from '../../copy/canonical.js'
+import { slashCmdEn } from '../../copy/slashCmd.js'
 import { usageFromTick } from '../../domain/usage.js'
-import { t } from '../../i18n/runtime.js'
 import { asRpcResult } from '../../lib/rpc.js'
 import { patchUiState } from '../uiStore.js'
 
@@ -67,7 +67,7 @@ export function retryTurnRewind(snapshot: MutationSnapshot): null | { target_mes
   const text = target ? retryText(target.content) : ''
 
   if (text === null) {
-    throw new Error(t('canonical.controls.retryUnsupported'))
+    throw new Error(canonicalEn.canonical.controls.retryUnsupported)
   }
 
   return target && text ? { target_message_id: target.row_id as number } : null
@@ -94,7 +94,7 @@ export function canonicalTitle(arg: string, ctx: SlashRunCtx) {
         const current = (r?.sessions?.find(row => row.id === sid)?.title ?? '').trim()
 
         if (!ctx.stale()) {
-          ctx.transcript.sys(current ? t('slashCmd.core.title.current', current) : t('slashCmd.core.title.none'))
+          ctx.transcript.sys(current ? slashCmdEn.slashCmd.core.title.current(current) : slashCmdEn.slashCmd.core.title.none)
         }
       })
       .catch(ctx.guardedErr)
@@ -104,7 +104,7 @@ export function canonicalTitle(arg: string, ctx: SlashRunCtx) {
     .then(next => {
       if (next !== undefined && !ctx.stale()) {
         patchUiState({ sessionTitle: next })
-        ctx.transcript.sys(t('slashCmd.core.title.set', next, ''))
+        ctx.transcript.sys(slashCmdEn.slashCmd.core.title.set(next, ''))
       }
     })
     .catch(ctx.guardedErr)
@@ -137,7 +137,7 @@ export function canonicalReasoning(payload: { scope?: string; value: string }, c
         ctx.ran?.() // the owner accepted it; a refusal rejects and reports nothing
 
         if (!ctx.stale()) {
-          ctx.transcript.sys(t('slashCmd.session.reasoning.current', effort))
+          ctx.transcript.sys(slashCmdEn.slashCmd.session.reasoning.current(effort))
         }
       }
     })
@@ -160,14 +160,14 @@ export function canonicalRewind(intent: 'retry' | 'undo', ctx: SlashRunCtx) {
       const removed = Number(result?.rewound_count ?? 0)
 
       if (!result || removed <= 0) {
-        return ctx.transcript.sys(t(intent === 'retry' ? 'slashCmd.core.retry.nothing' : 'slashCmd.core.undo.nothing'))
+        return ctx.transcript.sys((intent === 'retry' ? slashCmdEn.slashCmd.core.retry.nothing : slashCmdEn.slashCmd.core.undo.nothing))
       }
 
       ctx.transcript.setHistoryItems(prev => ctx.transcript.trimLastExchange(prev))
 
       if (intent === 'undo') {
         ctx.transcript.sys(
-          t(removed === 1 ? 'slashCmd.core.undo.undidOne' : 'slashCmd.core.undo.undidOther', String(removed))
+          (removed === 1 ? slashCmdEn.slashCmd.core.undo.undidOne(String(removed)) : slashCmdEn.slashCmd.core.undo.undidOther(String(removed)))
         )
 
         return showUndoRollbackHint(ctx, sid, result.target_message as undefined | { id?: unknown; timestamp?: unknown })
@@ -176,7 +176,7 @@ export function canonicalRewind(intent: 'retry' | 'undo', ctx: SlashRunCtx) {
       // Main's /retry: the rewound user turn's own text, not whatever this view typed last.
       const text = retryText((result.target_message as undefined | { content?: unknown })?.content)
 
-      return text ? ctx.transcript.send(text) : ctx.transcript.sys(t('slashCmd.core.retry.nothing'))
+      return text ? ctx.transcript.send(text) : ctx.transcript.sys(slashCmdEn.slashCmd.core.retry.nothing)
     })
     .catch(error => {
       const busy = rewindBusyText(error, intent)
@@ -222,7 +222,7 @@ export function rewindBusyText(error: unknown, intent: 'retry' | 'rewind' | 'und
     return null
   }
 
-  return t(data.field === 'compression' ? 'slashCmd.core.busy.compressing' : 'slashCmd.core.busy.replying', intent)
+  return (data.field === 'compression' ? slashCmdEn.slashCmd.core.busy.compressing(intent) : slashCmdEn.slashCmd.core.busy.replying(intent))
 }
 
 interface CommittedResult {
@@ -251,12 +251,12 @@ export function canonicalUsage(ctx: SlashRunCtx) {
       const usage = usageFromTick(asRpcResult<SessionStats>(raw))
 
       if (!usage?.calls) {
-        ctx.transcript.sys(t('slashCmd.session.usage.noCalls'))
-        ctx.transcript.sys(t('slashCmd.session.usage.cta'))
+        ctx.transcript.sys(slashCmdEn.slashCmd.session.usage.noCalls)
+        ctx.transcript.sys(slashCmdEn.slashCmd.session.usage.cta)
       } else {
         patchUiState(state => ({ ...state, usage: { ...state.usage, ...usage } }))
-        ctx.transcript.panel(t('slashCmd.session.usage.usageTitle'), usageTotalsSections(usage))
-        ctx.transcript.sys(t('slashCmd.session.usage.cta'))
+        ctx.transcript.panel(slashCmdEn.slashCmd.session.usage.usageTitle, usageTotalsSections(usage))
+        ctx.transcript.sys(slashCmdEn.slashCmd.session.usage.cta)
       }
 
       // Usage-window plans: the allowance bars, after the lines above (every other account: nothing).
@@ -318,7 +318,7 @@ export function canonicalTools(ctx: SlashRunCtx) {
         return
       }
 
-      ctx.transcript.page(renderToolsListing(asRpcResult<ToolsShowResult>(raw) ?? {}), t('slashCmd.ops.slashWorker.toolsTitle'))
+      ctx.transcript.page(renderToolsListing(asRpcResult<ToolsShowResult>(raw) ?? {}), slashCmdEn.slashCmd.ops.slashWorker.toolsTitle)
     })
     .catch(ctx.guardedErr)
 }

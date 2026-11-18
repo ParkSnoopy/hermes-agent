@@ -41,8 +41,7 @@ person controls.
 The Python CLI (`scripts/pdd.py`) owns the deterministic state - config, dossiers + consent, the
 broker database, tier planning, the ledger, drafts, reports, **email sending (SMTP), verification-link
 polling (IMAP), and the autonomous action queue (`next`)**. You (the agent) do the scanning and
-form-driving with native tools: `web_extract` and `browser_exec` for searching and web forms, and
-`cronjob` for recurring re-scans. Runs can be entered from a phone number alone (spam-call
+form-driving with native tools: `web_extract` and `browser_exec` for searching and web forms, for on-demand re-scans. Runs can be entered from a phone number alone (spam-call
 scrubbing), with the FTC Do Not Call registry one-shot (`dnc`) alongside the opt-outs.
 
 ## Autonomy contract
@@ -63,7 +62,7 @@ digest at the end of the run (`$PDD tasks`). Between those:
 - **Drive the whole run as a loop over `$PDD next <subject>`** - it returns the exact ordered actions
   to take right now (scan, poll verification, re-check, opt out parents-first, requeue blocked), plus
   the human digest. Execute every action, record outcomes, re-run `next`, repeat until
-  `done_for_now`. Then present the digest, report, and schedule the cron.
+  `done_for_now`. Then present the digest, report, and report the next due check.
 
 The hard limits that autonomy never overrides: no acting without recorded consent, no disclosure
 beyond `disclosure_fields`, no CAPTCHA/anti-bot bypass, and `confirmed_removed` only after a
@@ -147,7 +146,7 @@ breaks reading the dossier).
 | `$PDD verify-link <subject> <broker> --text '<body>'` | **browser mode**: extract a broker's verification link from webmail text you read (anti-phishing scored) |
 | `$PDD poll-verification <subject> [--broker <id>]` | **programmatic mode**: poll IMAP for verification links (anti-phishing scored); auto-advances `submitted → verification_pending` |
 | `$PDD render-email <subject> <broker> --listing <url>` | Draft only (fallback when no email mode is configured) |
-| `$PDD due <subject>` | Cases whose recheck window arrived (the cron re-scan queue) |
+| `$PDD due <subject>` | Cases whose recheck window arrived (the re-scan queue) |
 | `$PDD tasks <subject>` | ONE consolidated human-task digest (present at END of run) |
 | `$PDD status <subject>` | Markdown status report |
 | `$PDD report <subject> --sheets` | Rows for the Google Sheets tracker |
@@ -285,11 +284,7 @@ recording `found` and before any deletion.
 7. **Wrap up (once per run).** When `next` returns no actions: present `$PDD tasks <subject>` (the
    consolidated human digest) if non-empty, then `$PDD status <subject>`; if the Sheets tracker is
    on, append `$PDD report <subject> --sheets` rows via the `google-workspace` skill.
-8. **Schedule the next wake-up.** `next` returns `next_wake_at` (earliest due re-check). Create ONE
-   `cronjob` that re-runs this skill's loop for the subject (a prompt like: *"run the
-   unbroker loop for &lt;subject_id>: `$PDD next` and execute all actions"*). Processing
-   windows, verification polls, and reappearance sweeps all flow through the same queue, so the case
-   keeps advancing with zero human attention.
+8. **Report the next due check.** `next` returns `next_wake_at`; tell the user when to request another run.
 
 ## Spam-call scrubber (phone-led run)
 
@@ -326,7 +321,7 @@ is where lead buyers get it. The same engine, entered from the number:
   or beyond (use `--force` only if a genuine re-send is needed), and SMTP sends are paced by
   `email_min_interval_seconds` (default 20s) with retry/backoff. Do not loop it to "make sure" -
   a successful SMTP handoff is not proof of delivery; the due-queue re-scan is the real confirmation.
-- **Ledger writes are locked.** Concurrent runs (cron + manual) serialize safely; if you ever see a
+- **Ledger writes are locked.** Concurrent runs serialize safely; if you ever see a
   lock timeout, another run is mid-write - let it finish, don't delete the `.lock` by hand.
 - **Autonomy ≠ improvisation.** Full autonomy means not *asking* between steps; it does not loosen any
   gate. If a broker demands MORE than the planned `disclosure_fields` mid-flow, stop that case and

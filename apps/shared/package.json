@@ -21,7 +21,6 @@
     "./gateway-events": "./src/gateway-events.ts",
     "./gateway-text": "./src/gateway-text.ts",
     "./gateway-types": "./src/gateway-types.ts",
-    "./i18n": "./src/i18n.ts",
     "./interpolation": "./src/interpolation.ts",
     "./json-rpc-channel": "./src/json-rpc-channel.ts",
     "./model-search-text": "./src/model-search-text.ts",

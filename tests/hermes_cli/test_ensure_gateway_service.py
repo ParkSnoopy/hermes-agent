@@ -2,13 +2,24 @@
 
 import hermes_cli.gateway as gateway_mod
 from hermes_cli.gateway_setup_service import ensure_gateway_service
+import pytest
 
 
-def _patch_host(monkeypatch, *, container=False, systemd=True, macos=False, windows=False):
+@pytest.fixture(autouse=True)
+def _moa_caches_isolated():
+    pass
+
+
+@pytest.fixture(autouse=True)
+def _isolate_computer_use_approval_state():
+    pass
+
+
+def _patch_host(monkeypatch, *, container=False, systemd=True):
     monkeypatch.setattr("hermes_constants.is_container", lambda: container)
     monkeypatch.setattr(gateway_mod, "supports_systemd_services", lambda: systemd)
-    monkeypatch.setattr(gateway_mod, "is_macos", lambda: macos)
-    monkeypatch.setattr(gateway_mod, "is_windows", lambda: windows)
+    monkeypatch.setattr(gateway_mod, "_served_profile_needs_no_service", lambda: False)
+
 
 
 class TestEnsureGatewayService:

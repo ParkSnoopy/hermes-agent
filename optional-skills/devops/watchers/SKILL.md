@@ -15,7 +15,7 @@ metadata:
 
 # Watchers
 
-Poll external sources on an interval and react only to new items. Three ready-made scripts plus a shared watermark helper; wire them into a cron job (or run them ad-hoc from the terminal).
+Poll external sources on request and react only to new items. Three ready-made scripts share a watermark helper.
 
 ## When to Use
 
@@ -33,7 +33,7 @@ A watcher is just a script that:
 3. Writes the new watermark back
 4. Prints new items to stdout (or nothing on no-change)
 
-The scripts below handle all three. The agent runs them via the terminal tool — from a cron job, a webhook, or an interactive chat — and reports what's new.
+The scripts below handle all three. The agent runs them via the terminal tool — from a webhook or an interactive chat — and reports what's new.
 
 ## Ready-made scripts
 
@@ -77,14 +77,6 @@ python $HERMES_HOME/skills/devops/watchers/scripts/watch_http_json.py \
   --id-field event_id --items-path data.events
 ```
 
-## Wiring into cron
-
-Ask the agent to schedule a cron job with a prompt like:
-
-> Every 15 minutes, run `watch_rss.py --name hn --url https://news.ycombinator.com/rss`. If it prints anything, summarize the headlines and deliver them. If it prints nothing, stay silent.
-
-The agent invokes the script via the terminal tool inside the cron job's agent loop; no changes to cron's built-in `--script` flag are needed.
-
 ## State files
 
 Every watcher writes `$HERMES_HOME/watcher-state/<name>.json`. Inspect:
@@ -108,5 +100,5 @@ All three scripts use the same template: load watermark, fetch, diff, save, emit
 1. **Printing a "no new items" header every tick.** Callers rely on empty stdout = silent. If you print anything on an empty delta, you spam the channel. The shipped scripts handle this; custom scripts must too.
 2. **Expecting the first run to emit items.** It won't — first run records a baseline. If you need an initial digest, delete the state file after the first run or add a `--prime-with-latest N` flag in your own script.
 3. **Unbounded watermark growth.** The shared helper caps at 500 IDs. Raise it for high-churn feeds; lower it on constrained filesystems.
-4. **Putting the state dir where the agent's sandbox can't write.** `$HERMES_HOME/watcher-state/` is always writable. Docker/Modal backends may not see arbitrary host paths.
+4. **Putting the state dir where the agent's sandbox can't write.** `$HERMES_HOME/watcher-state/` must be writable by the Hermes process user.
 

@@ -14,8 +14,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import type { SubmissionDestination } from '../app/submissionDestination.js'
+import { canonicalEn } from '../copy/canonical.js'
 import type { QueueItem } from '../hooks/useQueue.js'
-import { t } from '../i18n/runtime.js'
 
 const directory = (home?: string) =>
   join(home ?? process.env.HERMES_HOME ?? join(homedir(), '.hermes'), 'tui-pending-inputs')
@@ -95,7 +95,7 @@ export function savePendingInput(item: QueueItem): void {
   const path = join(dir, `${item.submissionId}.json`)
   const temporary = `${path}.${process.pid}.tmp`
   const ownerDestination = pendingInputOwner(item.ownerDestination ?? item.destination)
-  const { submissionId, display, text, preparedText, attachments, controlMethod, executionGeneration, inFlight, failed, createdAt, queued, legacyAttempted } = item
+  const { submissionId, display, text, preparedText, attachments, controlMethod, executionGeneration, inFlight, failed, createdAt, queued, controlAttempted } = item
   const destination = inFlight || failed ? item.destination : ownerDestination
   writeFileSync(
     temporary,
@@ -109,7 +109,7 @@ export function savePendingInput(item: QueueItem): void {
       attachments,
       controlMethod,
       executionGeneration,
-      legacyAttempted,
+      controlAttempted,
       createdAt,
       queued,
       attempted: inFlight || failed
@@ -165,7 +165,7 @@ export function loadPendingInputs(destination: SubmissionDestination, durableRes
         typeof record.text !== 'string' ||
         typeof record.display !== 'string'
       ) {
-        throw new Error(t('canonical.queue.invalidRecord', name))
+        throw new Error(canonicalEn.canonical.queue.invalidRecord(name))
       }
 
       const owner = record.ownerDestination ?? record.destination

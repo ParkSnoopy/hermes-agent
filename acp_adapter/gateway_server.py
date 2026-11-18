@@ -547,7 +547,6 @@ class GatewayACPAgent(GatewayReplyMixin, acp.Agent):
 
         async def confirm(refusal):
             from acp.schema import AllowedOutcome, PermissionOption
-            from agent.i18n import t
             from hermes_cli.gateway_mutations import confirmation_title
             title = confirmation_title(refusal)
             tool_call = acp.update_tool_call(
@@ -557,8 +556,8 @@ class GatewayACPAgent(GatewayReplyMixin, acp.Agent):
                 raw_input={'model': refusal.get('target_model'), 'provider': refusal.get('target_provider'),
                            'guards': [w.get('kind') for w in refusal.get('warnings') or []]})
             options = [PermissionOption(option_id="allow_once", kind="allow_once",
-                                        name=t("cli.model.choice_switch_anyway")),
-                       PermissionOption(option_id="deny", kind="reject_once", name=t("cli.model.choice_cancel"))]
+                                        name='Switch anyway'),
+                       PermissionOption(option_id="deny", kind="reject_once", name='Cancel')]
             response = await self._conn.request_permission(session_id=self._editor_id(session_id),
                                                            tool_call=tool_call, options=options)
             return isinstance(response.outcome, AllowedOutcome) and response.outcome.option_id == "allow_once"
@@ -740,15 +739,6 @@ class GatewayACPAgent(GatewayReplyMixin, acp.Agent):
 
     async def _admission_from_receipt(self, client, held_id, session_id, receipt):
         """The admission a ``prompt.submit`` receipt names, or None when the owner admitted nothing."""
-        if receipt.get("voice_stopped") is True:
-            # TUI-26: a bare stop phrase typed into this LOCAL session's voice chat ended the chat on
-            # the owner and admitted nothing, so no turn will settle: the prompt ends here.
-            self._pending_cancels.discard(session_id)
-            if self._conn:
-                from agent.i18n import t
-                await self._conn.session_update(session_id=held_id, update=acp.update_agent_message_text(
-                    t('cli.voice.stop_phrase_typed') + '\n'))
-            return None
         admission_id = receipt["admission_id"]
         self._admissions[session_id] = admission_id
         if receipt.get("status") == "terminal":

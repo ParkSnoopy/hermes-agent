@@ -21,9 +21,8 @@ logger = logging.getLogger("agent.conversation_loop")
 
 # Post-response housekeeping tools: a round made only of these mutes tool progress.
 _HOUSEKEEPING_TOOLS = frozenset({"memory", "todo_list", "skill_manage", "session_search"})
-# Rounds whose visible line is the turn's reply if the follow-up is empty (no empty-response nudge):
-# housekeeping, and setup_beat, whose card already blocked for the user's answer.
-_LINE_IS_REPLY_TOOLS = _HOUSEKEEPING_TOOLS | {"setup_beat"}
+# A housekeeping-only round's visible line is the reply if the follow-up is empty.
+_LINE_IS_REPLY_TOOLS = _HOUSEKEEPING_TOOLS
 
 
 @dataclass
@@ -158,7 +157,7 @@ def run_tool_round(
         agent._emit_interim_assistant_message(assistant_msg)
 
     # Flush open streaming boxes before tools so early content doesn't wrap tool feed
-    # lines. Display callback only — TTS (_stream_callback) must NOT receive None (EOS).
+    # lines. Display callback only — the per-turn text sink must not receive None (EOS).
     if agent.stream_delta_callback:
         with suppress(Exception):
             agent.stream_delta_callback(None)
@@ -169,9 +168,6 @@ def run_tool_round(
     maybe_prepare(agent, messages, origin="tool-batch")
 
     agent._execute_tool_calls(assistant_message, messages, effective_task_id, api_call_count)
-    from hermes_cli.observability.shared_metrics_harness import finish_tool_round
-
-    finish_tool_round(agent)
 
     if getattr(agent, "_incremental_persistence_failed", False):
         # Tool result could not be made canonical: never send the in-memory result to

@@ -24,7 +24,7 @@ class RuntimeRecord:
     kind: str                     # gateway | dashboard | serve
     profile: str
     pid: Optional[int] = None
-    supervisor: str = "manual"    # systemd | launchd | desktop | windows-service | service | manual | manual-serve
+    supervisor: str = "manual"    # systemd | desktop | service | manual | manual-serve
     code_sha: Optional[str] = None       # stamped running-code sha
     # See #91283.
     code_version: Optional[str] = None
@@ -60,22 +60,15 @@ class UpdatePlan:
         return plan
 
 
-def _detect_supervisor_for_pid(pid: int, service_pids: set, windows_service_pids: set | None = None) -> str:
+def _detect_supervisor_for_pid(pid: int, service_pids: set) -> str:
     """Classify how a live gateway PID is supervised."""
-    if windows_service_pids and pid in windows_service_pids:
-        # SCM-supervised Windows gateway: the update pause machinery stops the SERVICE via sc.exe
-        # instead of killing the child, so reconciliation must plan it under its own mechanism id.
-        # See #91277.
-        return "windows-service"
     if pid not in service_pids:
         return "manual"
     with suppress(Exception):
-        from hermes_cli.gateway import is_macos, supports_systemd_services
+        from hermes_cli.gateway import supports_systemd_services
 
         if supports_systemd_services():
             return "systemd"
-        if is_macos():
-            return "launchd"
     return "service"
 
 
@@ -83,16 +76,13 @@ def _detect_supervisor_for_pid(pid: int, service_pids: set, windows_service_pids
 # update's restart phase, and the receipt records per-runtime outcomes against them. Display
 # strings are derived by describe_restart_mechanism — never the other way around.
 _RESTART_MECHANISMS = {
-    "systemd": "systemd", "launchd": "launchd", "desktop": "desktop",
-    "windows-service": "windows-service", "manual-serve": "respawn-argv",
+    "systemd": "systemd", "desktop": "desktop", "manual-serve": "respawn-argv",
     "desktop-ssh": "desktop-ssh",
 }
 
 _MECHANISM_DESCRIPTIONS = {
     "systemd": "systemctl restart (drain-first SIGUSR1 when supported)",
-    "launchd": "launchctl kickstart -k (drain-first, per-label domain)",
     "desktop": "Desktop app respawns its serve backend",
-    "windows-service": "sc.exe stop before venv mutation, sc.exe start after update",
     "respawn-argv": "stop before code swap, relaunch with recorded launch args",
     "desktop-ssh": "the remote Desktop that spawned it over SSH respawns it when it reconnects",
 }
@@ -173,17 +163,7 @@ def _supervisor_classifier() -> Callable[[int], str]:
         from hermes_cli.gateway import _get_service_pids
 
         service_pids = _get_service_pids(all_profiles=True) or set()
-    # Windows SCM services (no-op off Windows): the update's pause phase stops these via `sc.exe
-    # stop` / restarts via `sc.exe start`, so the plan must carry the matching mechanism id.
-    # --- SCM-supervised gateway PIDs (Windows) ------------------------------
-    # find_windows_gateway_services() maps validated gateway PIDs through process ancestry to running SCM
-    # service PIDs (no-op off Windows). See #91277.
-    windows_service_pids: set = set()
-    with _probe("Windows SCM service-ownership probe"):
-        from hermes_cli.gateway import find_windows_gateway_services
-
-        windows_service_pids = {int(service.gateway_pid) for service in find_windows_gateway_services()}
-    return lambda pid: _detect_supervisor_for_pid(pid, service_pids, windows_service_pids)
+    return lambda pid: _detect_supervisor_for_pid(pid, service_pids)
 
 
 def _collect_gateway_runtimes(plan: UpdatePlan, profile_homes: list, seen: set[int]) -> None:
@@ -227,38 +207,6 @@ def _collect_gateway_runtimes(plan: UpdatePlan, profile_homes: list, seen: set[i
                 plan.runtimes.append(_runtime("gateway", proc.profile, proc.pid, supervisor(proc.pid)))
 
 
-def _loaded_backend_launchd_jobs() -> list:
-    """Loaded launchd dashboard/serve jobs for supervisor classification.
-
-    The probe itself is darwin-gated (``[]`` on every other host); here any failure also degrades
-    to ``[]`` — classification falls back to the spawner probe and never aborts the inventory.
-    See #116503."""
-    with suppress(Exception):
-        from hermes_cli import main_dashboard as _dash
-
-        return _dash._loaded_launchd_backend_jobs()
-    return []
-
-
-def _launchd_owner_for_ledger_entry(entry: dict, pid: int, jobs: list) -> tuple[str, str, int | None] | None:
-    """``(domain, label, live_pid)`` of the loaded launchd job owning this ledger row, if any.
-
-    A KeepAlive LaunchAgent backend's recorded spawner (the bootstrap shell) is long dead, so the
-    spawner probe alone misreads the row as ``manual-serve`` — and a respawn-argv restart then
-    fights the job's own KeepAlive respawn. The loaded-job match (live PID, an ancestor, or the
-    normalized ``ProgramArguments``) is the authoritative classification. See #116503."""
-    with suppress(Exception):
-        from hermes_cli import main_dashboard as _dash
-        from hermes_cli.dashboard_procs import _process_ancestors
-
-        try:
-            cmdline = shlex.split(str(entry.get("argv") or "")) or None
-        except ValueError:
-            cmdline = None
-        return _dash._launchd_job_owning_backend(pid, cmdline, jobs, ancestors=_process_ancestors(pid))
-    return None
-
-
 def _systemd_owner_for_ledger_pid(pid: int) -> tuple[str, str | None] | None:
     """``(unit, scope)`` of the systemd unit whose live ``MainPID`` is *pid*, if any.
 
@@ -291,13 +239,10 @@ def _collect_ledger_runtimes(plan: UpdatePlan, seen: set[int]) -> None:
     (a manual `hermes serve --host <ip>` for a remote Desktop, a long-lived `hermes dashboard`).
     ledger_entries() live-verifies (pid, create_time) so PID reuse never fabricates a row. Desktop-
     supervised backends (spawner still alive) restart via the Desktop's own respawn, not ours.
-    A backend owned by a loaded launchd job is classified ``launchd`` (kickstart restart, never a
-    detached argv respawn) — the spawner probe cannot see that (#116503); one that is a systemd
-    unit's MainPID is ``systemd`` for the same reason (#141021)."""
+    A backend that is a systemd unit's MainPID is classified ``systemd`` (#141021)."""
     with _probe("Serve/dashboard ledger inventory"):
         from hermes_cli.process_identity import ledger_entries, spawner_is_dead
 
-        launchd_jobs = _loaded_backend_launchd_jobs()
         for entry in ledger_entries():
             purpose, pid = entry.get("purpose"), entry.get("pid")
             if purpose not in _SERVE_KINDS or not isinstance(pid, int) or pid in seen:
@@ -309,10 +254,7 @@ def _collect_ledger_runtimes(plan: UpdatePlan, seen: set[int]) -> None:
                 "argv": entry.get("argv") or "", "host": entry.get("host") or "",
                 "port": entry.get("port"), "create_time": entry.get("create_time"),
             }
-            job = _launchd_owner_for_ledger_entry(entry, pid, launchd_jobs) if launchd_jobs else None
-            if job:
-                supervisor, detail["launchd_domain"], detail["launchd_label"] = "launchd", job[0], job[1]
-            elif _is_desktop_ssh_ledger_entry(entry):
+            if _is_desktop_ssh_ledger_entry(entry):
                 # No local spawner, so the probe below would read manual-serve and file a reminder
                 # nobody here can discharge; its token file and owner nonce belong to the client.
                 supervisor = "desktop-ssh"

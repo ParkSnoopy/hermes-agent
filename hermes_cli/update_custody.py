@@ -5,8 +5,8 @@ The checkout kernel lock (``update_lock``) must stay held while any process of t
 can still write the checkout, and must NOT leak into processes that outlive the update:
 
 * Every updater git call carries ``-c gc.autoDetach=false -c maintenance.auto=false``: git never
-  forks a detached gc/maintenance child that would inherit (POSIX) or outlive (Windows) the lock.
-* POSIX: the lock fd is inherited ONLY by git commands that mutate the worktree, index or refs
+  forks a detached gc/maintenance child that would inherit or outlive the lock.
+* The lock fd is inherited ONLY by git commands that mutate the worktree, index or refs
   locally (:data:`LOCAL_MUTATORS`, run with ``core.fsmonitor=false`` so no fsmonitor daemon
   starts under them, with no credential helper and no repository hooks). Network/credential commands (fetch,
   ls-remote, credential) and readers run without it: a ``git credential-cache--daemon`` they
@@ -16,19 +16,9 @@ can still write the checkout, and must NOT leak into processes that outlive the 
   fetch the prefetch missed still runs, just without a helper. A killed fetch that leaves
   ``*.lock`` ref files or ``shallow.lock`` is recovered by the stale-lock rules (``gitlock.release_dead_fetch_locks``
   once its update is proven dead, ``gitlock.clear_stale_git_locks`` by age otherwise).
-* Windows has no fd inheritance: while this process holds (or joined) the checkout lock, every
-  child started here is created SUSPENDED, assigned to the update's kill-on-close job and only
-  then resumed, so it and everything it spawns die with the lock owner. The Node build goes
-  through ``pm.progress.run_contained`` (whose Popen it never sees): :func:`contained_command`
-  wraps it in a stdlib launcher that joins the job before it starts node and, once node exits,
-  terminates and waits out everything node left running (C3): a normal release never frees the
-  checkout under a build descendant.
-* Windows fails CLOSED (D2): a child the job refuses is never run. The msvcrt byte lock belongs
-  to the process that took it — an inherited handle does not keep it, the kernel unlocks it when
-  the owner exits — so nothing else could fence a writer outside the job: after the owner's
-  death the lock would be free while it still wrote. A refused bind kills the still-suspended
-  child; a refused launcher join exits before it starts node; either raises
-  :class:`CustodyRefused`, a clear refusal of that step instead of an unfenced writer.
+* The Node build goes through ``pm.progress.run_contained`` (whose Popen it never sees):
+  :func:`contained_command` wraps it in a Linux subreaper that holds the lock until every
+  descendant has exited. Failure to arm the subreaper refuses the command before it runs.
 
 Every updater git runner (``update_cmd._git_run``, ``update_cmd_git._git_run``,
 ``update_cmd_stash``, ``update_cmd_check``, ``gitlock``, ``update_cmd_commit``,
@@ -79,76 +69,6 @@ _MOVES = frozenset({"checkout", "merge", "read-tree", "reset", "switch"})
 _GLOBAL_WITH_VALUE = frozenset({"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path",
                                 "--config-env", "--super-prefix", "--attr-source", "--list-cmds"})
 
-_CREATE_SUSPENDED = 0x00000004
-
-
-class CustodyRefused(OSError):
-    """Windows would not put an update child in the update's kill-on-close job, so the child was
-    never run (D2): outside the job it could outlive a killed update and write the checkout after
-    the checkout lock is free."""
-
-    def __init__(self, argv: Sequence[str], cause: object) -> None:
-        import os
-
-        name = os.path.basename(str(argv[0])) if argv else "child"
-        self.reason = (
-            f"Windows would not put `{name}` in this update's process job ({cause}), so it was not "
-            "run: a checkout writer outside the job could outlive a killed update and write the "
-            "checkout after its lock is released.")
-        super().__init__(f"{self.reason} {_RETRY.format(command='the command')}")
-
-
-_RETRY = ("Run {command} again from a regular terminal, outside any sandbox or tool that confines "
-          "the processes it starts.")
-
-
-# This run's custody (m2): whether an update child already ran in custody, and the first refusal.
-# Many readers swallow an OSError (a reader's None, a best-effort probe), so a refusal can end
-# the update as a misleading downstream error; the command's failure path prints
-# :func:`refusal_notice` instead.
-_RUN: dict = {"ran": False, "refused": None}
-
-
-def _refuse(argv: Sequence[str], cause: object, *, receipted: bool = False) -> CustodyRefused:
-    """The :class:`CustodyRefused` for ``argv``: logged, noted in the receipt (unless the caller
-    already did) and kept as this run's first refusal."""
-    argv = list(argv) if isinstance(argv, (list, tuple)) else [argv]
-    exc = CustodyRefused(argv, cause)
-    detail = f"{exc.reason}: {' '.join(str(arg) for arg in argv[:2])}"
-    if not receipted:
-        logger.warning("Refused update child: %s", detail)
-        with contextlib.suppress(Exception):
-            from hermes_cli.update_receipt import record_step
-
-            record_step("update_custody", False, detail)
-    if _RUN["refused"] is None:
-        _RUN["refused"] = (exc, not _RUN["ran"] and not _past_commit())
-    return exc
-
-
-def _past_commit() -> bool:
-    """The update reached its commit point: its receipt records the ``apply`` stage (the
-    completion child resumes that receipt). No receipt is open before an update begins, nor in
-    the parent after its completion child returned, which starts no update child."""
-    try:
-        from hermes_cli.update_receipt import _current
-
-        current = _current.get()
-    except Exception:  # health: allow BLE001 -- fail closed: unknown = past commit, never "nothing changed"
-        return True
-    return current is not None and any(stage.get("name") == "apply" for stage in current.data.get("stages") or ())
-
-
-def refusal_notice(command: str = "hermes update") -> str | None:
-    """What the command's failure path prints when this run refused an update child (m2), in
-    place of whatever generic error the refusal turned into downstream; ``None`` otherwise."""
-    if _RUN["refused"] is None:
-        return None
-    exc, unchanged = _RUN["refused"]
-    outcome = ("Nothing was changed: no update step had run yet." if unchanged else
-               "Update steps before it had already run.")
-    return f"✗ `{command}` stopped: {exc.reason}\n  {outcome}\n  {_RETRY.format(command=f'`{command}`')}"
-
 
 def git_subcommand(args: Sequence[str]) -> str | None:
     """The subcommand in ``args`` (everything after the git executable), skipping global options."""
@@ -184,10 +104,7 @@ def _death_signal_preexec():
     """Linux: a ``preexec_fn`` making the child die (SIGKILL) with the updater thread that waits
     on it. For the git children that do NOT hold the lock fd (fetch, ls-remote, readers): a
     killed owner must not leave a fetch rewriting refs under the next lock owner. The ruling's
-    stale-lock rules recover a fetch killed mid-write. ``None`` elsewhere (Windows: the job;
-    macOS has no parent-death signal: :func:`run_git` puts a fetch under :func:`_owner_watch`)."""
-    if not sys.platform.startswith("linux"):
-        return None
+    stale-lock rules recover a fetch killed mid-write."""
     import ctypes
     import os
 
@@ -214,222 +131,65 @@ def _custody_kwargs(inherit_lock: bool, kwargs: dict) -> dict:
 
 
 def _lock_fds(inherit_lock: bool) -> tuple[int, ...]:
-    if not inherit_lock or sys.platform == "win32":
+    if not inherit_lock:
         return ()
     from hermes_cli.update_lock import custody_spawn_kwargs
 
     return tuple(custody_spawn_kwargs().get("pass_fds", ()))
 
 
-def _bind_suspended(proc: subprocess.Popen) -> None:
-    """Assign a CREATE_SUSPENDED child to the update's kill-on-close job, then resume it.
-
-    Suspended until bound, so nothing it spawns can escape the job. A refused bind kills the
-    child before it ran a single instruction and raises :class:`CustodyRefused` (D2: never an
-    unfenced writer); a failed resume kills the child."""
-    from hermes_cli.update_lock import _bind_to_kill_on_close_job, resume_suspended_child
-
-    try:
-        _bind_to_kill_on_close_job(proc)
-    except OSError as exc:
-        proc.kill()
-        proc.wait()
-        raise _refuse(proc.args, exc) from exc
-    resume_suspended_child(proc)
-    _RUN["ran"] = True
-
-
 def popen(argv: Sequence[str], *, inherit_lock: bool = False, **kwargs) -> subprocess.Popen:
     """``subprocess.Popen`` in the update tree's custody (see the module doc)."""
-    if sys.platform == "win32" and _held() is not None:
-        kwargs["creationflags"] = kwargs.get("creationflags", 0) | _CREATE_SUSPENDED
-        proc = subprocess.Popen(list(argv), **kwargs)
-        try:
-            _bind_suspended(proc)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                proc.kill()
-            raise
-        return proc
     return subprocess.Popen(list(argv), **_custody_kwargs(inherit_lock, kwargs))
 
 
 def run(argv: Sequence[str], *, inherit_lock: bool = False, **kwargs) -> subprocess.CompletedProcess:
-    """``subprocess.run`` in the update tree's custody. Off Windows (or outside an update) it IS
-    ``subprocess.run`` with the caller's kwargs untouched, plus the lock fd for mutators (or the
-    parent-death signal for the rest); on Windows inside an update it is the same contract over
-    :func:`popen`, so the child is job-bound before it runs."""
-    if not (sys.platform == "win32" and _held() is not None):
-        return subprocess.run(list(argv), **_custody_kwargs(inherit_lock, kwargs))  # noqa: PLW1510 -- forwarding wrapper: callers pass subprocess kwargs via **kwargs (check may arrive through it); an explicit check=False would raise TypeError
-    input, timeout = kwargs.pop("input", None), kwargs.pop("timeout", None)
+    """Run an owned group; timeout/cancellation kills helpers and bounds pipe draining."""
+    from hermes_cli._subprocess_compat import kill_and_drain
+
+    timeout = kwargs.pop("timeout", None)
     check = kwargs.pop("check", False)
-    if input is not None:
+    input_data = kwargs.pop("input", None)
+    if input_data is not None:
+        if kwargs.get("stdin") is not None:
+            raise ValueError("stdin and input arguments may not both be used")
         kwargs["stdin"] = subprocess.PIPE
     if kwargs.pop("capture_output", False):
-        kwargs["stdout"] = kwargs["stderr"] = subprocess.PIPE
-    with popen(argv, **kwargs) as proc:
-        try:
-            stdout, stderr = proc.communicate(input, timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            # git.exe's git-remote-https inherits the pipes: kill the tree, not git.exe alone (and
-            # never the job: it also holds the update's other children).
-            from hermes_cli._subprocess_compat import kill_and_drain
-
-            drained = kill_and_drain(proc, _DRAIN_SECONDS)
-            if drained is not None:
-                exc.stdout, exc.stderr = drained
-            raise
-        except BaseException:
-            proc.kill()
-            raise
-        code = proc.poll()
-    if check and code:
-        raise subprocess.CalledProcessError(code, proc.args, output=stdout, stderr=stderr)
-    return subprocess.CompletedProcess(proc.args, code, stdout, stderr)
-
-
-def popen_post_commit(argv: Sequence[str], *, label: str, **kwargs) -> subprocess.Popen:
-    """``subprocess.Popen`` for a checkout writer that runs after the update committed (the
-    historical takeover's ``update_finish``). POSIX: the lock fd. Windows inside an update:
-    created suspended and bound to the update's kill-on-close job before it runs. A refused bind
-    must not fail a committed update, so the child still runs, never silently (printed and
-    receipted) and never unfenced: it joins the checkout lock holding its own lease (R5b)."""
-    if not (sys.platform == "win32" and _held() is not None):
-        return subprocess.Popen(list(argv), **_custody_kwargs(True, kwargs))
-    from hermes_cli.update_lock import bind_child_to_update_tree, resume_suspended_child
-
-    kwargs["creationflags"] = kwargs.get("creationflags", 0) | _CREATE_SUSPENDED
-    proc = subprocess.Popen(list(argv), **kwargs)
+        if kwargs.get("stdout") is not None or kwargs.get("stderr") is not None:
+            raise ValueError("stdout and stderr arguments may not be used with capture_output")
+        kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if kwargs.pop("process_group", None) not in (None, 0):
+        raise ValueError("updater commands must own their process group")
+    if not kwargs.get("start_new_session"):
+        kwargs["process_group"] = 0
+    proc = popen(argv, inherit_lock=inherit_lock, **kwargs)
     try:
-        refusal = bind_child_to_update_tree(proc)
-        if refusal is not None:
-            detail = (f"the update's job would not take the {label} ({refusal}), so it runs outside "
-                      "the job, holding its own checkout lease")
-            print(f"  ⚠ {detail}", flush=True)
-            with contextlib.suppress(Exception):
-                from hermes_cli.update_receipt import record_step
-
-                record_step("update_custody", False, detail)
-        resume_suspended_child(proc)
+        stdout, stderr = proc.communicate(input=input_data, timeout=timeout)
     except BaseException:
-        proc.kill()
-        proc.wait()
+        with contextlib.suppress(Exception):
+            kill_and_drain(proc, 1)
         raise
-    return proc
+    result = subprocess.CompletedProcess(list(argv), proc.returncode, stdout, stderr)
+    if check:
+        result.check_returncode()
+    return result
 
 
-# How long a timed-out child's output may still drain after its tree was killed.
-_DRAIN_SECONDS = 5
+def popen_post_commit(argv: Sequence[str], **kwargs) -> subprocess.Popen:
+    """Start a committed update's checkout writer with the inherited lock fd."""
+    return subprocess.Popen(list(argv), **_custody_kwargs(True, kwargs))
 
 
 def run_git(git_cmd: Sequence[str], args: Sequence[str], **kwargs) -> subprocess.CompletedProcess:
-    """THE updater git runner: custody config in argv, the lock fd only into local mutators,
-    Windows job binding inside an update. ``kwargs`` are ``subprocess.run``'s."""
+    """THE updater git runner: custody config in argv, the lock fd only into local mutators.
+    ``kwargs`` are ``subprocess.run``'s."""
     argv = git_argv(git_cmd, args)
     mutator = is_local_mutator(argv[1:])
     if mutator:
         _prefetch_for_move(list(git_cmd), list(args), kwargs)
-    if sys.platform != "win32" and _held() is not None and "preexec_fn" not in kwargs \
-            and _death_signal_preexec() is None:
-        # No parent-death signal (macOS): the tree runner owns git AND the helpers it starts. A
-        # local mutator holds the lock fd and finishes its write if the owner dies, as on Linux.
-        return _run_owner_watched(argv, _custody_kwargs(mutator, kwargs), watch_owner=not mutator)
+
     return run(argv, inherit_lock=mutator, **kwargs)
 
-
-# git without the lock fd (a fetch's network half must not hold it, m3) dies with its owner: on
-# Linux by the parent-death signal; where there is none (macOS) by this watchdog (R3), or a fetch
-# would go on rewriting refs and leave live `*.lock` files under the next owner.
-# The watchdog: stdin is a pipe only the owner writes. A byte = the child finished; EOF with no
-# byte = the owner died (the kernel closed its end), so SIGKILL the child's whole process group
-# (git and the helpers it started: git-remote-https, index-pack, pack-objects), as
-# PR_SET_PDEATHSIG would for the child alone. It holds no lock fd and runs in its own session.
-_OWNER_WATCH = (
-    "import os, signal, sys\n"
-    "if not os.read(0, 1):\n"
-    "    try:\n"
-    "        os.killpg(int(sys.argv[1]), signal.SIGKILL)\n"  # windows-footgun: ok -- POSIX only (run_git gates win32 out)
-    "    except OSError:\n"
-    "        pass\n"
-)
-
-
-def _owner_watch(pid: int):
-    """Start the parent-death stand-in for child ``pid``; returns the callable that dismisses it
-    once the child is done, or ``None`` when it could not start (logged: the fetch still runs, as
-    it did before; only the owner's death mid-fetch is then unfenced)."""
-    import os
-
-    read_end, write_end = os.pipe()  # non-inheritable: no other child keeps the owner's end open
-    try:
-        watcher = subprocess.Popen([sys.executable, "-I", "-S", "-c", _OWNER_WATCH, str(pid)], stdin=read_end,
-                                   # detached-spawn: ok — the owner-death watchdog itself: it must outlive the owner to kill the fetch
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    except OSError as exc:
-        os.close(write_end)
-        logger.warning("Could not watch update child %s for its owner's death: %s", pid, exc)
-        return None
-    finally:
-        os.close(read_end)
-
-    def dismiss() -> None:
-        with contextlib.suppress(OSError):  # the watcher already gone: nothing left to tell it
-            os.write(write_end, b"x")
-        os.close(write_end)
-        with contextlib.suppress(subprocess.TimeoutExpired):  # it exits on the byte; never block on it
-            watcher.wait(timeout=5)
-
-    return dismiss
-
-
-def _kill_tree(proc: subprocess.Popen) -> None:
-    """SIGKILL ``proc``'s process group: the child leads it (``start_new_session``), and while it
-    is unreaped its pid, hence the group id, cannot be reused. Once reaped (``communicate`` reaps
-    on a Ctrl-C inside its wait window) the id may already name another session, so it is never
-    signalled; ``returncode`` is read, not ``poll()``ed, since polling would reap a live zombie
-    and skip the helpers a timed-out git leaves running."""
-    import os
-    import signal
-
-    if proc.returncode is not None:
-        return
-    with contextlib.suppress(OSError):  # already gone
-        os.killpg(proc.pid, signal.SIGKILL)  # windows-footgun: ok -- POSIX only (run_git gates win32 out)
-
-
-def _run_owner_watched(argv: Sequence[str], kwargs: dict, *, watch_owner: bool = True) -> subprocess.CompletedProcess:
-    """``subprocess.run`` for updater git where no parent-death signal exists, under
-    :func:`_owner_watch` while it runs. git leads a session of its own, so a timeout, a cancel or
-    the owner's death ends its helpers with it, not git's pid alone (#144439)."""
-    input, timeout = kwargs.pop("input", None), kwargs.pop("timeout", None)
-    check = kwargs.pop("check", False)
-    if input is not None:
-        kwargs["stdin"] = subprocess.PIPE
-    if kwargs.pop("capture_output", False):
-        kwargs["stdout"] = kwargs["stderr"] = subprocess.PIPE
-    # detached-spawn: ok — awaited; _owner_watch kills a fetch's group on owner death, and a mutator must finish its write
-    with subprocess.Popen(list(argv), start_new_session=True, **kwargs) as proc:
-        dismiss = _owner_watch(proc.pid) if watch_owner else None
-        try:
-            stdout, stderr = proc.communicate(input, timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            _kill_tree(proc)
-            try:
-                exc.stdout, exc.stderr = proc.communicate(timeout=_DRAIN_SECONDS)
-            except subprocess.TimeoutExpired:
-                # A helper git started still holds the pipes: leave them to the reader threads.
-                proc.stdin = proc.stdout = proc.stderr = None
-            raise
-        except BaseException:
-            _kill_tree(proc)
-            raise
-        finally:
-            if dismiss is not None:
-                dismiss()
-        code = proc.poll()
-    if check and code:
-        raise subprocess.CalledProcessError(code, proc.args, output=stdout, stderr=stderr)
-    return subprocess.CompletedProcess(proc.args, code, stdout, stderr)
 
 
 def _partial_clone(git_cmd: Sequence[str], kwargs: dict) -> bool:
@@ -488,140 +248,7 @@ def _prefetch_for_move(git_cmd: list[str], args: list[str], kwargs: dict) -> Non
         logger.debug("Could not prefetch the objects for git %s: %s", sub, exc)
 
 
-# A stdlib launcher for children whose Popen the updater never sees (``run_contained``): it
-# joins the job named by an inherited handle, starts the real command suspended with the same
-# stdio, runs it only once it is in the job, and drops that handle (only the owner's handle may
-# keep the job open). A refused join, or a command outside the job, never runs (D2): the launcher says so on stderr, writes the notice to the report file
-# (argv[2]) — run_contained captures the child's stderr, so stderr alone is not seen (m1) — and
-# exits; the updater logs the notice, notes it in the receipt and raises CustodyRefused.
-# The command also runs in a kill-on-close job of the launcher's own, nested in the update job
-# (review C3): once the command exits, the launcher terminates that job — whatever pnpm / the
-# builder started and left running — and waits until no process of it is left before it
-# returns, so the caller never releases the checkout while a build descendant still writes.
-# Only the command's tree: the update job also holds the update's other children. The Windows
-# twin of the POSIX launcher below (_REAP_TREE); the nested job's handle closing (a killed
-# launcher) kills the tree too.
-_CUSTODY_UNAVAILABLE = "hermes: update custody unavailable"
-_REFUSED_EXIT = 87
-_JOIN_JOB = (
-    "import ctypes, subprocess, sys, time\n"
-    "k = ctypes.WinDLL('kernel32', use_last_error=True)\n"
-    "k.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]\n"
-    "k.GetCurrentProcess.restype = ctypes.c_void_p\n"
-    "k.CloseHandle.argtypes = [ctypes.c_void_p]\n"
-    "k.CreateJobObjectW.restype = ctypes.c_void_p\n"
-    "k.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong]\n"
-    "k.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint]\n"
-    "k.QueryInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong,\n"
-    "                                        ctypes.c_void_p]\n"
-    "h = ctypes.c_void_p(int(sys.argv[1]))\n"
-    "def refuse(why):\n"
-    f"    note = '{_CUSTODY_UNAVAILABLE} (%s); the command was not run' % why\n"
-    "    sys.stderr.write(note + '\\n')\n"
-    "    sys.stderr.flush()\n"
-    "    try:\n"
-    "        with open(sys.argv[2], 'w', encoding='utf-8') as report:\n"
-    "            report.write(note)\n"
-    "    except OSError:\n"
-    "        pass\n"
-    f"    sys.exit({_REFUSED_EXIT})\n"
-    "if not k.AssignProcessToJobObject(h, k.GetCurrentProcess()):\n"
-    "    refuse('could not join the update job: %d' % ctypes.get_last_error())\n"
-    # JOBOBJECT_EXTENDED_LIMIT_INFORMATION (KILL_ON_JOB_CLOSE) and the BASIC_ACCOUNTING record
-    # whose ActiveProcesses says when the command's tree is gone.
-    "class Basic(ctypes.Structure):\n"
-    "    _fields_ = [('times', ctypes.c_int64 * 2), ('flags', ctypes.c_uint32), ('ws', ctypes.c_size_t * 2),\n"
-    "                ('procs', ctypes.c_uint32), ('affinity', ctypes.c_size_t), ('classes', ctypes.c_uint32 * 2)]\n"
-    "class Limits(ctypes.Structure):\n"
-    "    _fields_ = [('basic', Basic), ('io', ctypes.c_uint64 * 6), ('memory', ctypes.c_size_t * 4)]\n"
-    "class Usage(ctypes.Structure):\n"
-    "    _fields_ = [('times', ctypes.c_int64 * 4), ('faults', ctypes.c_uint32), ('total', ctypes.c_uint32),\n"
-    "                ('active', ctypes.c_uint32), ('terminated', ctypes.c_uint32)]\n"
-    "tree = k.CreateJobObjectW(None, None)\n"
-    "limits = Limits()\n"
-    "limits.basic.flags = 0x2000\n"
-    "if not tree or not k.SetInformationJobObject(tree, 9, ctypes.byref(limits), ctypes.sizeof(limits)):\n"
-    "    refuse('could not create the job for the command tree: %d' % ctypes.get_last_error())\n"
-    # Verify, never assume the topology: a packaged interpreter (Store Python) joins, but starts a
-    # program outside its package with desktop-app breakaway, so the command leaves every job
-    # that permits breakaway, as the update job does (restarted gateways break away). Start the
-    # command suspended; if Windows says it is outside the job, put it in explicitly (F80), and
-    # run it only once it is in (F54): a command the job will not take is refused, never run.
-    "k.IsProcessInJob.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]\n"
-    "p = subprocess.Popen(sys.argv[3:], stdin=subprocess.DEVNULL, creationflags=0x4)\n"
-    "def in_job():\n"
-    "    inside = ctypes.c_int(0)\n"
-    "    return k.IsProcessInJob(ctypes.c_void_p(int(p._handle)), h, ctypes.byref(inside)) and inside.value\n"
-    "if not in_job() and not (k.AssignProcessToJobObject(h, ctypes.c_void_p(int(p._handle))) and in_job()):\n"
-    "    p.kill()\n"
-    "    p.wait()\n"
-    "    refuse('the command would start outside the update job')\n"
-    "if not k.AssignProcessToJobObject(tree, ctypes.c_void_p(int(p._handle))):\n"
-    "    error = ctypes.get_last_error()\n"
-    "    p.kill()\n"
-    "    p.wait()\n"
-    "    refuse('could not hold the command tree in a job: %d' % error)\n"
-    "k.CloseHandle(h)\n"
-    "nt = ctypes.WinDLL('ntdll')\n"
-    "nt.NtResumeProcess.argtypes = [ctypes.c_void_p]\n"
-    "if nt.NtResumeProcess(ctypes.c_void_p(int(p._handle))) != 0:\n"
-    "    p.kill()\n"
-    "code = p.wait()\n"
-    # C3: nothing the command started outlives it; return only once its whole tree is gone.
-    "k.TerminateJobObject(tree, 1)\n"
-    "usage, end = Usage(), time.monotonic() + 10\n"
-    "while time.monotonic() < end:\n"
-    "    if not k.QueryInformationJobObject(tree, 1, ctypes.byref(usage), ctypes.sizeof(usage), None):\n"
-    "        break\n"
-    "    if not usage.active:\n"
-    "        break\n"
-    "    time.sleep(0.02)\n"
-    "sys.exit(code)\n"
-)
-
-
-def _report_refused_join(report: str, argv: Sequence[str]) -> str | None:
-    """Make a refused job join visible: a warning (errors.log) and a receipt step. The notice,
-    or None when the child joined (or never ran the launcher)."""
-    import os
-
-    try:
-        with open(report, encoding="utf-8-sig") as fh:
-            note = fh.read().strip()
-    except OSError:
-        note = ""
-    finally:
-        with contextlib.suppress(OSError):
-            os.unlink(report)
-    if not note:
-        return None
-    logger.warning("%s: %s", note, " ".join(str(arg) for arg in argv[:2]))
-    with contextlib.suppress(Exception):
-        from hermes_cli.update_receipt import record_step
-
-        record_step("update_custody", False, f"{note}: {' '.join(str(arg) for arg in argv[:2])}")
-    return note
-
-
-def _join_launcher_python() -> str:
-    """The interpreter for the job-joining launcher: the real one, never a venv redirector.
-
-    A venv's ``Scripts\\python.exe`` is a redirector: it starts the base interpreter as its own
-    child, inside a job of its own. That child cannot join the update's job once the job holds a
-    process from another job hierarchy (the updater's git children): ``AssignProcessToJobObject``
-    fails with ERROR_ACCESS_DENIED (5). And the redirector, never joined, keeps its inherited copy
-    of the job handle open, so the job would not close when the owner dies. The launcher is
-    stdlib-only (``-I -S``), so the base interpreter runs it as is.
-    """
-    import os
-
-    base = getattr(sys, "_base_executable", None)
-    if base and os.path.isfile(base):
-        return base
-    return sys.executable
-
-
-# POSIX twin of the launcher (N13, review L1/L6). Node marks the donated lock fd close-on-exec,
+# Node marks the donated lock fd close-on-exec,
 # so nothing node starts (pnpm, esbuild, sh) keeps the checkout locked: custody of them rests on
 # this stdlib parent, which holds the fd until no descendant of the command is left.
 # * The command stays in the CALLER's process group: every group kill that stops a build (a
@@ -634,9 +261,7 @@ def _join_launcher_python() -> str:
 #   intermediate's) is re-parented to it, never to init. Once node exits it SIGKILLs and reaps
 #   its children until none is left; it only signals its own unreaped children, so no pid it
 #   kills can have been reused (never a ``killpg`` of an already reaped leader's group).
-# * Elsewhere (macOS has no subreaper) it records node's descendant tree from ``ps`` while node
-#   runs and, once node exits, kills every recorded process whose start time still matches,
-#   plus what they started. Best effort: a process born and orphaned between two samples escapes.
+
 # * SIGINT/SIGTERM/SIGHUP are forwarded to node (a node still running 10 s later is killed); the
 #   descendants are then killed as above.
 # * The custodian is NOT the process the runner sees (R4): ``subprocess.run`` SIGKILLs its own
@@ -647,7 +272,7 @@ def _join_launcher_python() -> str:
 #   killed as above and only then is the fd dropped.
 _REAP_TREE = r"""
 import os, signal, subprocess, sys, time
-KILL = signal.SIGKILL  # windows-footgun: ok - POSIX-only launcher
+KILL = signal.SIGKILL
 fds = tuple(int(fd) for fd in sys.argv[1].split(','))
 caller = os.getpgrp()
 if caller != os.getpid():
@@ -666,13 +291,9 @@ if custodian:
     sys.exit(code if code >= 0 else 128 - code)
 os.setpgid(0, 0)
 me = os.getpid()
-reaper = False
-if sys.platform.startswith('linux'):
-    try:
-        import ctypes
-        reaper = ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) == 0  # PR_SET_CHILD_SUBREAPER
-    except (OSError, AttributeError):
-        reaper = False
+import ctypes
+if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+    raise OSError(ctypes.get_errno(), 'could not arm update child subreaper; command not run')
 
 def children():
     found = []
@@ -688,35 +309,6 @@ def children():
             continue
     return found
 
-def table():
-    try:
-        out = subprocess.run(['ps', '-A', '-o', 'pid=,ppid=,stat=,lstart='], stdin=subprocess.DEVNULL,
-                             capture_output=True, text=True, errors='replace', timeout=10).stdout
-    except (OSError, subprocess.SubprocessError):
-        return {}
-    rows = {}
-    for line in out.splitlines():
-        parts = line.split(None, 3)
-        if len(parts) == 4 and parts[0].isdigit() and parts[1].isdigit() and not parts[2].startswith('Z'):
-            rows[int(parts[0])] = (int(parts[1]), parts[3].strip())
-    return rows
-
-seen = {}
-
-def sample(root):
-    rows = table()
-    tree = {pid for pid, start in seen.items() if rows.get(pid, (0, None))[1] == start}
-    if root is not None:
-        tree.add(root)
-    grew = True
-    while grew:
-        grew = False
-        for pid, (ppid, start) in rows.items():
-            if ppid in tree and pid not in tree:
-                tree.add(pid)
-                seen[pid] = start
-                grew = True
-    return [pid for pid, start in seen.items() if rows.get(pid, (0, None))[1] == start]
 
 def kill(pids):
     for pid in pids:
@@ -744,19 +336,18 @@ while True:
         break
     except subprocess.TimeoutExpired:
         pass
-    if not reaper:
-        sample(p.pid)
+
     if got or os.getppid() != stand_in:
         deadline = deadline or time.monotonic() + 10
         if time.monotonic() > deadline:
             p.kill()
 end = time.monotonic() + 10
 while time.monotonic() < end:
-    live = children() if reaper else sample(None)
+    live = children()
     if not live:
         break
     kill(live)
-    while reaper:
+    while True:
         try:
             if not os.waitpid(-1, os.WNOHANG)[0]:
                 break
@@ -770,66 +361,13 @@ sys.exit(code if code >= 0 else 128 - code)
 @contextlib.contextmanager
 def contained_command(argv: Sequence[str], *, inherit_lock: bool = True, root=None):
     """``(argv, kwargs)`` for a checkout writer started by a runner that hides its Popen (the Node
-    build in ``pm.progress.run_contained``). POSIX: the lock fd (this process's, or one it
+    build in ``pm.progress.run_contained``). The lock fd (this process's, or one it
     inherited for checkout ``root``), under a launcher that keeps the command in the caller's
-    process group and kills every descendant left when it exits (:data:`_REAP_TREE`).
-    Windows inside an update: the command runs under a launcher that joins the update's
-    kill-on-close job first and returns only once no process the command started is left (C3);
-    when the job cannot be handed over or the join is refused, the command never runs and
-    :class:`CustodyRefused` is raised (D2)."""
+    process group and kills every descendant left when it exits (:data:`_REAP_TREE`)."""
     argv = list(argv)
-    if not (sys.platform == "win32" and _held() is not None):
-        from hermes_cli.update_lock import checkout_lock_fds
+    from hermes_cli.update_lock import checkout_lock_fds
 
-        fds = tuple(checkout_lock_fds(root)) if inherit_lock and root is not None else _lock_fds(inherit_lock)
-        if fds:
-            argv = [sys.executable, "-I", "-S", "-c", _REAP_TREE, ",".join(map(str, fds)), *argv]
-        yield argv, ({"pass_fds": fds} if fds else {})
-        return
-    try:
-        handle = _inheritable_job_handle()
-    except OSError as exc:
-        raise _refuse(argv, exc) from exc
-    import os
-    import tempfile
-
-    fd, report = tempfile.mkstemp(prefix="hermes-custody-", suffix=".txt")
-    os.close(fd)
-    try:
-        info = subprocess.STARTUPINFO()
-        info.lpAttributeList = {"handle_list": [handle]}
-        yield ([_join_launcher_python(), "-I", "-S", "-c", _JOIN_JOB, str(handle), report, *argv],
-               {"startupinfo": info})
-    finally:
-        import ctypes
-
-        ctypes.WinDLL("kernel32").CloseHandle(ctypes.c_void_p(handle))
-        note = _report_refused_join(report, argv)
-        if note:
-            cause = note.removeprefix(f"{_CUSTODY_UNAVAILABLE} (").partition(")")[0]
-            raise _refuse(argv, cause, receipted=True)
-        _RUN["ran"] = True
-
-
-def _inheritable_job_handle() -> int:
-    """An inheritable duplicate of the update's kill-on-close job handle (Windows). Raises
-    ``OSError`` when the job cannot be created or duplicated."""
-    import ctypes
-
-    from hermes_cli.update_lock import update_tree_job
-
-    try:
-        job = update_tree_job()
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
-        kernel32.DuplicateHandle.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
-                                             ctypes.POINTER(ctypes.c_void_p), ctypes.c_ulong, ctypes.c_int,
-                                             ctypes.c_ulong]
-        me, dup = kernel32.GetCurrentProcess(), ctypes.c_void_p()
-        # DUPLICATE_SAME_ACCESS, inheritable
-        if not kernel32.DuplicateHandle(me, job, me, ctypes.byref(dup), 0, True, 0x2):
-            raise ctypes.WinError(ctypes.get_last_error())
-        return int(dup.value)
-    except OSError as exc:
-        logger.warning("Could not hand the update's job to a build child: %s", exc)
-        raise
+    fds = tuple(checkout_lock_fds(root)) if inherit_lock and root is not None else _lock_fds(inherit_lock)
+    if fds:
+        argv = [sys.executable, "-I", "-S", "-c", _REAP_TREE, ",".join(map(str, fds)), *argv]
+    yield argv, ({"pass_fds": fds} if fds else {})

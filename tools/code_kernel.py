@@ -12,7 +12,7 @@ Wire protocol: one JSON request per stdin line ``{"id", "code"}``; replies frame
 stdout as ``<SENTINEL> <byte-length>\\n<json>`` with a per-kernel random SENTINEL from
 the env. Bytes outside frames are raw fd output attributed to the running cell (calls
 are serialized per kernel). A forged frame can only fake its own cell result.
-Also hosts what ``tools.code_kernel_remote`` shares: owner resolution, registry, cell core.
+
 """
 
 from __future__ import annotations
@@ -323,7 +323,7 @@ class SessionKernel:
 
 
 class KernelRegistry:
-    """Key -> kernel map plus its lock (shared with the remote registry). Kernels are popped
+    """Key -> kernel map plus its lock. Kernels are popped
     under the lock and torn down outside it — teardown may block on the child or the transport."""
 
     def __init__(self, teardown: Callable[[Any], None]):
@@ -418,13 +418,13 @@ def shutdown_kernels_for_owner(owner: str) -> None:
 
 def delegated_child_owner_matcher(child_session_id: str) -> Callable[[str], bool]:
     """Predicate for the kernels a delegate_task child owns (``_resolve_owner`` qualifies a child's
-    owner with its delegation session id). Shared with the remote registry."""
+    owner with its delegation session id)."""
     suffix = f"{_CHILD_OWNER_QUALIFIER}{child_session_id}"
     return lambda owner: owner.endswith(suffix)
 
 
 def shutdown_kernels_for_delegated_child(child_session_id: str) -> None:
-    """Dispose a finished child's kernels (local and remote). A child's kernel lives exactly as long as the
+    """Dispose a finished child's kernels. A child's kernel lives exactly as long as the
     child: pinned against LRU eviction while it runs, torn down here — otherwise finished children's
     kernels squatted the process-wide cap for ``kernel_idle_timeout`` and evicted LIVE children's kernels,
     which then lost their state mid-task with no signal but ``reused: false``."""
@@ -432,8 +432,6 @@ def shutdown_kernels_for_delegated_child(child_session_id: str) -> None:
         return
     matcher = delegated_child_owner_matcher(child_session_id)
     _REGISTRY.shutdown(owner_matches=matcher)
-    from tools.code_kernel_remote import shutdown_remote_kernels_where
-    shutdown_remote_kernels_where(matcher)
 
 
 atexit.register(shutdown_all_kernels)

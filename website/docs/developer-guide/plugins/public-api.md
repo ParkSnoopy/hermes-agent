@@ -35,7 +35,6 @@ with a name allows that one name only.
 | `agent.secret_scope` | whole module | developer-guide / plugins docs |
 | `agent.secret_sources.base` | whole module | developer-guide / plugins docs |
 | `agent.subagent_lifecycle` | whole module | developer-guide / plugins docs |
-| `agent.terminal_env_provider` | whole module | developer-guide / plugins docs |
 | `agent.transports` | whole module | developer-guide / plugins docs |
 | `agent.transports.chat_completions` | whole module | developer-guide / plugins docs |
 | `agent.video_gen_provider` | whole module | developer-guide / plugins docs |
@@ -66,11 +65,7 @@ with a name allows that one name only.
 | `tools.registry` | whole module | developer-guide / plugins docs |
 | `agent.context_references` | whole module | PluginContext (hermes_cli/plugins_context.py) |
 | `agent.plugin_llm` | whole module | PluginContext (hermes_cli/plugins_context.py) |
-| `agent.transcription_provider` | whole module | PluginContext (hermes_cli/plugins_context.py) |
-| `agent.tts_provider` | whole module | PluginContext (hermes_cli/plugins_context.py) |
-| `cron.execution_identity` | whole module | PluginContext (hermes_cli/plugins_context.py) |
 | `hermes_cli.dashboard_auth` | whole module | PluginContext (hermes_cli/plugins_context.py) |
-| `hermes_cli.platform_actions` | whole module | PluginContext (hermes_cli/plugins_context.py) |
 | `hermes_cli.plugins` | `PluginContext` | PluginContext (hermes_cli/plugins_context.py) |
 | `hermes_cli.plugins_ledger` | `PluginRegistration` | PluginContext (hermes_cli/plugins_context.py) |
 | `hermes_cli.plugins_state` | `PluginState` | PluginContext (hermes_cli/plugins_context.py) |
@@ -93,11 +88,6 @@ with a name allows that one name only.
 | `tools.url_safety` | `is_safe_url` | adding-platform-adapters.md § Public helpers for platform plugins |
 | `tools.url_safety` | `create_ssrf_safe_async_client` | adding-platform-adapters.md § Public helpers for platform plugins |
 | `gateway.platforms._http_client_limits` | `platform_httpx_limits` | adding-platform-adapters.md § Public helpers for platform plugins |
-| `hermes_cli.gateway_setup_wizard` | `print_setup_header` | adding-platform-adapters.md § Public helpers for platform plugins |
-| `hermes_cli.gateway_setup_wizard` | `confirm_reconfigure` | adding-platform-adapters.md § Public helpers for platform plugins |
-| `hermes_cli.gateway_setup_wizard` | `offer_home_channel` | adding-platform-adapters.md § Public helpers for platform plugins |
-| `hermes_cli.gateway_setup_wizard` | `save_env_values` | adding-platform-adapters.md § Public helpers for platform plugins |
-| `hermes_cli.gateway_setup_wizard` | `prompt_csv` | adding-platform-adapters.md § Public helpers for platform plugins |
 | `hermes_cli.setup` | `prompt` | adding-platform-adapters.md § Public helpers for platform plugins |
 | `hermes_cli.setup` | `prompt_choice` | adding-platform-adapters.md § Public helpers for platform plugins |
 | `hermes_cli.setup` | `prompt_yes_no` | adding-platform-adapters.md § Public helpers for platform plugins |

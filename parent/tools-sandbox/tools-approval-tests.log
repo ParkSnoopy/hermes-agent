@@ -1,0 +1,18 @@
+▶ not activated — using HERMES_PYTHON: /home/admin/host/tmp/hermes-agent-fix-workspace/source/.venv/bin/python
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 1 test files (~11 tests) under ['tests/tools/test_request_tool_approval.py']; running with -j 1
+[100.0% |    11/~11 | ✓11 | ✗ 0] ✓ tests/tools/test_request_tool_approval.py (11✓, 4.6s)
+
+=== Summary: 1 files, 11 tests passed, 0 failed (100% complete) in 4.6s (1 workers) ===
+  Durations cached to test_durations.json (1 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   1
+  Total subprocess CPU-wall: 4.6s  (runner wall: 4.6s, parallelism: 1x)
+  P50: 4.60s  P90: 4.60s  P95: 4.60s  P99: 4.60s  Max: 4.60s
+  <1s: 0 files (0%)  <2s: 0 files (0%)
+  Top 10 slowest:
+      4.60s  tests/tools/test_request_tool_approval.py

@@ -239,13 +239,7 @@ def _snapshot_native(runner, event, provenance, fresh_roles=False, encoded_sourc
                 'event': deepcopy({name: getattr(event, name) for name in _EVENT_FIELDS}),
                 'timestamp': event.timestamp.isoformat()}
     if event.source.platform.value == 'webhook':
-        from gateway.platforms.webhook_delivery import route_digest, snapshot_destination
-        adapter = runner._adapter_for_source(event.source)
-        if provenance is None:
-            raise RuntimeStoreError('permission_denied')
-        delivery = snapshot_destination(adapter, adapter._delivery_info.get(event.source.chat_id))
-        envelope['webhook_delivery'] = delivery
-        envelope['webhook_route'] = route_digest(adapter, event.source.chat_id)
+        raise RuntimeStoreError('permission_denied')
     if event.source.role_authorized:
         envelope['reauthorize'] = 'roles'
     if provenance is not None:
@@ -348,9 +342,5 @@ async def check_native_route(runner, payload, session_id, available_source, adap
     if adapter is None or runner._adapter_for_source(event.source) is not adapter:
         raise RuntimeStoreError('not_found')
     if event.source.platform.value == 'webhook':
-        from gateway.platforms.webhook_delivery import route_digest, validate_destination
-        envelope = payload['native_text_v1']
-        validate_destination(envelope.get('webhook_delivery'))
-        if envelope.get('webhook_route') != route_digest(adapter, event.source.chat_id):
-            raise RuntimeStoreError('admission_conflict')
+        raise RuntimeStoreError('permission_denied')
     return event.source, route

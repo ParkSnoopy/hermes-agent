@@ -57,9 +57,8 @@ export function writeMockProviderConfig(
     // trust path reads the CONFIG base_url, and v2026.8.31 says so outright --
     // "OPENAI_BASE_URL env var is no longer consulted -- config.yaml is the
     // single source of truth for endpoint URLs". Without it `custom` resolves to
-    // no endpoint and the app boots on its onboarding overlay ("No usable
-    // credentials found for custom"), which is what every +desktop smoke leg
-    // hit. The `custom_providers` entry names the same endpoint for the
+    // no endpoint ("No usable credentials found for custom"). The
+    // `custom_providers` entry names the same endpoint for the
     // named/`custom:<name>` form; the .env OPENAI_BASE_URL/OPENAI_API_KEY pair
     // (writeEnvFile) stays for the trees that resolve the endpoint from the
     // environment. `providers:` stays untouched (a provider named 'mock' only
@@ -73,9 +72,8 @@ export function writeMockProviderConfig(
     ],
     auxiliary: { ...config.auxiliary, title_generation: { ...config.auxiliary?.title_generation, enabled: false } },
     approvals: { ...config.approvals, mode: 'off' },
-    // A fresh desktop install opens the first-run onboarding chat, which takes the
-    // first message the smoke sends; these journeys test install and update, so
-    // the root config records onboarding as done.
+    // Historical builds can open a first-run chat that consumes the smoke
+    // prompt; these journeys test install and update, not onboarding.
     onboarding: { ...config.onboarding, run: false },
     // Pre-v2026.8.13 releases lazy-install faster-whisper on the WS reader when STT is on, stalling the first send.
     stt: { ...config.stt, enabled: false },

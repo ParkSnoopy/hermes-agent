@@ -1,117 +1,18 @@
-"""Regression: CLI→Discord handoff must key a thread destination on the
-thread's OWN id, matching how the platform adapter keys organic in-thread
-messages.
-
-Bug: the handoff built its destination ``SessionSource`` with
-``chat_id = home.chat_id`` (the PARENT channel) while thread destinations use
-``chat_type="thread"`` and ``thread_id = <thread>``. The Discord adapter,
-however, builds organic in-thread messages with ``chat_id = <thread>`` (the
-thread's own id). ``build_session_key`` therefore produced two different keys:
-
-    handoff:  agent:main:discord:thread:{parent}:{thread}
-    organic:  agent:main:discord:thread:{thread}:{thread}
-
-So the next real user reply in the handoff thread resolved to a DIFFERENT
-session_key and spawned a fresh session instead of continuing the handed-off
-one (observed: a stray auto-titled session + a session_search fallback because
-the new session had no prior context).
-
-The fix is Discord-specific: Slack and Telegram adapters key organic thread
-messages with ``chat_id = parent_channel``, so the parent channel is correct
-for those platforms and the guard must NOT apply to them.
-"""
-
+"""Handoff destination helper used by shared warning tests."""
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
-
+from unittest.mock import AsyncMock, patch
 import pytest
-
-from agent.conversation_compression import CONTEXT_OVERFLOW_BLOCKED_WARNING_TEMPLATE
 from gateway.config import GatewayConfig, HomeChannel, Platform, PlatformConfig
-from gateway.run import GatewayRunner, _prepare_gateway_status_message
-from gateway.session import SessionSource, build_session_key
-
-
-def _organic_discord_thread_key(thread_id: str, parent_id: str, user_id: str) -> str:
-    """Key the Discord adapter produces for a message typed inside a thread.
-
-    Mirrors plugins/platforms/discord/adapter.py _handle_message: chat_id is
-    the thread's own id, chat_type is "thread", thread_id is the thread id,
-    parent_chat_id is the parent channel.
-    """
-    source = SessionSource(
-        platform=Platform.DISCORD,
-        chat_id=str(thread_id),
-        chat_type="thread",
-        user_id=user_id,
-        thread_id=str(thread_id),
-        parent_chat_id=str(parent_id),
-    )
-    return build_session_key(source, thread_sessions_per_user=False)
-
-
-def _handoff_key(
-    platform: Platform,
-    home_chat_id: str,
-    thread_id: str,
-) -> str:
-    """Key the handoff produces after the fix.
-
-    Mirrors the fixed logic in GatewayRunner._process_handoff: for Discord
-    thread destinations, chat_id is the thread's own id; for other platforms,
-    chat_id remains the parent/home channel.
-    """
-    dest_chat_type = "thread"
-    # This mirrors the fixed logic in GatewayRunner._process_handoff.
-    if platform == Platform.DISCORD and dest_chat_type == "thread" and thread_id:
-        dest_chat_id = str(thread_id)
-    else:
-        dest_chat_id = str(home_chat_id)
-    dest_source = SessionSource(
-        platform=platform,
-        chat_id=dest_chat_id,
-        chat_type=dest_chat_type,
-        user_id="system:handoff",
-        user_name="Handoff",
-        thread_id=str(thread_id),
-    )
-    return build_session_key(dest_source, thread_sessions_per_user=False)
-
-
-def test_discord_handoff_key_matches_organic_in_thread_key():
-    """For Discord, the handoff key must be byte-identical to the organic
-    in-thread key — otherwise a reply in the handoff thread spawns a new session."""
-    parent_id = "1523581766923845724"
-    thread_id = "1523590238595846166"
-    user_id = "171164909650968576"
-
-    organic = _organic_discord_thread_key(thread_id, parent_id, user_id)
-    handoff = _handoff_key(Platform.DISCORD, parent_id, thread_id)
-
-    assert handoff == organic, (
-        f"handoff key {handoff!r} != organic in-thread key {organic!r}; "
-        "a reply in the handoff thread would spawn a new session"
-    )
-    assert handoff == f"agent:main:discord:thread:{thread_id}:{thread_id}"
-
-
-def test_discord_handoff_key_does_not_use_parent_channel():
-    """The pre-fix bug: keying on the parent channel. Guard against regression."""
-    parent_id = "1523581766923845724"
-    thread_id = "1523590238595846166"
-
-    handoff = _handoff_key(Platform.DISCORD, parent_id, thread_id)
-    buggy = f"agent:main:discord:thread:{parent_id}:{thread_id}"
-
-    assert handoff != buggy, "handoff regressed to keying on the parent channel"
-
+from gateway.run import GatewayRunner
+from gateway.session import build_session_key
+from tests.gateway.test_automation_compression_media import _plugin_platform
 
 def _handoff_destination(platform: Platform, channel_id: str, thread_id: str, scope_id, adapter):
     """Run the real handoff destination/key path against a configured home channel."""
     config = GatewayConfig(platforms={platform: PlatformConfig(enabled=True, token="test")})
     config.platforms[platform].home_channel = HomeChannel(
-        platform=platform, chat_id=channel_id, name="home", scope_id=scope_id)
+        platform=platform, chat_id=channel_id, name="home", thread_id=thread_id, scope_id=scope_id)
     adapter.create_handoff_thread = AsyncMock(return_value=thread_id)
     runner = object.__new__(GatewayRunner)
     runner.config = config
@@ -124,114 +25,47 @@ def _handoff_destination(platform: Platform, channel_id: str, thread_id: str, sc
     return dest, runner._handoff_session_key(dest, profile_name=None)
 
 
-def _slack_handoff_destination(channel_id: str, thread_ts: str, team_id: str):
-    return _handoff_destination(Platform.SLACK, channel_id, thread_ts, team_id, MagicMock())
+@pytest.mark.parametrize('chat_type,expected', [('group', 'group'), ('channel', 'channel'),
+                                                ('dm', 'dm'), ('unknown', 'dm')])
+@pytest.mark.parametrize('thread_id', [None, 'thread-7'])
+def test_handoff_uses_configured_home_identity(monkeypatch, chat_type, expected, thread_id):
+    platform = _plugin_platform(monkeypatch)
+    adapter = SimpleNamespace(get_chat_info=AsyncMock(return_value={'type': chat_type}))
+    dest, key = _handoff_destination(platform, 'home-1', thread_id, 'tenant-1', adapter)
+    assert dest.source.chat_id == 'home-1'
+    assert dest.source.thread_id == thread_id
+    assert dest.source.chat_type == expected
+    assert dest.source.scope_id == 'tenant-1'
+    assert dest.source.user_id == 'system:handoff'
+    assert key == build_session_key(dest.source, group_sessions_per_user=True,
+                                    thread_sessions_per_user=False)
+    adapter.create_handoff_thread.assert_not_awaited()
 
 
-def _organic_slack_reply_key(channel_id: str, thread_ts: str, team_id: str, chat_type: str) -> str:
-    """Key the Slack adapter builds for a thread reply (``_build_message_event``): parent channel
-    as chat_id, ``dm``/``group`` from the channel type, workspace id as scope_id."""
-    return build_session_key(SessionSource(
-        platform=Platform.SLACK, chat_id=channel_id, chat_type=chat_type, user_id="U123456",
-        thread_id=thread_ts, scope_id=team_id), thread_sessions_per_user=False)
+@pytest.mark.asyncio
+async def test_handoff_repoints_to_conversation_head_and_clears_pin():
+    runner = object.__new__(GatewayRunner)
+    store = SimpleNamespace(get_or_create_session=AsyncMock(),
+                            switch_session=AsyncMock(return_value='switched'))
+    runner.session_store = object()
+    store._store = runner.session_store
+    runner._async_session_store = store
+    source = object()
+    dest = SimpleNamespace(source=source)
+    with patch('gateway.session_route_recovery.conversation_head',
+               new=AsyncMock(return_value=(None, None, 'head'))):
+        assert await runner._handoff_repoint(dest, 'route', 'cli') == 'switched'
+    store.get_or_create_session.assert_awaited_once_with(source)
+    store.switch_session.assert_awaited_once_with('route', 'head', preserve_prompt_pin=False)
 
 
-def test_slack_dm_handoff_key_matches_the_thread_reply_key():
-    """/handoff into a Slack DM must bind the key the next in-thread reply resolves to, or a
-    gateway restart forks the thread onto a fresh empty session (#111896)."""
-    dest, handoff = _slack_handoff_destination("D0C1HFBMQAX", "1789474088.089709", "T0C2HL96FH6")
-    assert handoff == _organic_slack_reply_key("D0C1HFBMQAX", "1789474088.089709", "T0C2HL96FH6", "dm")
-    assert dest.source.chat_id == "D0C1HFBMQAX"
+def test_handoff_key_keeps_multiplex_profile(monkeypatch):
+    platform = _plugin_platform(monkeypatch)
+    adapter = SimpleNamespace(get_chat_info=AsyncMock(return_value={'type': 'group'}))
+    dest, _ = _handoff_destination(platform, 'home-1', 'thread-7', 'tenant-1', adapter)
+    runner = object.__new__(GatewayRunner)
+    key = runner._handoff_session_key(dest, profile_name='secondary')
+    assert key == build_session_key(dest.source, group_sessions_per_user=True,
+                                    thread_sessions_per_user=False, profile='secondary')
+    assert key.startswith('agent:secondary:')
 
-
-def test_slack_channel_handoff_key_matches_the_thread_reply_key():
-    """Channel handoffs key on the parent channel (not the thread ts) with the ``group`` layout the
-    adapter uses for channel replies (#111896)."""
-    dest, handoff = _slack_handoff_destination("C0CHANNEL01", "1789474088.089709", "T0C2HL96FH6")
-    assert handoff == _organic_slack_reply_key("C0CHANNEL01", "1789474088.089709", "T0C2HL96FH6", "group")
-    assert dest.source.chat_id == "C0CHANNEL01"
-
-
-def test_slack_handoff_without_stored_scope_uses_the_sole_workspace_on_a_cold_channel_map():
-    """An env/legacy home has no scope_id and the adapter's channel→team map is empty right after
-    boot; a single authenticated workspace still identifies the team the reply key will carry."""
-    from plugins.platforms.slack.adapter import SlackAdapter
-
-    adapter = SlackAdapter.__new__(SlackAdapter)
-    adapter._channel_team, adapter._channel_teams, adapter._team_clients = {}, {}, {"T0C2HL96FH6": object()}
-    _dest, handoff = _handoff_destination(Platform.SLACK, "D0C1HFBMQAX", "1789474088.089709", None, adapter)
-    assert handoff == _organic_slack_reply_key("D0C1HFBMQAX", "1789474088.089709", "T0C2HL96FH6", "dm")
-
-
-def test_telegram_forum_handoff_key_matches_the_topic_reply_key():
-    """The Telegram adapter keys forum-topic replies ``group:<chat>:<topic>``; the handoff must
-    bind the same slot, not ``thread``."""
-    _dest, handoff = _handoff_destination(Platform.TELEGRAM, "-1001234567", "77", None, SimpleNamespace())
-    assert handoff == build_session_key(SessionSource(
-        platform=Platform.TELEGRAM, chat_id="-1001234567", chat_type="group", user_id="42",
-        thread_id="77"), thread_sessions_per_user=False)
-    assert handoff == "agent:main:telegram:group:-1001234567:77"
-
-
-def _matrix_adapter(room_id: str, *, is_dm: bool, monkeypatch):
-    """A real MatrixAdapter with a fake client: the room's DM flag comes from the m.direct cache."""
-    from plugins.platforms.matrix.adapter import MatrixAdapter
-
-    monkeypatch.setenv("MATRIX_REQUIRE_MENTION", "false")
-    monkeypatch.delenv("MATRIX_AUTO_THREAD", raising=False)
-    adapter = MatrixAdapter(PlatformConfig(enabled=True, token="syt_test", extra={
-        "homeserver": "https://matrix.example.org", "user_id": "@hermes:example.org"}))
-    adapter._text_batch_delay_seconds = 0
-    adapter._startup_ts = 0
-    adapter._dm_rooms[room_id] = is_dm
-    adapter._client = SimpleNamespace(send_message_event=AsyncMock(return_value="$seed"), crypto=None)
-    adapter._get_display_name = AsyncMock(return_value="alice")
-    adapter._background_read_receipt = lambda *_a: None
-    adapter.handle_message = AsyncMock()
-    return adapter
-
-
-def _organic_matrix_reply_key(adapter, room_id: str, thread_id: str) -> str:
-    """Key the Matrix adapter builds for a human reply inside ``thread_id`` (real inbound path)."""
-    import time
-
-    event = SimpleNamespace(
-        sender="@alice:example.org", event_id="$reply", room_id=room_id, timestamp=int(time.time() * 1000),
-        content={"body": "what happened?", "msgtype": "m.text",
-                 "m.relates_to": {"rel_type": "m.thread", "event_id": thread_id}})
-    asyncio.run(adapter._on_room_message(event))
-    return build_session_key(adapter.handle_message.await_args.args[0].source, thread_sessions_per_user=False)
-
-
-@pytest.mark.parametrize("is_dm", [False, True], ids=["room", "dm"])
-def test_matrix_handoff_key_matches_the_thread_reply_key(is_dm, monkeypatch):
-    """A Matrix handoff (and cron ``attach_to_session``) seeds a thread rooted on the seed event; the
-    adapter keys replies in it on the ROOM's type (``group``/``dm``), never a ``thread`` slot, so the
-    destination must bind that key or the first reply opens an empty session (#112918)."""
-    room_id = "!ops:example.org"
-    adapter = _matrix_adapter(room_id, is_dm=is_dm, monkeypatch=monkeypatch)
-    _dest, handoff = _handoff_destination(Platform.MATRIX, room_id, "$seed", None, adapter)
-    assert handoff == _organic_matrix_reply_key(adapter, room_id, "$seed")
-    assert handoff.split(":")[3] == ("dm" if is_dm else "group")
-
-
-@pytest.mark.parametrize(
-    ("home_type", "expected_chat_type"),
-    [("channel", "group"), ("dm", "dm")],
-)
-def test_discord_handoff_without_thread_filters_blocked_warning_by_home_type(home_type, expected_chat_type):
-    """A failed Discord handoff thread must not label a guild fallback as a DM (#101003)."""
-    adapter = SimpleNamespace(
-        create_handoff_thread=AsyncMock(return_value=None),
-        get_chat_info=AsyncMock(return_value={"type": home_type}),
-    )
-    dest, _ = _handoff_destination(Platform.DISCORD, "1523581766923845724", None, None, adapter)
-    assert dest.source.chat_type == expected_chat_type
-
-    warning = CONTEXT_OVERFLOW_BLOCKED_WARNING_TEMPLATE.format(
-        tokens=85_000, threshold=72_000, reason="structural_backoff:295",
-    )
-    expected_output = warning if expected_chat_type == "dm" else None
-    assert _prepare_gateway_status_message(
-        Platform.DISCORD, "warn", warning, dest.source.chat_type,
-    ) == expected_output

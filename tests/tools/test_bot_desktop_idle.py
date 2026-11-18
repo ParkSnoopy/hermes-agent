@@ -172,7 +172,6 @@ def test_an_idle_check_that_waited_on_the_lock_never_stops_the_replacement_scree
     """The idle decision is taken before ``start.lock``; a stop + start that holds the lock meanwhile replaces
     the screen. The waiting check must re-decide under the lock: the launcher's own check (it names the screen
     it judged) keeps a replacement however idle, the gateway watcher keeps one that is in use."""
-    from tools.bot_desktop import placement, sandbox_host
 
     sd = tmp_path / "bd"
     sd.mkdir()
@@ -182,8 +181,6 @@ def test_an_idle_check_that_waited_on_the_lock_never_stops_the_replacement_scree
     monkeypatch.setattr(runtime, "state_dir", lambda: sd)
     monkeypatch.setattr(runtime, "idle_stop_seconds", lambda: 600.0)
     monkeypatch.setattr(runtime, "is_supported_host", lambda: True)
-    monkeypatch.setattr(sandbox_host, "_read_marker", dict)
-    monkeypatch.setattr(placement, "resolve", lambda: placement.Placement(placement.GATEWAY, "local"))
     monkeypatch.setattr(lease, "get", lambda profile_key=None: lease.Lease(holder=lease.AGENT))
 
     def launch() -> subprocess.Popen:

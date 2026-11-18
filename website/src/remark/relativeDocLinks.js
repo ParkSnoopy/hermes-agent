@@ -1,30 +1,10 @@
-// Remark plugin: make relative Markdown file links resolve across the zh-Hans
-// fallback boundary.
-//
-// Docs are authored with relative file links (`../user-guide/profiles.md`) so
-// they also open on GitHub (#114428). Docusaurus resolves `./x.md` and
-// `../x.md` only against the *source file's own directory*. In a localized
-// build, an untranslated EN page (served as fallback) linking to a translated
-// page — or the reverse — then fails to resolve, because the target's source
-// lives in the other content root. A content-root-absolute file link
-// (`/user-guide/profiles.md`) is resolved against every content path
-// (i18n/<locale>/.../current first, then docs/), so this plugin rewrites the
-// relative form to that form before Docusaurus's own link resolution runs.
-//
-// Only links with a Markdown extension are touched; anything else (routes,
-// assets, external URLs) passes through untouched.
+// Rewrite relative Markdown links as content-root paths for Docusaurus.
 
 const path = require('path');
 
 const MARKDOWN_LINK = /^(\.\.?\/[^?#]*\.mdx?)([?#].*)?$/i;
-const LOCALIZED_ROOT = /^(.*\/i18n\/[^/]+\/docusaurus-plugin-content-docs\/[^/]+)\//;
 
 function contentRoot(sourceFilePath, siteDir) {
-  const posixPath = sourceFilePath.split(path.sep).join('/');
-  const localized = LOCALIZED_ROOT.exec(posixPath);
-  if (localized) {
-    return localized[1];
-  }
   return path.posix.join(siteDir.split(path.sep).join('/'), 'docs');
 }
 

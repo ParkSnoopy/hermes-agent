@@ -392,11 +392,7 @@ class HermesACPAgent(SlashCommandsMixin, acp.Agent):
         # working model instead of a model/agent mismatch that persists via save_session.
         state.agent, state.model = agent, new_model
         self.session_manager.save_session(state.session_id)
-        from hermes_cli.observability.shared_metrics_events import record_model_switch
 
-        record_model_switch(
-            from_provider=current_provider, to_provider=target_provider, surface="acp", from_model=current_model,
-            session_id=state.session_id)
         return current_provider, target_provider, new_model
 
     @staticmethod
@@ -811,13 +807,12 @@ class HermesACPAgent(SlashCommandsMixin, acp.Agent):
             # HERMES_SESSION_KEY scopes per-session caches (interactive sudo password) to this
             # session, not the reused thread. ``cwd`` pins what the system prompt reports as the
             # working directory — otherwise it advertises the Hermes workspace while tools are
-            # rooted at the client's project and edits land outside it. ``cron_session=""`` masks
-            # any leaked process-global HERMES_CRON_SESSION.
+            # rooted at the client's project and edits land outside it.
             def _session_context() -> Callable[[], None]:
                 from gateway.session_context import clear_session_vars, set_session_vars
 
                 tokens = set_session_vars(
-                    session_key=session_id, session_id=session_id, cwd=state.cwd, cron_session="",
+                    session_key=session_id, session_id=session_id, cwd=state.cwd,
                 )
                 return lambda: clear_session_vars(tokens)
 
@@ -840,7 +835,7 @@ class HermesACPAgent(SlashCommandsMixin, acp.Agent):
             if edit_approval_requester:
                 _bind_guarded(stack, "edit approval requester", _edit_approval)
             stack.callback(reset_hermes_interactive_context, set_hermes_interactive_context(True))
-            # Tools tag side-effects with the ACP session (``kanban_create``); save/restore it.
+            # Tools tag side-effects with the ACP session; save/restore it.
             stack.callback(_restore_env, "HERMES_SESSION_ID", os.environ.get("HERMES_SESSION_ID"))
             os.environ["HERMES_SESSION_ID"] = session_id
 

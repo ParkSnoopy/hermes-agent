@@ -137,9 +137,11 @@ def test_commit_identity_and_simultaneous_namespaces(tmp_path, r2_server):
         handoff.validate_commit_identity(commit, 'Bad Name')
     (tmp_path / 'app.msix').write_bytes(b'commit bytes')
     args = ['stage', '--commit-build', commit, '--name', 'win32-x64', '--root', str(tmp_path), '--include', '*.msix']
-    for conflict in (['--commit', 'b' * 40], ['--tag', 'v1.2.3']):
-        with pytest.raises(SystemExit):
+    for conflict in (['--commit', 'b' * 40], ['--tag', 'v1.2.3'],
+                     ['--channel-request', str(tmp_path / 'missing-request.json')]):
+        with pytest.raises(SystemExit) as rejected:
             handoff.main([*args, *conflict])
+        assert rejected.value.code == 2
     assert r2_server.requests == []
     handoff.main(args)
     (tmp_path / 'app.msix').write_bytes(b'tag bytes')

@@ -107,10 +107,8 @@ def _(rid, params: dict) -> dict:
     policy = _repo_discovery_policy()
     policy_key = _repo_discovery_policy_key(policy)
     incoming = params.get("discovery_policy")
-    if isinstance(incoming, dict):
-        accepted = _repo_discovery_policy_key(_repo_discovery_policy(incoming)) == policy_key
-    else:
-        accepted = _repo_discovery_policy_is_default(policy)  # legacy client without a policy
+    accepted = (isinstance(incoming, dict)
+                and _repo_discovery_policy_key(_repo_discovery_policy(incoming)) == policy_key)
     accepted = bool(policy["enabled"] and accepted)
     pairs = [(item, None) if isinstance(item, str) else (str(item["root"]), item.get("label"))
              for item in params.get("repos") or []
@@ -207,8 +205,7 @@ def _cfg_get_reasoning(params):
     session = _sessions.get(params.get("session_id", "")) or {}
     reasoning_config = session.get("create_reasoning_override")
     if session and not isinstance(reasoning_config, dict):
-        from agent.voice_turn_route import session_runtime_view
-        reasoning_config = getattr(session_runtime_view(session.get("agent")), "reasoning_config", None)
+        reasoning_config = getattr(session.get("agent"), "reasoning_config", None)
     if isinstance(reasoning_config, dict):
         enabled = reasoning_config.get("enabled") is not False
         effort = str(reasoning_config.get("effort") or "medium") if enabled else "none"
@@ -237,10 +234,7 @@ def _cfg_get_fast(params):
 
 
 def _cfg_get_thinking_mode(params):
-    raw = _display_word("thinking_mode", "", _THINKING_MODES)
-    if not raw:  # legacy details_mode fallback
-        raw = "full" if _display_word("details_mode", "collapsed", _DETAIL_MODES) == "expanded" else "collapsed"
-    return {"value": raw}
+    return {"value": _display_word("thinking_mode", "collapsed", _THINKING_MODES)}
 
 
 def _cfg_get_mtime(params):

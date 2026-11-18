@@ -463,7 +463,7 @@ def test_zero_collected_across_run_fails_and_says_so(tmp_path: Path) -> None:
 def test_fail_on_skip_fails_a_run_with_any_skip_even_beside_an_xfail(tmp_path: Path) -> None:
     """--fail-on-skip reads the parsed skip count, not the progress line.
 
-    The remote-backends lane once grepped the line for an ``<n>s,`` suffix,
+    A CI lane once grepped the line for an ``<n>s,`` suffix,
     which an xfail printed after the skip (``1✓ 1s 1xf, ...``) hid.
     """
     probe_dir = tmp_path / "probe"

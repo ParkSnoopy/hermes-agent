@@ -6,8 +6,8 @@ description: "Install and deploy Hermes Agent with Nix — from quick `nix run` 
 
 # Nix & NixOS Setup
 
-:::warning Tier 2 platform
-Nix and NixOS are [Tier 2 platforms](./platform-support.md#tier-2). The flake and NixOS module documented here are maintained on a best-effort basis only. Commits to `main` may break these packages at any point in time.
+:::warning Nix support
+Nix and NixOS on Linux are supported on a best-effort basis. The flake and NixOS module documented here are maintained on a best-effort basis only. Commits to `main` may break these packages at any point in time.
 
 For a supported setup, use one of the standard [installation](./installation.md) paths - either Docker or an FHS environment.
 :::
@@ -16,8 +16,8 @@ Hermes Agent ships a Nix flake, a NixOS module, and a Home Manager module.
 
 | Level | Who it's for | What you get |
 |-------|-------------|--------------|
-| **`nix run` / `nix profile install`** | Any Nix user (macOS, Linux) | Pre-built binary with all deps — then use the standard CLI workflow |
-| **Home Manager module** | An agent for one person, on any distribution or on macOS | Declarative configuration and a user service, without root |
+| **`nix run` / `nix profile install`** | Nix users on Linux | Pre-built binary with all deps — then use the standard CLI workflow |
+| **Home Manager module** | An agent for one person, on a Linux distribution | Declarative configuration and a user service, without root |
 | **NixOS module (native)** | NixOS server deployments | Declarative config, hardened systemd service, managed secrets |
 | **NixOS module (container)** | Agents that need self-modification | Everything above, plus a persistent Ubuntu container where the agent can `apt`/`pip`/`npm install` |
 
@@ -62,12 +62,6 @@ repair a Nix store path with pip.
 No clone needed. Nix fetches, builds, and runs everything:
 
 ```bash
-# Run the desktop app
-nix run github:NousResearch/hermes-agent#desktop
-
-# Or install persistently
-nix profile install github:NousResearch/hermes-agent#desktop
-
 # run the tui
 nix run github:NousResearch/hermes-agent -- setup
 nix run github:NousResearch/hermes-agent -- --tui
@@ -78,7 +72,7 @@ hermes setup
 hermes --tui
 ```
 
-After `nix profile install`, `hermes`, `hermes-agent`, and `hermes-acp` are on your PATH. From here, the workflow is identical to the [standard installation](./installation.md) — `hermes setup` walks you through provider selection, `hermes gateway install` sets up a launchd (macOS) or systemd user service, and config lives in `~/.hermes/`.
+After `nix profile install`, `hermes`, `hermes-agent`, and `hermes-acp` are on your PATH. From here, the workflow is identical to the [standard installation](./installation.md) — `hermes setup` walks you through provider selection, `hermes gateway install` sets up a systemd user service, and config lives in `~/.hermes/`.
 
 :::warning Messaging platforms (Discord, Telegram, Slack)
 The default package includes ALL libraries hermes-agent might need. if you want a smaller variant, check the other flake outputs. 
@@ -160,7 +154,7 @@ services.hermes-agent.environmentFiles = [ "/var/lib/hermes/env" ];
 :::
 
 :::tip addToSystemPackages
-Setting `addToSystemPackages = true` does two things: puts the `hermes` CLI on your system PATH **and** sets `HERMES_HOME` system-wide so the interactive CLI shares state (sessions, skills, cron) with the gateway service. Without it, running `hermes` in your shell creates a separate `~/.hermes/` directory.
+Setting `addToSystemPackages = true` does two things: puts the `hermes` CLI on your system PATH **and** sets `HERMES_HOME` system-wide so the interactive CLI shares state (sessions and skills) with the gateway service. Without it, running `hermes` in your shell creates a separate `~/.hermes/` directory.
 :::
 
 ### Container-aware CLI
@@ -244,9 +238,6 @@ To enable container mode, add one line:
 Container mode auto-enables `virtualisation.docker.enable` via `mkDefault`. If you use Podman instead, set `container.backend = "podman"` and `virtualisation.docker.enable = false`.
 :::
 
-:::note Cron on a native install needs a lingering service user
-Scheduled cron jobs are launched in a transient `systemd-run --user --scope` so a gateway restart cannot kill a running job. That needs a systemd user manager for the service uid, which a system service only gets when the uid lingers. With `createUser = true` the module sets `users.users.<user>.linger = true` (nixpkgs ≥ 25.05), orders the gateway after `linger-users.service`, and waits briefly for `/run/user/<uid>/bus` before starting. If you declare the user yourself (`createUser = false`), set `linger = true` on it or run `sudo loginctl enable-linger <user>` once; otherwise cron degrades to unscoped workers (or fails closed under `cron.require_restart_safe_scope: true`).
-:::
 
 ---
 
@@ -366,7 +357,6 @@ Quick reference for the most common things Nix users want to customize:
 | Add API keys | `environmentFiles` | `[ config.sops.secrets."hermes-env".path ]` |
 | Give the agent an identity | `hermesHomeFiles."SOUL.md"` | `"You are a terse ops assistant."` |
 | Add project context to the workspace | `documents."AGENTS.md"` | `./documents/AGENTS.md` |
-| Run the backend for the desktop app or the dashboard | `backend.mode` | `"serve"` or `"dashboard"` |
 | Add MCP tool servers | `mcpServers.<name>` | See [MCP Servers](#mcp-servers) |
 | Add an optional extra the package does not ship | `extraDependencyGroups` | `[ "google-meet" ]` |
 | Mount host directories into container | `container.extraVolumes` | `[ "/data:/data:rw" ]` |
@@ -616,17 +606,16 @@ Both signals hold the name of the system that manages the install. Thus the refu
 
 ## Home Manager Module
 
-The flake also exports `homeManagerModules.default`. Hermes is an agent for one person. The credentials, the memory, the sessions and the cron jobs all belong to that person. Thus a user service is the correct shape on a personal machine. It runs on each distribution that Home Manager supports, and not only on NixOS.
+The flake also exports `homeManagerModules.default`. Hermes is an agent for one person. The credentials, the memory, the sessions all belong to that person. Thus a user service is the correct shape on a personal machine. It runs on each distribution that Home Manager supports, and not only on NixOS.
 
-The option set is the same set that the NixOS module uses. It is `services.hermes-agent`, with the same `settings`, `environmentFiles`, `documents`, `mcpServers`, `extraPlugins` and `backend` options. Each example above works here without a change. Only the necessary parts are different:
+The option set is the same set that the NixOS module uses. It is `services.hermes-agent`, with the same `settings`, `environmentFiles`, `documents`, `mcpServers` and `extraPlugins` options. Each example above works here without a change. Only the necessary parts are different:
 
 | | NixOS module | Home Manager module |
 |---|---|---|
 | Runs as | a system user that you declare, with `user`, `group` and `createUser` | you |
 | State directory | `stateDir` and `/.hermes` | `hermesHome`, set directly. The default is `~/.hermes`. |
-| Service | `systemd.services` | `systemd.user.services` on Linux, `launchd.agents` on macOS |
+| Service | `systemd.services` | `systemd.user.services` |
 | CLI on the PATH | `addToSystemPackages`, which exports `HERMES_HOME` for the full system | `programs.hermes-agent.enable`, which exports it for your session only |
-| Desktop application | not supported, because a system service cannot own a user session | `programs.hermes-agent.desktop.enable` |
 | Container mode | supported | not supported, because it needs root and the Docker socket |
 
 ### Add the Flake Input
@@ -642,7 +631,7 @@ The option set is the same set that the NixOS module uses. It is `services.herme
 }
 ```
 
-Then import the module into your Home Manager configuration. The configuration can be standalone. It can also be under `home-manager.users.<name>` in a NixOS or nix-darwin configuration:
+Then import the module into your Home Manager configuration. The configuration can be standalone. It can also be under `home-manager.users.<name>` in a NixOS configuration:
 
 ```nix
 {
@@ -672,49 +661,7 @@ users.users.your-username.linger = true;
 sudo loginctl enable-linger your-username
 ```
 
-macOS has no equivalent option. A `launchd` agent with `RunAtLoad` starts at login and continues to run.
 :::
-
-### Running the Desktop / Dashboard Backend
-
-`gateway.enable` runs the messaging gateway for Telegram, Discord, Slack and the other platforms. A Hermes Desktop **remote** connection and the web dashboard connect to a *different* process, which is `hermes serve` or `hermes dashboard`. (A Desktop running on the same host attaches to the gateway itself via `hermes gateway ensure`.) `backend.mode` runs that process with the gateway:
-
-```nix
-{
-  services.hermes-agent = {
-    enable = true;
-    gateway.enable = true;      # messaging platforms
-    backend.mode = "dashboard"; # + the browser dashboard on 127.0.0.1:9119
-    backend.port = 9119;
-  };
-}
-```
-
-`serve` runs without a user interface. It gives the `/api/ws` and `/api/pty` sockets that Hermes Desktop connects to, and it does not build the web application. `dashboard` gives all of that, and also serves the browser admin panel. Both processes use one `HERMES_HOME` with the gateway. Thus the sessions, the skills, the memory and the cron jobs are the same for all of them. `backend.mode` works in the same way on the NixOS module, but not in container mode.
-
-:::warning Binding to an address other than loopback
-The default address is `127.0.0.1`. Each other address starts the authentication gate of the dashboard. The server also refuses each request with a `Host` header that is different from the address that the server bound to. This is a defence against DNS rebinding. Bind to the name or the address that your client uses.
-:::
-
-### Running the Webapp
-
-The package ships the [Webapp](../user-guide/desktop.md#use-the-desktop-workspace-from-a-browser) (Hermes Desktop in a browser) prebuilt, so nothing is built at run time; the store is read-only. The gateway serves it when its settings turn it on (see [Configuration → Webapp](../user-guide/configuration.md#webapp)):
-
-```nix
-{
-  services.hermes-agent = {
-    enable = true;
-    gateway.enable = true;
-    settings.webapp = {
-      enabled = true;
-      host = "127.0.0.1";
-      port = 9120;
-    };
-  };
-}
-```
-
-Open it with `hermes webapp`. A non-loopback `host` or a `public_url` needs one of the [dashboard's sign-in providers](../user-guide/features/web-dashboard.md#authentication-gated-mode), as for the dashboard. `nix build .#webapp` builds the bundle on its own. The wrapper points `HERMES_WEBAPP_DIST` at it, so `hermes webapp --force-build` has nothing to rebuild and says so.
 
 ### Verify It Works
 
@@ -722,10 +669,6 @@ Open it with `hermes webapp`. A non-loopback `host` or a `public_url` needs one 
 # Linux
 systemctl --user status hermes-agent
 journalctl --user -u hermes-agent -f
-
-# macOS
-launchctl list | grep hermes
-tail -f ~/Library/Logs/hermes-agent.log
 
 hermes --version
 hermes config     # shows the configuration that Nix wrote
@@ -858,14 +801,9 @@ requirements can still fail that resolution. The table lists common groups;
 | `matrix` | Matrix/Element (mautrix with encryption; Linux only) |
 | `dingtalk` | DingTalk |
 | `feishu` | Feishu/Lark |
-| `voice` | Local speech-to-text (faster-whisper) |
-| `edge-tts` | Edge TTS provider |
-| `tts-premium` | ElevenLabs TTS |
 | `anthropic` | Native Anthropic SDK (not needed via OpenRouter) |
 | `bedrock` | AWS Bedrock (boto3) |
 | `azure-identity` | Azure Entra ID auth |
-| `modal` | Modal terminal backend |
-| `daytona` | Daytona terminal backend |
 | `exa` | Exa web search |
 | `firecrawl` | Firecrawl web search |
 | `fal` | FAL image generation |
@@ -977,8 +915,7 @@ nix run .#update-pnpm-lockfile
 ```
 
 It brings `pnpm-lock.yaml` up to date with the manifests, rebuilds `.#pnpm-deps`
-to take the new hash, writes `nix/pnpm-deps-hash`, and builds `.#tui`, `.#web`,
-`.#webapp` and `.#desktop`. Without Nix, copy the hash the `nix` CI workflow's
+to take the new hash, writes `nix/pnpm-deps-hash`, and builds `.#tui`. Without Nix, copy the hash the `nix` CI workflow's
 `pnpm-deps-hash` job prints.
 
 ### Flake Checks
@@ -1074,23 +1011,12 @@ nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves use
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `extraArgs` | `listOf str` | `[]` | Extra args for `hermes gateway` |
-| `extraPackages` | `listOf package` | `[]` | Extra packages available to the agent. Added to the hermes user's per-user profile so terminal commands, skills, and cron jobs all see them |
+| `extraPackages` | `listOf package` | `[]` | Extra packages available to the agent. Added to the hermes user's per-user profile so terminal commands and skills all see them |
 | `extraPlugins` | `listOf package` | `[]` | Directory plugin packages to symlink into `$HERMES_HOME/plugins/`. Each must contain `plugin.yaml` |
 | `extraPythonPackages` | `listOf package` | `[]` | Python packages added to PYTHONPATH for entry-point plugin discovery. Use the selected package’s `python.pkgs` |
 | `extraDependencyGroups` | `listOf str` | `[]` | pyproject.toml optional extras added to the groups `package` already ships (e.g. `["google-meet"]`). Resolved by uv — no collisions |
-| `restart` | `str` | `"always"` | The systemd `Restart=` policy. macOS does not use it. |
-| `restartSec` | `int` | `5` | The systemd `RestartSec=` value. macOS does not use it. |
-
-### Backend (`hermes serve` / `hermes dashboard`)
-
-This option runs the process that a remote Hermes Desktop connection and the web dashboard connect to, with the gateway. You cannot use it with `container.enable`.
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `backend.mode` | `enum ["none" "serve" "dashboard"]` | `"none"` | `serve` runs without a user interface and gives `/api/ws` and `/api/pty`. `dashboard` also serves the browser panel. |
-| `backend.host` | `str` | `"127.0.0.1"` | The address to bind to. Each address other than loopback starts the authentication gate. |
-| `backend.port` | `port` | `9119` | The port to bind to |
-| `backend.extraArgs` | `listOf str` | `[]` | More arguments for the backend command |
+| `restart` | `str` | `"always"` | The systemd `Restart=` policy. |
+| `restartSec` | `int` | `5` | The systemd `RestartSec=` value. |
 
 ### Home Manager only
 
@@ -1103,40 +1029,13 @@ This option runs the process that a remote Hermes Desktop connection and the web
 
 Home Manager separates "install this application for me" from "run this
 daemon". `services.hermes-agent` keeps the state, the configuration and the
-daemons. `programs.hermes-agent` installs what you use, and reads
-`hermesHome` and the backend address from the services.
+daemons. `programs.hermes-agent` installs what you use and reads
+`hermesHome` from the services.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `enable` | `bool` | `false` | Add the `hermes` CLI to `home.packages`, and export `HERMES_HOME` for your shells |
 | `package` | `package` | `services.hermes-agent.package` | The package to install. The default applies `extraPythonPackages` and `extraDependencyGroups` from the services, so both are one build. |
-| `desktop.enable` | `bool` | `false` | Add the Hermes Desktop application, with a launcher entry on Linux |
-| `desktop.package` | `package` | `package.hermesDesktop` | The desktop package. The default follows `package`, so the application and the services run one Hermes runtime. |
-
-```nix
-programs.hermes-agent = {
-  enable = true;
-  desktop.enable = true;
-};
-
-services.hermes-agent = {
-  enable = true;
-  backend.mode = "serve";
-  backend.sessionTokenFile = config.sops.secrets."hermes/desktop-token".path;
-};
-```
-
-The launcher carries `HERMES_HOME` itself. A desktop menu reads no shell
-profile, so the value that `programs.hermes-agent.enable` exports with
-`home.sessionVariables` reaches an interactive shell only. Without the
-value in the launcher, the application opens `~/.hermes` while the
-services use `hermesHome`, and you see no sessions and no keys.
-
-With `backend.sessionTokenFile`, the application connects to the backend
-of the service instead of starting one of its own. Both sides read the
-file at start time, so the token enters no Nix store path. Without the
-option, each side runs its own backend.
-
 `services.hermes-agent.installPackage` was removed by this split. A
 configuration that still sets it gets an error that names the
 replacement.
@@ -1172,7 +1071,6 @@ replacement.
 │   ├── sessions/
 │   ├── memories/
 │   ├── skills/
-│   ├── cron/
 │   └── logs/
 ├── home/                            # Agent HOME
 └── workspace/                       # Agent working directory
@@ -1189,7 +1087,7 @@ replacement.
 ├── .managed                         # marker: names the system that manages this
 ├── .env                             # written again from environment + environmentFiles
 ├── auth.json                        # OAuth credentials: seeded, then Hermes owns it
-├── memories/  sessions/  skills/  cron/  logs/  plugins/
+├── memories/  sessions/  skills/  logs/  plugins/
 └── (runtime state)
 
 ~/                                   # workingDirectory, your home by default

@@ -140,7 +140,6 @@ def run_skill(cli, base_cmd, rest):
     connection = connection_for(cli)
     if connection is None:
         return False
-    from agent.i18n import t
     from cli import _cprint
     command = base_cmd.lstrip("/") + (" " + rest if rest else "")
     try:
@@ -149,7 +148,7 @@ def run_skill(cli, base_cmd, rest):
         _cprint(f"  {base_cmd}: {exc}")
         return True
     if reply.get("type") == "skill" and reply.get("message"):
-        cli._queue_loaded_skills(reply["message"], t("cli.skills.loading_skill", name=reply.get("name") or command), None)
+        cli._queue_loaded_skills(reply["message"], ('Loading skill: {name}').format(name=reply.get("name") or command), None)
     if reply.get("notice") or reply.get("output"):
         _cprint(f"  {reply.get('notice') or reply.get('output')}")
     return True

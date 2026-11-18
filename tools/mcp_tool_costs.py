@@ -15,7 +15,6 @@ from __future__ import annotations
 import math
 import threading
 from contextlib import contextmanager
-from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from typing import Any, Iterator, Mapping, Optional
 
@@ -108,18 +107,6 @@ _spent: dict[tuple, float] = {}
 # One budget prompt at a time per tally: a parallel call must see the total the previous approval booked,
 # and identical prompts would otherwise coalesce into one answer that releases several charges.
 _ask_locks: dict[tuple, threading.Lock] = {}
-# A cron run has no chat: its approval session key is "" for every job, so the scheduler binds the run's own
-# id here and each run gets its own tally instead of every job in the process sharing one.
-_run_key: ContextVar[str] = ContextVar("mcp_cost_run_key", default="")
-
-
-def bind_run(run_id: str) -> Token:
-    return _run_key.set(run_id)
-
-
-def unbind_run(token: Token) -> None:
-    _run_key.reset(token)
-
 
 def transfer_session(old_key: str, new_key: str) -> None:
     """The chat continues under a new session id (compression rotation, /branch): its totals move with it,
@@ -235,7 +222,7 @@ def pending_charge(policy_key: Any, server_name: str, tool_name: str, session_ke
     cost = policy.costs.get(tool_name)
     if cost is None or cost.high <= 0:
         return None
-    return Charge((policy_key, _run_key.get() or session_key), server_name, tool_name, cost, policy)
+    return Charge((policy_key, session_key), server_name, tool_name, cost, policy)
 
 
 def unknown_cost_keys(policy: Optional[CostPolicy], tool_names: list[str]) -> list[str]:

@@ -104,9 +104,8 @@ def _export_dump_excluding_session_vars(tmp_path: str, excluded_names: Iterable[
         # by every wrapper with ${VAR:-default} semantics; persisting them would
         # let the FIRST command's value override a later outer-harness value.
         "AI_AGENT HERMES_AGENT "
-        # Scope markers stamped onto a delegate_task child's / cron run's subprocess
-        # env; a snapshot taken inside that window would re-assert them on every
-        # later ``source`` and fence the PARENT session's kanban CLI (#90782).
+        # Strip delegated scope and inherited retired scheduler markers too: old
+        # environments must not leak either marker into later shell sessions.
         "HERMES_DELEGATED_CHILD_CONTEXT HERMES_CRON_SESSION "
         # Remote code-execution channel vars (RPC token, kernel/rpc dirs): a
         # leaked token in the snapshot would re-export into every later command

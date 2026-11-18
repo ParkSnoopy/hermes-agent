@@ -256,8 +256,7 @@ def message_agent_tool(target: str = "", message: str = "", task_id: Optional[st
                         "message_agent is unavailable. Do not retry.")
     except Exception as exc:  # pragma: no cover — defensive
         return _err(f"Bot Mode gate check failed: {exc}")
-    from hermes_cli.observability.shared_metrics_signals import record_feature_used
-    record_feature_used("bot_mode", hermes_home=home)
+
 
     root, me = _hermes_root(Path(home)), _self_profile_name(Path(home))
     roster_homes = dict(_roster(root))
@@ -843,7 +842,7 @@ def _spawn_delivery(command: str, label: str, *, dm_file: Optional[str] = None, 
         from tools.terminal_tool import terminal_tool
 
         raw = terminal_tool(command, background=True, notify_on_complete=wake != "none", task_id=task_id,
-                            workdir=str(Path(__file__).resolve().parent.parent), _host_local=True,
+                            workdir=str(Path(__file__).resolve().parent.parent),
                             _completion_output_chars=completion_chars)
         try:
             parsed = json.loads(raw)

@@ -1,8 +1,8 @@
 import { Box, Text, useInput, useStdout } from '@hermes/ink'
 import { useEffect, useMemo, useState } from 'react'
 
+import { pickersEn } from '../copy/pickers.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { useT } from '../i18n/useT.js'
 import { rpcErrorMessage } from '../lib/rpc.js'
 import type { Theme } from '../theme.js'
 
@@ -39,7 +39,7 @@ export function PetPicker({ gw, maxWidth, onClose, t }: PetPickerProps) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(true)
-  const T = useT()
+  const T = pickersEn
   const P = T.pickers.pet
   const C = T.pickers.common
 

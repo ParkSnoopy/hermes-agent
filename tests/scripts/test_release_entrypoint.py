@@ -52,6 +52,7 @@ def _claim(repo, version, commit, attempt=1):
     metadata = json.dumps({
         "schema": 1, "version": version, "attempt": attempt, "commit": commit,
         "autopublish": False, "claimEpoch": 1_790_000_000,
+        "lanes": sorted(lane_set.DEFAULT), "lanesRevision": lane_set.LANES_REVISION,
     }, sort_keys=True, separators=(",", ":"))
     ref = f"rc.{attempt}-v{version}"
     git(repo, "tag", "-a", ref, commit, "-m", metadata)
@@ -100,7 +101,7 @@ def test_release_claims_the_first_attempt_creates_a_draft_and_dispatches(source)
         return ""
 
     result = _release(source, commit, execute=execute, autopublish=True,
-                     lanes=lane_set.select(only=["docker", "ci"], with_=["windows"]))
+                     lanes=lane_set.select(only=["docker", "ci"], with_=["termux"]))
 
     assert result["version"] == "0.21.5"
     assert result["tag"] == "rc.1-v0.21.5"
@@ -117,11 +118,11 @@ def test_release_claims_the_first_attempt_creates_a_draft_and_dispatches(source)
         "autopublish": True,
         "commit": commit,
         "schema": 1,
-        "lanes": ["ci", "docker", "windows"],
+        "lanes": ["ci", "docker", "termux"],
         "lanesRevision": lane_set.LANES_REVISION,
         "version": "0.21.5",
     }
-    assert result["lanes"] == frozenset({"ci", "docker", "windows"})
+    assert result["lanes"] == frozenset({"ci", "docker", "termux"})
     create = calls[0]
     assert create[:4] == ["gh", "release", "create", "rc.1-v0.21.5"]
     assert "--verify-tag" in create and "--draft" in create
@@ -189,14 +190,12 @@ def test_release_output_names_the_ci_run_and_the_publish_step():
     assert "Autopublish is on" in automatic
     assert "publish --version" not in automatic
 
-    # --only windows,docker: no tests, no macOS, and a partial desktop set never moves the channel.
-    windows = next_steps({**result, "lanes": lane_set.select(only=["windows", "docker"])})
-    assert "Not built: windows-store, macos-arm64, termux." in windows
-    assert "Not tested: ci, nix, docker-tests, pm-bundle, windows-live, install-e2e, bootstrap-version, smoke, upgrade" in windows
-    assert "partial desktop release" in windows
-    assert "\033[" not in windows
+    lean = next_steps({**result, "lanes": lane_set.select(only=["termux", "docker"])})
+    assert "Not built" not in lean
+    assert "Not tested: ci, nix, docker-tests, pm-bundle, windows-live, install-e2e, termux-checks" in lean
+    assert "\033[" not in lean
     assert "\033[1mNot tested" in next_steps({**result, "lanes": lane_set.select(without=["ci"])}, bold=True)
-    assert "partial desktop release" not in text
+
 
 
 def test_an_unlisted_run_points_at_the_workflow_page():
@@ -504,8 +503,7 @@ def test_release_draft_lists_the_commits_since_the_stable_base(source, published
     assert "https://github.com/example/hermes-agent/pull/123" in body
     assert "hipped in the published release" not in body
     assert "compare/v0.21.4...rc.1-v0.21.5" in body
-    # The stable workflow renders the download tables into this marker.
-    assert "<!-- HERMES_BUILDS_TABLE -->" in body
+
     assert "python scripts/release.py publish --version 0.21.5" in body
     assert "python scripts/release.py abandon --version 0.21.5" in body
 
@@ -570,12 +568,11 @@ def test_no_changelog_releases_what_the_full_changelog_could_not(source, tmp_pat
 
     assert result["tag"] == "rc.1-v0.21.5"
     assert len(seen["body"]) <= GITHUB_BODY_LIMIT
-    assert "<!-- HERMES_BUILDS_TABLE -->" in seen["body"]
+    assert "# Hermes Agent v0.21.5 (rc.1-v0.21.5)" in seen["body"]
 
 
 def test_changelog_prints_the_notes_a_draft_would_carry_and_claims_nothing(source, monkeypatch, capsys):
     from scripts import release as release_script
-    from scripts.releases import entrypoint
 
     shipped = _advance(source, "fix: shipped in the published release")
     git(source, "tag", "-a", "v0.21.4", shipped, "-m", "published")
@@ -1071,10 +1068,10 @@ def test_a_concurrent_cut_of_another_version_is_stopped_before_dispatch(
 
 def test_release_refuses_an_unknown_lane_before_touching_git(tmp_path):
     ran = subprocess.run(
-        [sys.executable, "scripts/release.py", "release", "--commit", "HEAD", "--with", "macos-arm"],
+        [sys.executable, "scripts/release.py", "release", "--commit", "HEAD", "--with", "unknown-lane"],
         cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=False)
     assert ran.returncode != 0
-    assert "unknown lane macos-arm" in ran.stderr and "macos-arm64" in ran.stderr
+    assert "unknown lane unknown-lane" in ran.stderr and "termux" in ran.stderr
     both = subprocess.run(
         [sys.executable, "scripts/release.py", "release", "--commit", "HEAD", "--with", "ci", "--without", "ci"],
         cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=False)

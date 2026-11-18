@@ -1,82 +1,49 @@
-"""Profiles NAMED like a collection route (``active``, ``import``, ``sessions``) are ordinary profiles.
+"""Profile names are validated and isolated independently of old HTTP routes."""
 
-``/api/profiles/active`` is the sticky-default collection for GET/POST only, ``/import`` for POST,
-``/sessions`` for GET; PATCH/DELETE of those paths reach ``/api/profiles/{name}`` for the profile of
-that name. The registry grant and the native-http scope check used to be method-blind, so those
-profiles could never be renamed or deleted from Desktop, and an ordinary native-http grant could
-PATCH/DELETE the profile named ``sessions`` through the aggregate branch (review of #140970).
-"""
-import asyncio
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
-from starlette.datastructures import Headers, QueryParams
 
-from hermes_cli.dashboard_auth import native_http
-
-
-def _request(method, path, query=''):
-    async def json():
-        raise ValueError
-    return SimpleNamespace(method=method, url=SimpleNamespace(path=path), query_params=QueryParams(query),
-                           headers=Headers({}), json=json)
+from hermes_cli.profiles import (
+    create_profile,
+    get_profile_dir,
+    profile_matches_home,
+    validate_profile_name,
+)
 
 
 @pytest.fixture
-def root(tmp_path, monkeypatch):
-    root = tmp_path / 'root'
-    for name in ('active', 'import', 'sessions', 'beta'):
-        (root / 'profiles' / name).mkdir(parents=True)
-    monkeypatch.setenv('HERMES_HOME', str(root))
-    from hermes_cli import web_server_profiles
-    # The profile registry's own name -> dir mapping (validation + existence), rooted here.
-    monkeypatch.setattr(web_server_profiles, '_resolve_profile_dir',
-                        lambda name: root / 'profiles' / name if name != 'default' else root)
-    return root.resolve()
+def profile_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    root = tmp_path / ".hermes"
+    root.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(root))
+    return root
 
 
-@pytest.mark.parametrize('name', ['active', 'import', 'sessions'])
-@pytest.mark.parametrize('method', ['PATCH', 'DELETE'])
-def test_registry_grant_renames_and_deletes_a_profile_named_like_a_collection(root, name, method):
-    request = _request(method, f'/api/profiles/{name}')
-    assert native_http._registry_target(request) == name
-    native_http._check_registry_scope(request, str(root / 'profiles' / name), str(root))
-    with pytest.raises(PermissionError):  # still bound to the grant's own profile
-        native_http._check_registry_scope(request, str(root / 'profiles' / 'beta'), str(root))
+@pytest.mark.parametrize("name", ["active", "import", "sessions"])
+def test_former_route_names_are_ordinary_isolated_profiles(profile_root, name):
+    validate_profile_name(name)
+    profile = create_profile(name, no_alias=True, no_skills=True)
+    assert profile == profile_root / "profiles" / name
+    assert get_profile_dir(name) == profile
+    assert profile_matches_home(name, profile)
+    assert not profile_matches_home(name, profile_root)
+    assert not profile_matches_home("default", profile)
 
 
-@pytest.mark.parametrize('method,path', [('GET', '/api/profiles/active'), ('POST', '/api/profiles/active'),
-                                         ('POST', '/api/profiles/import'), ('GET', '/api/profiles/sessions')])
-def test_collection_routes_are_never_registry_targets(method, path):
-    assert native_http.profile_collection_route(path, method) is not None
-    assert native_http._registry_target(_request(method, path)) is None or method in {'GET', 'POST'}
+@pytest.mark.parametrize("name", ["../beta", "sessions/../beta", "/tmp/beta", ".."])
+def test_profile_paths_reject_traversal(profile_root, name):
+    with pytest.raises(ValueError):
+        get_profile_dir(name)
+    with pytest.raises(ValueError):
+        create_profile(name, no_alias=True, no_skills=True)
+    assert not profile_matches_home(name, profile_root)
 
 
-def test_native_http_grant_cannot_rename_or_delete_the_profile_named_sessions(root):
-    # @dokterdok: the aggregate-selector branch checked only ?profile=, with no method check.
-    for method in ('PATCH', 'DELETE'):
-        request = _request(method, '/api/profiles/sessions', 'profile=sessions')
-        with pytest.raises(PermissionError):
-            asyncio.run(native_http._check_profile_scope(request, str(root / 'profiles' / 'sessions')))
-    # Its collection read keeps working for the profile it names.
-    asyncio.run(native_http._check_profile_scope(_request('GET', '/api/profiles/sessions', 'profile=sessions'),
-                                                 str(root / 'profiles' / 'sessions')))
-
-
-def test_registry_scope_fails_closed_when_the_launch_home_is_unknown(root):
-    # @kshitijk4poor: _launch_home() returning None skipped the launch-home guard.
-    with pytest.raises(PermissionError):
-        native_http._check_registry_scope(_request('DELETE', '/api/profiles/beta'),
-                                          str(root / 'profiles' / 'beta'), None)
-
-
-def test_launch_home_guard_compares_home_keys_not_raw_paths(root, tmp_path):
-    # A launch home reached through a symlink is still the launch home (hermes_home_key, as
-    # SessionAuthorities keys it), so deleting it stays refused.
-    link = tmp_path / 'link'
-    link.symlink_to(root / 'profiles' / 'beta')
-    with pytest.raises(PermissionError):
-        native_http._check_registry_scope(_request('DELETE', '/api/profiles/beta'),
-                                          str(root / 'profiles' / 'beta'), str(link))
-    assert Path(link).resolve() == root / 'profiles' / 'beta'
+def test_profile_home_identity_resolves_symlinks(profile_root, tmp_path):
+    profile = create_profile("beta", no_alias=True, no_skills=True)
+    link = tmp_path / "profile-link"
+    link.symlink_to(profile, target_is_directory=True)
+    assert profile_matches_home("beta", link)
+    assert not profile_matches_home("active", link)

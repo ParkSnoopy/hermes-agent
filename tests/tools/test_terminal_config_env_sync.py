@@ -66,8 +66,8 @@ def _gateway_env_map() -> dict[str, str]:
         for key in sorted(candidates):
             for var in [v for v in os.environ if v.startswith("TERMINAL_")]:
                 del os.environ[var]
-            _bridge_terminal_config_to_env({key: probe})
-            written = [v for v, val in os.environ.items() if v.startswith("TERMINAL_") and val == probe]
+            _bridge_terminal_config_to_env({key: "local" if key == "backend" else probe})
+            written = [v for v, val in os.environ.items() if v.startswith("TERMINAL_") and val == ("local" if key == "backend" else probe)]
             if written:
                 (bridged[key],) = written
     return bridged

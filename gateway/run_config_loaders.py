@@ -17,9 +17,9 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from gateway.config import Platform
 from gateway.restart import (
-    DEFAULT_GATEWAY_CRON_DRAIN_TIMEOUT, DEFAULT_GATEWAY_POST_INTERRUPT_GRACE_TIMEOUT,
+    DEFAULT_GATEWAY_API_DRAIN_TIMEOUT, DEFAULT_GATEWAY_POST_INTERRUPT_GRACE_TIMEOUT,
     DEFAULT_GATEWAY_RESTART_AFTER_TURN_TIMEOUT, DEFAULT_GATEWAY_RESTART_DRAIN_TIMEOUT,
-    DEFAULT_GATEWAY_SIGNAL_INTERRUPT_GRACE_TIMEOUT, parse_cron_drain_timeout,
+    DEFAULT_GATEWAY_SIGNAL_INTERRUPT_GRACE_TIMEOUT, parse_api_drain_timeout,
     parse_restart_after_turn_timeout, parse_restart_drain_timeout,
     launchd_service_label, parse_signal_interrupt_grace_timeout, read_launchd_exit_timeout_s,
     resolve_launchd_capped_drain,
@@ -511,15 +511,13 @@ class GatewayConfigLoadersMixin:
         )
 
     @classmethod
-    def _load_cron_drain_timeout(cls) -> float:
-        """The cron and api_server (/v1) floor under the stop()/drain wait.
-
-        See #82161.
-        """
+    def _load_api_drain_timeout(cls) -> float:
+        """Independent API run drain floor in seconds."""
         return cls._load_env_or_agent_cfg_timeout(
-            "HERMES_CRON_DRAIN_TIMEOUT", "cron_drain_timeout",
-            parse_cron_drain_timeout, DEFAULT_GATEWAY_CRON_DRAIN_TIMEOUT,
+            "HERMES_API_DRAIN_TIMEOUT", "api_drain_timeout",
+            parse_api_drain_timeout, DEFAULT_GATEWAY_API_DRAIN_TIMEOUT,
         )
+
 
     @classmethod
     def _load_signal_interrupt_grace_timeout(cls) -> float:

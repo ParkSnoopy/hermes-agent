@@ -163,7 +163,7 @@ class TestReapedEnvFallbackIsFillOnly:
         # _active_environments empty. The cache is keyed by the COLLAPSED
         # container id ("default" for plain sessions) — that collapse is
         # exactly why the snapshot can belong to another session.
-        container_id = tt._resolve_container_task_id(task_id)
+        container_id = tt._resolve_task_id(task_id)
         monkeypatch.setattr(ft, "_file_ops_cache", {container_id: _StaleFileOps()})
         monkeypatch.setattr(tt, "_active_environments", {})
         monkeypatch.setattr(tt, "_last_activity", {})

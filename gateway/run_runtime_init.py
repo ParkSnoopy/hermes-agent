@@ -29,7 +29,8 @@ class GatewayRuntimeInitMixin:
         self._stop_requested_by_signal = False
         self._launchd_exit_timeout_s = self._load_launchd_exit_timeout(self._restart_drain_timeout)
         self._restart_after_turn_timeout = self._load_restart_after_turn_timeout()
-        self._cron_drain_timeout = self._load_cron_drain_timeout()
+        self._api_drain_timeout = self._load_api_drain_timeout()
+
         self._signal_interrupt_grace_timeout = self._load_signal_interrupt_grace_timeout()
         self._provider_routing = self._load_provider_routing()
         self._fallback_model = self._load_fallback_model()
@@ -65,11 +66,7 @@ class GatewayRuntimeInitMixin:
         self._restart_requested = self._signal_initiated_shutdown = self._restart_task_started = False
         self._restart_detached = self._restart_via_service = self._detached_restart_helper_started = False
         self._restart_command_source: Optional[SessionSource] = None
-        # Construction clock: bounds the /restart redelivery guard's window (missing dedup marker = stale).
-        self._startup_time: float = time.time()
-        # True when booted from a chat /restart (.restart_notify.json existed). One-shot signal so the
-        # marker-missing fallback suppresses a /restart only when we KNOW we just restarted.
-        self._booted_from_restart: bool = False
+
         self._stop_task: Optional[asyncio.Task] = None
         self._restart_task: Optional[asyncio.Task] = None
         self._executor_lock = threading.Lock()
@@ -134,8 +131,8 @@ class GatewayRuntimeInitMixin:
         self._completion_notification_batches_stopping = False
 
     def _init_runtime_caches(self) -> None:
-        """Agent cache, profile identity, Teams runtime, failed-platform tracking, slash-confirm counter."""
-        from gateway.run import (Any, Dict, Optional, OrderedDict, Platform, threading)
+        """Agent cache, profile identity, failed-platform tracking, slash-confirm counter."""
+        from gateway.run import (Any, Dict, OrderedDict, Platform, threading)
         # AIAgent per session preserves prompt caching (fresh agent per message ~10x cost on Anthropic).
         # Value: (AIAgent, config_signature); LRU cap in _enforce_agent_cache_cap, TTL in expiry watcher.
         self._agent_cache: OrderedDict[str, tuple] = OrderedDict()
@@ -145,13 +142,11 @@ class GatewayRuntimeInitMixin:
         # host's primary map is always the default profile, even when a named profile launched
         # the process (that launcher is a secondary adapter owner).
         launch = self._active_profile_name()
-        self._kanban_notifier_profile = launch
+
         self._primary_profile_name = (
             "default" if getattr(self.config, "multiplex_profiles", False) else launch
         )
-        # Teams meeting pipeline runtime (bound later when msgraph_webhook adapter exists).
-        self._teams_pipeline_runtime = None
-        self._teams_pipeline_runtime_error: Optional[str] = None
+
         # Failed-to-connect platforms for background reconnection: Platform -> {config, attempts, next_retry}
         self._failed_platforms: Dict[Platform, Dict[str, Any]] = {}
         # Strong refs to detached fatal-error handler tasks so the loop can't GC them mid-run.
@@ -216,10 +211,7 @@ class GatewayRuntimeInitMixin:
         self.pairing_stores: Dict[str, PairingStore] = {}
         # One HookRegistry per served profile home, resolved from the active scope at emit time.
         self.hooks = ProfileHookRegistries()
-        # Per-chat voice reply mode: "off" | "voice_only" | "all"
-        self._voice_mode: Dict[str, str] = self._load_voice_modes()
-        # Per-(bot, guild, text channel, user) transcript dedup: voice/STT can emit one utterance twice.
-        self._recent_voice_transcripts: Dict[tuple, List[tuple[float, str]]] = {}
+
         # Background tasks kept referenced so they are not garbage-collected mid-execution.
         self._background_tasks: set = set()
         # Event-loop liveness heartbeat: rewritten every 30s while the loop dispatches; supervisors use
@@ -228,11 +220,3 @@ class GatewayRuntimeInitMixin:
         self._gateway_started_at: float = time.time()
         self._loop_heartbeat_task: Optional[asyncio.Task] = None
         self._loop_floor_timer_handle = self._loop_liveness_watchdog = None
-        # scale-to-zero: gateway-scoped "last inbound seen" clock, stamped in _handle_message (the single
-        # inbound chokepoint) and seeded to "now" so a fresh gateway isn't idle from epoch.
-        self._last_inbound_at: float = time.time()
-        # Re-arm cooldown after a wake so we don't go dormant again before the drained backlog updates
-        # the clock; and a one-shot latch so the "platform owns the suspend" notice logs once.
-        self._scale_to_zero_cooldown_until: float = 0.0
-        self._scale_to_zero_no_suspend_logged: bool = False
-        self._scale_to_zero_direct_platform_logged: bool = False

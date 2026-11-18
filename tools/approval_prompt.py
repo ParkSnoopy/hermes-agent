@@ -72,11 +72,17 @@ _CLI_CHOICE_ALIASES = {
     "a": "always", "always": "always",
 }
 
-_CLI_CHOICE_I18N = {
-    "once": "approval.allowed_once",
-    "session": "approval.allowed_session",
-    "always": "approval.allowed_always",
-    "deny": "approval.denied",
+_CLI_CHOICE_MESSAGES = {
+    "once": "      ✓ Allowed once",
+    "session": "      ✓ Allowed for this session",
+    "always": "      ✓ Added to permanent allowlist",
+    "deny": "      ✗ Denied",
+}
+
+_CLI_MENUS = {
+    "smart_deny": ("      Choice [o/D]: ", "      [o]nce  |  [d]eny"),
+    "long": ("      Choice [o/s/a/D]: ", "      [o]nce  |  [s]ession  |  [a]lways  |  [d]eny"),
+    "short": ("      Choice [o/s/D]: ", "      [o]nce  |  [s]ession  |  [d]eny"),
 }
 
 
@@ -96,17 +102,6 @@ def _read_choice(prompt: str, timeout_seconds: int) -> str | None:
     return None if thread.is_alive() else result["choice"]
 
 
-def callback_accepts(callback, keyword: str) -> bool:
-    """True when *callback* takes ``keyword`` (or ``**kwargs``); approval callbacks predate ``title``
-    and a TypeError inside the callback would read as a deny."""
-    import inspect
-    try:
-        params = inspect.signature(callback).parameters
-    except (TypeError, ValueError):
-        return False
-    return keyword in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
-
-
 def _ask_human(command: str, description: str, timeout_seconds: int, allow_permanent: bool,
                approval_callback, allow_session: bool, smart_denied: bool, title: str | None = None) -> str:
     # Redact before any user-visible rendering; the original `command` still executes after approval. Same redactor as
@@ -119,11 +114,10 @@ def _ask_human(command: str, description: str, timeout_seconds: int, allow_perma
 
     if approval_callback is not None:
         try:
-            # Non-default scopes only: legacy callbacks lack the newer keywords.
             callback_kwargs = {"allow_permanent": allow_permanent,
                                **({"allow_session": False} if not allow_session else {}),
                                **({"smart_denied": True} if smart_denied else {}),
-                               **({"title": title} if title and callback_accepts(approval_callback, "title") else {})}
+                               "title": title}
             return approval_callback(display_command, display_description, **callback_kwargs)
         except Exception as e:
             logger.error("Approval callback failed: %s", e, exc_info=True)
@@ -151,30 +145,29 @@ def _ask_human(command: str, description: str, timeout_seconds: int, allow_perma
 
     os.environ["HERMES_SPINNER_PAUSE"] = "1"
     try:
-        from agent.i18n import t
-        # (prompt key, menu key) by menu shape: once/deny, full, or no [a]lways.
+        # Prompt and menu by shape: once/deny, full, or no [a]lways.
         shape = "smart_deny" if once_only else "long" if allow_permanent else "short"
-        prompt_key, menu_key = f"approval.prompt_{shape}", f"approval.choose_{shape}"
-        header = title or t('approval.dangerous_header', description=display_description)
+        prompt, menu = _CLI_MENUS[shape]
+        header = title or (f'⚠️  DANGEROUS COMMAND: {display_description}')
         print(f"\n  {header}"
-              f"\n      {display_command}\n\n{t(menu_key)}\n")
+              f"\n      {display_command}\n\n{menu}\n")
         sys.stdout.flush()
-        choice = _read_choice(t(prompt_key), timeout_seconds)
+        choice = _read_choice(prompt, timeout_seconds)
         if choice is None:
-            print("\n" + t("approval.timeout", **_ctx.approval_timeout_notice_kwargs()))
+            print("\n" + ('      ⏱ No answer in {waited} — the command was not run. Ask again to retry, or raise the limit: hermes config set approvals.timeout {suggested}').format(**_ctx.approval_timeout_notice_kwargs()))
             return "timeout"  # distinct from deny: the user never answered
         if once_only:
-            decision = {**dict.fromkeys(t("approval.smart_deny_once_inputs").split(","), "once"),
-                        **dict.fromkeys(t("approval.smart_deny_deny_inputs").split(","), "deny"),
+            decision = {**dict.fromkeys('o,once'.split(","), "once"),
+                        **dict.fromkeys('d,deny'.split(","), "deny"),
                         }.get(choice, "deny")
         else:
             decision = _CLI_CHOICE_ALIASES.get(choice, "deny")
             if decision == "always" and not allow_permanent:
                 decision = "session"
-        print(t(_CLI_CHOICE_I18N[decision]))
+        print(_CLI_CHOICE_MESSAGES[decision])
         return decision
     except (EOFError, KeyboardInterrupt):
-        print("\n" + t("approval.cancelled"))
+        print("\n" + '      ✗ Cancelled')
         return Unanswered("the prompt was interrupted before an answer was given")
     finally:
         os.environ.pop("HERMES_SPINNER_PAUSE", None)
@@ -325,7 +318,7 @@ def request_elicitation_consent(message: str, description: str, *,
     # A run without a callback still fails closed below; cron and ``-q`` workers stay excluded.
     api_run_context = (
         _ctx._get_session_platform() == "api_server"
-        and not _ctx._is_cron_approval_context()
+
         and not _ctx._is_single_query_approval_context()
     )
     if _ctx._is_gateway_approval_context() or api_run_context:

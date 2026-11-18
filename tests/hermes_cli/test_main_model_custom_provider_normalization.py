@@ -1,48 +1,30 @@
-"""Dashboard main-model writes preserve declared provider identities."""
+"""Configured providers retain their declared or canonical custom identities."""
 
-from unittest.mock import patch
+import pytest
 
-from hermes_cli.web_server_config import _normalize_main_model_assignment
-
-
-def _normalize(config, provider, model="vendor/model-a"):
-    with patch("hermes_cli.config.load_config", return_value=config):
-        return _normalize_main_model_assignment(provider, model)
+from hermes_cli.providers import resolve_custom_provider, resolve_user_provider
 
 
 def test_providers_block_keeps_declared_bare_slug():
-    result = _normalize(
-        {"providers": {"commandcode": {"base_url": "http://localhost:55990/v1"}}},
-        "commandcode",
+    result = resolve_user_provider(
+        "commandcode", {"commandcode": {"base_url": "http://localhost:55990/v1"}},
     )
 
-    assert result == ("commandcode", "vendor/model-a")
+    assert result is not None
+    assert result.id == "commandcode"
+    assert result.base_url == "http://localhost:55990/v1"
 
 
-def test_custom_provider_name_canonicalizes_to_durable_slug():
+@pytest.mark.parametrize("provider", ["US Azure", "custom:us-azure"])
+def test_custom_provider_name_canonicalizes_to_durable_slug(provider):
     config = {
         "custom_providers": [
             {"name": "US Azure", "base_url": "http://localhost:18025/v1"}
         ]
     }
 
-    assert _normalize(config, "US Azure") == ("custom:us-azure", "vendor/model-a")
-    assert _normalize(config, "custom:us-azure") == (
-        "custom:us-azure",
-        "vendor/model-a",
-    )
+    result = resolve_custom_provider(provider, config["custom_providers"])
 
-
-def test_unknown_vendor_still_uses_aggregator_fallback():
-    with patch("hermes_cli.models_detect.provider_has_credentials", lambda p: p == "openrouter"):
-        assert _normalize({}, "unconfigured-vendor") == (
-            "openrouter",
-            "vendor/model-a",
-        )
-
-
-def test_unknown_vendor_without_openrouter_key_is_not_reassigned():
-    """No key for the guessed aggregator → keep the pair as sent instead of persisting a provider
-    the user never selected."""
-    with patch("hermes_cli.models_detect.provider_has_credentials", lambda p: False):
-        assert _normalize({}, "unconfigured-vendor") == ("unconfigured-vendor", "vendor/model-a")
+    assert result is not None
+    assert result.id == "custom:us-azure"
+    assert result.base_url == "http://localhost:18025/v1"

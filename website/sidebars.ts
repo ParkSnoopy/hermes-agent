@@ -20,7 +20,6 @@ const sidebars: SidebarsConfig = {
         'getting-started/nix-setup',
         'getting-started/updating',
         'getting-started/learning-path',
-        'getting-started/official-domains',
       ],
     },
     {
@@ -30,10 +29,8 @@ const sidebars: SidebarsConfig = {
       items: [
         'user-guide/cli',
         'user-guide/tui',
-        'user-guide/desktop',
+
         'user-guide/bot-mode',
-        'user-guide/windows-native',
-        'user-guide/windows-wsl-quickstart',
         'user-guide/switching-to-source',
         'user-guide/configuration',
         'user-guide/which-file-does-what',
@@ -65,7 +62,7 @@ const sidebars: SidebarsConfig = {
         'user-guide/profiles',
         'user-guide/profile-distributions',
         'user-guide/multi-profile-gateways',
-        'user-guide/multi-connection-desktop',
+
         'user-guide/git-worktrees',
         'user-guide/docker',
         'user-guide/security',
@@ -97,7 +94,6 @@ const sidebars: SidebarsConfig = {
             'user-guide/features/mixture-of-agents',
             'user-guide/features/personality',
             'user-guide/features/skins',
-            'user-guide/features/language-packs',
             'user-guide/features/plugins',
             'user-guide/features/built-in-plugins',
             'user-guide/features/plugin-catalog',
@@ -107,14 +103,10 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'Automation',
           items: [
-            'user-guide/features/cron',
-            'reference/automation-blueprints-catalog',
             'user-guide/features/delegation',
-            'user-guide/features/kanban',
+
             'user-guide/features/codex-app-server-runtime',
-            'user-guide/features/kanban-tutorial',
-            'user-guide/features/kanban-worker-lanes',
-            'user-guide/features/kanban-multi-gateway',
+
             'user-guide/features/goals',
             'user-guide/features/heartbeat',
             'user-guide/features/loops',
@@ -127,8 +119,6 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'Media & Web',
           items: [
-            'user-guide/features/voice-mode',
-            'user-guide/features/wake-word',
             'user-guide/features/web-search',
             'user-guide/features/x-search',
             'user-guide/features/browser',
@@ -139,7 +129,6 @@ const sidebars: SidebarsConfig = {
             'user-guide/features/image-generation',
             'user-guide/features/spotify',
             'user-guide/features/pets',
-            'user-guide/features/tts',
             'user-guide/features/deliverable-mode',
           ],
         },
@@ -147,9 +136,7 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'Management',
           items: [
-            'user-guide/features/web-dashboard',
-            'user-guide/features/extending-the-dashboard',
-            'user-guide/features/api-server',
+
             'user-guide/features/subscription-proxy',
           ],
         },
@@ -165,18 +152,7 @@ const sidebars: SidebarsConfig = {
               label: 'Bundled',
               collapsed: true,
               items: [
-                {
-                  type: 'category',
-                  label: 'apple',
-                  key: 'skills-bundled-apple',
-                  collapsed: true,
-                  items: [
-                    'user-guide/skills/bundled/apple/apple-apple-notes',
-                    'user-guide/skills/bundled/apple/apple-apple-reminders',
-                    'user-guide/skills/bundled/apple/apple-findmy',
-                    'user-guide/skills/bundled/apple/apple-imessage',
-                  ],
-                },
+
                 {
                   type: 'category',
                   label: 'autonomous-ai-agents',
@@ -206,15 +182,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/bundled/creative/creative-songwriting-and-ai-music',
                   ],
                 },
-                {
-                  type: 'category',
-                  label: 'devops',
-                  key: 'skills-bundled-devops',
-                  collapsed: true,
-                  items: [
-                    'user-guide/skills/bundled/devops/devops-sdlc-review',
-                  ],
-                },
+
                 {
                   type: 'category',
                   label: 'email',
@@ -373,7 +341,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/optional/creative/creative-hyperframes',
                     'user-guide/skills/optional/creative/creative-impeccable',
                     'user-guide/skills/optional/creative/creative-ip-as-logo',
-                    'user-guide/skills/optional/creative/creative-kanban-video-orchestrator',
+
                     'user-guide/skills/optional/creative/creative-meme-generation',
                     'user-guide/skills/optional/creative/creative-mono-color',
                     'user-guide/skills/optional/creative/creative-pixel-art',
@@ -501,7 +469,6 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/optional/mlops/mlops-flash-attention',
                     'user-guide/skills/optional/mlops/mlops-lambda-labs',
                     'user-guide/skills/optional/mlops/mlops-inference-llama-cpp',
-                    'user-guide/skills/optional/mlops/mlops-modal',
                     'user-guide/skills/optional/mlops/mlops-nemo-curator',
                     'user-guide/skills/optional/mlops/mlops-obliteratus',
                     'user-guide/skills/optional/mlops/mlops-peft',
@@ -608,7 +575,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/optional/software-development/software-development-code-wiki',
                     'user-guide/skills/optional/software-development/software-development-grill-me',
                     'user-guide/skills/optional/software-development/software-development-hermes-agent-skill-authoring',
-                    'user-guide/skills/optional/software-development/software-development-inspecting-hermes-desktop-dom',
+
                     'user-guide/skills/optional/software-development/software-development-node-inspect-debugger',
                     'user-guide/skills/optional/software-development/software-development-pr-lens',
                     'user-guide/skills/optional/software-development/software-development-python-debugpy',
@@ -637,67 +604,12 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Messaging Platforms',
+      label: 'API and integrations',
       collapsed: true,
       items: [
-        'user-guide/messaging/index',
-        {
-          type: 'category',
-          label: 'Popular',
-          items: [
-            'user-guide/messaging/telegram',
-            'user-guide/messaging/discord',
-            'user-guide/messaging/slack',
-            'user-guide/messaging/whatsapp',
-            'user-guide/messaging/whatsapp-cloud',
-            'user-guide/messaging/signal',
-            'user-guide/messaging/email',
-            'user-guide/messaging/sms',
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Microsoft 365',
-          items: [
-            'user-guide/messaging/teams',
-            'user-guide/messaging/teams-meetings',
-            'user-guide/messaging/msgraph-webhook',
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Chinese platforms',
-          items: [
-            'user-guide/messaging/dingtalk',
-            'user-guide/messaging/feishu',
-            'user-guide/messaging/wecom',
-            'user-guide/messaging/wecom-callback',
-            'user-guide/messaging/weixin',
-            'user-guide/messaging/qqbot',
-            'user-guide/messaging/yuanbao',
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Other',
-          items: [
-            'user-guide/messaging/a2a',
-            'user-guide/messaging/homeassistant',
-            'user-guide/messaging/mattermost',
-            'user-guide/messaging/matrix',
-            'user-guide/messaging/bluebubbles',
-            'user-guide/messaging/buzz',
-            'user-guide/messaging/photon',
-            'user-guide/messaging/google_chat',
-            'user-guide/messaging/line',
-            'user-guide/messaging/simplex',
-            'user-guide/messaging/ntfy',
-            'user-guide/messaging/irc',
-            'user-guide/messaging/open-webui',
-            'user-guide/messaging/relay',
-            'user-guide/messaging/webhooks',
-          ],
-        },
+        'user-guide/messaging/a2a',
+
+
       ],
     },
     {
@@ -721,29 +633,20 @@ const sidebars: SidebarsConfig = {
       label: 'Guides & Tutorials',
       collapsed: true,
       items: [
-        'guides/run-nemotron-3-ultra-free',
         'guides/run-hermes-with-nous-portal',
         'guides/tips',
         'guides/secure-hermes-on-a-work-machine',
-        'guides/local-llm-on-mac',
-        'guides/daily-briefing-bot',
-        'guides/team-telegram-assistant',
+
         'guides/python-library',
         'guides/use-mcp-with-hermes',
         'guides/manage-hermes-cloud-with-mcp',
         'guides/use-soul-with-hermes',
-        'guides/use-voice-mode-with-hermes',
-        'guides/automate-with-cron',
-        'guides/cron-script-only',
-        'guides/automation-blueprints',
-        'guides/cron-troubleshooting',
         'guides/troubleshooting-agent-quality',
         'guides/work-with-skills',
         'guides/delegation-patterns',
         'guides/agent-email-address',
-        'guides/github-pr-review-agent',
+        'guides/webhook-automation-examples',
         'guides/webhook-github-pr-review',
-        'guides/migrate-from-openclaw',
         'guides/aws-bedrock',
         'guides/google-vertex',
         'guides/azure-foundry',
@@ -800,7 +703,7 @@ const sidebars: SidebarsConfig = {
                 'developer-guide/observer-hooks',
                 'developer-guide/middleware',
                 'developer-guide/subagent-lifecycle-api',
-                'developer-guide/desktop-plugin-sdk',
+
                 'developer-guide/memory-provider-plugin',
                 'developer-guide/context-engine-plugin',
                 'developer-guide/secret-source-plugin',
@@ -810,7 +713,6 @@ const sidebars: SidebarsConfig = {
                 'developer-guide/video-gen-provider-plugin',
                 'developer-guide/web-search-provider-plugin',
                 'developer-guide/browser-provider-plugin',
-                'developer-guide/terminal-environment-plugin',
                 'developer-guide/delegation-provider-plugin',
                 'developer-guide/plugins/application-declarations',
                 'developer-guide/plugins/catalog-submission',
@@ -828,13 +730,8 @@ const sidebars: SidebarsConfig = {
             'developer-guide/tools-runtime',
             'developer-guide/browser-supervisor',
             'developer-guide/acp-internals',
-            'developer-guide/cron-internals',
-            'developer-guide/chronos-managed-cron-contract',
             'developer-guide/egress-internals',
-            'developer-guide/gateway-monitoring',
-            'developer-guide/relay-connector-contract',
-            'developer-guide/relay-shared-metrics',
-            'developer-guide/streaming-tts',
+
             'developer-guide/billing-lifecycle',
             'developer-guide/trajectory-format',
           ],
@@ -846,7 +743,6 @@ const sidebars: SidebarsConfig = {
             'developer-guide/source-update-completion',
             'developer-guide/shared-bundle-builds',
             'developer-guide/stable-releases',
-            'developer-guide/macos-bundle-updates',
             'developer-guide/pm-audit-status',
           ],
         },

@@ -33,9 +33,8 @@ def _adopt_gateway_toolsets(cli, store):
     if getattr(cli, "enabled_toolsets", None) is None and isinstance(info.get("enabled_toolsets"), list):
         cli.enabled_toolsets = list(info["enabled_toolsets"])
     if info.get("unknown_toolsets"):
-        from agent.i18n import t as _t
         names = ", ".join(info["unknown_toolsets"])
-        cli._console_print(f"[bold red]{_t('cli.startup.unknown_toolsets', names=names)}[/]")
+        cli._console_print(f"[bold red]{(f'Warning: Unknown toolsets: {names}')}[/]")
 
 
 def _gateway_launch(cli):
@@ -391,7 +390,7 @@ class CLIInitMixin:
         self._fallback_model = get_fallback_chain(CLI_CONFIG)
 
     def _init_runtime_state(self, resume):
-        """Session store + all per-run mutable state (queues, overlays, pet/voice/status-bar fields)."""
+        """Session store + per-run mutable state (queues, overlays, pet and status-bar fields)."""
         from cli import _hermes_home
         from hermes_cli.left_core_migration import serve_notices_on_stderr
         serve_notices_on_stderr()
@@ -438,15 +437,13 @@ class CLIInitMixin:
             self._session_db_unavailable = True
             logger.warning("Failed to initialize SessionDB — session will NOT be indexed for search: %s", e)
             from hermes_state_user_copy import describe_storage_failure, storage_failure_details
-            from agent.i18n import t
             failure = describe_storage_failure(e)
+            details = storage_failure_details(e)
             def _present_store_warning():
                 try:
-                    Console(stderr=True).print(t(
-                        "cli.session_store.unavailable_rich",
-                        reason=failure.gloss, action=failure.action, details=storage_failure_details(e)))
+                    Console(stderr=True).print(f'[bold yellow]⚠ Session store unavailable[/bold yellow] — this conversation will [bold]NOT be saved[/bold] and cannot be resumed later. Searching past sessions is also disabled.\n  Reason: {failure.gloss}.\n  {failure.action}\n  [dim]Details: {details}[/dim]')
                 except Exception:
-                    print(t("cli.session_store.unavailable_plain", reason=failure.gloss, action=failure.action))
+                    print(f'WARNING: Session store unavailable — this conversation will NOT be saved and cannot be resumed later. Reason: {failure.gloss}. {failure.action}')
             # Same automatic diagnostic the gateway gates for its home channel (run_notifications).
             from gateway.warning_notifications import render_notification
             render_notification(_present_store_warning, platform="cli")
@@ -572,17 +569,6 @@ class CLIInitMixin:
         self._preload_skills_finalized = False
         self._active_session_lease = None
 
-        # Voice mode state (also reinitialized inside run() for interactive TUI).
-        self._voice_lock = threading.Lock()
-        self._voice_mode = self._voice_tts = self._voice_recording = False
-        self._voice_processing = self._voice_continuous = False
-        self._voice_recorder = self._voice_tts_stop = None
-        self._voice_live_text = ""  # live STT partial (stt.streaming) shown in the placeholder
-        self._voice_tts_done = threading.Event()
-        self._voice_tts_done.set()
-        self._voice_barge_capture = threading.Event()  # barge monitor is capturing the interruption
-        self._voice_last_tts_text = ""  # echo guard
-        self._voice_barge_phase = None  # "generation" | "playback"
 
         self._status_bar_visible = _status_bar_visible_from_display_config(CLI_CONFIG.get("display"))
         self._battery_visible = bool(CLI_CONFIG["display"].get("battery", False))

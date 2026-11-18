@@ -31,7 +31,7 @@ import re
 import time
 import threading
 import uuid
-import warnings
+
 from typing import List, Dict, Any, Optional, Callable
 from datetime import datetime
 from pathlib import Path
@@ -100,7 +100,7 @@ if not _loaded_env_paths:
     logger.info("No .env file found. Using system environment variables.")
 
 
-from model_tools import get_toolset_for_tool
+from tools.registry import registry as tool_registry
 from tools.terminal_tool_lifecycle import cleanup_vm, get_active_env
 from tools.interrupt import set_interrupt as _set_interrupt
 from tools.browser_session_lifecycle import cleanup_browser
@@ -135,7 +135,7 @@ from agent.codex_responses_adapter import (
     _summarize_user_message_for_log,
 )
 from agent.tool_guardrails import ToolGuardrailDecision, append_toolguard_guidance, toolguard_synthetic_result
-from hermes_cli.observability.shared_metrics_harness import record_guardrail_decision, record_guardrail_warnings
+
 from utils import base_url_host_matches, base_url_hostname, env_float, model_forces_max_completion_tokens
 
 
@@ -239,7 +239,7 @@ class AIAgent(
         acp_command: str | None = None, acp_args: list[str] | None = None, command: str | None = None, args: list[str] | None = None,
         model: str = "",
         max_iterations: int = sys.maxsize,  # unlimited tool-calling iterations by default (shared with subagents)
-        tool_delay: float | None = None,  # deprecated: accepted for compatibility, ignored
+
         enabled_toolsets: list[str] | None = None, disabled_toolsets: list[str] | None = None,
         save_trajectories: bool = False, verbose_logging: bool = False, quiet_mode: bool = False,
         tool_progress_mode: str = "all", ephemeral_system_prompt: str | None = None,
@@ -251,11 +251,7 @@ class AIAgent(
         tool_progress_callback: Callable[..., Any] | None = None, tool_start_callback: Callable[..., Any] | None = None,
         tool_complete_callback: Callable[..., Any] | None = None, thinking_callback: Callable[..., Any] | None = None,
         reasoning_callback: Callable[..., Any] | None = None, clarify_callback: Callable[..., Any] | None = None,
-        read_terminal_callback: Callable[..., Any] | None = None, read_preview_callback: Callable[..., Any] | None = None,
-        drive_preview_callback: Callable[..., Any] | None = None, read_window_below_callback: Callable[..., Any] | None = None,
-        connection_callback: Callable[..., Any] | None = None, tour_callback: Callable[..., Any] | None = None,
-        theme_callback: Callable[..., Any] | None = None,
-        setup_beat_callback: Callable[..., Any] | None = None,
+        connection_callback: Callable[..., Any] | None = None,
         step_callback: Callable[..., Any] | None = None,
         stream_delta_callback: Callable[..., Any] | None = None, interim_assistant_callback: Callable[..., Any] | None = None,
         tool_gen_callback: Callable[..., Any] | None = None, status_callback: Callable[..., Any] | None = None,
@@ -279,11 +275,8 @@ class AIAgent(
         side_agent: bool = False, memory_manager=None, memory_agent_context: str | None = None,
         tool_result_metadata_callback: Optional[Callable[..., dict]] = None,
     ):
-        """Forwarder — see ``agent.agent_init.init_agent`` (same keyword parameters, minus ``tool_delay``)."""
-        init_kwargs = {k: v for k, v in locals().items() if k not in ("self", "tool_delay")}
-        if tool_delay is not None:
-            warnings.warn("tool_delay is deprecated and ignored; sequential tool calls "
-                          "no longer sleep between executions.", DeprecationWarning, stacklevel=2)
+        """Forward the current keyword parameters to ``agent.agent_init.init_agent``."""
+        init_kwargs = {k: v for k, v in locals().items() if k != "self"}
         from agent.agent_init import init_agent
         init_agent(self, **init_kwargs)
 
@@ -1082,7 +1075,7 @@ class AIAgent(
 
     @classmethod
     def _tool_response_matches_todo_call(cls, history: list[dict[str, Any]], tool_index: int) -> bool:
-        """True when the nearest prior assistant message issued a Todo-tool call (legacy aliases and the
+        """True when the nearest prior assistant message issued a Todo-tool call (including the
         ``tool_call`` bridge canonicalized) with this ``tool_call_id``; a ``user``/``system`` boundary or
         missing id means unpaired → must not hydrate."""
         tool_call_id = history[tool_index].get("tool_call_id") if 0 <= tool_index < len(history) else None
@@ -1258,8 +1251,7 @@ class AIAgent(
         """Record the first guardrail decision that should stop this turn."""
         if decision.should_halt and self._tool_guardrail_halt_decision is None:
             self._tool_guardrail_halt_decision = decision
-        if decision.should_halt:
-            record_guardrail_decision(self, decision.action, decision.code)
+
 
     def _toolguard_controlled_halt_response(self, decision: ToolGuardrailDecision) -> str:
         # Shown to the user as the reply, so no decision codes; the code stays in result["guardrail"].
@@ -1275,14 +1267,14 @@ class AIAgent(
         decision = self._tool_guardrails.after_call(tool_name, function_args, function_result, failed=failed)
         # Identical-call stall guards observe the RAW result (before the per-call loop suffix) and are applied
         # at result construction so tool results stay append-only / cache-safe.
-        stall_notice = result_stub = stall_kind = None
+        stall_notice = result_stub = None
         if self._stall_guards_enabled():
             try:
                 observation = self._tool_guardrails.observe_call(
                     tool_name, function_args, function_result if isinstance(function_result, str) else None,
                     tool_call_id=tool_call_id, failed=failed,
                 )
-                stall_notice, result_stub, stall_kind = observation.notice, observation.stub, observation.kind
+                stall_notice, result_stub = observation.notice, observation.stub
             except Exception as exc:
                 logger.debug("stall-guard identical-call observation failed: %s", exc)
         # Result-reference stubbing: a 2nd+ identical call with a byte-identical FRESH result enters
@@ -1291,7 +1283,7 @@ class AIAgent(
             function_result = result_stub
         if decision.action in {"warn", "halt"}:
             function_result = append_toolguard_guidance(function_result, decision)
-        record_guardrail_warnings(self, decision, stall_kind if stall_notice else None)
+
         if decision.should_halt:
             self._set_tool_guardrail_halt(decision)
         else:
@@ -1385,8 +1377,7 @@ class AIAgent(
     _handle_max_iterations = _forward("agent.chat_completion_helpers", "handle_max_iterations")
 
     def _conversation_root_id(self) -> Optional[str]:
-        """Session-lineage ROOT id for Portal usage attribution, so one conversation keeps a single
-        ``conversation=`` tag across compression rotation; subagents resolve via ``_parent_session_id``."""
+        """Stable routing root across compression; subagents resolve via ``_parent_session_id``."""
         cached = getattr(self, "_cached_conversation_root", None)
         if cached:
             return str(cached)
@@ -1426,10 +1417,11 @@ _LIST_TOOLS_USAGE = """
 
 
 def _print_tool_listing() -> None:
-    """``--list_tools``: print toolsets (basic / composite / scenario / legacy), every tool, and usage examples."""
-    from model_tools import get_all_tool_names, get_available_toolsets
+    """``--list_tools``: print toolsets, individual tools, and usage examples."""
+    import model_tools
     from toolsets import get_all_toolsets, get_toolset_info
 
+    model_tools.discover_builtin_tools()
     print("📋 Available Tools & Toolsets:")
     print("-" * 50)
     print("\n🎯 Predefined Toolsets (New System):")
@@ -1453,15 +1445,10 @@ def _print_tool_listing() -> None:
     for name, info in scenario_toolsets:
         print(f"  • {name:20} - {info['description']}")
         print(f"    Total tools: {info['tool_count']}")
-    print("\n📦 Legacy Toolsets (for backward compatibility):")
-    for name, info in get_available_toolsets().items():
-        print(f"  {'✅' if info['available'] else '❌'} {name}: {info['description']}")
-        if not info["available"]:
-            print(f"    Requirements: {', '.join(info['requirements'])}")
-    all_tools = get_all_tool_names()
+    all_tools = tool_registry.get_all_tool_names()
     print(f"\n🔧 Individual Tools ({len(all_tools)} available):")
     for tool_name in sorted(all_tools):
-        print(f"  📌 {tool_name} (from {get_toolset_for_tool(tool_name)})")
+        print(f"  📌 {tool_name} (from {tool_registry.get_toolset_for_tool(tool_name)})")
     print(_LIST_TOOLS_USAGE)
 
 

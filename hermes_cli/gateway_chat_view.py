@@ -347,13 +347,7 @@ class GatewayChatView:
                                         input_id=uuid.uuid4().hex, text=text,
                                         **({"finite": True} if self.finite else {}),
                                         **({"unattended": True} if self.finite and self.unattended else {}))
-        if (receipt or {}).get("voice_stopped") is True:
-            # TUI-26: a bare stop phrase typed into this LOCAL session's voice chat (another viewer
-            # turned it on) ended the chat on the owner; nothing was admitted and no turn follows.
-            if not self.quiet:
-                from agent.i18n import t
-                print(t("cli.voice.stop_phrase_typed"), flush=True)
-            return receipt
+
         admission = (receipt or {}).get("admission_id")
         if admission and admission not in self.completions and self.session_id == sid:
             self.mine[admission] = None
@@ -445,20 +439,19 @@ class GatewayChatView:
         """The owner refused a guarded model target (cost / data policy / large context): ask as
         the in-process CLI does (``_confirm_expensive_model_switch``: switch anyway once, or cancel)
         on this composer. Only an explicit yes applies; anything else keeps the current model."""
-        from agent.i18n import t
         from hermes_cli.gateway_mutations import confirm_choice, confirmation_title
-        choices = [("once", t("cli.model.choice_switch_anyway"), t("cli.model.desc_switch_anyway")),
-                   ("cancel", t("cli.model.choice_cancel"), t("cli.model.desc_keep_current_model"))]
+        choices = [("once", 'Switch anyway', 'Use this model for the current Hermes session.'),
+                   ("cancel", 'Cancel', 'Keep the current model.')]
         print(f"\n!!! {confirmation_title(refusal)} !!!\n{refusal['confirm_message']}\n")
         for index, (_, label, detail) in enumerate(choices, 1):
             print(f"  {index}. {label} \u2014 {detail}")
         try:
-            raw = await self._read_line(self._composer, t("cli.model.confirm_choice_prompt"))
+            raw = await self._read_line(self._composer, 'Choice [1/2]: ')
         except (KeyboardInterrupt, EOFError):
             raw = ""
         if not self.failure and confirm_choice(raw, choices) == "once":
             return True
-        print(t("cli.model.switch_cancelled"))
+        print('Model switch cancelled.')
         return False
 
     def _detach(self, message):
@@ -549,8 +542,7 @@ class GatewayChatView:
             receipt = await self.submit(query) if query else None
             if oneshot:
                 admission = _oneshot_admission(receipt)
-                if admission is None:
-                    return 0  # the voice chat ended; no turn was admitted, so none is awaited
+
                 self.finite_admission = admission
                 for kind, event_admission, payload in self._finite_events:
                     if event_admission == admission and admission not in self.completions:
@@ -579,7 +571,7 @@ class GatewayChatView:
                 result.update(failed=bool(result.get("failed")) or outcome not in ("completed", "cancelled"),
                               interrupted=bool(result.get("interrupted")) or outcome == "cancelled")
                 exit_code = (_oneshot_exit_code(text, result) if self.unattended
-                             else turn_exit_code(result, kanban_worker=False))
+                             else turn_exit_code(result))
                 if self.usage_file:
                     self._write_usage_file(result, outcome)
                 if self.emitter is not None:
@@ -633,18 +625,16 @@ class GatewayChatView:
 
 
 def _oneshot_admission(receipt):
-    """The one-shot query's admission id; None when the owner admitted nothing because the query was a
-    bare stop phrase that ended the session's LOCAL voice chat (TUI-26 ``{voice_stopped: true}``)."""
+    """Return the one-shot query's admission id."""
     if receipt is None:
         raise GatewayClientError("One-shot requires a query")
-    return None if receipt.get("voice_stopped") is True else receipt["admission_id"]
+    return receipt["admission_id"]
 
 
 def resume_footer(session_id):
     """The classic single-query exit block (``_print_exit_summary``): how to continue this session.
     A non-default profile needs ``-p`` because session ids are profile-scoped."""
-    from agent.i18n import t
     from hermes_cli.profiles import get_active_profile_name
     profile = get_active_profile_name()
     flag = "" if profile in ("default", "custom") else f" -p {profile}"
-    return f"\n{t('cli.session.exit_resume_hint')}\n  hermes --resume {session_id}{flag}"
+    return f"\n{'Resume this session with:'}\n  hermes --resume {session_id}{flag}"

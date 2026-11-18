@@ -28,12 +28,7 @@ def _read_config(tmp_path):
         # _migrate_to_12: a non-string custom_providers name falls back to the hostname key.
         (11, {"custom_providers": [{"name": 5, "base_url": "https://api.example.com/v1"}]},
          ("providers", "api-example-com", "api"), "https://api.example.com/v1"),
-        # _migrate_to_14: a mapping stt.provider is treated as the "local" default.
-        (13, {"stt": {"model": "tiny", "provider": {"nested": True}}},
-         ("stt", "local", "model"), "tiny"),
-        # _migrate_to_14: a scalar stt.<section> is replaced, not indexed.
-        (13, {"stt": {"model": "base", "provider": "openai", "openai": 5}},
-         ("stt", "openai", "model"), "base"),
+
         # _migrate_to_16: a scalar display.platforms.<plat> slot is replaced, not indexed.
         (15, {"display": {"tool_progress_overrides": {"telegram": "all"}, "platforms": {"telegram": 5}}},
          ("display", "platforms", "telegram", "tool_progress"), "all"),
@@ -43,7 +38,7 @@ def _read_config(tmp_path):
         (16, {"compression": {"summary_model": "fast-model"}, "auxiliary": {"compression": "x"}},
          ("auxiliary", "compression", "model"), "fast-model"),
     ],
-    ids=["v12-name-int", "v14-provider-map", "v14-section-scalar", "v16-platform-scalar",
+    ids=["v12-name-int", "v16-platform-scalar",
          "v17-auxiliary-scalar", "v17-compression-scalar"],
 )
 def test_malformed_nested_value_is_migrated_not_crashed(tmp_path, current_ver, config, path, expected):

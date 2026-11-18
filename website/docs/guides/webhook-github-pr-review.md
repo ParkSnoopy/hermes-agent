@@ -11,16 +11,8 @@ This guide walks you through connecting Hermes Agent to GitHub so it automatical
 
 When a PR is opened or updated, GitHub sends a webhook POST to your Hermes instance. Hermes runs the agent with a prompt that instructs it to retrieve the diff via the `gh` CLI, and the response is posted back to the PR thread.
 
-:::tip Want a simpler setup without a public endpoint?
-If you don't have a public URL or just want to get started quickly, check out [Build a GitHub PR Review Agent](./github-pr-review-agent.md) — uses cron jobs to poll for PRs on a schedule, works behind NAT and firewalls.
-:::
-
-:::info Reference docs
-For the full webhook platform reference (all config options, delivery types, dynamic subscriptions, security model) see [Webhooks](../user-guide/messaging/webhooks.md).
-:::
-
 :::warning Prompt injection risk
-Webhook payloads contain attacker-controlled data — PR titles, commit messages, and descriptions can contain malicious instructions. When your webhook endpoint is exposed to the internet, run the gateway in a sandboxed environment (Docker, SSH backend). See the [security section](#security-notes) below.
+Webhook payloads contain attacker-controlled data — PR titles, commit messages, and descriptions can contain malicious instructions. When your webhook endpoint is exposed to the internet, consider running Hermes itself on a separately administered host or VM with appropriately restricted permissions. See the [security section](#security-notes) below.
 :::
 
 ---
@@ -88,7 +80,7 @@ platforms:
 | `deliver_extra.pr_number` | Resolves to the PR number from the payload. |
 
 :::note The payload does not contain code
-The GitHub webhook payload includes PR metadata (title, description, branch names, URLs) but **not the diff**. The prompt above instructs the agent to run `gh pr diff` to fetch the actual changes. The default `hermes-webhook` toolset is deliberately constrained (web search/extract, vision, clarify — **no terminal**) because webhook payloads can carry untrusted content. To let this route run `gh`, add a per-route toolset grant: `toolsets: ["terminal", "web"]` on the route config — see [Per-route toolsets](../user-guide/messaging/webhooks.md#per-route-toolsets).
+The GitHub webhook payload includes PR metadata (title, description, branch names, URLs) but **not the diff**. The prompt above instructs the agent to run `gh pr diff` to fetch the actual changes. The default `hermes-webhook` toolset is deliberately constrained (web search/extract, vision, clarify — **no terminal**) because webhook payloads can carry untrusted content. To let this route run `gh`, add a per-route toolset grant: `toolsets: ["terminal", "web"]` on the route config.
 :::
 
 ---
@@ -330,7 +322,5 @@ platforms:
 
 ## What's Next?
 
-- **[Cron-Based PR Reviews](./github-pr-review-agent.md)** — poll for PRs on a schedule, no public endpoint needed
-- **[Webhook Reference](../user-guide/messaging/webhooks.md)** — full config reference for the webhook platform
 - **[Build a Plugin](../developer-guide/plugins/index.md)** — package review logic into a shareable plugin
 - **[Profiles](../user-guide/profiles.md)** — run a dedicated reviewer profile with its own memory and config

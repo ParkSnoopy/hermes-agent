@@ -87,10 +87,7 @@ def _ra():
 
 
 AGENT_RUNTIME_POST_HOOK_TOOL_NAMES = frozenset({
-    "todo_list", "session_search", "memory", "clarify", "read_terminal", "desktop_preview",
-    "drive_preview", "annotate_preview", "read_window_below", "manage_connections", "manage_catalog", "setup_mcp",
-    "gui_tour",
-    "delegate_task",
+    "todo_list", "session_search", "memory", "clarify", "manage_connections", "delegate_task",
 })
 
 _TRAJECTORY_SYSTEM_PROMPT = (
@@ -2218,8 +2215,7 @@ def _build_switched_client(agent, new_provider, api_key, base_url, api_mode, new
     timeout = get_provider_request_timeout(agent.provider, agent.model)
     if timeout is not None:
         agent._client_kwargs["timeout"] = timeout
-    # Reapply provider headers (OpenRouter HTTP-Referer/X-Title) lost when _client_kwargs was
-    # rebuilt; otherwise attribution shows "Unknown".
+    # Reapply functional provider headers lost when _client_kwargs was rebuilt.
     agent._apply_client_headers_for_base_url(effective_base)
     agent.client = agent._create_openai_client(dict(agent._client_kwargs), reason="switch_model", shared=True)
 

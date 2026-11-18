@@ -1,26 +1,26 @@
 """An edited message re-sends its message id with new text: native admission takes it as its own
 input, never as a changed replay of the original send (``admission_conflict``, #140845)."""
 from datetime import UTC, datetime
-from types import SimpleNamespace
+
 
 import pytest
 
-from gateway.config import GatewayConfig, Platform, PlatformConfig
-from gateway.platforms.event import MessageEvent, MessageType
+from gateway.config import GatewayConfig
+from gateway.platforms.event import MessageEvent
 from gateway.run import GatewayRunner
 from gateway.session_authority import initialize_session_authority
 from hermes_state_runtime import list_session_admissions
+from tests.gateway.test_native_admission_named_refusal import make_test_transport
 
-CHAT = '15551234567@s.whatsapp.net'
+CHAT = 'fixture-chat'
 
 
 @pytest.mark.asyncio
 async def test_edit_of_an_admitted_message_is_its_own_admission(tmp_path, monkeypatch):
-    from plugins.platforms.whatsapp.adapter import WhatsAppAdapter
-    monkeypatch.setenv('WHATSAPP_ALLOWED_USERS', '15551234567')
+    monkeypatch.setenv('GATEWAY_ALLOW_ALL_USERS', 'true')
     runner = GatewayRunner(GatewayConfig(sessions_dir=tmp_path / 'sessions'))
-    adapter = WhatsAppAdapter(PlatformConfig(enabled=True, extra={'session_path': str(tmp_path / 'wa')}))
-    adapter.gateway_runner, runner.adapters = runner, {Platform.WHATSAPP: adapter}
+    adapter = make_test_transport(monkeypatch)
+    adapter.gateway_runner, runner.adapters = runner, {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='edit')
     runner._wire_adapter_handlers(adapter)
     source = adapter.build_source(chat_id=CHAT, user_id=CHAT, chat_type='dm')
@@ -43,29 +43,4 @@ async def test_edit_of_an_admitted_message_is_its_own_admission(tmp_path, monkey
         authority.db.close()
 
 
-def test_telegram_same_second_edits_get_distinct_revisions():
-    """``edit_date`` is whole seconds: two edits inside one second must still key apart, while a
-    redelivered edit keeps its key (the admission above then replays it once)."""
-    from plugins.platforms.telegram.adapter import TelegramAdapter
-    adapter = object.__new__(TelegramAdapter)
-    adapter.platform = Platform.TELEGRAM
-    adapter.config = PlatformConfig(enabled=True, token='***', extra={})
-    sent = datetime(2026, 10, 18, 2, 5, tzinfo=UTC)
 
-    def event(text, edit_date, update_id):
-        message = SimpleNamespace(
-            message_id=7, text=text, caption=None, entities=[], caption_entities=[], message_thread_id=None,
-            is_topic_message=False, reply_to_message=None, date=sent, edit_date=edit_date, forum_topic_created=None,
-            chat=SimpleNamespace(id=111, type='private', full_name='A', title=None, is_forum=False),
-            from_user=SimpleNamespace(id=111, full_name='A', first_name='A', is_bot=False))
-        return adapter._build_message_event(message, MessageType.TEXT, update_id=update_id)
-
-    second = datetime(2026, 10, 18, 2, 6, tzinfo=UTC)
-    original = event('helo', None, 100)
-    edits = [event('hello', second, 101), event('hello!', second.replace(microsecond=500000), 102)]
-    assert original.edit_revision is None and {e.message_id for e in edits} == {'7'}
-    assert edits[0].edit_revision != edits[1].edit_revision
-    assert event('hello', second, 101).edit_revision == edits[0].edit_revision  # redelivery
-    # Without an update id (a replayed snapshot), the text still keys same-second edits apart.
-    assert event('hello', second, None).edit_revision != event('hello!', second, None).edit_revision
-    assert event('hello', second, None).edit_revision == event('hello', second, None).edit_revision

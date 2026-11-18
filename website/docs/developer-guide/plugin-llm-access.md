@@ -14,9 +14,7 @@ Plugins reach for this when they need to do something that involves
 the model but isn't part of the agent's conversation. A hook that
 rewrites a tool error into something a non-engineer can read. A
 gateway adapter that translates an inbound message before queuing
-it. A slash command that summarises a long paste. A scheduled job
-that scores yesterday's activity and writes one line to a status
-board. A pre-filter that decides whether a message is worth waking
+it. A slash command that summarises a long paste. A pre-filter that decides whether a message is worth waking
 the agent up for at all.
 
 These are jobs the agent shouldn't be in the loop on. They want one
@@ -651,8 +649,7 @@ capabilities:
 ### Lease rules
 
 * `post_llm_call` receives `side_question_token` (a string) when at
-  least one loaded plugin holds the capability, else `None`. Cron runs
-  and delegated subagent turns always get `None`: nobody is waiting on
+  least one loaded plugin holds the capability, else `None`. Delegated subagent turns always get `None`: nobody is waiting on
   them, so a side question would only spend tokens.
 * **One attempt per turn, shared by every plugin.** Every plugin's
   hook gets the same token; the first `ctx.side_question` call spends

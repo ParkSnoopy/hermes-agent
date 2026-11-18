@@ -15,8 +15,7 @@ _config_version: 53
 # WAL is the normal default. Hermes automatically falls back to DELETE when
 # SQLite reports that WAL is incompatible with the filesystem. Set this to
 # "delete" explicitly for deployments whose backing filesystem is not WAL
-# crash-safe, such as Linux containers bind-mounted through macOS virtiofs,
-# NFS, or SMB. Hermes will not live-downgrade a database already open in WAL.
+# crash-safe, such as NFS or SMB. Hermes will not live-downgrade a database already open in WAL.
 database:
   journal_mode: "wal"  # Supported values: "wal", "delete"
   # Optional WAL sizing pragmas (integers). Unset = SQLite defaults.
@@ -26,10 +25,8 @@ database:
   # Durability level for every state.db connection: OFF, NORMAL, FULL, EXTRA
   # (or 0-3). Unset leaves SQLite's default, which is baked in at compile time
   # (SQLITE_DEFAULT_WAL_SYNCHRONOUS) and therefore differs between the bundled
-  # interpreter, a distro python3 and a Homebrew one. Set it if you need to
-  # know which one you are running rather than infer it. On macOS this is a
-  # floor, not a pin: values below FULL are refused because Darwin's fsync()
-  # does not guarantee write ordering, while EXTRA is honored normally.
+  # interpreter and a distro python3. Set it if you need an explicit policy
+  # rather than relying on the interpreter's compiled default.
   # synchronous: FULL
 
 # =============================================================================
@@ -54,12 +51,10 @@ runtime:
 # Where the TUI/Desktop gateway stages session file attachments (file uploads and
 # pasted text). Read per profile: a session bound to profile X follows X's own
 # config.yaml, so each agent's attachments stay with its workspace.
-#   hermes-home  (default) <profile home>/attachments — the directory container
-#                 backends bind-mount, so @file: refs resolve inside the sandbox.
+#   hermes-home  (default) <profile home>/attachments.
 #   workspace    <session workspace>/.hermes/attachments — staging lands inside
-#                 the allowed reference root, so the profile's agent can always
-#                 read its own attachments back. A remote (ssh) workspace keeps
-#                 the profile home directory either way.
+#                 the allowed reference root, so the profile's agent can read
+#                 its own attachments back.
 attachments:
   storage: "hermes-home"
 
@@ -399,8 +394,8 @@ model:
 # worktree_sync: true   # Default — branch from the fetched remote tip
 # worktree_sync: false  # Branch from local HEAD (offline / pinned base)
 
-# Stale worktree sweep (startup of `hermes -w` + every 6h from the cron ticker, over
-# every repo Hermes created a worktree in). Idle dirty/unpushed trees are archived to
+# Stale worktree sweep at startup of `hermes -w`, over every repo Hermes created
+# a worktree in. Idle dirty/unpushed trees are archived to
 # refs/hermes/archive/<tree> and removed; `hermes worktree restore <name>` brings one back.
 # worktrees:
 #   archive_dirty: true          # false = never remove dirty/unpushed trees (old behaviour)
@@ -408,35 +403,24 @@ model:
 #   archive_retention_days: 30   # archive refs older than this are deleted (0 = keep)
 #   max_total_gb: 0              # optional budget for idle trees; oldest evicted first
 
-# =============================================================================
-# Kanban Review Dispatch
-# =============================================================================
-# First-class review tasks are dispatched automatically by default. The worker
-# is spawned with the bundled sdlc-review skill and can approve, request changes
-# back to the original implementer, or escalate a genuine external blocker.
-# Disable this only when every review is performed manually from the dashboard.
-kanban:
-  review_dispatch: true
 
 # =============================================================================
 # Terminal Tool Configuration
 # =============================================================================
-# Choose ONE of the following terminal configurations by uncommenting it.
-# The terminal tool executes commands in the specified environment.
+# Terminal commands run locally as the Hermes process user.
+# Nonlocal backend selections are refused.
 
 # -----------------------------------------------------------------------------
-# OPTION 1: Local execution (default)
+# Local execution
 # Commands run directly on your machine in the current directory
 # -----------------------------------------------------------------------------
 # Working directory behavior:
 #   - CLI (`hermes` command): Uses "." (current directory where you run hermes)
-#   - Gateway/messaging/cron: Uses terminal.cwd here; legacy .env cwd values are deprecated
-cron:
-  catch_up_missed: true  # False skips past-grace recurring misses after planned downtime.
+#   - Gateway: Uses terminal.cwd here; legacy .env cwd values are deprecated
 
 terminal:
   backend: "local"
-  cwd: "."  # For local backend: "." = current directory. Ignored for remote backends unless a backend documents otherwise.
+  cwd: "."  # "." = current directory
   # Desktop xterm font. Install the font locally; Nerd Fonts render Powerlevel10k glyphs.
   # font_family: "MesloLGS NF"  # Also accepts a CSS stack; blank uses bundled JetBrains Mono.
   timeout: 180
@@ -445,7 +429,6 @@ terminal:
   #   real    - force your real OS-user HOME
   #   profile - force HERMES_HOME/home for strict per-profile CLI config isolation
   home_mode: "auto"
-  docker_mount_cwd_to_workspace: false  # SECURITY: off by default. Opt in to mount the launch cwd into Docker /workspace.
   lifetime_seconds: 300
   # Two process_manage wait/poll calls in a row with no new output on a running background process
   # turn on notify_on_complete for it and tell the agent to stop checking; false = poll as before.
@@ -465,103 +448,10 @@ terminal:
   # sudo_password: ""         # Explicit empty password: try empty and never open the interactive sudo prompt.
 
 # -----------------------------------------------------------------------------
-# OPTION 2: SSH remote execution
-# Commands run on a remote server - agent code stays local (sandboxed)
-# Great for: keeping agent isolated from its own code, using powerful remote hardware
+# SUDO SUPPORT
 # -----------------------------------------------------------------------------
-# terminal:
-#   backend: "ssh"
-#   cwd: "/home/myuser/project"  # Path on the REMOTE server
-#   timeout: 180
-#   lifetime_seconds: 300
-#   ssh_host: "my-server.example.com"
-#   ssh_user: "myuser"
-#   ssh_port: 22
-#   ssh_key: "~/.ssh/id_rsa"  # Optional - uses ssh-agent if not specified
-
-# -----------------------------------------------------------------------------
-# OPTION 3: Docker container
-# Commands run in an isolated Docker container
-# Great for: reproducible environments, testing, isolation
-# -----------------------------------------------------------------------------
-# terminal:
-#   backend: "docker"
-#   cwd: "/workspace"  # Path INSIDE the container (default: /)
-#   timeout: 180
-#   lifetime_seconds: 300
-#   docker_image: "nousresearch/hermes-sandbox:desktop"
-#   docker_mount_cwd_to_workspace: true   # Explicit opt-in: mount your launch cwd into /workspace
-#   # Optional: run the container as your host user's uid:gid so files written
-#   # into bind-mounted dirs are owned by you, not root. Drops SETUID/SETGID
-#   # caps too since no gosu privilege drop is needed. Leave off if your
-#   # chosen docker_image expects to start as root.
-#   docker_run_as_host_user: true
-#   # Optional: explicitly forward selected env vars into Docker.
-#   # These values come from your current shell first, then ~/.hermes/.env.
-#   # Warning: anything forwarded here is visible to commands run in the container.
-#   docker_forward_env:
-#     - "GITHUB_TOKEN"
-#     - "NPM_TOKEN"
-#   # Optional: extra flags passed verbatim to docker run (appended after security defaults).
-#   # Useful for adding capabilities (e.g. apt installs needing SETUID) or custom options.
-#   # Example: add a Linux capability not included by default
-#   # docker_extra_args:
-#   #   - "--cap-add"
-#   #   - "SETUID"
-
-# -----------------------------------------------------------------------------
-# OPTION 4: Singularity/Apptainer container (the official `singularity` plugin)
-# Commands run in a Singularity container (common in HPC environments)
-# Great for: HPC clusters, shared compute environments
-# Install it first: hermes plugins install singularity
-# -----------------------------------------------------------------------------
-# terminal:
-#   backend: "singularity"
-#   cwd: "/workspace"  # Path INSIDE the container (default: /root)
-#   timeout: 180
-#   lifetime_seconds: 300
-#   singularity_image: "docker://nousresearch/hermes-sandbox:desktop"
-
-# -----------------------------------------------------------------------------
-# OPTION 5: Modal cloud execution
-# Commands run on Modal's cloud infrastructure
-# Great for: GPU access, scalable compute, serverless execution
-# -----------------------------------------------------------------------------
-# terminal:
-#   backend: "modal"
-#   cwd: "/workspace"  # Path INSIDE the sandbox (default: /root)
-#   timeout: 180
-#   lifetime_seconds: 300
-#   modal_image: "nousresearch/hermes-sandbox:desktop"
-
-# -----------------------------------------------------------------------------
-# OPTION 6: Daytona cloud execution
-# Commands run in Daytona cloud sandboxes
-# Great for: Cloud dev environments, persistent workspaces, team collaboration
-# Requires: pip install daytona, DAYTONA_API_KEY env var
-# -----------------------------------------------------------------------------
-# terminal:
-#   backend: "daytona"
-#   cwd: "~"
-#   timeout: 180
-#   lifetime_seconds: 300
-#   daytona_image: "nousresearch/hermes-sandbox:desktop"
-#   container_disk: 10240          # Daytona max is 10GB per sandbox
-
-#
-# --- Container resource limits (docker, modal, daytona, container plugin backends -- ignored for local/ssh) ---
-# These settings apply to all container backends. They control the resources
-# allocated to the sandbox and whether its filesystem persists across sessions.
-  container_cpu: 1              # CPU cores
-  container_memory: 5120        # Memory in MB (5120 = 5GB)
-  container_disk: 51200         # Disk in MB (51200 = 50GB)
-  container_persistent: true    # Persist filesystem across sessions (false = ephemeral)
-
-# -----------------------------------------------------------------------------
-# SUDO SUPPORT (works with ALL backends above)
-# -----------------------------------------------------------------------------
-# Add sudo_password to any terminal config above to enable sudo commands.
-# The password is piped via `sudo -S`. Works with local, ssh, docker, etc.
+# Add sudo_password to the terminal config to enable sudo commands.
+# The password is piped via `sudo -S`.
 #
 # SECURITY WARNING: Password stored in plaintext!
 #
@@ -578,8 +468,6 @@ terminal:
 # Touch ID sudo setups, and environments where prompting is just noise.
 #
 # ALTERNATIVES:
-# - SSH backend: Configure passwordless sudo on the remote server
-# - Containers: Run as root inside the container (no sudo needed)
 # - Local: Configure /etc/sudoers for specific commands
 #
 # Example (add to your terminal section):
@@ -647,7 +535,7 @@ browser:
 # Soft warnings are enabled by default. They append guidance to repeated failed
 # or non-progressing tool results but still let the tool execute. Hard stops stay
 # opt-in for interactive CLI/TUI/Desktop/ACP sessions, but default on for unattended
-# gateway/cron sessions where nobody is present to interrupt a model that
+# gateway sessions where nobody is present to interrupt a model that
 # ignores loop warnings.
 tool_loop_guardrails:
   warnings_enabled: true
@@ -706,7 +594,7 @@ compression:
 
   # Opt-in compression progress notices on chat platforms (default: false).
   # By design, routine automatic compression is SILENT on human-facing chat
-  # gateways (Telegram, Discord, Slack, ...) — it happens in the background
+  # gateways — it happens in the background
   # with server-side logging only. Set true to also deliver the routine
   # progress statuses (compacting started, preflight/pre-API compression,
   # idle compaction, retry progress, and the compaction-complete notice) to
@@ -818,8 +706,8 @@ compression:
   # Gateway session-hygiene turn-hold budget (default: 10). Max seconds an
   # arriving user turn is held while a still-streaming hygiene summary
   # finishes. Distinct from hygiene_timeout_seconds (compressor inactivity
-  # budget): this bounds user-visible latency so chat transports (Telegram
-  # ~30s) do not drop a silent connection. On expiry the turn proceeds
+  # budget): this bounds user-visible latency so chat transports
+  # do not drop a silent connection. On expiry the turn proceeds
   # uncompressed; the detached worker keeps its commit admission (when the
   # commit is watermark-fenced) and the summary is adopted at the next safe
   # boundary. Thinking-model summarizers often need longer than 10s to emit
@@ -886,7 +774,7 @@ prompt_caching:
 # Auxiliary Models (Advanced — Experimental)
 # =============================================================================
 # Hermes uses lightweight "auxiliary" models for side tasks: image analysis,
-# browser screenshot analysis, web page summarization, TTS audio-tag insertion,
+# browser screenshot analysis, web page summarization,
 # and context compression.
 #
 # By default these use Gemini Flash via OpenRouter or Nous Portal and are
@@ -957,12 +845,6 @@ prompt_caching:
 #     model: ""
 #     reasoning_effort: "low"
 #
-#   # Gemini 3.1 TTS hidden audio-tag insertion
-#   tts_audio_tags:
-#     provider: "auto"       # empty model = your main chat model
-#     model: ""
-#     timeout: 30
-#
 #   # Automatic session title generation after the first exchange
 #   title_generation:
 #     enabled: true          # set false to disable auto-title generation
@@ -989,7 +871,7 @@ prompt_caching:
 #                           #     enable_thinking: false
 #
 #   # Auto-generated short session titles after the first exchange.
-#   # Each active Discord/Telegram channel can spawn a background title
+#   # Each active session can spawn a background title
 #   # call.  Cap concurrency to keep retries during provider incidents
 #   # from amplifying the request burst.  Leave unset for legacy behavior
 #   # (unlimited).
@@ -1056,7 +938,7 @@ memory:
 # /reset explicitly; context compression manages long conversations.
 
 # Maximum number of simultaneously active chat sessions across CLI, TUI,
-# dashboard chat, and messaging gateway. Set to null, 0, or omit to allow
+# dashboard chat, and API sessions. Set to null, 0, or omit to allow
 # unlimited concurrent sessions. When the limit is reached, new sessions get a
 # clean error while existing active sessions keep their normal behavior. This
 # top-level key takes precedence over gateway.max_concurrent_sessions. The cap
@@ -1091,11 +973,11 @@ hosted_rooms:
 # =============================================================================
 # ~/.hermes/state.db keeps every session, message, and tool call, plus the
 # FTS5 search indexes. Auto-pruning is OFF by default; when enabled, at
-# CLI/gateway/cron startup (at most once per min_interval_hours) Hermes deletes
+# CLI/gateway startup (at most once per min_interval_hours) Hermes deletes
 # ENDED sessions whose last activity is older than retention_days. While
 # auto_prune is unset, Hermes asks once when the disk holding state.db runs
 # low (/autoprune on|off|later answers it). Open, pinned, and in-progress sessions are never
-# deleted. Stale automation sessions (cron/kanban/subagent/one-shot CLI) whose
+# deleted. Stale automation sessions (subagent/one-shot CLI) whose
 # process died without closing them are first *closed*, then aged through a
 # further full retention window before removal.
 #
@@ -1148,7 +1030,7 @@ hosted_rooms:
 # WS sidecar — tui/desktop/subagent rows whose start time AND newest
 # message are both older than the session TTL (HERMES_TUI_SESSION_TTL_S,
 # default 6h) are closed with end_reason "startup_orphan_reap".
-# Messaging-platform sessions (Telegram, Discord, ...) are never touched;
+# Remote API sessions are never touched;
 # live in-memory sessions are excluded; swept sessions stay resumable.
 #
 # dashboard:
@@ -1192,10 +1074,9 @@ hosted_rooms:
 # ─────────────────────────────────────────────────────────────────────────────
 # Gateway Streaming
 # ─────────────────────────────────────────────────────────────────────────────
-# Stream tokens to messaging platforms in real-time. The bot sends a message
+# Stream tokens to gateway clients in real-time. The adapter sends a message
 # on first token, then progressively edits it as more tokens arrive.
-# Disabled by default — enable to try the streaming UX on Telegram/Discord/Slack.
-# For Telegram, partial edits are sent as plain text and only the final edit uses MarkdownV2.
+# Disabled by default.
 streaming:
   enabled: false
   # transport: edit           # "edit" = progressive editMessageText
@@ -1280,27 +1161,23 @@ agent:
   # window on /restart, and keep it well under systemd's TimeoutStopSec.
   # restart_drain_timeout: 0
 
-  # Floor under the same drain for cron jobs and api_server (/v1) runs
+  # Floor under the same drain for api_server (/v1) runs
   # (seconds). Default 30.
   # restart_drain_timeout above is written for chat turns, which are cheap to
   # interrupt: the user is told the gateway is restarting and the session
-  # resumes on their next message. A cron run has no such safety net — it is
-  # recorded in jobs.json as a permanent failure, nobody is waiting on it, and
-  # a recurring job simply skips to its next schedule. So in-flight cron work
-  # gets its own grace window instead of inheriting the 0 above, and so do
-  # api_server (/v1) runs: an interrupted /v1 run fails its waiting caller.
+  # resumes on their next message. An interrupted /v1 run fails its waiting
+  # caller, so API runs receive their own grace window.
   # Clamped at runtime to the shutdown-watchdog leash (restart_drain_timeout
   # + 60s) minus teardown headroom, so values past ~50s need a matching
-  # TimeoutStopSec bump to take effect. Set 0 to opt out and drain cron and
+  # TimeoutStopSec bump to take effect. Set 0 to opt out and drain
   # /v1 runs on restart_drain_timeout like before.
-  # cron_drain_timeout: 30
+  # api_drain_timeout: 30
 
   # In-band restart wait (seconds) for active turns to finish BEFORE stop()
   # begins. /restart and SIGUSR1 refuse new work, then wait up to this cap for
-  # in-flight agent, cron and API runs to complete so the requesting turn is
+  # in-flight agent and API runs to complete so the requesting turn is
   # not cut off by restart_drain_timeout. 0 = enter stop()/drain immediately.
-  # Excluded from the wait: wedged runs, and cron runs already handed to a
-  # worker in its own restart-safe systemd scope (they outlive the restart).
+  # Wedged runs are excluded from the wait.
   # The default (30 min) is a safety valve for wedged agents, not a target
   # latency; raise it for long unattended turns. Env: HERMES_RESTART_AFTER_TURN_TIMEOUT.
   # restart_after_turn_timeout: 1800
@@ -1333,7 +1210,7 @@ agent:
   # verify before finishing. Off by default (false). Set true to force it on
   # everywhere, or "auto" for the surface-aware mode: on for interactive
   # coding surfaces (CLI, TUI, desktop) and programmatic callers, off on
-  # conversational messaging surfaces (Telegram, Discord, etc.) where the
+  # conversational API surfaces where the
   # verification summary would reach a human as chat noise. The
   # HERMES_VERIFY_ON_STOP env var (1/0) takes precedence.
   # verify_on_stop: false
@@ -1422,10 +1299,8 @@ gateway:
   # signal_interrupt_grace_timeout: 1
 
   # Let platform adapters honor HTTP_PROXY / HTTPS_PROXY / NO_PROXY (and
-  # SSL_CERT_FILE) from the process environment, plus macOS system-proxy
-  # auto-detection. Set to false when the gateway inherits a proxy it must not
-  # use (e.g. a Windows Scheduled Task picking up a local Clash/V2Ray proxy that
-  # isn't running). Explicit per-platform vars like DISCORD_PROXY still apply.
+  # SSL_CERT_FILE) from the process environment. Set to false when the gateway
+  # inherits a proxy it must not use.
   # trust_env: true
 
 # =============================================================================
@@ -1441,104 +1316,39 @@ gateway:
 # If a platform isn't listed here, its built-in default is used.
 #
 # You can use EITHER:
-#   - A preset like "hermes-cli" or "hermes-telegram" (curated tool set)
+#   - A preset like "hermes-cli" (curated tool set)
 #   - A list of individual toolsets to compose your own (see list below)
 #
-# Supported platform keys: cli, telegram, discord, whatsapp, slack, qqbot, teams, google_chat
+# Supported platform keys: cli, api_server, webhook
 #
 # Examples:
 #
 #   # Use presets (same as defaults):
 #   platform_toolsets:
 #     cli: [hermes-cli]
-#     telegram: [hermes-telegram]
-#
-#   # Custom: give Telegram only web + terminal + file + planning:
-#   platform_toolsets:
-#     telegram: [web, terminal, file, todo]
+
 #
 #   # Custom: CLI without browser or image gen:
 #   platform_toolsets:
-#     cli: [web, terminal, file, skills, todo, tts, cronjob]
+#     cli: [web, terminal, file, skills, todo]
 #
-#   # Restrictive: Discord gets read-only tools only:
-#   platform_toolsets:
-#     discord: [web, vision, skills, todo]
-#
+
 # If not set, defaults are:
-#   cli:           hermes-cli            (everything + cronjob management)
-#   telegram:      hermes-telegram       (terminal, file, web, vision, image, tts, browser, skills, todo, cronjob, messaging)
-#   discord:       hermes-discord        (same as telegram)
-#   whatsapp:      hermes-whatsapp       (same as telegram)
-#   slack:         hermes-slack          (same as telegram)
-#   signal:        hermes-signal         (same as telegram)
-#   qqbot:            hermes-qqbot            (same as telegram)
-#   teams:            hermes-teams            (same as telegram)
-#   google_chat:      hermes-google_chat      (same as telegram)
+#   cli:           hermes-cli
+
 #
 platform_toolsets:
   cli: [hermes-cli]
-  telegram: [hermes-telegram]
-  discord: [hermes-discord]
-  whatsapp: [hermes-whatsapp]
-  slack: [hermes-slack]
-  signal: [hermes-signal]
-  qqbot: [hermes-qqbot]
-  # Plugin platforms (teams, google_chat, ...) need no row: they default to hermes-<platform> once loaded.
+
 
 # =============================================================================
 # Gateway Platform Settings
 # =============================================================================
-# Optional per-platform messaging settings.
+# Optional per-platform settings.
 # Platform-specific knobs live under `extra`.
 #
 # platforms:
-#   telegram:
-#     reply_to_mode: "first"  # off | first | all
-#     # guest_mode lets explicit @mentions from non-allowlisted groups through.
-#     # Default false; ordinary messages, replies, and regex wake words stay blocked.
-#     guest_mode: false
-#     # allowed_chats: ["-1001234567890"]
-#     extra:
-#       drop_pending_on_cold_boot: false # Answer messages sent while the gateway was off (default; Telegram keeps them up to 24 h). Set true to drop that backlog on a cold boot; watcher reconnects always preserve it
-#       disable_link_previews: false  # Set true to suppress Telegram URL previews in bot messages
-#       rich_messages: false          # Bot API 10.1 rich messages (tables/task lists/details/math); default false for copyable legacy MarkdownV2, set true to opt in
-#       rich_drafts: false            # Experimental rich draft previews during Telegram DM streaming; default false because Telegram Desktop/macOS can visually overlay draft frames
-#       allow_cjk_rich_messages: false # Keep CJK content on the safe MarkdownV2 path unless an unaffected client explicitly opts in to native rich rendering
-#       command_menu:
-#         # Telegram allows up to 100 BotCommands; Hermes defaults to 60 so
-#         # all built-in commands plus common skill commands stay visible
-#         # while remaining under Telegram's payload-size limit. Clamped 1..100.
-#         max_commands: 60
-#         # prepend = user priority first, then Hermes defaults
-#         # append  = Hermes defaults first, then user priority
-#         # replace = only the list below defines priority
-#         priority_mode: prepend
-#         # Priority is applied across core + plugin + skill commands before
-#         # the cap, so a listed skill command always keeps a menu slot.
-#         priority:
-#           - my_plugin_command
-#           - my-important-skill
-#   matrix:
-#     channel_overrides:
-#       "!exampleTeamRoom:example.org":
-#         # Successful explicit NO_REPLY/[SILENT] finals stay silent, even when addressed.
-#         # Omitted/null/false keeps the current reply policy; failures remain visible.
-#         # Restart the gateway after changing room overrides.
-#         allow_silence: true
-#   slack:
-#     extra:
-#       # Render live tool calls as Slack-native plan/task cards. This explicit
-#       # opt-in works even though Slack text tool_progress defaults to off.
-#       native_task_cards: false
-#       # Slack user IDs whose Web-API posts (user token, e.g. your own
-#       # dashboard/mobile front-end) count as human instead of being dropped
-#       # as app traffic. Narrower than allow_bots: all. Users only — never apps.
-#       api_human_users: ["U0AAAAAAA", "U0BBBBBBB"]
-#       # Suppress automatic link-preview cards without removing clickable links.
-#       # Omit either key to preserve Slack's default for that preview type.
-#       unfurl_links: false
-#       unfurl_media: false
+
 #   webhook:
 #     extra:
 #       # Route scripts default to a 30 second timeout. Scripts must live under
@@ -1548,17 +1358,6 @@ platform_toolsets:
 #       # `events: true` POST event deliveries to <public_url>/webhooks/<route>.
 #       public_url: "https://hermes.example.com"
 #
-# Discord-specific settings (config.yaml top-level, not under platforms:):
-#
-# discord:
-#   require_mention: true            # Require @mention in server channels (default: true)
-#   bots_require_inline_mention: true  # Bot authors must type a literal @mention (default: true)
-#   auto_thread: true                # Auto-create thread on @mention (default: true)
-#   free_response_auto_thread: false # Free-response channels also auto-thread (default: reply inline)
-#   free_response_channels: ""       # Channel IDs where no mention is needed
-#   reactions: true                  # Show processing reactions (default: true)
-#   history_backfill: true           # Recover missed channel messages on mention (default: true)
-#   history_backfill_limit: 50       # Max messages to scan backwards (default: 50)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Available toolsets (use these names in platform_toolsets or the toolsets list)
@@ -1579,16 +1378,13 @@ platform_toolsets:
 #   skills       - skills_list, skill_view
 #   skills_hub   - skill_hub (search/install/manage from online registries — user-driven only)
 #   todo         - todo (in-memory task planning, no deps)
-#   tts          - text_to_speech  (Edge TTS free, or ELEVENLABS/OPENAI/MINIMAX/MISTRAL key)
-#   cronjob      - cronjob (create/list/update/pause/resume/run/remove scheduled tasks)
+
 #
 # PRESETS (curated bundles):
-#   hermes-cli       - All of the above except send_message
-#   hermes-telegram  - terminal, file, web, vision, image_gen, tts, browser,
-#                      skills, todo, cronjob, send_message
-#   hermes-discord   - Same as hermes-telegram
-#   hermes-whatsapp  - Same as hermes-telegram
-#   hermes-slack     - Same as hermes-telegram
+#   hermes-cli       - All of the above
+
+#   hermes-api-server - Agent tools without interactive UI
+#   hermes-webhook   - Restricted tools for external webhook events
 #
 # COMPOSITE:
 #   debugging    - terminal + web + file
@@ -1606,8 +1402,7 @@ platform_toolsets:
 #   todo         - Task planning and tracking for multi-step work
 #   memory       - Persistent memory across sessions (personal notes + user profile)
 #   session_search - Search and recall past conversations (FTS5 + Gemini Flash summarization)
-#   tts          - Text-to-speech (Edge TTS free, ElevenLabs, OpenAI, MiniMax, Mistral)
-#   cronjob      - Schedule and manage automated tasks (CLI-only)
+
 #
 # Composite toolsets:
 #   debugging    - terminal + web + file (for troubleshooting)
@@ -1689,147 +1484,6 @@ platform_toolsets:
 #     url: https://feeds.example.com/mcp
 #     events: true
 
-# =============================================================================
-# Text-to-Speech
-# =============================================================================
-# TTS defaults to Edge TTS unless changed in ~/.hermes/config.yaml.
-# Gemini TTS supports persona/director prompt files, and Gemini 3.1 Flash TTS
-# can use a hidden auxiliary rewrite pass to insert expressive square-bracket
-# audio tags into the TTS script without showing tags in chat.
-#
-# tts:
-#   provider: "gemini"
-#   speed: 1.0              # global speed multiplier (provider-specific overrides this)
-#   # Per-platform audio upload limits. Built-in defaults: discord 10 MiB,
-#   # telegram 50 MiB, everything else 10 MiB, each with safety_ratio 0.85
-#   # (the fraction of max_file_bytes actually targeted). Override per platform:
-#   delivery_profiles:
-#     telegram:
-#       max_file_bytes: 52428800
-#       safety_ratio: 0.85
-#   gemini:
-#     model: "gemini-3.1-flash-tts-preview"
-#     voice: "Kore"
-#     audio_tags: false
-#     persona_prompt_file: ""  # e.g. ~/.hermes/tts/radio-host.md
-#   xai:
-#     voice_id: "eve"       # built-in or custom voice ID from xAI Console
-#     language: "en"        # BCP-47 code ("en", "pt-BR") or "auto"
-#     speed: 1.0            # 0.7-1.5 playback speed
-#     auto_speech_tags: false  # insert expressive audio tags via LLM rewrite
-#     text_normalization: false  # normalize numbers/abbreviations/symbols
-#     optimize_streaming_latency: 0  # 0-2, trades quality for lower latency
-#     sample_rate: 24000    # 22050 / 24000 / 44100 / 48000
-#     bit_rate: 128000      # MP3 bitrate (codec=mp3 only)
-
-# =============================================================================
-# Voice Transcription (Speech-to-Text)
-# =============================================================================
-# Automatically transcribe voice messages on messaging platforms.
-# Providers: local (free, faster-whisper) | groq (free tier) | openai (Whisper API) | mistral (Voxtral Transcribe)
-# Set the corresponding API key in .env: GROQ_API_KEY, OPENAI_API_KEY, or MISTRAL_API_KEY.
-stt:
-  enabled: true
-  # provider: "local"          # auto-detected if omitted
-  # --- Cloud pre-upload silence trim (groq/openai/mistral/xai/elevenlabs/deepinfra) ---
-  # Local whisper gets Silero VAD; cloud endpoints otherwise receive raw audio —
-  # silence inflates upload time, per-audio-minute billing, and hallucination risk.
-  # Collapses pauses with ffmpeg client-side; clips under 12s skip the trim, and
-  # on any failure the original uploads untouched.
-  # cloud_trim_silence: true   # set false to always upload the original audio
-  # cloud_trim_threshold_db: -40  # audio quieter than this counts as silence
-  # cloud_trim_keep_ms: 300    # how much of each pause survives (keeps natural pacing)
-  # Optional static transcription prompt: vocabulary/context hints for
-  # prompt-capable backends. Composition is deterministic: this config value
-  # is the base, then `pre_transcription` hooks run in registration order with
-  # last-writer-wins semantics per field.
-  #
-  # Privacy: the final prompt is sent to the configured STT provider alongside
-  # the audio. Do not include secrets or session context you would not send to
-  # that provider.
-  #
-  # Length / truncation contract: Whisper-family backends (local, openai,
-  # groq, deepinfra) only use the final ~224 prompt tokens, so Hermes
-  # truncates longer prompts client-side (keeping the tail) with a WARNING
-  # log — never an error. Other backends own their own validation.
-  #
-  # Provider behavior:
-  #   local (faster-whisper)  -> `initial_prompt`, forwarded unchanged
-  #   openai / groq          -> `prompt`, forwarded unchanged
-  #   mistral                -> `prompt`, forwarded unchanged
-  #   deepinfra              -> OpenAI-compatible `prompt`, unchanged
-  #   local_command/xai/
-  #   elevenlabs             -> unsupported; DEBUG log, then continue
-  #   plugin providers       -> `prompt` in `**extra`; plugin owns limits
-  # prompt: "Hermes, Teknium, Nous Research, kanban"
-  local:
-    model: "base"              # tiny | base | small | medium | large-v3 | turbo
-    # language: ""             # blank = inherit stt.language; set "en", "es", "fr", etc. to force
-    # initial_prompt: ""       # Optional faster-whisper prompt, e.g. bias Chinese output to simplified Chinese
-    # --- Anti-hallucination hardening (whisper decodes junk from silence without these) ---
-    # vad: true                # Silero VAD filter (default on) — silence never reaches whisper.
-    #                          # Set false to restore raw behavior (e.g. transcribing music/ambient audio).
-    # vad_min_silence_ms: 500  # min silence (ms) that splits speech chunks when vad is on
-    # no_speech_prob_threshold: 0.6  # drop a segment only if no_speech_prob > this...
-    # logprob_threshold: -1.0       # ...AND avg_logprob < this (both must hit — quiet real speech survives)
-    # unload_after_idle_seconds: 0  # 0=never unload (default); e.g. 300 releases the model after 5min idle (frees VRAM on GPU; next voice message reloads it)
-  language: "en"               # Global hint; a nonempty provider language wins. Blank falls back to HERMES_LOCAL_STT_LANGUAGE, then auto-detect.
-  # groq:
-  #   model: "whisper-large-v3-turbo"
-  #   language: ""             # blank inherits stt.language, then HERMES_LOCAL_STT_LANGUAGE
-  openai:
-    model: "whisper-1"         # whisper-1 | gpt-4o-mini-transcribe | gpt-4o-transcribe | gpt-transcribe
-    language: ""               # blank = inherit stt.language; set "en", "es", "fr", etc. to force
-    timeout: 60                # request timeout in seconds; increase for self-hosted model cold starts
-    max_retries: 1             # OpenAI SDK transport retries; set 0 to disable
-  # mistral:
-  #   model: "voxtral-mini-latest"  # voxtral-mini-latest | voxtral-mini-2602
-  # xai:
-  #   # Sent as the multipart ``model`` field. Hermes uses 2.0 by default;
-  #   # pin 1.0 only if a rollback is needed.
-  #   model: "grok-voice-transcribe-2.0"  # or grok-voice-transcribe-1.0
-  #   # language: ""             # blank = stt.language > HERMES_LOCAL_STT_LANGUAGE > auto-detect
-  # deepinfra:
-  #   # Model id is discovered live from the DeepInfra catalog filtered
-  #   # by the `stt` surface tag — leave `model` blank to take the first
-  #   # live result. Pin only when you need a specific Whisper variant.
-  #   model: ""
-  # Custom command providers (stt.providers.<name>: type: command) can
-  # normalize browser WebM/Opus and other input formats to 16 kHz mono m4a
-  # before substituting {input_path}. This is opt-in so CLIs that already
-  # accept arbitrary containers (e.g. whisper.cpp) remain unchanged.
-  # providers:
-  #   custom-asr:
-  #     type: "command"
-  #     command: "custom-asr --input {input_path} --output {output_path}"
-  #     normalize: true  # requires ffmpeg; default false
-
-# Text-to-speech. Only the deepinfra block is documented here — the
-# remaining providers (edge, openai, xai, minimax, mistral, gemini,
-# elevenlabs, neutts, kittentts, piper) inherit sensible defaults from
-# DEFAULT_CONFIG in hermes_cli/config.py.
-# tts:
-#   provider: "deepinfra"
-#   deepinfra:
-#     # Model id is discovered live from the DeepInfra catalog filtered
-#     # by the `tts` surface tag — leave `model` blank to take the first
-#     # live result.
-#     model: ""
-#     voice: "default"
-
-# "Hey Hermes" hands-free wake word (off by default; toggle with /wake).
-# Full engine/provider options inherit from DEFAULT_CONFIG in
-# hermes_cli/config_defaults.py — only capture placement is documented here.
-# wake_word:
-#   enabled: false
-#   capture: "auto"    # auto | local | client
-#                      # auto: backend PortAudio mic when one exists; a remote
-#                      #       desktop on a mic-less (headless/VPS) backend
-#                      #       streams its own mic via the wake.feed RPC.
-#                      # local: always the backend mic (wake_word.input_device).
-#                      # client: always desktop-streamed PCM (detection stays
-#                      #         on the backend).
-
 # Image generation. Each provider plugin reads its own ``image_gen.<name>``
 # block; deepinfra discovers models live from
 # api.deepinfra.com/v1/openai/models filtered by the ``image-gen`` tag —
@@ -1876,9 +1530,8 @@ code_execution:
   # loaded data survive across execute_code calls in one conversation, so
   # multi-step data work stops re-loading its inputs every call. Pass
   # reset=true on a call to discard state; a timed-out/interrupted cell kills
-  # the kernel (next call starts fresh). Remote terminal backends currently
-  # run per-call (remote kernel host is tracked follow-up work). Security
-  # scrubbing, tool whitelist, and output redaction are identical either way.
+  # the kernel (next call starts fresh).
+  # Security scrubbing, tool whitelist, and output redaction still apply.
   # kernel_idle_timeout: 1800   # Reap kernels idle longer than this (seconds)
   # max_session_kernels: 4      # Process-wide LRU cap on live kernels
 
@@ -1922,7 +1575,7 @@ delegation:
   # subagent_auto_approve: false              # When a subagent hits a dangerous-command approval prompt, auto-deny (default: false)
                                               # or auto-approve "once" (true) instead of blocking on stdin.
                                               # The parent TUI owns stdin, so blocking would deadlock; non-interactive resolution is required.
-                                              # Both choices emit a logger.warning audit line. Flip to true only for cron/batch pipelines.
+                                              # Both choices emit a logger.warning audit line. Flip to true only for batch pipelines.
   # inherit_mcp_toolsets: true                # When explicit child toolsets are narrowed, also keep the parent's MCP toolsets (default: true). Set false for strict intersection.
   # model: "google/gemini-3-flash-preview"    # Override model for subagents (empty = inherit parent)
   # provider: "openrouter"                    # Override provider for subagents (empty = inherit parent)
@@ -1959,34 +1612,10 @@ display:
 
   # tool_progress, interim_assistant_messages, long_running_notifications,
   # busy_ack_detail and show_reasoning are left unset here on purpose: a value
-  # set under display: applies to EVERY messaging platform and replaces its
+  # set under display: applies to EVERY session platform and replaces its
   # built-in default. To change one platform, set it under
   # display.platforms.<platform> instead.
   #
-  # Per-platform defaults can be quieter than the CLI. Telegram
-  # tunes for mobile: tool_progress and busy_ack_detail default off (no
-  # per-tool breadcrumb stream, no "iteration 21/60" debug detail in busy
-  # acks or heartbeats), but interim_assistant_messages and
-  # long_running_notifications STAY ON so the user has real signal between
-  # turn start and final answer (mid-turn assistant commentary + a single
-  # edit-in-place "⏳ Working — N min" heartbeat). Override under
-  # display.platforms.telegram.
-
-  # Auto-cleanup of temporary progress bubbles after the final response lands.
-  # On platforms that support message deletion (currently Telegram), this
-  # removes the tool-progress bubble, "⏳ Still working..." notices, and
-  # context-pressure status messages once the final reply has been delivered —
-  # keeping long-running turns visible live, then tidy afterward. Failed runs
-  # leave the bubbles in place as breadcrumbs. Off by default.
-  # Per-platform override: display.platforms.telegram.cleanup_progress
-  #   true:  Delete tracked progress/status bubbles on successful turn
-  #   false: Leave everything in place (default)
-  # Example:
-  #   display:
-  #     platforms:
-  #       telegram:
-  #         cleanup_progress: true
-  cleanup_progress: false
 
   # Natural mid-turn assistant updates.
   # On gateway platforms, when true, completed assistant status messages are
@@ -2001,7 +1630,7 @@ display:
 
   # Opt-in: hide automatic warning/diagnostic notifications (compression, retry
   # and fallback notices, credit/subagent failure lines, inactivity and watchdog
-  # stalls, media-delivery fallbacks, cron failure alerts) on this surface.
+  # stalls and media-delivery fallbacks) on this surface.
   # Requested results, approvals, clarifications and command outcomes are never
   # hidden, and nothing is removed from the logs. Per-platform override under
   # display.platforms.<platform>.suppress_warning_notifications.
@@ -2012,15 +1641,13 @@ display:
   # notifications even if agent.gateway_notify_interval is non-zero. The
   # heartbeat edits a single message in place (where the adapter supports
   # editing) instead of posting a new bubble each interval.
-  # Default: true, including Telegram (silent agents are worse than a single
-  # edit-in-place heartbeat); false on Slack and on platforms that cannot edit.
+  # Available only on adapters that support message editing.
   # long_running_notifications: true
 
   # Include detailed iteration/tool/status context in busy acknowledgments
   # and long-running heartbeats. When true, busy acks show "iteration 21/60,
   # terminal, 10 min" and the heartbeat shows "⏳ Working — 12 min,
-  # iteration 21/60, terminal". When false (Telegram, Slack and no-edit
-  # platform default), both stay terse: "Interrupting current task" and
+  # iteration 21/60, terminal". When false, both stay terse: "Interrupting current task" and
   # "⏳ Working — 12 min, terminal".
   # busy_ack_detail: true
 
@@ -2035,9 +1662,9 @@ display:
   # Toggle at runtime with /busy <interrupt|queue|steer>.
   busy_input_mode: interrupt
 
-  # Background process notifications (gateway/messaging only).
+  # Background process notifications.
   # Controls how chatty the process watcher is when you use
-  # terminal(background=true, notify_on_complete=true) from Telegram/Discord/etc.
+  # terminal(background=true, notify_on_complete=true).
   #   concise: One-line status message on completion; failures include a short
   #            output tail (default)
   #   off:     No watcher messages at all
@@ -2065,7 +1692,7 @@ display:
   # When enabled, a dim box shows the model's thought process above the response.
   # Toggle at runtime with /reasoning show or /reasoning hide.
   #   true:  Show the reasoning box (CLI default)
-  #   false: Hide reasoning (messaging platform default)
+  #   false: Hide reasoning
   # show_reasoning: true
 
   # Stream tokens to the terminal as they arrive instead of waiting for the
@@ -2183,7 +1810,7 @@ display:
 #
 # First-use consent: each (event, command) pair prompts once on a TTY, then
 # is persisted to ~/.hermes/shell-hooks-allowlist.json.  Non-interactive
-# runs (gateway, cron) need --accept-hooks, HERMES_ACCEPT_HOOKS=1, or the
+# runs (gateway, batch) need --accept-hooks, HERMES_ACCEPT_HOOKS=1, or the
 # hooks_auto_accept key below.
 #
 # See website/docs/user-guide/features/hooks.md for the full JSON wire
@@ -2204,37 +1831,6 @@ display:
 #
 # hooks_auto_accept: false
 
-
-# =============================================================================
-# Telemetry
-# =============================================================================
-# Shared metrics are disabled by default. When enabled, Hermes writes only
-# allowlisted aggregate counters and immutable JSON
-# packages under $HERMES_HOME/telemetry/shared_metrics.
-# Packages include a random profile-scoped ID that stays stable until this
-# directory is deleted. It is not derived from hardware, account, or host data.
-# Successfully exported local history is retained for 30 days; pending deltas
-# are retained until they can be exported.
-# This profile-owned choice is not overridden by managed-scope configuration.
-#
-# Nothing is uploaded unless you also set `send: true`. That is a separate
-# opt-in and requires `enabled`; it never turns collection on by itself.
-# When sending is on:
-#   * only packages whose entire collection period falls within one
-#     continuous recorded consent window are ever sent. Consent windows open
-#     when you enable sending and close when you disable it, so data
-#     collected before you opted in — or during any gap between opt-ins —
-#     stays on this machine;
-#   * each package carries the profile-scoped ID as-is. It is a random UUID
-#     with no hardware, account, or host-derived content, and deleting the
-#     shared-metrics directory resets it.
-# See docs/observability/relay-shared-metrics.md (Appendix A) for the full
-# consent, identity, retention, and deletion decisions.
-telemetry:
-  shared_metrics:
-    enabled: false
-    send: false
-    # endpoint: https://telemetry.nousresearch.com/v1/telemetry
 
 
 # =============================================================================
@@ -2262,7 +1858,7 @@ updates:
   # Explicit `hermes update --check` and `hermes update` remain available.
   check: true
   # Backup taken before every `hermes update`:
-  #   quick - snapshot of small critical state (pairing, cron jobs, config.yaml,
+  #   quick - snapshot of small critical state (pairing, config.yaml,
   #           .env, auth.json, profile databases) in state-snapshots/ (default)
   #   full  - quick plus a zip of HERMES_HOME in backups/; slow on large homes
   #   off   - no backup

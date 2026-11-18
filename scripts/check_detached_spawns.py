@@ -16,7 +16,7 @@ Flags, in Python files of the production trees (tests, evals, scripts and nix ch
   process_group=<anything but None> (``process_group=0`` puts the child in a new group), in the
   same three shapes
   any reference to os.setsid / os.setpgid / os.setpgrp (call or ``preexec_fn=os.setsid``)
-  a call to ``windows_detach_popen_kwargs()`` (``start_new_session=True`` on POSIX)
+
 
 Not caught: a PTY spawn (``pty.fork``, ``ptyprocess.PtyProcess.spawn``, which always start a new
 session), aliased imports (``from os import setsid``, ``import os as _os``), ``os.posix_spawn(...,
@@ -54,10 +54,8 @@ SCAN_TREES = ("agent", "cron", "gateway", "hermes_cli", "plugins", "tools", "tui
 SCAN_ROOT_FILES = ("cli.py", "run_agent.py", "hermes_state.py", "utils.py", "hermes_constants.py")
 SKIP_PARTS = {"tests", "__pycache__", "evals", "node_modules"}
 _DETACH_OS_ATTRS = {"setsid", "setpgid", "setpgrp"}
-# Helpers that return detaching Popen kwargs (``start_new_session=True`` on POSIX).
-_DETACH_HELPERS = {"windows_detach_popen_kwargs"}
 # Cheap text prefilter: only files mentioning one of these are parsed.
-_NEEDLES = ("start_new_session", "process_group", "setsid", "setpgid", "setpgrp", *_DETACH_HELPERS)
+_NEEDLES = ("start_new_session", "process_group", "setsid", "setpgid", "setpgrp")
 
 
 def _is_false(node: ast.AST) -> bool:
@@ -76,10 +74,6 @@ def _is_os_detach(node: ast.AST) -> bool:
     return (isinstance(node, ast.Attribute) and node.attr in _DETACH_OS_ATTRS
             and isinstance(node.value, ast.Name) and node.value.id == "os")
 
-
-def _is_detach_helper_call(node: ast.AST) -> bool:
-    return isinstance(node, ast.Call) and (getattr(node.func, "id", None) in _DETACH_HELPERS
-                                           or getattr(node.func, "attr", None) in _DETACH_HELPERS)
 
 
 def detach_lines(text: str) -> list[int]:
@@ -103,7 +97,7 @@ def detach_lines(text: str) -> list[int]:
                 if (isinstance(target, ast.Subscript) and isinstance(target.slice, ast.Constant)
                         and _detaches(target.slice.value, node.value)):
                     lines.add(target.lineno)
-        elif _is_os_detach(node) or _is_detach_helper_call(node):
+        elif _is_os_detach(node):
             lines.add(node.lineno)
     return sorted(lines)
 

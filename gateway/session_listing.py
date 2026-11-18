@@ -1,6 +1,4 @@
 """Read-only native picker history; enumeration never adopts a transcript."""
-from hermes_state_local_migration import client_history_row, validate_legacy_row
-from hermes_state_mutation_binding import authorize_history
 from hermes_state_runtime import RuntimeStoreError
 
 from gateway.owner_identity import same_owner
@@ -25,26 +23,9 @@ def _picker_row(row, tip, sid):
 
 
 def _native_reader(authority, actor):
-    """The native transport old local rows are offered to: the one that may resume (adopt) them."""
-    return (getattr(authority, '_native_legacy_transports', {}).get(actor.transport_id) == actor
-            and {'session:read', 'session:create'} <= actor.capabilities)
+    """A reader of this authority's current sessions."""
+    return actor.profile_id == authority.profile_id and 'session:read' in actor.capabilities
 
-
-def legacy_readable(authority, actor, sid):
-    """Whether this picker lists old local row *sid* (unadopted: no receipt, no route) to *actor*, so a
-    read of it may show it without adopting it (``gateway/session_stored_reads.py``)."""
-    db = authority.db
-    row = db.get_session(sid)
-    if actor.profile_id != authority.profile_id or row is None or not _native_reader(authority, actor):
-        return False
-    try:
-        validate_legacy_row(db, row, subject=actor.subject)
-        with db._read_ctx() as conn:
-            return authorize_history(conn, actor, sid)
-    except RuntimeStoreError as exc:
-        if exc.reason not in {'not_found', 'permission_denied'}:
-            raise
-        return False
 
 
 def stored_picker_sessions(authority, actor, *, limit, include_hidden=False, workspace=None, picker=False):
@@ -66,7 +47,7 @@ def stored_picker_sessions(authority, actor, *, limit, include_hidden=False, wor
         rows = db.list_sessions_rich(exclude_sources=_excluded_sources(), limit=200, offset=offset,
             order_by_last_active=True, compact_rows=True, include_hidden=include_hidden, workspace_key=workspace)
         for row in rows:
-            local = row['source'] in _LOCAL_SOURCES or client_history_row(row)
+            local = row['source'] in _LOCAL_SOURCES
             if not local and _messaging_platform(row['source']) is None:
                 continue  # neither a local nor a messaging label (acp, unknown, ...): nothing this picker resumes
             sid = db.get_compression_tip(row['id']) or row['id']
@@ -94,12 +75,7 @@ def stored_picker_sessions(authority, actor, *, limit, include_hidden=False, wor
                 if len(sessions) == limit:
                     break
                 continue
-            if not legacy_readable(authority, actor, sid):
-                continue
-            sessions.append(_picker_row(row, tip, sid))
-            sources.append((row.get('_lineage_root_id') or row['id'], sid, row))
-            if len(sessions) == limit:
-                break
+
         if len(rows) < 200:
             break
         offset += len(rows)

@@ -159,7 +159,7 @@ Run `/usage` periodically to see your token consumption. Run `/insights` for a b
 
 ### Set a Home Channel
 
-Use `/sethome` in your preferred Telegram or Discord chat to designate it as the home channel. Cron job results and scheduled task outputs are delivered here. Without it, the agent has nowhere to send proactive messages.
+Use `/sethome` in your preferred Telegram or Discord chat to designate it as the home channel. Proactive messages can be delivered here.
 
 ### Use /title to Organize Sessions
 
@@ -179,34 +179,9 @@ Messaging sessions persist until an explicit `/new` or `/reset`. Context compres
 
 ## Security
 
-### Use Docker for Untrusted Code
+### Use caution with untrusted code
 
-When working with untrusted repositories or running unfamiliar code, use Docker or Daytona as your terminal backend. Set `TERMINAL_ENV=docker` in your `.env`. Destructive commands inside a container can't harm your host system.
-
-```bash
-# In your .env:
-TERMINAL_ENV=docker
-TERMINAL_DOCKER_IMAGE=hermes-sandbox:latest
-```
-
-### Avoid Windows Encoding Pitfalls
-
-On Windows, some default encodings (such as `cp125x`) cannot represent all Unicode characters, which can cause `UnicodeEncodeError` when writing files in tests or scripts.
-
-- Prefer opening files with an explicit UTF-8 encoding:
-
-```python
-with open("results.txt", "w", encoding="utf-8") as f:
-    f.write("✓ All good\n")
-```
-
-- In PowerShell, you can also switch the current session to UTF-8 for console and native command output:
-
-```powershell
-$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-```
-
-This keeps PowerShell and child processes on UTF-8 and helps avoid Windows-only failures.
+Terminal commands run locally as the Hermes process user, with that user’s filesystem permissions. They are not isolated by Hermes. Explicit nonlocal terminal selectors are refused; remove or correct old configuration before running. Running Hermes itself on a remote server or in a container is a separate deployment choice.
 
 ### Review Before Choosing "Always"
 
@@ -215,10 +190,6 @@ When the agent triggers a dangerous command approval (`rm -rf`, `DROP TABLE`, et
 ### Command Approval Is Your Safety Net
 
 Hermes checks every command against a curated list of dangerous patterns before execution. This includes recursive deletes, SQL drops, piping curl to shell, and more. Don't disable this in production — it exists for good reasons.
-
-:::warning
-When running in a container backend (Docker, Modal, Daytona, or a container plugin such as Singularity), dangerous command checks are **skipped** because the container is the security boundary. Make sure your container images are properly locked down.
-:::
 
 ### Use Allowlists for Messaging Bots
 

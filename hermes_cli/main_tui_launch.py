@@ -15,7 +15,6 @@ import sys
 
 from pathlib import Path
 from typing import Optional
-from agent.i18n import t
 
 # Log-record parity with the origin module.
 logger = logging.getLogger("hermes_cli.main")
@@ -111,7 +110,7 @@ def _print_tui_exit_summary(session_id: Optional[str], active_session_file: Opti
     from hermes_cli.profiles import get_active_profile_name
     active_profile = get_active_profile_name()
     profile_flag = "" if active_profile in ("default", "custom") else f" -p {active_profile}"
-    print(f"\n{t('cli.session.exit_resume_hint')}\n  hermes --tui --resume {resume_id}{profile_flag}")
+    print(f"\n{'Resume this session with:'}\n  hermes --tui --resume {resume_id}{profile_flag}")
     if title:
         print(f'  hermes --tui -c "{title}"{profile_flag}')
     print(f"\nSession:        {resume_id}")
@@ -678,22 +677,6 @@ def _launch_tui(
     sys.exit(code)
 
 
-def _pin_kanban_board_env() -> None:
-    """Pin the active kanban board into ``HERMES_KANBAN_BOARD`` so in-process tools and shelled-out
-    ``hermes kanban`` calls agree even if a concurrent ``boards switch`` flips the file mid-turn.
-
-    Without this, in-process tools (``kanban_*``) and shelled-out CLI calls (``hermes kanban …``) resolve
-    the board on different paths: the env-pin if set, otherwise the global ``<root>/kanban/current`` file. A
-    concurrent ``hermes kanban boards switch`` from another session can flip the file mid-turn, so the same
-    chat sees its tool calls hit board A while its shell calls hit board B (#20074). Pinning at chat boot
-    mirrors what the dispatcher already does for spawned workers.
-    """
-    if os.environ.get("HERMES_KANBAN_BOARD"):
-        return
-    with contextlib.suppress(Exception):
-        from hermes_cli.kanban_db import get_current_board
-        os.environ["HERMES_KANBAN_BOARD"] = get_current_board()
-
 
 def _sync_bundled_skills_quietly() -> None:
     """Seed ``~/.hermes/skills/`` with the bundled library (idempotent, milliseconds when synced).
@@ -708,8 +691,8 @@ def _resolve_use_tui(args) -> bool:
     ``HERMES_TUI=1`` → TUI; ``display.interface`` config; default classic.
 
     The TTY gate is load-bearing: ambient preferences must never hijack a piped
-    ``hermes chat -q`` (kanban workers, cron) — the Ink no-TTY bail-out exits 0 and
-    the worker dies with a protocol violation. Explicit ``--tui`` still bails out.
+    ``hermes chat -q`` or cron — the Ink no-TTY bail-out exits 0 without running
+    the query. Explicit ``--tui`` still bails out.
     """
     if getattr(args, "cli", False):
         return False

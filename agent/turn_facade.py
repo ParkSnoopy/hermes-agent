@@ -54,7 +54,7 @@ class TurnFacadeMixin:
         from agent.subagent_lifecycle import bind_subagent_parent
         from agent.interrupt_scope import track_in_interrupt_scope
         from agent.turn_facade_lease import admit_durable_turn_lease, carry_unadmitted_user_message
-        from hermes_cli.observability.relay_shared_metrics import finish_task_run, start_task_run
+
 
         effective_task_id = task_id or str(uuid.uuid4())
         session_id = str(getattr(self, "session_id", None) or "")
@@ -74,7 +74,7 @@ class TurnFacadeMixin:
         # Scope tokens start None: early returns leave the try before the set_*() calls and
         # the finally resets each one unconditionally.
         token = affinity_token = acct_token = None
-        task_started = task_finished = False
+
         relay_outcome = "failed"
 
         try:
@@ -120,15 +120,9 @@ class TurnFacadeMixin:
             relay_turn = relay_runtime.SESSION_COORDINATOR.begin_turn(
                 relay_lease, **relay_turn_kwargs
             )
-            # Minimal relay-runtime shims may lack the opt-out flag: default enabled.
-            if getattr(relay_turn, "relay_enabled", True):
-                start_task_run(
-                    **task_context,
-                    parent_session_id=getattr(self, "_parent_session_id", None) or "",
-                )
-                task_started = True
-            # Ambient Nous Portal tagging: every LLM call in this turn (loop, compression,
-            # vision, MoA, review forks) inherits `conversation=<root>`; host-declared
+
+            # Every LLM call in this turn (loop, compression, vision, MoA, review forks)
+            # inherits the conversation root for routing; host-declared
             # affinity scope falls back to it; accounting handles route aux usage to the session.
             token = set_conversation_context(self._conversation_root_id())
             affinity_token = set_affinity_scope(declared_conversation_scope_safe(self))
@@ -168,9 +162,7 @@ class TurnFacadeMixin:
                 else "success"
             )
             relay_runtime.SESSION_COORDINATOR.finish_logical_calls(relay_turn, outcome=relay_outcome)
-            if task_started:
-                task_finished = True
-                finish_task_run(**task_context, result=result)
+
             return result
         except BaseException as exc:
             if isinstance(exc, (KeyboardInterrupt, InterruptedError)) or (
@@ -183,9 +175,7 @@ class TurnFacadeMixin:
                 relay_runtime.SESSION_COORDINATOR.finish_logical_calls(
                     relay_turn, outcome=relay_outcome
                 )
-            if task_started and not task_finished:
-                task_finished = True
-                finish_task_run(**task_context, error=exc)
+
             raise
         finally:
             try:

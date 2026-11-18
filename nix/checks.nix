@@ -138,7 +138,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
         cross-eval = let
           targetSystems = builtins.filter
             (s: inputs.self.packages ? ${s})
-            [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin" ];
+            [ "x86_64-linux" "aarch64-linux" ];
           tryEvalPkg = sys:
             let pkg = inputs.self.packages.${sys}.default;
             in builtins.tryEval (builtins.seq pkg.drvPath true);
@@ -209,31 +209,6 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           echo "ok" > $out/result
         '';
 
-        # Inspect the shipped assets: successful JS compilation alone does
-        # not prove Vite copied the generated public files into the package.
-        frontend-icons = pkgs.runCommand "hermes-frontend-icons" {
-          nativeBuildInputs = [ (pkgs.python3.withPackages (ps: [ ps.pillow ])) ];
-        } ''
-          python3 - <<'PY'
-          from pathlib import Path
-          from PIL import Image
-
-          desktop = Path('${self'.packages.desktop}/share')
-          dist = desktop / 'hermes-desktop/dist'
-          launcher = desktop / 'icons/hicolor/1024x1024/apps/hermes.png'
-          for path in [launcher, dist / 'apple-touch-icon.png',
-                       dist / 'nous-girl.png', dist / 'nous-girl-dark.png',
-                       Path('${self'.packages.web}/favicon.ico')]:
-              with Image.open(path) as image:
-                  image.load()
-                  assert image.width > 0 and image.height > 0, path
-          with Image.open(launcher) as image, Image.open(dist / 'apple-touch-icon.png') as window_icon:
-              assert image.size == window_icon.size
-              assert image.convert('RGBA').tobytes() == window_icon.convert('RGBA').tobytes()
-          print('PASS: desktop and web ship decodable generated icons; launcher matches window icon')
-          PY
-          mkdir -p $out
-        '';
 
         # Verify the devShell builds successfully (cross-platform).
         build-devshell = pkgs.runCommand "hermes-build-devshell" { } ''
@@ -254,7 +229,6 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
               services = {
                 enable = true;
                 gateway.enable = true;
-                backend.mode = "serve";
                 settings.model.default = "test/model";
                 environment.HERMES_TEST = "1";
                 environmentFiles = [ "/run/secrets/hermes-env" ];
@@ -271,19 +245,11 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
             };
             cfg = enabled.config;
 
-            # The gateway and the backend are two processes with one
-            # HERMES_HOME.
-            processes =
-              if pkgs.stdenv.hostPlatform.isDarwin then
-                lib.mapAttrs (_: agent: {
-                  argv = agent.config.ProgramArguments;
-                  env = agent.config.EnvironmentVariables;
-                }) (lib.filterAttrs (n: _: lib.hasPrefix "hermes" n) cfg.launchd.agents)
-              else
-                lib.mapAttrs (_: unit: {
-                  argv = [ unit.Service.ExecStart ];
-                  env = unit.Service.Environment;
-                }) (lib.filterAttrs (n: _: lib.hasPrefix "hermes" n) cfg.systemd.user.services);
+            # Inspect the gateway's command and environment.
+            processes = lib.mapAttrs (_: unit: {
+              argv = [ unit.Service.ExecStart ];
+              env = unit.Service.Environment;
+            }) (lib.filterAttrs (n: _: lib.hasPrefix "hermes" n) cfg.systemd.user.services);
 
             names = lib.attrNames processes;
             argvOf = name: lib.concatStringsSep " " (lib.flatten (processes.${name}.argv));
@@ -302,22 +268,14 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
             activation = cfg.home.activation.hermesAgentSetup.data;
 
             failures =
-              lib.optional (names != [
-                "hermes-agent"
-                "hermes-backend"
-              ]) "expected hermes-agent + hermes-backend processes, got: ${toString names}"
+              lib.optional (names != [ "hermes-agent" ])
+                "expected the hermes-agent process, got: ${toString names}"
               ++ lib.optional (
                 !lib.hasInfix "bin/hermes gateway" (argvOf "hermes-agent")
               ) "gateway process does not run `hermes gateway`: ${argvOf "hermes-agent"}"
               ++ lib.optional (
-                !lib.hasInfix "bin/hermes serve" (argvOf "hermes-backend")
-              ) "backend process does not run `hermes serve`: ${argvOf "hermes-backend"}"
-              ++ lib.optional (
-                !lib.hasInfix "--no-open" (argvOf "hermes-backend")
-              ) "backend must pass --no-open so a service never opens a browser"
-              ++ lib.optional (
                 lib.any (n: !lib.hasInfix "/home/hermes-check/.hermes" (envOf n)) names
-              ) "gateway and backend must share one HERMES_HOME"
+              ) "gateway must use the configured HERMES_HOME"
               ++ lib.optional (
                 cfg.home.sessionVariables.HERMES_HOME or null != "/home/hermes-check/.hermes"
               ) "programs.hermes-agent.enable must export HERMES_HOME for interactive shells"
@@ -428,204 +386,27 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
               ''
           );
 
-        # ── The desktop application shares one HERMES_HOME ───────────────
-        # `programs.enable` exports HERMES_HOME with home.sessionVariables,
-        # which reaches an interactive shell only. Home Manager writes that
-        # file to etc/profile.d, and a launcher from the desktop menu reads
-        # no shell profile. Thus the desktop application would open ~/.hermes
-        # while the services use the HERMES_HOME of the module, and the user
-        # would see an empty application with no sessions and no keys.
-        #
-        # The launcher must therefore carry the value itself. This check
-        # reads the real wrapper text of the package that the module
-        # installs, and not an option value.
-        home-manager-desktop =
+        # Installing the CLI alone must not enable the gateway service.
+        home-manager-cli-standalone =
           let
-            tokenFile = "/run/secrets/hermes-desktop-token";
-
-            enabled = evalHomeSplit {
-              programs = {
-                enable = true;
-                desktop.enable = true;
-              };
-              services = {
-                enable = true;
-                hermesHome = "/home/hermes-check/.hermes-work";
-                # An override on purpose. Without one the effective package
-                # IS the default package, so a launcher that pinned the plain
-                # default would look correct while it shipped a second
-                # runtime to anyone who customises theirs. The group must be
-                # one the default package does not already ship.
-                extraDependencyGroups = [ "google-meet" ];
-                backend = {
-                  mode = "serve";
-                  port = 9231;
-                  sessionTokenFile = tokenFile;
-                };
-              };
-            };
-            cfg = enabled.config;
-
-            desktopPackages = builtins.filter (p: (p.pname or "") == "hermes-desktop") cfg.home.packages;
-            desktop = lib.head desktopPackages;
-            wrapper = desktop.installPhase;
-
-            # Read the value that each --set flag gives the launcher. The
-            # quotes are not part of the test: escapeShellArg adds them only
-            # when the value needs them, and a path with no special character
-            # arrives bare.
-            setValue =
-              name:
-              let
-                m = builtins.match ".*--set ${name} ['\"]?([^'\"\n ]*)['\"]?.*" wrapper;
-              in
-              if m == null then null else lib.head m;
-
-            # The agent package that the module installs, and the runtime
-            # that the launcher pins. These must be the same store path: a
-            # second Hermes runtime beside the services is the fault that
-            # `programs.enable` plus a plain desktop package would give.
+            cfg = (evalHomeSplit { programs.enable = true; }).config;
             agentPackages = builtins.filter (p: (p.pname or "") == "hermes-agent") cfg.home.packages;
-
-            # The backend of the service, as the unit or the agent runs it.
-            backendArgvList =
-              if pkgs.stdenv.hostPlatform.isDarwin then
-                cfg.launchd.agents.hermes-backend.config.ProgramArguments
-              else
-                [ cfg.systemd.user.services.hermes-backend.Service.ExecStart ];
-            backendArgvText = lib.concatStringsSep " " (lib.flatten backendArgvList);
-            backendScript =
-              let
-                # writeShellScript gives a store path. Read the real text, so
-                # the check tests the script and not the option that made it.
-                path = lib.head (lib.splitString " " (lib.head (lib.flatten backendArgvList)));
-              in
-              builtins.readFile path;
-            # The unit text that carries the token's path: an Environment
-            # list (systemd) or an EnvironmentVariables set (launchd).
-            backendTokenText =
-              # Same NAME=value shape on both platforms, so one assertion
-              # covers each: systemd renders an Environment list (with the
-              # value quoted), launchd an attribute set that holds the bare
-              # value.
-              if pkgs.stdenv.hostPlatform.isDarwin then
-                "HERMES_DASHBOARD_SESSION_TOKEN=file:"
-                + (cfg.launchd.agents.hermes-backend.config.EnvironmentVariables.HERMES_DASHBOARD_SESSION_TOKEN
-                  or "")
-              else
-                lib.concatStringsSep "\n" cfg.systemd.user.services.hermes-backend.Service.Environment;
-
+            processes = lib.filterAttrs (n: _: lib.hasPrefix "hermes" n) cfg.systemd.user.services;
             failures =
-              lib.optional (
-                lib.length desktopPackages != 1
-              ) "programs.desktop.enable must install exactly one hermes-desktop package, got ${toString (lib.length desktopPackages)}"
-              ++ lib.optional (
-                setValue "HERMES_HOME" != "/home/hermes-check/.hermes-work"
-              ) "the launcher must carry HERMES_HOME: a GUI launcher reads no shell profile, so home.sessionVariables never reaches it (got: ${toString (setValue "HERMES_HOME")})"
-              ++ lib.optional (
-                setValue "HERMES_MANAGED" != "home-manager"
-              ) "the launcher must report HERMES_MANAGED=home-manager while the services own the configuration (got: ${toString (setValue "HERMES_MANAGED")})"
-              ++ lib.optional (
-                lib.length agentPackages == 1
-                && setValue "HERMES_DESKTOP_HERMES" != "${lib.head agentPackages}/bin/hermes"
-              ) "the launcher must pin the agent package that programs.enable installs, and not a second runtime: ${toString (setValue "HERMES_DESKTOP_HERMES")}"
-
-              # ── The application reaches the backend of the service ──────
-              ++ lib.optional (
-                setValue "HERMES_DESKTOP_REMOTE_URL" != "http://127.0.0.1:9231"
-              ) "the launcher must name the backend of the service, or the application starts a second one (got: ${toString (setValue "HERMES_DESKTOP_REMOTE_URL")})"
-              ++ lib.optional (
-                !lib.hasInfix "HERMES_DESKTOP_REMOTE_TOKEN" wrapper
-              ) "the launcher must give a token with the URL: the desktop resolver throws when the URL is set alone"
-
-              # ── The token never enters the Nix store ────────────────────
-              # The desktop launcher reads the file at start time (--run, not
-              # --set: a --set value writes the token into a store path that
-              # all users can read). The backend unit instead carries the
-              # token's PATH in its environment and hermes reads the file
-              # itself, so the store never sees the token either way.
-              ++ lib.optional (
-                !lib.hasInfix tokenFile wrapper || !lib.hasInfix "--run" wrapper
-              ) "the launcher must read the token from ${tokenFile} at start time, with --run"
-              ++ lib.optional (
-                !lib.hasInfix "HERMES_DASHBOARD_SESSION_TOKEN=" backendTokenText
-                || !lib.hasInfix "file:${tokenFile}" backendTokenText
-              ) "the backend unit must name the token file in its environment, or hermes mints a token the application cannot know"
-              # With no waitFor, a token must no longer force the launcher:
-              # nothing in the command line has to read a secret any more.
-              ++ lib.optional (
-                lib.hasInfix "hermes-backend-launch" backendArgvText
-              ) "a sessionTokenFile alone must not force the launcher; the token path rides in the unit environment (got: ${backendArgvText})"
-
-              # Secret managers leave a "$XDG_RUNTIME_DIR" placeholder in
-              # secret paths for a shell to expand (agenix's Home Manager
-              # module does). escapeShellArg freezes the placeholder into a
-              # literal, so the desktop reader must expand it before its
-              # readability check. The backend takes the path from the unit
-              # environment verbatim, so nothing renders it through a shell.
-              ++ lib.optional (
-                !lib.hasInfix ''_token_file=''${_token_file//\$\{XDG_RUNTIME_DIR\}/''${XDG_RUNTIME_DIR:-}}'' wrapper
-              ) "the desktop launcher must expand an unexpanded \"$XDG_RUNTIME_DIR\" in the token path"
-              ++ lib.optional (
-                setValue "HERMES_DESKTOP_REMOTE_TOKEN" != null
-              ) "the token must never be a --set value: makeWrapper writes it into the world-readable Nix store";
+              lib.optional (lib.length agentPackages != 1)
+                "programs.enable must install exactly one hermes-agent package"
+              ++ lib.optional (cfg.home.sessionVariables.HERMES_HOME or null != "/home/hermes-check/.hermes")
+                "programs.enable must export the configured HERMES_HOME"
+              ++ lib.optional (processes != { })
+                "programs.enable alone must start no Hermes service";
           in
-          pkgs.runCommand "hermes-home-manager-desktop" { } (
+          pkgs.runCommand "hermes-home-manager-cli-standalone" { } (
             if failures != [ ] then
-              throw "Home Manager desktop check failed:\n${lib.concatMapStringsSep "\n" (f: "  - ${f}") failures}"
-            else
-              ''
-                echo "PASS: the desktop launcher shares HERMES_HOME, the runtime and the backend of the service"
-                mkdir -p $out
-                echo "ok" > $out/result
-              ''
-          );
-
-        # ── The desktop application without the services ─────────────────
-        # A person can want the application on a machine that runs no daemon.
-        # Then nothing writes config.yaml or the .managed marker, so the
-        # launcher must not claim a managed install: the CLI would refuse an
-        # edit that nothing else owns. It must also not name a backend, since
-        # there is none.
-        home-manager-desktop-standalone =
-          let
-            enabled = evalHomeSplit {
-              programs = {
-                enable = true;
-                desktop.enable = true;
-              };
-            };
-            cfg = enabled.config;
-
-            desktopPackages = builtins.filter (p: (p.pname or "") == "hermes-desktop") cfg.home.packages;
-            wrapper = (lib.head desktopPackages).installPhase;
-
-            failures =
-              lib.optional (
-                lib.length desktopPackages != 1
-              ) "programs.desktop.enable must install the application with no services enabled"
-              ++ lib.optional (
-                !lib.hasInfix "--set HERMES_HOME" wrapper
-              ) "the launcher must carry HERMES_HOME even with no services"
-              ++ lib.optional (
-                lib.hasInfix "HERMES_MANAGED" wrapper
-              ) "the launcher must not claim a managed install when no activation writes one"
-              ++ lib.optional (
-                lib.hasInfix "HERMES_DESKTOP_REMOTE_URL" wrapper
-              ) "the launcher must not name a backend when the services run none"
-              ++ lib.optional (
-                cfg.systemd.user.services ? hermes-backend || cfg.launchd.agents ? hermes-backend
-              ) "programs.enable alone must start no service";
-          in
-          pkgs.runCommand "hermes-home-manager-desktop-standalone" { } (
-            if failures != [ ] then
-              throw "Home Manager standalone desktop check failed:\n${lib.concatMapStringsSep "\n" (f: "  - ${f}") failures}"
-            else
-              ''
-                echo "PASS: the application runs with no services, and claims nothing that no activation wrote"
-                mkdir -p $out
-                echo "ok" > $out/result
-              ''
+              throw "Home Manager standalone CLI check failed:\n${lib.concatMapStringsSep "\n" (f: "  - ${f}") failures}"
+            else ''
+              mkdir -p $out
+              echo "ok" > $out/result
+            ''
           );
 
         # ── installPackage names its replacement ─────────────────────────
@@ -736,7 +517,9 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
               ) "nixosOnlyOptions names options the NixOS module no longer defines: ${toString staleNixosOnly}"
               ++ lib.optional (
                 staleHomeOnly != [ ]
-              ) "homeOnlyOptions names options the Home Manager module no longer defines: ${toString staleHomeOnly}";
+              ) "homeOnlyOptions names options the Home Manager module no longer defines: ${toString staleHomeOnly}"
+              ++ lib.optional (lib.elem "backend" nixosNames || lib.elem "backend" homeNames)
+                "the retired backend option must not be exposed by either module";
           in
           pkgs.runCommand "hermes-module-option-parity" { } (
             if failures != [ ] then
@@ -756,7 +539,6 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           let
             cfg = (evalNixosModule {
               enable = true;
-              backend.mode = "dashboard";
               settings.model.default = "test/model";
               environmentFiles = [ "/run/secrets/hermes-env" ];
               hermesHomeFiles."SOUL.md" = "test soul";
@@ -768,41 +550,21 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
             activation = cfg.system.activationScripts."hermes-agent-setup".text;
 
             failures =
-              lib.optional (names != [
-                "hermes-agent"
-                "hermes-backend"
-              ]) "expected hermes-agent + hermes-backend units, got: ${toString names}"
+              lib.optional (names != [ "hermes-agent" ])
+                "expected the hermes-agent unit, got: ${toString names}"
               ++ lib.optional (
                 !lib.hasInfix "bin/hermes gateway" (execOf "hermes-agent")
               ) "gateway unit does not run `hermes gateway`: ${execOf "hermes-agent"}"
-              ++ lib.optional (
-                !lib.hasInfix "bin/hermes dashboard" (execOf "hermes-backend")
-              ) "backend unit does not run `hermes dashboard`: ${execOf "hermes-backend"}"
-              ++ lib.optional (
-                units.hermes-agent.environment.HERMES_HOME != units.hermes-backend.environment.HERMES_HOME
-              ) "gateway and backend must share one HERMES_HOME"
+
               ++ lib.optional (
                 !lib.hasInfix "/var/lib/hermes/.hermes/SOUL.md" activation
               ) "hermesHomeFiles must install into HERMES_HOME";
 
-            # You cannot use container mode and the backend together. The
-            # module says so with an assertion. Without the assertion it
-            # makes a unit that never starts.
-            containerConflict = builtins.tryEval (
-              lib.deepSeq
-                (evalNixosModule {
-                  enable = true;
-                  container.enable = true;
-                  backend.mode = "serve";
-                }).config.system.build.toplevel.drvPath
-                true
-            );
+
           in
           pkgs.runCommand "hermes-nixos-module" { } (
             if failures != [ ] then
               throw "NixOS module check failed:\n${lib.concatMapStringsSep "\n" (f: "  - ${f}") failures}"
-            else if containerConflict.success then
-              throw "NixOS module check failed:\n  - an assertion must reject backend.mode with container.enable"
             else
               ''
                 echo "PASS: nixos module evaluates (${toString (lib.length names)} units)"
@@ -811,151 +573,6 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
               ''
           );
 
-        # ── How the backend waits for its bind target ────────────────────
-        # The backend binds to `host` immediately by default. A unit that
-        # starts at boot can lose the race against the daemon that supplies
-        # the address, such as tailscaled. `backend.waitFor` puts a poll in
-        # front of the bind. This check proves three properties: the default
-        # keeps the direct command line, each wait mode makes a launcher that
-        # polls and then execs hermes, and the assertions reject a
-        # configuration that cannot work.
-        backend-bind-wait =
-          let
-            execOf =
-              settings:
-              (evalNixosModule ({ enable = true; } // settings)).config.systemd.services.hermes-backend.serviceConfig.ExecStart;
-
-            direct = execOf { backend.mode = "serve"; };
-
-            hostnameWait = execOf {
-              backend = {
-                mode = "serve";
-                host = "host.example.ts.net";
-                waitFor = "hostname";
-              };
-            };
-
-            interfaceWait = execOf {
-              backend = {
-                mode = "dashboard";
-                waitFor = "interface";
-                interfaceName = "tailscale0";
-                waitTimeout = 30;
-              };
-            };
-
-            # The launcher is a store path. Read it to see what it runs.
-            hostnameScript = builtins.readFile hostnameWait;
-            interfaceScript = builtins.readFile interfaceWait;
-
-            evalFails =
-              settings:
-              !(builtins.tryEval (
-                lib.deepSeq
-                  (evalNixosModule ({ enable = true; } // settings)).config.system.build.toplevel.drvPath
-                  true
-              )).success;
-
-            failures =
-              # The default must not change.
-              lib.optional (!lib.hasInfix "bin/hermes serve --host 127.0.0.1" direct)
-                "without waitFor the backend must exec hermes directly, got: ${direct}"
-              ++ lib.optional (lib.hasInfix "hermes-backend-launch" direct)
-                "without waitFor the backend must not use the launcher"
-
-              # The hostname mode polls the resolver, then binds the name.
-              ++ lib.optional (!lib.hasInfix "hermes-backend-launch" hostnameWait)
-                "waitFor = hostname must run the launcher, got: ${hostnameWait}"
-              ++ lib.optional (!lib.hasInfix "getent hosts" hostnameScript)
-                "the hostname launcher must poll with getent"
-              ++ lib.optional (!lib.hasInfix "host.example.ts.net" hostnameScript)
-                "the hostname launcher must poll for backend.host"
-              ++ lib.optional (!lib.hasInfix "exec " hostnameScript)
-                "the launcher must exec hermes, so that it keeps the MainPID"
-              ++ lib.optional (!lib.hasInfix ''--host "$_target"'' hostnameScript)
-                "the launcher must bind the address that the poll resolved"
-
-              # The interface mode reads an address off the interface.
-              ++ lib.optional (!lib.hasInfix "tailscale0" interfaceScript)
-                "the interface launcher must poll backend.interfaceName"
-              ++ lib.optional (!lib.hasInfix "_timeout=30" interfaceScript)
-                "the launcher must use backend.waitTimeout"
-              ++ lib.optional (!lib.hasInfix "bin/hermes dashboard" interfaceScript)
-                "the launcher must keep backend.mode"
-
-              # The assertions reject what cannot work.
-              ++
-                lib.optional
-                  (!evalFails {
-                    backend = {
-                      mode = "serve";
-                      waitFor = "interface";
-                    };
-                  })
-                  "an assertion must reject waitFor = interface without interfaceName"
-              ++
-                lib.optional
-                  (!evalFails {
-                    backend = {
-                      mode = "serve";
-                      interfaceName = "tailscale0";
-                    };
-                  })
-                  "an assertion must reject interfaceName without waitFor = interface";
-          in
-          pkgs.runCommand "hermes-backend-bind-wait" { } (
-            if failures != [ ] then
-              throw "backend bind wait check failed:\n${lib.concatMapStringsSep "\n" (f: "  - ${f}") failures}"
-            else
-              ''
-                echo "PASS: backend bind wait (default, hostname, interface)"
-                mkdir -p $out
-                echo "ok" > $out/result
-              ''
-          );
-
-        # ── The user manager that restart-safe cron workers need ─────────
-        # The cron scheduler launches every job in a transient `systemd-run
-        # --user --scope`, so that a gateway restart cannot kill a running job,
-        # and it fails the fire closed when the scope cannot be created. A
-        # system service has no user manager — and so no /run/user/<uid>/bus —
-        # unless the uid lingers. That makes `linger` load-bearing for cron on
-        # this module, not cosmetic: without it every job dies before an agent
-        # starts. This check proves three properties: the uid the gateway runs
-        # as lingers, a lingering gateway does not start before that uid's bus
-        # exists, and a gateway whose uid does not linger waits for nothing.
-        cron-worker-user-scope =
-          let
-            configOf = settings: (evalNixosModule ({ enable = true; } // settings)).config;
-
-            managed = configOf { };
-            gateway = managed.systemd.services.hermes-agent;
-            gatewayUser = gateway.serviceConfig.User;
-
-            # The operator declares the user themselves. Nothing here knows
-            # whether they lingered it, so nothing may assume a bus.
-            unmanaged = (configOf { createUser = false; }).systemd.services.hermes-agent;
-
-            failures =
-              lib.optional (!((managed.users.users.${gatewayUser}.linger or false) == true))
-                "the uid the gateway runs as (${gatewayUser}) must linger: `systemd-run --user --scope` has no user manager to ask without it, and cron dispatch fails closed"
-              ++ lib.optional (!lib.elem "linger-users.service" gateway.after)
-                "a lingering gateway must be ordered after linger-users.service, the unit that runs `loginctl enable-linger`"
-              ++ lib.optional (!lib.hasInfix "/run/user" gateway.preStart)
-                "a lingering gateway must wait for its user bus before ExecStart: the bus environment is resolved once at startup, so a bus that appears later is one this process never sees"
-              ++ lib.optional (lib.hasInfix "/run/user" unmanaged.preStart)
-                "a gateway whose uid is not known to linger must not block on a user bus that may never arrive";
-          in
-          pkgs.runCommand "hermes-cron-worker-user-scope" { } (
-            if failures != [ ] then
-              throw "cron worker user scope check failed:\n${lib.concatMapStringsSep "\n" (f: "  - ${f}") failures}"
-            else
-              ''
-                echo "PASS: the gateway uid lingers and the unit waits for its user bus"
-                mkdir -p $out
-                echo "ok" > $out/result
-              ''
-          );
 
         # ── How .env is built ────────────────────────────────────────────
         # This check runs the real script that both modules use to build
@@ -1035,32 +652,12 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
         service-argv =
           let
             common = import ./moduleCommon.nix { inherit lib; };
-            cfgFor = mode: {
+            cfg = {
               package = hermes-agent;
               extraPythonPackages = [ ];
               extraDependencyGroups = [ ];
               extraArgs = [ ];
-              backend = {
-                inherit mode;
-                host = "127.0.0.1";
-                port = 9119;
-                extraArgs = [ ];
-                waitFor = null;
-                interfaceName = null;
-                waitTimeout = 120;
-                # No token here: this case asserts the plain argv. The
-                # withToken case below proves a token alone still yields the
-                # same plain argv -- only a wait needs the launcher.
-                sessionTokenFile = null;
-              };
             };
-            withToken =
-              (cfgFor "serve")
-              // {
-                backend = (cfgFor "serve").backend // {
-                  sessionTokenFile = "/run/secrets/hermes-argv-probe-token";
-                };
-              };
             sentinel = "--hermes-nix-argv-probe";
             probe = argv: lib.escapeShellArgs (argv ++ [ sentinel ]);
           in
@@ -1090,10 +687,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
               esac
             }
 
-            check "gateway"   ${probe (common.gatewayArgv (cfgFor "none"))}
-            check "serve"     ${probe (common.backendArgv { inherit pkgs; cfg = cfgFor "serve"; })}
-            check "dashboard" ${probe (common.backendArgv { inherit pkgs; cfg = cfgFor "dashboard"; })}
-            check "serve+token" ${probe (common.backendArgv { inherit pkgs; cfg = withToken; })}
+            check "gateway" ${probe (common.gatewayArgv cfg)}
 
             mkdir -p $out
             echo "ok" > $out/result
@@ -1124,14 +718,6 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           mkdir -p $out
         '';
 
-        # A pre-existing CLI install must not override the package's backend.
-        desktop-backend = pkgs.runCommand "hermes-desktop-backend" {
-          nativeBuildInputs = [ hermes-agent.python pkgs.cage ];
-        } ''
-          python3 ${./tests/desktop-backend.py} \
-            ${self'.packages.desktop}/bin/hermes-desktop ${hermes-agent}/bin/hermes
-          mkdir -p $out
-        '';
 
         # Verify CLI subcommands are accessible
         cli-commands = pkgs.runCommand "hermes-cli-commands" { } ''
@@ -1179,58 +765,22 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           echo "ok" > $out/result
         '';
 
-        # Verify bundled plugins (platforms, memory, context_engine) are present
+        # Verify bundled plugins are present
         bundled-plugins = pkgs.runCommand "hermes-bundled-plugins" { } ''
           set -e
           echo "=== Checking bundled plugins ==="
           test -d ${hermes-agent}/share/hermes-agent/plugins || (echo "FAIL: plugins directory missing"; exit 1)
           echo "PASS: plugins directory exists"
 
-          test -f ${hermes-agent}/share/hermes-agent/plugins/platforms/irc/plugin.yaml || \
-            (echo "FAIL: irc plugin manifest missing"; exit 1)
-          echo "PASS: irc plugin manifest present"
+          test -f ${hermes-agent}/share/hermes-agent/plugins/memory/byterover/plugin.yaml || \
+            (echo "FAIL: memory plugin manifest missing"; exit 1)
+          echo "PASS: memory plugin manifest present"
 
           grep -q "HERMES_BUNDLED_PLUGINS" ${hermes-agent}/bin/hermes || \
             (echo "FAIL: HERMES_BUNDLED_PLUGINS not in wrapper"; exit 1)
           echo "PASS: HERMES_BUNDLED_PLUGINS set in wrapper"
 
           echo "=== All bundled plugins checks passed ==="
-          mkdir -p $out
-          echo "ok" > $out/result
-        '';
-
-        # Verify bundled i18n locale catalogs are present and resolvable.
-        # Regression for #23943 / #27632 / #35374 — sealed Nix venvs dropped
-        # locales/, surfacing raw i18n keys like gateway.reset.header_default.
-        bundled-locales = pkgs.runCommand "hermes-bundled-locales" { } ''
-          set -e
-          echo "=== Checking bundled locales ==="
-          test -d ${hermes-agent}/share/hermes-agent/locales || (echo "FAIL: locales directory missing"; exit 1)
-          echo "PASS: locales directory exists"
-
-          # -L: locales/ is a symlink to the source store path
-          LOC_COUNT=$(find -L ${hermes-agent}/share/hermes-agent/locales -name "*.yaml" | wc -l)
-          test "$LOC_COUNT" -ge 16 || (echo "FAIL: expected >=16 catalogs, found $LOC_COUNT"; exit 1)
-          echo "PASS: $LOC_COUNT locale catalogs found"
-
-          test -f ${hermes-agent}/share/hermes-agent/locales/en.yaml || (echo "FAIL: en.yaml missing"; exit 1)
-          echo "PASS: en.yaml present"
-
-          grep -q "HERMES_BUNDLED_LOCALES" ${hermes-agent}/bin/hermes || \
-            (echo "FAIL: HERMES_BUNDLED_LOCALES not in wrapper"; exit 1)
-          echo "PASS: HERMES_BUNDLED_LOCALES set in wrapper"
-
-          # locales/ is a bare data dir (no __init__.py), shipped via a
-          # symlink + HERMES_BUNDLED_LOCALES (not via wheel data-files).
-          # Verify the wrapper override resolves real strings.
-          export HOME=$(mktemp -d)
-          RENDERED=$(cd "$HOME" && HERMES_BUNDLED_LOCALES=${hermes-agent}/share/hermes-agent/locales \
-            ${hermesVenv}/bin/python3 -c "from agent import i18n; print(i18n.t('gateway.reset.header_default', lang='en'))")
-          echo "rendered: $RENDERED"
-          test "$RENDERED" != "gateway.reset.header_default" || (echo "FAIL: i18n returned the raw key with HERMES_BUNDLED_LOCALES set"; exit 1)
-          echo "PASS: i18n renders a human string via the wrapper override"
-
-          echo "=== All bundled locales checks passed ==="
           mkdir -p $out
           echo "ok" > $out/result
         '';
@@ -1394,7 +944,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           viaFunctionGroup = hermes-agent.override (prev: {
             extraDependencyGroups = prev.extraDependencyGroups ++ [ newGroup ];
           });
-          viaOverlayShipped = hermes-agent.override { extraDependencyGroups = [ "messaging" ]; };
+          viaOverlayShipped = hermes-agent.override { extraDependencyGroups = [ "anthropic" ]; };
 
           # A custom `package` that already carries extras of its own: the
           # module's extras must land on top of them, not replace them.
@@ -1517,18 +1067,6 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           echo "ok" > $out/result
         '';
 
-        # Regression guard: messaging deps live outside [all], so the
-        # #messaging variant must actually ship discord.py — otherwise
-        # `nix profile install .#messaging` regresses to the broken default.
-        messaging-variant = pkgs.runCommand "hermes-messaging-variant" { } ''
-          set -e
-          echo "=== Checking discord.py importable from messaging variant ==="
-          ${self'.packages.messaging.hermesVenv}/bin/python3 -c \
-            "import discord; print(discord.__version__)"
-          echo "PASS: discord.py importable from messaging variant venv"
-          mkdir -p $out
-          echo "ok" > $out/result
-        '';
 
         # A fresh declarative install must be current to the Hermes it ships
         # with. Hermes cannot stamp config.yaml in managed mode, so an
@@ -1571,7 +1109,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           nixSettings = pkgs.writeText "nix-settings.json" (builtins.toJSON {
             model = "test/nix-model";
             toolsets = ["nix-toolset"];
-            terminal = { backend = "docker"; timeout = 999; };
+            terminal = { backend = "local"; timeout = 999; };
             mcp_servers = {
               nix-server = { command = "echo"; args = ["nix"]; };
             };
@@ -1729,7 +1267,7 @@ json.dump(load_config(), sys.stdout, default=str)
           install -m 0644 ${fixtureF} "$F_HOME/config.yaml"
           F_CONFIG=$(merge_and_load "$F_HOME")
 
-          echo "$F_CONFIG" | jq -e '.terminal.backend == "docker"' > /dev/null \
+          echo "$F_CONFIG" | jq -e '.terminal.backend == "local"' > /dev/null \
             || fail "F: Nix terminal.backend did not override"
           echo "$F_CONFIG" | jq -e '.terminal.timeout == 999' > /dev/null \
             || fail "F: Nix terminal.timeout did not override"

@@ -4,7 +4,7 @@ sidebar_position: 3
 
 # Profile Distributions: Share a Whole Agent
 
-A **profile distribution** packages a complete Hermes agent — personality, skills, cron jobs, MCP connections, config — as a git repository. Anyone with access to the repo can install the whole agent with one command, update it in place, and keep their own memories, sessions, and API keys untouched.
+A **profile distribution** packages a complete Hermes agent — personality, skills, MCP connections, config — as a git repository. Anyone with access to the repo can install the whole agent with one command, update it in place, and keep their own memories, sessions, and API keys untouched.
 
 If a [profile](./profiles.md) is a local agent, a distribution is that agent made shareable.
 
@@ -19,7 +19,7 @@ Hermes has two sharing paths, and they answer different questions. Distributions
 | Updates | `hermes profile update` pulls new versions | Re-send the file |
 | Versioning | Tags, branches, commit SHAs | None — a snapshot in time |
 | Setup cost for the author | `distribution.yaml` + `.gitignore` + a repo | None — one command |
-| Carries | SOUL, config, skills, cron, MCP, plugins | The same, **plus** the desktop theme and layout |
+| Carries | SOUL, config, skills, MCP, plugins | The same, **plus** the desktop theme and layout |
 | Made with | `hermes profile install` / `update` | `/export` and `/import`, or `hermes profile export` / `import` |
 
 Pick a **distribution** when the agent is a product you'll keep improving and other people should track: a team's reviewed internal agent, a community release, the same agent deployed to five machines.
@@ -36,7 +36,6 @@ Before distributions, sharing a Hermes agent meant sending someone:
 2. A list of skills to install
 3. Your config.yaml, minus the secrets
 4. A description of which MCP servers you wired up
-5. Any cron jobs you scheduled
 6. Instructions for which env vars to set
 
 …and hoping they assembled it correctly. Every version bump or bug fix meant repeating the handoff.
@@ -49,7 +48,6 @@ my-research-agent/
 ├── SOUL.md              # the agent's personality / system prompt
 ├── config.yaml          # model, temperature, reasoning, tool defaults
 ├── skills/              # bundled skills that come with the agent
-├── cron/                # scheduled tasks the agent runs
 └── mcp.json             # MCP servers the agent connects to
 ```
 
@@ -86,7 +84,7 @@ Good fits:
 Not a fit:
 
 - **You want to hand someone your setup once, right now.** A distribution needs a repo, a manifest, and a `.gitignore`. `/export` needs none of that — see [Export and import a profile file](#export-and-import-a-profile-file). Same for backing up or moving a profile to a new machine.
-- **You want to share your desktop theme and layout.** A distribution carries the agent — SOUL, config, skills, cron, MCP, plugins. An export made from the desktop app also carries the look: skin, light/dark mode, custom themes, rail color, and window layout.
+- **You want to share your desktop theme and layout.** A distribution carries the agent — SOUL, config, skills, MCP, plugins. An export made from the desktop app also carries the look: skin, light/dark mode, custom themes, rail color, and window layout.
 - **You want to share API keys alongside the agent.** `auth.json`, `.env` and the other credential stores Hermes reads from a profile (`.op.env`, `npmrc`, OAuth and bot token files, `honcho.json`, `mem0.json`, `teams_pipeline_store.json`, `mcp-tokens/`, `vault/`, `proxy/`, browser profiles, platform sessions, and `.ssh/`, `.aws/`, `.gnupg/`, `.kube/`, `.docker/`, `.azure/`, `.config/gh/`, `.config/gcloud/` and `.envrc` at the root or nested under a skill) are deliberately excluded from distributions. Each installer brings their own credentials. (Export files strip them too.)
 - **You want to share memories / sessions / conversation history.** Those are user data, not distribution content. Never shipped. (Export files are different here — read [what an export contains](#what-an-export-file-contains) before sending one.)
 
@@ -110,7 +108,7 @@ Build and refine the agent like any other profile:
 hermes profile create research-bot
 research-bot setup                    # configure model, API keys
 # Edit ~/.hermes/profiles/research-bot/SOUL.md
-# Install skills, wire up MCP servers, schedule cron jobs, etc.
+# Install skills, wire up MCP servers, etc.
 research-bot chat                     # dogfood until it feels right
 ```
 
@@ -204,15 +202,13 @@ backups/
 errors.log
 .hermes_history
 
-# Distribution-authored scheduler/skills state only
-cron/*
-!cron/jobs.json
+# Distribution-authored skills state only
 skills/.*
 ```
 
 This mirrors the [hard-excluded paths](#whats-not-in-a-distribution-ever) that the installer strips on its end. Anything else you want to keep out of the repo (scratch files, large assets, local-only skills) should also go in here.
 
-For cron, commit only `cron/jobs.json`. Hermes treats every other entry under `cron/` as runtime state (locks, ledgers, output, suggestions, and future scheduler sidecars) and never installs or replaces it from a distribution. Root-level hidden entries under `skills/` are likewise local Hermes bookkeeping; hidden files inside an authored skill directory remain part of that skill.
+Root-level hidden entries under `skills/` are local Hermes bookkeeping; hidden files inside an authored skill directory remain part of that skill.
 
 ### Step 4 — Push to a git repo
 
@@ -261,8 +257,6 @@ research-bot/
 │   ├── arxiv-search/SKILL.md
 │   ├── paper-summarization/SKILL.md
 │   └── citation-lookup/SKILL.md
-├── cron/
-│   └── jobs.json                # cron definitions; installed paused
 └── README.md                    # human-facing description (optional)
 ```
 
@@ -272,7 +266,7 @@ When an installer updates to a new version, some things get replaced (author's d
 
 | Category | Paths | On update |
 |---|---|---|
-| **Distribution-owned** | `SOUL.md`, `config.yaml`, `mcp.json`, `skills/`, `cron/jobs.json`, `distribution.yaml` | Files are replaced from the new clone. Skill directories are merged per entry. `cron/jobs.json` is merged by job id: shipped definitions update in place, your local jobs and each job's paused/enabled state survive, and newly shipped jobs arrive paused. Other `cron/` files and root-level hidden `skills/` metadata are runtime state and stay local. |
+| **Distribution-owned** | `SOUL.md`, `config.yaml`, `mcp.json`, `skills/`, `distribution.yaml` | Files are replaced from the new clone. Skill directories are merged per entry; root-level hidden `skills/` metadata stays local. |
 | **Config override** | `config.yaml` | Actually preserved by default — the installer may have tuned model or provider. Pass `--force-config` on update to reset. |
 | **User-owned** | `memories/`, `sessions/`, `state.db*`, `auth.json`, `.env` and the other credential stores (including those below a distribution-owned directory, such as `platforms/pairing/` and `platforms/whatsapp/session/`) and the recovery copies Hermes keeps of them (`state-snapshots/`, `auth.json.corrupt`, `.env.bak-*`), `logs/`, `workspace/`, `plans/`, `home/`, `*_cache/`, `local/` | Never touched, and `distribution_owned` cannot claim a credential store. An update that ships a file where your profile has a directory holding one (a file named `platforms`) is refused before anything is written |
 
@@ -282,7 +276,6 @@ You can override the distribution-owned list in the manifest:
 distribution_owned:
   - SOUL.md
   - skills/research/            # only my research skills; other installed skills stay
-  - cron/jobs.json              # canonical cron store; merged job by job
 ```
 
 When omitted, the defaults above apply — which is what most distributions want.
@@ -410,7 +403,7 @@ hermes profile update research-bot
 What happens:
 
 1. Re-clones the repo from the recorded source URL.
-2. Replaces distribution-owned files (SOUL, mcp.json) and shipped skills, then merges `cron/jobs.json` by job id. Your own jobs stay, shipped job definitions refresh without changing your paused/enabled choice, and newly shipped jobs arrive paused.
+2. Replaces distribution-owned files (SOUL, mcp.json) and shipped skills.
 3. **Preserves** your `config.yaml` — you may have tuned the model, temperature, or other settings. Pass `--force-config` to overwrite.
 4. **Never touches** user data: memories, sessions, auth, `.env`, logs, state.
 
@@ -433,7 +426,7 @@ Distribution: research-bot@1.0.0
 Installed from: https://github.com/you/research-bot
 
 This will permanently delete:
-  • All config, API keys, memories, sessions, skills, cron jobs
+  • All config, API keys, memories, sessions, skills
   • Command alias (~/.local/bin/research-bot)
 
 Type 'research-bot' to confirm:
@@ -466,7 +459,7 @@ Any iteration on the laptop (`git commit && push`) pulls onto the workstation wi
 
 ### Team: ship a reviewed internal agent
 
-Your engineering team wants a shared PR-review bot with a specific SOUL, specific skills, and a cron that runs every PR through it.
+Your engineering team wants a shared PR-review bot with a specific SOUL, and specific skills.
 
 ```bash
 # Engineering lead — create .gitignore first (see "For authors" Step 3), then:
@@ -690,7 +683,7 @@ Always excluded, both profile types: `auth.json`, `.env` and the other credentia
 
 **The default profile** (`~/.hermes`) is exported through an allow-list — only known Hermes artifacts, so an unrelated file sitting in your home directory can't get swept in:
 
-`config.yaml`, `SOUL.md`, `MEMORY.md`, `USER.md`, `todo.json`, `system_prompt.md`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `skills/`, `plugins/`, `cron/`, `scripts/`, `sessions/`, `memories/`, `knowledge/`, `preferences/`, and `desktop.json` when the desktop staged one.
+`config.yaml`, `SOUL.md`, `MEMORY.md`, `USER.md`, `todo.json`, `system_prompt.md`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `skills/`, `plugins/`, `scripts/`, `sessions/`, `memories/`, `knowledge/`, `preferences/`, and `desktop.json` when the desktop staged one.
 
 **A named profile** (`~/.hermes/profiles/<name>`) copies the whole directory minus those credential stores, `home/` (the `HOME` of Hermes' tool subprocesses, where `git`, `ssh`, `gh`, `npm` and skill CLIs keep their credentials), and the recovery copies Hermes keeps of them (`backups/`, `state-snapshots/`, any `auth.json.*` or `.env.bak*`, and the `config.yaml.bak-<timestamp>` copies `hermes update` writes). A copy you name yourself, such as `config.yaml.bak-my-note`, is exported, with its secrets redacted like `config.yaml`'s. That's broader — if the profile has `state.db`, logs, or caches, they go in the archive too, and the file gets big.
 
@@ -718,7 +711,7 @@ The installer hard-excludes these paths even if an author accidentally ships the
 - `logs/` — agent and error logs
 - `workspace/` — generated working files
 - `plans/` — scratch plans
-- `home/` — user's home mount in Docker backends
+- `home/` — profile home data
 - `*_cache/` — image / audio / document caches
 - `local/` — user-reserved customization namespace
 
@@ -733,9 +726,9 @@ This exclusion runs at **install / update time on the installer's machine**. It 
 Profile distributions are unsigned by default. You're trusting:
 
 - **The git host** (GitHub / GitLab / wherever) to serve the bytes the author pushed.
-- **The author** to not ship a malicious SOUL, skills, or cron jobs.
+- **The author** to not ship a malicious SOUL or skills.
 
-Cron jobs from a distribution are **not auto-scheduled** — newly shipped jobs are installed paused. Review them with `hermes -p <name> cron list` and resume only the jobs you trust. SOUL.md and skills ARE active as soon as you start chatting with the profile, so read them before your first run if you're installing from someone you don't know.
+SOUL.md and skills are active as soon as you start chatting with the profile, so read them before your first run if you are installing from someone you do not know.
 
 Rough analogy: installing a distribution is like installing a browser extension or a VS Code extension. Low friction, high power, trust the source. For internal company distributions, use a private repo and your normal git auth — nothing new to configure.
 

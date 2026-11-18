@@ -57,13 +57,12 @@ The repo ships these bundled plugins under `plugins/`. All are opt-in — enable
 |---|---|---|
 | `disk-cleanup` | hooks + slash command | Auto-track ephemeral files and clean them on session end |
 | `security-guidance` | hooks | Pattern-match dangerous code on `write_file`/`patch` and append a security warning (or block) — 25 rules (Apache-2.0 fork of Anthropic's `claude-plugins-official` patterns) |
-| `teams_pipeline` | standalone | Microsoft Teams meeting pipeline — Graph-backed, transcript-first meeting summaries |
-| `google_meet` | standalone | Join Meet calls, live-caption transcription, optional realtime duplex audio |
+| `google_meet` | standalone | Join Meet calls and capture live captions |
 | `image_gen/openai` | image backend | OpenAI GPT Image 2 and 2.5 Flare/Sunburst generation and editing (API key) |
 | `image_gen/openai-codex` | image backend | OpenAI image generation via Codex OAuth |
 | `image_gen/xai` | image backend | xAI `grok-2-image` backend |
 | `hermes-achievements` | dashboard tab | Steam-style collectible badges generated from your real Hermes session history |
-| `kanban/dashboard` | dashboard tab | Kanban board UI for the multi-agent dispatcher — tasks, comments, fan-out, board switching. See [Kanban Multi-Agent](./kanban.md). |
+| `kanban/dashboard` | dashboard tab | Kanban board UI for the multi-agent dispatcher — tasks, comments, fan-out, board switching. |
 
 Memory providers (`plugins/memory/*`) and context engines (`plugins/context_engine/*`) are listed separately on [Memory Providers](./memory-providers.md) — they're managed through `hermes memory` and `hermes plugins` respectively. The full per-plugin detail for the two long-running hooks-based plugins follows.
 
@@ -138,98 +137,22 @@ The file is still written. The model reads the warning in the next turn's tool m
 
 **What it does not do (yet):** the upstream Anthropic plugin has two more layers — an LLM diff review on each agent turn that touched files, and an agentic commit-time review that traces data flow across files. Neither is ported. The agent can already run those reviews on demand via `delegate_task`.
 
-### Langfuse (moved to the plugin catalog)
-
-Langfuse tracing is no longer bundled with Hermes. It ships as the official
-[`langfuse`](https://github.com/NousResearch/hermes-official-plugins/tree/main/langfuse) catalog plugin, with the same hooks, `HERMES_LANGFUSE_*`
-environment variables and capture modes:
-
-```bash
-hermes plugins install langfuse
-```
-
-Profiles that had `observability/langfuse` enabled get the plugin installed and
-enabled automatically by `hermes update` (or on the first start after updating),
-and keep tracing to the same Langfuse project. Setup, tuning and capture modes
-are documented in the [plugin's README](https://github.com/NousResearch/hermes-official-plugins/tree/main/langfuse).
-
 ### NeMo Relay native integration (migration note)
 
 NeMo Relay is no longer a bundled Hermes plugin. Do not run `hermes plugins enable observability/nemo_relay`; Hermes core now owns the Relay session, turn, LLM, and tool lifecycles.
 
-Configure Relay middleware or exporters through a standard Relay `plugins.toml`. Hermes loads Relay's user configuration (`~/.config/nemo-relay/plugins.toml`) and then its machine-wide system configuration (`/etc/nemo-relay/plugins.toml`, or `%ProgramData%\nemo-relay\plugins.toml` on Windows). Set `HERMES_NEMO_RELAY_PLUGINS_TOML` before starting Hermes only when you want an explicit file to replace the user configuration; the system configuration still has higher precedence. The policy is process-wide for every profile hosted by that Hermes process. Run `hermes doctor` to see which files apply. See the [NeMo Relay observability configuration](https://docs.nvidia.com/nemo/relay/configure-plugins/observability/about) for ATOF, ATIF, and OpenTelemetry options.
+Configure Relay middleware through a standard Relay `plugins.toml`. Hermes loads Relay's user configuration (`~/.config/nemo-relay/plugins.toml`) and then its machine-wide system configuration (`/etc/nemo-relay/plugins.toml`, or `%ProgramData%\nemo-relay\plugins.toml` on Windows). Set `HERMES_NEMO_RELAY_PLUGINS_TOML` before starting Hermes only when you want an explicit file to replace the user configuration; the system configuration still has higher precedence. The policy is process-wide for every profile hosted by that Hermes process. Run `hermes doctor` to see which files apply.
 
-The old `HERMES_NEMO_RELAY_ATOF_*` and `HERMES_NEMO_RELAY_ATIF_*` settings no longer configure exporters. When `HERMES_NEMO_RELAY_PLUGINS_TOML` is unset, the gateway warns about remaining legacy variables and `hermes doctor` reports them. Independently discovered Relay user or system exporters still apply.
-
-**Automatic migration.** `hermes update` (and `hermes migrate relay`, or `hermes migrate relay --all-profiles` for every profile home) converts the legacy variables into `<hermes home>/relay-plugins.toml`, sets `HERMES_NEMO_RELAY_PLUGINS_TOML` in that profile's `.env`, and comments the legacy lines out (nothing is deleted). Under a multiplexed gateway every profile home gets its own file. The generated file is validated through Relay before it is written; this is the shape it produces (note the `type = "file"` sink discriminator — a sink without it is rejected):
-
-```toml
-version = 1
-
-[[components]]
-kind = "observability"
-enabled = true
-
-[components.config]
-version = 4
-enable_full_payloads = false
-
-[components.config.atof]
-enabled = true
-
-[[components.config.atof.sinks]]
-type = "file"
-output_directory = "/home/you/.hermes/telemetry/nemo-relay/atof"
-filename = "hermes-atof.jsonl"
-mode = "append"
-
-[components.config.atif]
-enabled = true
-agent_name = "Hermes Agent"
-model_name = "unknown"
-output_directory = "/home/you/.hermes/telemetry/nemo-relay/atif"
-filename_template = "trajectory-{session_id}.json"
-
-[components.config.opentelemetry]
-enabled = false
-endpoints = []
-
-[components.config.policy]
-unknown_component = "warn"
-unknown_field = "warn"
-unsupported_value = "error"
-```
-
-Then add `HERMES_NEMO_RELAY_PLUGINS_TOML=/home/you/.hermes/relay-plugins.toml` to `.env` and restart the gateway.
-
-#### Session-span segmentation (continuous sessions)
-
-Relay exports a span when its scope closes. A continuous gateway session can keep its session span open for days even though each turn span exports normally. Optional segmentation rotates only the session scope at a turn boundary:
-
-```yaml
-gateway:
-  telemetry:
-    session_segments:
-      on_compaction: false  # rotate after context compaction
-      max_turns: 0          # 0 = unlimited; N = turns per segment
-```
-
-| Key | Default | Behavior |
-|---|---:|---|
-| `on_compaction` | `false` | Rotate after compaction completes, at the next turn boundary. |
-| `max_turns` | `0` | Rotate after every N completed turns; `0` disables the cap. |
-
-Both defaults preserve one session scope for the full session. Rotated spans retain the same `session_id` and add `hermes.session.segment` plus `hermes.session.segment_reason` (`compaction` or `max_turns`).
 
 ### google_meet
 
-Lets the agent **join, transcribe, and participate in Google Meet calls** — take notes on a meeting, summarize the back-and-forth after, follow up on specific points, and (optionally) speak replies back into the call via TTS.
+Lets the agent **join Google Meet calls and collect captions** to take notes, summarize the discussion, and follow up on specific points.
 
 **What it adds:**
 
 - A headless virtual participant that joins a Meet URL using browser automation
-- Live transcription derived from Meet's own live captions (the bot never decodes the meeting audio, so no STT billing — and captions are lossy and English-biased)
-- A `meet_join` / `meet_status` / `meet_transcript` / `meet_leave` / `meet_say` toolset the agent invokes to join calls, poll the live transcript, and act on what it heard
+- Live transcripts derived from Meet's own live captions (captions are lossy and English-biased)
+- A `meet_join` / `meet_status` / `meet_transcript` / `meet_leave` toolset the agent invokes to join calls, poll the live transcript, and work with the captions
 - Post-meeting artifacts (transcript, status) saved under `~/.hermes/workspace/meetings/<meeting_id>/`
 
 **Setup:**
@@ -248,7 +171,6 @@ Usage from chat:
 
 The agent kicks off the meeting join, streams the transcription back into its context as the call proceeds, and produces a structured summary when the meeting ends (or when you tell it to stop).
 
-**Realtime mode (`mode='realtime'`) is speak-only on the audio side.** The bot's replies are synthesized by OpenAI Realtime and played into the call through a virtual microphone; what it *hears* is still the caption stream, not the meeting audio — nothing from the call is sent to the Realtime session. `meet_status` reports `micState` (`unmuted`, `unmuted_clicked` when the bot had to unmute itself after admission, or `unknown` when Meet's toggle was not found) so a silent bot can be diagnosed.
 
 **When to use it:** recurring standups where you want a bot to transcribe + summarize for async attendees; deposition-style interviews where you want structured notes; any case where you'd otherwise need Fireflies / Otter / Grain. When you'd rather not have an AI listening in — don't enable it.
 

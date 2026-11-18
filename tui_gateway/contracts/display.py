@@ -1,5 +1,5 @@
 """Bot Screen (``methods_display.py`` / ``methods_display_watch.py``): a profile's headless Xfce
-desktop, its takeover lease, the noVNC ticket and the on-host package install.
+desktop, its takeover lease and the on-host package install.
 
 Every method rides ``profile`` (the desktop routes through ``requestGatewayForProfile``) and answers
 for THAT profile's screen. The lease is the whole control model: ``holder`` is ``agent`` or
@@ -34,14 +34,6 @@ class DisplayLease(Result):
     reason: str = ""
 
 
-class DisplayImageSwitch(Result):
-    """A persisted Docker sandbox kept on the previous default image; the user decides the switch."""
-
-    current_image: str
-    target_image: str
-    containers: int
-
-
 class DisplayStatus(Result):
     """``tools/bot_desktop/runtime.py::DesktopStatus`` plus the lease and the profile it speaks for."""
 
@@ -59,8 +51,6 @@ class DisplayStatus(Result):
     blocker: str | None = None  # why display.start would refuse now (host memory); the pane shows it instead of Start
     memory_available_mb: int | None = None
     memory_limit_mb: int | None = None
-    placement: str = "gateway"  # "gateway" | "terminal:<backend>" — where Xvnc runs (bot_desktop.placement)
-    image_switch: DisplayImageSwitch | None = None  # a default-image switch the pane may approve (docker placement)
     lease: DisplayLease
     profile_key: str
 
@@ -99,62 +89,14 @@ method("display.stop", params=DisplayStopParams, result=DisplayStopResult,
        doc="Stop the screen. Refused (5300, code viewer_mismatch) while a human holds unless force.")
 
 
-class DisplayObserveParams(ProfileParams):
-    viewer_id: str | None = None  # an id THIS connection minted earlier keeps its identity across a reconnect
-
-
-class DisplayObserveResult(DisplayStatus):
-    ticket: str
-    path: str
-    viewer_id: str
-
-
-method("display.observe", params=DisplayObserveParams, result=DisplayObserveResult,
-       doc="Mint a single-use ticket for /api/display/ws and the server-minted viewer id for this connection.")
-
-
 class DisplayInstallResult(Result):
     started: bool
     command: str | None = None
     profile_key: str
 
 
-class DisplaySwitchSandboxImageParams(ProfileParams):
-    approve: bool = True  # true: pin the new image (container recreated on next use); false: keep the current one
-
-
-class DisplaySwitchSandboxImageResult(DisplayStatus):
-    docker_image: str  # the image now pinned in terminal.docker_image
-
-
-method("display.switchSandboxImage", params=DisplaySwitchSandboxImageParams, result=DisplaySwitchSandboxImageResult,
-       doc="Decide the pending default sandbox image switch for this profile; refused when none is pending.")
-
-
 method("display.install", params=ProfileParams, result=DisplayInstallResult,
        doc="Run the distro package install on the gateway host; progress streams as display.install.log/.done.")
-
-
-class DisplayLeaseAcquireParams(ProfileParams):
-    viewer_id: str
-    reason: str | None = None
-
-
-class DisplayLeaseResult(Result):
-    lease: DisplayLease
-
-
-method("display.lease.acquire", params=DisplayLeaseAcquireParams, result=DisplayLeaseResult,
-       doc="Take over: the human named by a viewer id this connection minted controls the screen.")
-
-
-class DisplayLeaseReleaseParams(ProfileParams):
-    viewer_id: str | None = None
-    force: bool | None = None
-
-
-method("display.lease.release", params=DisplayLeaseReleaseParams, result=DisplayLeaseResult,
-       doc="Hand back. Without a viewer id the release is refused while a human holds unless force.")
 
 
 # ── server → client ───────────────────────────────────────────────────────────────────────────

@@ -51,7 +51,7 @@ def _video(source, mid, clip):
 async def test_media_then_quick_text_keep_arrival_order(tmp_path, monkeypatch, busy):
     """The adapter path: an idle video then a busy text, or both while a turn runs."""
     import gateway.session_finite as finite
-    monkeypatch.setenv('TELEGRAM_ALLOWED_USERS', 'fixture-user')
+
     gate = asyncio.Event()
 
     async def produce(authority, ref, row):
@@ -61,7 +61,8 @@ async def test_media_then_quick_text_keep_arrival_order(tmp_path, monkeypatch, b
     entered, release = _hold_capture(monkeypatch)
     runner = GatewayRunner(GatewayConfig())
     adapter = Adapter()
-    runner.adapters = {Platform.TELEGRAM: adapter}
+    adapter.platform = Platform.API_SERVER
+    runner.adapters = {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='order')
     runner._wire_adapter_handlers(adapter)
     source = adapter.build_source(chat_id='order-chat', chat_type='dm', user_id='fixture-user')
@@ -95,13 +96,14 @@ async def test_media_then_quick_text_keep_arrival_order(tmp_path, monkeypatch, b
 
 async def _held_owner(tmp_path, monkeypatch):
     """Real authority over SQLite, WhatsApp sources, the capture held on an Event; no drain."""
-    from plugins.platforms.whatsapp.adapter import WhatsAppAdapter
-    monkeypatch.setenv('WHATSAPP_ALLOWED_USERS', '15551234567,15557654321')
+
+
     monkeypatch.setattr(SessionAuthority, '_schedule', lambda self, ref: None)
     entered, release = _hold_capture(monkeypatch)
     runner = GatewayRunner(GatewayConfig(sessions_dir=tmp_path / 'sessions'))
-    adapter = WhatsAppAdapter(PlatformConfig(enabled=True, extra={'session_path': str(tmp_path / 'wa')}))
-    runner.adapters = {Platform.WHATSAPP: adapter}
+    adapter = Adapter()
+    adapter.platform = Platform.API_SERVER
+    runner.adapters = {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='held')
     clip = tmp_path / 'clip.mp4'
     clip.write_bytes(b'video-bytes' * 1000)

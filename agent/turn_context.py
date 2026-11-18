@@ -211,11 +211,6 @@ def append_notes_to_multimodal_content(content: Any, notes: Optional[str]) -> bo
     return False
 
 
-# Cron sessions are never auto-titled: cron names its own session and its opener is a delivery hint.
-# Subagent runs get a cheap ``Subagent: <goal>`` title instead of a model call (apply_subagent_title).
-_UNTITLED_PLATFORMS = frozenset({"cron"})
-
-
 def _maybe_title_session_at_turn_start(
     agent: Any, messages: list[Any], title_user_message: Optional[str] = None,
 ) -> None:
@@ -225,8 +220,7 @@ def _maybe_title_session_at_turn_start(
     if not session_db or not session_id:
         return
     platform = str(getattr(agent, "platform", "") or "").lower()
-    if platform in _UNTITLED_PLATFORMS:
-        return
+
     from agent.oneshot_footprint import agent_is_oneshot
     if agent_is_oneshot(agent):  # nothing shows a one-shot's title, and the call is a second paid request
         return

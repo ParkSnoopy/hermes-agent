@@ -30,7 +30,8 @@ from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn, TimeRemainingColumn
 
 from agent.conversation_compression_checkpoint import checkpoint_required_from_config
-from model_tools import TOOL_TO_TOOLSET_MAP
+import model_tools
+from tools.registry import registry
 from run_agent import AIAgent
 from toolset_distributions import (
     list_distributions,
@@ -43,7 +44,8 @@ logger = logging.getLogger(__name__)
 # Auto-derived from model_tools so it stays in sync as tools are added. Gives every
 # trajectory a consistent tool_stats schema (Arrow/Parquet for HF datasets) and filters
 # corrupted entries (hallucinated tool names) when combining trajectories.
-ALL_POSSIBLE_TOOLS = set(TOOL_TO_TOOLSET_MAP.keys())
+model_tools.discover_builtin_tools()
+ALL_POSSIBLE_TOOLS = set(registry.get_all_tool_names())
 
 DEFAULT_TOOL_STATS = {'count': 0, 'success': 0, 'failure': 0}
 _REASONING_KEYS = ("total_assistant_turns", "turns_with_reasoning", "turns_without_reasoning")
@@ -60,8 +62,6 @@ _AGENT_PASSTHROUGH = (
     "base_url", "api_key", "ephemeral_system_prompt", "providers_allowed", "providers_ignored",
     "providers_order", "provider_sort", "openrouter_min_coding_score",
     "reasoning_config", "prefill_messages",
-    # Without this, every batch task run is attributed to the "unknown" execution
-    # surface in shared metrics even though "batch" is a first-class surface.
     "platform",
 )
 
@@ -175,59 +175,19 @@ def _failure_result(prompt_index: int, batch_num: int, error: str) -> dict[str, 
     }
 
 
-def _prepare_container_image(
+def _prepare_local_workspace(
     prompt_index: int, prompt_data: dict[str, Any], batch_num: int, task_id: str, config: dict[str, Any]
 ) -> Optional[dict[str, Any]]:
-    """Register the dataset row's per-prompt container image (``image``/``docker_image``)
-    for this task's sandbox (Docker, Modal, Daytona, or a plugin backend such as Singularity).
-
-    For Docker the image is verified (local cache, then pull) before spending tokens on the
-    agent loop; Modal pulls server-side so no local check. Returns a failure result when the
-    pull fails, else ``None``.
-    """
-    container_image = prompt_data.get("image") or prompt_data.get("docker_image")
-    if not container_image:
-        return None
-    env_type = os.getenv("TERMINAL_ENV", "local")
-    if env_type == "docker":
-        import subprocess as _sp
-        try:
-            probe = _sp.run(
-                ["docker", "image", "inspect", container_image],
-                capture_output=True, timeout=10,
-                check=False,
-            )
-            if probe.returncode != 0:
-                if config.get("verbose"):
-                    print(f"   Prompt {prompt_index}: Pulling docker image {container_image}...", flush=True)
-                pull = _sp.run(
-                    ["docker", "pull", container_image],
-                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=600,
-                    check=False,
-                )
-                if pull.returncode != 0:
-                    return _failure_result(
-                        prompt_index, batch_num,
-                        f"Docker image not available: {container_image}\n{pull.stderr[:500]}",
-                    )
-        except FileNotFoundError:
-            pass  # Docker CLI not installed — skip check (e.g., Modal backend)
-        except Exception as img_err:
-            if config.get("verbose"):
-                print(f"   Prompt {prompt_index}: Docker image check failed: {img_err}", flush=True)
-    from tools.terminal_tool import register_task_env_overrides
-    overrides = {
-        "docker_image": container_image,
-        "modal_image": container_image,
-        "daytona_image": container_image,
-        # A plugin backend reads its own ``<backend>_image`` override (tools.terminal_tool._select_image).
-        f"{env_type}_image": container_image,
-    }
-    if prompt_data.get("cwd"):
-        overrides["cwd"] = prompt_data["cwd"]
-    register_task_env_overrides(task_id, overrides)
-    if config.get("verbose"):
-        print(f"   Prompt {prompt_index}: Using container image {container_image}")
+    """Reject retired row execution settings before constructing an agent."""
+    from tools.terminal_tool import _get_env_config, register_task_env_overrides
+    try:
+        _get_env_config()
+        if prompt_data.get("image") or prompt_data.get("docker_image"):
+            raise ValueError("Container images are not supported; batch commands run locally only.")
+        if prompt_data.get("cwd"):
+            register_task_env_overrides(task_id, {"cwd": prompt_data["cwd"]})
+    except ValueError as exc:
+        return _failure_result(prompt_index, batch_num, str(exc))
     return None
 
 
@@ -240,7 +200,7 @@ def _process_single_prompt(
     """Run the agent on one prompt; returns trajectory, stats and metadata (or a failure result)."""
     prompt = prompt_data["prompt"]
     task_id = f"task_{prompt_index}"
-    failure = _prepare_container_image(prompt_index, prompt_data, batch_num, task_id, config)
+    failure = _prepare_local_workspace(prompt_index, prompt_data, batch_num, task_id, config)
     if failure is not None:
         return failure
 
@@ -262,13 +222,10 @@ def _process_single_prompt(
             # provider to checkpoint with (scoped as a fork: no recall, no turn writes).
             skip_memory=not checkpoint_required_from_config(), memory_agent_context="subagent",
             **{key: config.get(key) for key in _AGENT_PASSTHROUGH if key != "platform"},
-            # Batch is a first-class execution surface. Defaulting here (rather than
-            # relying on the caller's config dict) keeps task-run telemetry attributable
-            # even for callers that build a config without it.
             platform=config.get("platform") or "batch",
         )
         try:
-            # task_id ensures each task gets its own isolated VM
+            # task_id ensures each task gets its own local shell
             result = agent.run_conversation(prompt, task_id=task_id)
 
             # Stats before conversion — keep the original evaluation order.
@@ -462,8 +419,6 @@ class BatchRunner:
         self.dataset_file = Path(dataset_file)
         for name in _RUNNER_FIELDS:
             setattr(self, name, params[name])
-        # Batch runs are their own execution surface; declaring it here keeps every
-        # worker's task-run telemetry attributable instead of falling back to "unknown".
         self.platform = "batch"
 
         if not validate_distribution(distribution):

@@ -84,7 +84,7 @@ def turn_env(monkeypatch, tmp_path, db):
         "_register_session_cwd": lambda _session: None, "_set_session_context": lambda *_a, **_k: [],
         "_clear_session_context": lambda _tokens: None, "_session_info": lambda *_a: {},
         "_get_usage": lambda _agent: {}, "_sync_session_key_after_compress": lambda *_a, **_k: None,
-        "_drain_queued_prompt": lambda *_a: False, "_voice_tts_enabled": lambda: False, "_get_db": lambda: db,
+        "_drain_queued_prompt": lambda *_a: False, "_get_db": lambda: db,
     }.items():
         monkeypatch.setattr(server, name, stub)
     monkeypatch.setattr(server.threading, "Thread", _ImmediateThread)

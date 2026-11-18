@@ -2,7 +2,7 @@
 """Hermes Agent release entrypoint.
 
 Stable releases use the ``release``, ``publish``, and ``abandon`` subcommands.
-Canary, commit, and dynamic-channel operations retain their top-level flags.
+Canary and commit builds retain their top-level flags.
 See ``website/docs/developer-guide/stable-releases.md`` for the operator flow.
 """
 
@@ -64,21 +64,13 @@ def list_remotes() -> list[str]:
     return [name for name in result.stdout.split() if name]
 
 
-def dispatch_desktop_build(tag: str, gh_repo: str | None) -> bool:
-    """Dispatch the release pipeline after its draft exists.
-
-    Both channels run the default-branch workflow with the tag as an input, so
-    caches share one scope and scripts come from main. A stable run resolves its
-    claim tag to the commit under test. Its gate owns artifact publication and
-    channel promotion. Explicit dispatch also works for tags created by GITHUB_TOKEN.
-    """
-    canary = _CANARY_TAG_RE.fullmatch(tag) is not None
-    if not canary and not STABLE_TAG_RE.fullmatch(tag):
-        raise ValueError("Expected an exact stable or canary release tag")
-    workflow = "desktop-bundled-release.yml" if canary else "stable-release.yml"
-    cmd = ["gh", "workflow", "run", workflow, "--ref", "main", "-f", f"tag={tag}"]
-    if canary:
-        cmd += ["-f", "upload_release=true"]
+def dispatch_canary_build(tag: str, gh_repo: str | None) -> bool:
+    """Dispatch the retained Termux pipeline after the exact canary draft exists."""
+    if not is_canary_tag(tag):
+        raise ValueError("Expected an exact canary release tag")
+    workflow = "termux-release.yml"
+    cmd = ["gh", "workflow", "run", workflow, "--ref", "main", "-f", f"tag={tag}",
+           "-f", "upload_release=true"]
     if gh_repo:
         cmd += ["--repo", gh_repo]
 
@@ -316,16 +308,6 @@ def generate_changelog(commits, tag_name, semver, repo_url="https://github.com/N
     lines.append("")
     lines.append(f"**Release Date:** {date_str}")
     lines.append("")
-    # The builds-pending job in desktop-bundled-release.yml replaces this
-    # marker with a "builds in progress" link to the run as soon as the
-    # workflow starts. The builds-table job then replaces the link with
-    # the download tables once every matrix leg has uploaded its
-    # artifacts to the R2 bucket (real object names, never predicted
-    # ones; the release body links point at the R2 public URL). A release
-    # whose matrix never finishes keeps the link — visibly unfinished,
-    # and it points at the run that stopped.
-    lines.append("<!-- HERMES_BUILDS_TABLE -->")
-    lines.append("")
 
     if first_release:
         lines.append("> 🎉 **First official release!** This marks the beginning of regular weekly releases")
@@ -420,7 +402,7 @@ def generate_changelog(commits, tag_name, semver, repo_url="https://github.com/N
 
 
 def _resume_canary(tag: str, remote: str, repository: str, *, notes_file: Path | None = None) -> None:
-    """Converge a tag-pushed canary through draft, dispatch, and protected head."""
+    """Converge a tag-pushed canary through draft, Termux build, and publication."""
     ref = f"refs/tags/{tag}"
     local_object = git("rev-parse", ref)
     commit = git("rev-parse", f"{ref}^{{commit}}")
@@ -460,15 +442,15 @@ def _resume_canary(tag: str, remote: str, repository: str, *, notes_file: Path |
             raise ValueError("Canary release state differs from its receipt")
         draft_url = release.get("url") or ""
 
-    from scripts.releases.versioning import published_channel_identity
-    published = published_channel_identity(repository, "canary")
+    from scripts.releases.versioning import published_release_identity
+    published = published_release_identity(repository, channel="canary")
     if published is not None and published == (tag[1:], commit):
         print(f"✓ {tag} is already published.")
         return
-    if not dispatch_desktop_build(tag, repository):
+    if not dispatch_canary_build(tag, repository):
         raise SystemExit(1)
     print(f"Resumed canary publication for {tag}.")
-    print(f"Workflow: https://github.com/{repository}/actions/workflows/desktop-bundled-release.yml")
+    print(f"Workflow: https://github.com/{repository}/actions/workflows/termux-release.yml")
     print("Wait for that workflow to finish. It builds this canary and publishes the draft when the build is green.")
     print(f"The draft is at {draft_url}.")
 
@@ -477,17 +459,13 @@ def cmd_canary(args) -> None:
     """--canary: tag + draft a canary source identity.
 
     The source identity is the newest stable version plus a full UTC timestamp
-    in SemVer build metadata. It therefore compares equal to that stable; only
-    the R2 canary head moves subscribers. No version-file bump or commit is
+    in SemVer build metadata. Its UTC stamp orders published canaries for source
+    subscribers. No version-file bump or commit is
     created — the receipt tag points at HEAD as-is.
 
-    Created as a DRAFT prerelease, for the same reason the stable path
-    drafts: a published release with no installers attached is a release
-    users can reach and cannot use. The desktop matrix attaches the
-    installers to this draft by tag, and the canary workflow's publish
-    job flips it to published only after that matrix is green. A failed
-    bundle therefore leaves an inspectable draft rather than a broken
-    canary.
+    Created as a DRAFT prerelease. The Termux workflow publishes the verified
+    APT repository before publishing the exact GitHub prerelease. Failed payload
+    work leaves an inspectable draft rather than moving source subscribers.
 
     Exits 0 with "nothing to do" when HEAD is already tagged by the last
     canary — the skip-if-no-new-commits gate lives HERE, not in workflow
@@ -622,14 +600,7 @@ def main():
     parser.add_argument("--build-commit", type=str, metavar="REV",
                         help="Preview an exact-commit build into releases/commit/<sha>/ on R2. "
                              "Add --publish to dispatch without a tag or release. The same "
-                             "direct dispatch runs from any GitHub remote; add --channel NAME "
-                             "to publish into an updatable R2 channel instead of a one-off.")
-    parser.add_argument("--bundle-env", action="append", default=[], metavar="NAME=VALUE",
-                        help="Bake a non-secret environment default into a commit desktop bundle. "
-                             "Repeat for multiple variables. Runtime environment values win.")
-    parser.add_argument("--bundle-unset", action="append", default=[], metavar="NAME",
-                        help="Clear an inherited variable at desktop launch, even when set. "
-                             "Uses an explicit empty value; repeat for multiple variables.")
+                             "direct dispatch runs from a GitHub remote without moving a channel.")
     parser.add_argument("--prune-canaries", action="store_true",
                         help="Delete canary releases+tags older than 14 days")
     parser.add_argument("--publish", action="store_true",
@@ -639,7 +610,7 @@ def main():
                              "release. Required with --publish when more than one remote "
                              "is configured; the single remote is used when only one exists.")
     parser.add_argument("--date", type=str,
-                        help="Override release date metadata (format: YYYY.M.D)")
+                        help="Override the canary UTC stamp (format: YYYYMMDDTHHMMSSZ)")
 
     parser.add_argument("--no-changelog", action="store_true",
                         help="Skip changelog")
@@ -683,9 +654,6 @@ def main():
         "abandon", help="Clear the outstanding attempt, keeping its attempt ref and writing an abandon marker")
     abandon_cmd.add_argument("--version", required=True)
     abandon_cmd.add_argument("--remote", type=str)
-    from scripts.releases.channel_build import add_arguments, validate_arguments, cmd_channel
-
-    add_arguments(parser)
     args = parser.parse_args()
 
     from scripts.releases.entrypoint import cmd_abandon, cmd_changelog, cmd_publish, cmd_release
@@ -695,11 +663,6 @@ def main():
     if args.command:
         stable_commands[args.command](args)
         return
-    if validate_arguments(parser, args):
-        cmd_channel(args)
-        return
-    if (args.bundle_env or args.bundle_unset) and args.build_commit is None:
-        parser.error("--bundle-env and --bundle-unset require --build-commit")
     if args.build_commit is not None:
         conflicting = [name for name, supplied in (
             ("--canary", args.canary), ("--prune-canaries", args.prune_canaries),
@@ -718,7 +681,7 @@ def main():
         if selected:
             handler(args)
             return
-    parser.error("select release, publish, abandon, changelog, --canary, --build-commit, or a channel operation")
+    parser.error("select release, publish, abandon, changelog, --canary, or --build-commit")
 
 
 if __name__ == "__main__":

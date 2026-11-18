@@ -17,26 +17,13 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any, Callable, MutableMapping
+from typing import Any, Callable, MutableMapping, NoReturn
 
 # Nested A→B→C is one extra turn; this caps a runaway message_agent chain.
 _MAX_QUIET_NOTIFY_ROUNDS = 8
 
-# Last line a Kanban worker leaves in its own log: ``[kanban-worker-exit] rc=<code>``. A per-tick
-# ``hermes kanban dispatch`` process never reaped the worker, so ``os.waitpid`` cannot tell it how
-# the worker exited; the trailer is the process-independent witness the dead-worker sweep reads
-# instead, so a clean exit without a terminal board call is booked as the same protocol violation
-# (and a 75 as the same rate-limit requeue) whichever process notices the death.
-KANBAN_WORKER_EXIT_TRAILER = "[kanban-worker-exit] rc="
-
-
-def exit_single_query(code: int) -> None:
-    """``sys.exit(code)`` for a one-shot turn; a Kanban worker first writes the exit trailer to its log."""
-    if os.environ.get("HERMES_KANBAN_TASK"):
-        with contextlib.suppress(Exception):
-            # stderr: stdout may be the ``--stream-json`` record stream, and the worker log
-            # captures both streams.
-            print(f"\n{KANBAN_WORKER_EXIT_TRAILER}{int(code)}", file=sys.stderr, flush=True)
+def exit_single_query(code: int) -> NoReturn:
+    """Exit a one-shot turn with its completion status."""
     sys.exit(code)
 
 
@@ -106,20 +93,12 @@ def run_reported_turn(argv: list, *, env: MutableMapping[str, str], report_path:
     hand its dead cwd on — the child dies at CLI startup, #102941). The pipes decode lossily
     everywhere: a stray non-UTF-8 byte (a grandchild sharing the pipe interleaving a partial
     multi-byte write) must not raise in the drain thread and take the reply and the failure tail
-    with it (#105582). Without an explicit *encoding* they decode as UTF-8 only on win32, where
-    the child is guaranteed UTF-8 (hermes_bootstrap reconfigures its streams even under
-    PYTHONIOENCODING=cp1252) while the gateway parent is not started in UTF-8 mode, so the
-    locale default mangled or lost accented replies (#115894); on POSIX the child keeps the
-    locale codec, so the locale default stays correct there (#66566).
+    with it (#105582). Without an explicit *encoding*, the locale codec is used.
     """
-    from hermes_cli._subprocess_compat import windows_hide_flags
-
-    if encoding is None and sys.platform == "win32":
-        encoding = "utf-8"
     proc = subprocess.Popen(
         argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         encoding=encoding, errors="replace", env={**env, TURN_REPORT_FILE_ENV: report_path},
-        cwd=cwd, creationflags=windows_hide_flags())
+        cwd=cwd)
     streams: dict = {}
 
     def _drain() -> None:

@@ -338,50 +338,6 @@ class TestHandleResumeCommand:
         assert runner.session_store.switch_session.call_args[0][1] == "lane_older"
         db.close()
 
-    @pytest.mark.asyncio
-    async def test_bare_resume_normalizes_telegram_lobby_source_to_bound_topic(
-        self, tmp_path
-    ):
-        from hermes_state import SessionDB
-
-        db = SessionDB(db_path=tmp_path / "state.db")
-        event = _make_event(text="/resume")
-        topic_source = SessionSource(
-            platform=Platform.TELEGRAM,
-            user_id="12345",
-            chat_id="67890",
-            chat_type="dm",
-            thread_id="topic-42",
-        )
-        topic_key = build_session_key(topic_source)
-        db.create_session(
-            "topic_session", "telegram", session_key=topic_key,
-            user_id="12345", chat_id="67890", chat_type="dm",
-            thread_id="topic-42",
-        )
-        db.set_session_title("topic_session", "Recovered Topic Work")
-        db.enable_telegram_topic_mode(chat_id="67890", user_id="12345")
-        db.bind_telegram_topic(
-            chat_id="67890",
-            thread_id="topic-42",
-            user_id="12345",
-            session_key=topic_key,
-            session_id="topic_session",
-        )
-        lobby_key = _session_key_for_event(event)
-        db.create_session(
-            "lobby_session", "telegram", session_key=lobby_key,
-            user_id="12345", chat_id="67890", chat_type="dm",
-        )
-        db.set_session_title("lobby_session", "Lobby Work")
-
-        runner = _make_runner(session_db=db, event=event)
-        result = await runner._handle_resume_command(event)
-
-        assert "Recovered Topic Work" in result
-        assert "Lobby Work" not in result
-        db.close()
-
 
 class TestHandleSessionsCommand:
     """Tests for GatewayRunner._handle_sessions_command."""
@@ -591,50 +547,6 @@ class TestHandleSessionsCommand:
         db.close()
 
     @pytest.mark.asyncio
-    async def test_sessions_normalizes_telegram_lobby_source_to_bound_topic(self, tmp_path):
-        from hermes_state import SessionDB
-
-        db = SessionDB(db_path=tmp_path / "state.db")
-        event = _make_event(text="/sessions")
-        topic_source = SessionSource(
-            platform=Platform.TELEGRAM,
-            user_id="12345",
-            chat_id="67890",
-            chat_type="dm",
-            thread_id="topic-42",
-        )
-        topic_key = build_session_key(topic_source)
-        db.create_session(
-            "topic_session", "telegram", session_key=topic_key,
-            user_id="12345", chat_id="67890", chat_type="dm",
-            thread_id="topic-42",
-        )
-        db.set_session_title("topic_session", "Recovered Topic Work")
-        db.enable_telegram_topic_mode(chat_id="67890", user_id="12345")
-        db.bind_telegram_topic(
-            chat_id="67890",
-            thread_id="topic-42",
-            user_id="12345",
-            session_key=topic_key,
-            session_id="topic_session",
-        )
-        lobby_key = _session_key_for_event(event)
-        db.create_session(
-            "lobby_session", "telegram", session_key=lobby_key,
-            user_id="12345", chat_id="67890", chat_type="dm",
-        )
-        db.set_session_title("lobby_session", "Lobby Work")
-
-        runner = _make_runner(session_db=db, event=event)
-        result = await runner._handle_sessions_command(event)
-
-        assert "Recovered Topic Work" in result
-        assert "Lobby Work" not in result
-        db.close()
-
-
-
-    @pytest.mark.asyncio
     async def test_sessions_all_does_not_leak_cross_origin_for_non_admin(self, tmp_path):
         """`/sessions all` from a non-admin caller must stay scoped to the
         caller's own origin — it must NOT enumerate other origins' sessions
@@ -788,6 +700,7 @@ class TestHandleSessionsCommand:
         event = _make_event(text="/sessions")
         runner = _make_runner(session_db=db, event=event)
         runner._handle_sessions_command = AsyncMock(return_value="sessions output")
+        runner._handle_message_with_agent = AsyncMock(side_effect=AssertionError("unexpected agent turn"))
 
         result = await runner._handle_message(event)
 
@@ -877,23 +790,24 @@ class TestResumeRowVisibleMatrixAllScoping:
         assert await runner._resume_row_visible(self._matrix_src(), row, allow_all=True) is False
 
 
-class TestSameMatrixRoomThreadScoping:
-    """Matrix `/resume` (direct and listing) scopes by room AND thread: a live
+class TestSameRoomThreadScoping:
+    """Generic `/resume` (direct and listing) scopes by room AND thread: a live
     session in another thread of the same room is a different session
     (build_session_key appends thread_id), so a caller in thread A must not
     resume/enumerate a target whose origin is in thread B. Non-threaded rooms
     keep room-level sharing unchanged."""
 
     @staticmethod
-    def _msrc(chat_id="!room-a:hs", user_id="@alice:hs", thread_id=None):
-        return SessionSource(platform=Platform.MATRIX, chat_id=chat_id,
+    def _msrc(chat_id="room-a", user_id="alice", thread_id=None):
+        return SessionSource(platform=Platform.TELEGRAM, chat_id=chat_id,
                              chat_type="group", user_id=user_id, thread_id=thread_id)
 
     def test_same_room_no_thread_still_shared(self):
         runner = _make_runner()
+        runner.config.group_sessions_per_user = False
         a = self._msrc(user_id="@alice:hs")
         b = self._msrc(user_id="@bob:hs")
-        assert runner._same_matrix_room(a, b) is True
+        assert runner._same_origin_chat(a, b) is True
 
 
     def test_cross_thread_same_room_blocked(self):
@@ -902,4 +816,4 @@ class TestSameMatrixRoomThreadScoping:
         runner = _make_runner()
         caller = self._msrc(thread_id="thread-a")
         victim_origin = self._msrc(thread_id="thread-b")
-        assert runner._same_matrix_room(caller, victim_origin) is False
+        assert runner._same_origin_chat(caller, victim_origin) is False

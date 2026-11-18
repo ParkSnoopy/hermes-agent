@@ -381,16 +381,9 @@ def test_child_system_prompt_embeds_workspace_context(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_review_registered_in_every_aux_surface():
-    """The /review slot must appear in every aux-model picker registry.
-
-    Same contract as curator's registry test in tests/agent/test_curator.py:
-    DEFAULT_CONFIG schema, CLI picker (_AUX_TASKS), and dashboard REST
-    allowlist (_AUX_TASK_SLOTS). The desktop and web AUX_TASKS tsx arrays
-    mirror _AUX_TASK_SLOTS by convention (shared "Must match" comments).
-    """
+    """The /review slot appears in the config schema and CLI picker."""
     from hermes_cli.config import DEFAULT_CONFIG
     from hermes_cli.main_provider_setup import _AUX_TASKS
-    from hermes_cli.web_server_config import _AUX_TASK_SLOTS
 
     assert "review" in DEFAULT_CONFIG["auxiliary"], \
         "review missing from DEFAULT_CONFIG['auxiliary']"
@@ -398,8 +391,6 @@ def test_review_registered_in_every_aux_surface():
     aux_keys = {k for k, _name, _desc in _AUX_TASKS}
     assert "review" in aux_keys, "review missing from _AUX_TASKS (CLI picker)"
 
-    assert "review" in _AUX_TASK_SLOTS, \
-        "review missing from _AUX_TASK_SLOTS (dashboard REST API)"
 
 # ---------------------------------------------------------------------------
 # format_dispatch_note

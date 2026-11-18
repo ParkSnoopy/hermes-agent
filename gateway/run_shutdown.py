@@ -21,11 +21,10 @@ from contextvars import Context
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from agent.i18n import t
 from gateway.config import Platform
 from gateway.restart import (
-    DEFAULT_GATEWAY_CRON_DRAIN_TIMEOUT, GATEWAY_SERVICE_RESTART_EXIT_CODE,
-    effective_stop_drain_timeout, effective_stop_watchdog_delay, resolve_cron_drain_budget
+    DEFAULT_GATEWAY_API_DRAIN_TIMEOUT, GATEWAY_SERVICE_RESTART_EXIT_CODE,
+    effective_stop_drain_timeout, effective_stop_watchdog_delay, resolve_api_drain_budget
 )
 from gateway.run_common import _UNSET
 from gateway.run_runtime import interrupt_side_agents, managed_turn_count, stop_managed_turns
@@ -68,56 +67,6 @@ def _resolve_gateway_exit_verdict(runner, signal_initiated_shutdown: bool) -> bo
         raise SystemExit(GATEWAY_SERVICE_RESTART_EXIT_CODE)
     return True
 
-# Windows has no bash/setsid chain: a tiny detached Python watcher waits for the gateway PID to
-# exit (bounded), then spawns ``hermes gateway restart``.
-_WINDOWS_RESTART_WATCHER = """
-import os, subprocess, sys, time
-from hermes_cli._subprocess_compat import windows_detach_flags_without_breakaway
-pid = int(sys.argv[1])
-restart_after_s = float(sys.argv[2])
-cmd = sys.argv[3:]
-deadline = time.monotonic() + restart_after_s
-
-def _alive(p):
-    # On Windows, os.kill(pid, 0) is NOT a no-op — it maps to
-    # GenerateConsoleCtrlEvent(0, pid) (bpo-14484). Use the
-    # Win32 handle-based existence check instead.
-    if os.name == 'nt':
-        import ctypes
-        k32 = ctypes.windll.kernel32
-        k32.OpenProcess.restype = ctypes.c_void_p
-        k32.WaitForSingleObject.restype = ctypes.c_uint
-        k32.GetLastError.restype = ctypes.c_uint
-        h = k32.OpenProcess(0x1000 | 0x100000, False, int(p))
-        if not h:
-            return k32.GetLastError() != 87
-        try:
-            return k32.WaitForSingleObject(h, 0) == 0x102
-        finally:
-            k32.CloseHandle(h)
-    try:
-        os.kill(int(p), 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-
-while time.monotonic() < deadline:
-    if not _alive(pid):
-        break
-    time.sleep(0.2)
-subprocess.Popen(
-    cmd,
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL,
-    creationflags=windows_detach_flags_without_breakaway(),
-)
-""".strip()
-
-
 @contextmanager
 def _log_suppressed(level: int, msg: str, *args, exc_info: bool = False):
     """``suppress(Exception)`` that logs the swallowed exception on ``gateway.run``.
@@ -151,16 +100,7 @@ def _notice_target_key(platform_value: str, chat_id, thread_id) -> tuple:
 
 
 def _delivery_target_key(platform_value: str, chat_id, thread_id, *, profile: Optional[str] = None) -> tuple:
-    """Dedupe key for one DELIVERED chat: profile-independent, except Telegram private chats.
-
-    Two served profiles can share one home chat (one Telegram group for the whole host) and owe it
-    ONE notice per host restart. A positive Telegram chat id names the USER, though: the same id
-    under two bot tokens is two conversations, so those stay keyed per served profile (#118233).
-    """
-    from gateway.delivery import looks_like_telegram_private_chat_id
-    if (profile and profile != "default" and platform_value == "telegram"
-            and looks_like_telegram_private_chat_id(chat_id)):
-        platform_value = f"{profile}:{platform_value}"
+    """Dedupe one delivered destination across served profiles."""
     return _notice_target_key(platform_value, chat_id, thread_id)
 
 
@@ -191,43 +131,16 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
             return time.monotonic() - self.started_at
 
     # Active-work accounting
-    def _active_work_count(self) -> int:
-        """All agent work the gateway must expose and drain as one total."""
+    def _active_work_count(self, *, fail_closed: bool = False) -> int:
+        """All agent work; idle predicates must propagate unreadable work sources."""
         return (
             self._running_agent_count()
             + managed_turn_count(self)
-            + self._active_cron_job_count()
-            + self._active_api_run_count()
+
+            + (self._api_server_hook("active_agent_work_count") if fail_closed else self._active_api_run_count())
             + self._active_deferred_agent_worker_count()
         )
 
-    @staticmethod
-    def _running_cron_job_count() -> int:
-        # The FULL work aggregate, not _running_agent_count(): cron jobs run on the scheduler's own thread
-        # pool and API-server runs live on the adapter — both outside _running_agents (the #60432 blind
-        # spot), so counting agents alone let a suspend land mid-cron-job. Fail-AWAKE accounting: the shared
-        # shutdown-drain counters (_active_cron_job_count/_active_api_run_count) swallow exceptions to 0,
-        # which is fine for a drain but unsafe for a suspend predicate — a transient read failure would make
-        # live work look idle and reopen the mid-job freeze. Here an unreadable source counts as work
-        # (sentinel 1) so the machine stays awake until the source is readable again.
-        from cron.scheduler import get_running_job_ids
-        return len(get_running_job_ids())
-
-    def _active_cron_job_count(self) -> int:
-        """Cron jobs currently executing — they run outside ``_running_agents``; 0 if cron can't import.
-
-        Cron jobs run through a standalone ``AIAgent`` on the scheduler's own thread pool
-        (``cron/scheduler.py::run_job``), entirely outside ``self._running_agents`` — the dict every OTHER
-        active-work check on this class (``_running_agent_count``, ``_drain_active_agents``) reads. Without
-        this, the shutdown drain is structurally blind to in-flight cron work: it can report
-        ``active_at_start=0`` and proceed straight to killing tool subprocesses while a cron job's terminal
-        command is still running (#60432). Best-effort: returns 0 if the cron module can't be imported (e.g.
-        a minimal test double for this class).
-        """
-        try:
-            return self._running_cron_job_count()
-        except Exception:
-            return 0
 
     def _api_server_hook(self, name: str, *args: Any) -> int:
         """Call the primary API-server adapter's ``name`` hook, clamped >= 0 (0 when the hook is absent).
@@ -356,11 +269,6 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
             return None
         return section if isinstance(section, dict) else None
 
-    def _scale_to_zero_idle_timeout_seconds(self) -> float:
-        from gateway.scale_to_zero import parse_idle_timeout_seconds
-        stz = self._gateway_cfg_section("scale_to_zero")
-        return parse_idle_timeout_seconds(stz.get("idle_timeout_minutes") if stz else None)
-
     def _restart_loop_guard_config(self) -> tuple:
         """``(max_restarts, window_seconds, max_gap_seconds)`` for the restart-loop breaker.
 
@@ -382,325 +290,12 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
             _int_or("max_gap_seconds", _rlg.DEFAULT_MAX_GAP_SECONDS, positive=True),
         )
 
-    def _scale_to_zero_active_messaging_platforms(self) -> list:
-        """Return every enabled or live messaging platform across served profiles.
-
-        ``self.config`` belongs to the launch profile, while ``_profile_adapters`` holds
-        live adapters for multiplexed secondary profiles. A direct secondary connection
-        must block suspension just like a direct primary connection. A secondary adapter
-        parked in ``_profile_failed_platforms`` (popped from ``_profile_adapters`` while a
-        retryable fatal reconnects) is still served: suspending mid-reconnect would leave
-        that reconnect unable to complete, so pending reconnects count as active too.
-
-        config.platforms is pre-seeded with disabled placeholders, and the api_server is
-        force-enabled on every hosted container (counting it silently disarmed the feature).
-        """
-        non_messaging = {Platform.LOCAL, Platform.API_SERVER, Platform.WEBHOOK}
-        active = []
-
-        def add_platform(platform: Platform) -> None:
-            if platform not in non_messaging and platform not in active:
-                active.append(platform)
-
-        try:
-            if self.config:
-                for platform, platform_config in self.config.platforms.items():
-                    if getattr(platform_config, "enabled", False):
-                        add_platform(platform)
-            for platform in getattr(self, "adapters", {}) or {}:
-                add_platform(platform)
-            for profile_adapters in (getattr(self, "_profile_adapters", {}) or {}).values():
-                for platform in profile_adapters:
-                    add_platform(platform)
-            for profile_pending in (getattr(self, "_profile_failed_platforms", {}) or {}).values():
-                for platform in profile_pending or {}:
-                    add_platform(platform)
-        except Exception:
-            logger.debug(
-                "scale-to-zero: active messaging platforms unreadable — staying awake",
-                exc_info=True,
-            )
-            return ["<unavailable>"]
-        return active
-
-    @staticmethod
-    def _relay_wake_url_or_none():
-        from gateway.relay import relay_wake_url
-        try:
-            return relay_wake_url()
-        except Exception:
-            return None
-
-    def _scale_to_zero_should_arm(self) -> bool:
-        """Whether to start the idle watcher (D1/D11/§3.4(1))."""
-        from gateway.scale_to_zero import messaging_is_relay_only_or_absent, scale_to_zero_enabled, should_arm
-        return should_arm(
-            enabled=scale_to_zero_enabled(),
-            relay_only_or_absent=messaging_is_relay_only_or_absent(self._scale_to_zero_active_messaging_platforms()),
-            wake_url=self._relay_wake_url_or_none(),
-        )
-
-    def _log_scale_to_zero_not_armed_reason(self) -> None:
-        """One INFO line on why the idle watcher did NOT arm — only for an OPTED-IN instance."""
-        from gateway.scale_to_zero import messaging_is_relay_only_or_absent, scale_to_zero_enabled
-        try:
-            if not scale_to_zero_enabled():
-                return  # not opted in — normal, stay quiet
-            active = [getattr(p, "value", p) for p in self._scale_to_zero_active_messaging_platforms()]
-            logger.info(
-                "scale-to-zero: NOT armed despite opt-in — relay_only_or_absent=%s (enabled platforms=%s), "
-                "wake_url=%s. Need relay-only messaging + a registered wake URL.",
-                messaging_is_relay_only_or_absent(active), active or "none",
-                "set" if self._relay_wake_url_or_none() else "MISSING",
-            )
-        except Exception:
-            logger.debug("scale-to-zero: not-armed reason logging failed", exc_info=True)
-
-    def _scale_to_zero_is_idle(self) -> bool:
-        from gateway.scale_to_zero import is_idle
-        # FULL work aggregate with fail-AWAKE reads: the drain counters swallow errors to 0, which a
-        # suspend predicate would read as idle, so an unreadable source counts as work here.
-
-        def _read_or_awake(label: str, fn: Callable[[], Any], busy_sentinel: Any) -> Any:
-            try:
-                return fn()
-            except Exception:
-                logger.debug("scale-to-zero: %s unreadable — staying awake", label, exc_info=True)
-                return busy_sentinel
-
-        cron_count = _read_or_awake("cron work count", self._running_cron_job_count, 1)
-        api_count = _read_or_awake("api work count", lambda: self._api_server_hook("active_agent_work_count"), 1)
-        # An attached dashboard/desktop/TUI client (heartbeat mtime) is inbound activity — folded into
-        # the inbound clock, not a conjunct, so a lingering marker cannot pin the box.
-        last_inbound = self._last_inbound_at
-        from gateway.scale_to_zero import dashboard_client_last_seen
-        seen = _read_or_awake("dashboard heartbeat", dashboard_client_last_seen, time.time())
-        if seen is not None and seen > last_inbound:
-            last_inbound = seen
-        return is_idle(
-            active_work_count=self._running_agent_count() + cron_count + api_count,
-            seconds_since_last_inbound=time.time() - last_inbound,
-            idle_timeout_seconds=self._scale_to_zero_idle_timeout_seconds(),
-            has_live_background_work=self._scale_to_zero_has_live_background_work(),
-        )
-
-    def _scale_to_zero_note_real_inbound(self) -> None:
-        """Stamp real inbound and flip status back to running after a dormant wake.
-
-        Internal completion/replay events deliberately do not call this (they must not keep an idle
-        gateway awake).
-        """
-        self._last_inbound_at = time.time()
-        if getattr(self, "_scale_to_zero_cooldown_until", 0.0) > 0:
-            self._scale_to_zero_status(self._serving_state(), "scale-to-zero: status restore failed")
-            self._scale_to_zero_cooldown_until = 0.0
-
     def _scale_to_zero_status(self, state: str, fail_msg: str) -> None:
         """Best-effort runtime status write; failures are debug-logged with ``fail_msg``."""
         try:
             self._update_runtime_status(state)
         except Exception:
             logger.debug(fail_msg, exc_info=True)
-
-    def _relay_adapter_for_dormancy(self):
-        """Return the connected RELAY adapter, if any (the one go_dormant targets)."""
-        return self.adapters.get(Platform.RELAY)
-
-    async def _scale_to_zero_watcher(self, interval: float = 30.0) -> None:
-        """Watch for idle, drive the relay dormant, then self-suspend. On sustained idle: status
-        `draining` (NOT _running=False), relay go_dormant() (socket close, NOT disconnect()), no
-        mark_resume_pending (suspend preserves RAM), THEN suspend via the flaps socket — Fly autostop
-        sees only INBOUND connections and would freeze mid-job. Without a flaps socket NAS brokers
-        the stop through the stamped GATEWAY_RELAY_SLEEP_URL; with no lever at all the watcher
-        abstains."""
-        from gateway.scale_to_zero import messaging_is_relay_only_or_absent
-        await asyncio.sleep(min(interval, 30.0))  # let startup settle
-        while self._running:
-            try:
-                await asyncio.sleep(interval)
-                if not self._running:
-                    return
-                if time.time() < self._scale_to_zero_cooldown_until or not self._scale_to_zero_is_idle():
-                    continue
-                # The arm gate ran once at boot. A direct adapter that came up since (profile
-                # reconcile hot-adding a secondary, a re-enabled platform) owns a socket no wake
-                # URL can revive, so the same gate is re-asked before every dormant sequence.
-                active = self._scale_to_zero_active_messaging_platforms()
-                if not messaging_is_relay_only_or_absent(active):
-                    if not self._scale_to_zero_direct_platform_logged:
-                        self._scale_to_zero_direct_platform_logged = True
-                        logger.info(
-                            "scale-to-zero: idle, but directly connected messaging platform(s) %s "
-                            "hold a live socket that a suspended instance cannot wake from — staying "
-                            "awake. Route them through the relay connector or disable them to allow "
-                            "suspend.",
-                            ", ".join(str(getattr(p, "value", p)) for p in active),
-                        )
-                    continue
-                self._scale_to_zero_direct_platform_logged = False
-                go_dormant = getattr(self._relay_adapter_for_dormancy(), "go_dormant", None)
-                if not callable(go_dormant):
-                    continue
-                # Quiesce only when a suspend can follow: otherwise the re-dial after the socket
-                # close just clears the flip again.
-                from gateway.scale_to_zero import suspend_available
-                if not suspend_available():
-                    if not self._scale_to_zero_no_suspend_logged:
-                        self._scale_to_zero_no_suspend_logged = True
-                        logger.info(
-                            "scale-to-zero: idle, but this platform offers no suspend lever (no "
-                            "in-machine API and no brokered sleep URL); staying connected rather "
-                            "than quiescing"
-                        )
-                    continue
-                logger.info(
-                    "scale-to-zero: gateway idle for >= %.0fs — going dormant "
-                    "(relay buffered, socket closed) then self-suspending",
-                    self._scale_to_zero_idle_timeout_seconds(),
-                )
-                self._scale_to_zero_status("draining", "scale-to-zero: status mark failed")
-                # Both levers: the 1s dormant re-dial can beat either suspend and clear the flip.
-                # Held BEFORE go_dormant, whose close arms it.
-                if not self._scale_to_zero_hold_redial(True):
-                    # Without the hold the re-dial can clear the flip before the stop lands, so
-                    # refuse rather than suspend unprotected.
-                    logger.warning(
-                        "scale-to-zero: could not hold the relay re-dial — staying awake rather "
-                        "than suspending unprotected"
-                    )
-                    self._scale_to_zero_abandon_suspend()
-                    continue
-                dormant_ok = True
-                try:
-                    result = go_dormant()
-                    if asyncio.iscoroutine(result):
-                        result = await result
-                    # The going_idle ack. Without it inbound is NOT buffered, so suspending would
-                    # freeze a live destination: the whole bug.
-                    if result is not True:
-                        dormant_ok = False
-                        logger.warning(
-                            "scale-to-zero: connector did not ack going_idle — staying awake "
-                            "rather than freezing a live destination"
-                        )
-                except Exception:
-                    dormant_ok = False
-                    logger.debug("scale-to-zero: go_dormant failed", exc_info=True)
-                # After a wake the drained inbound updates _last_inbound_at; give it a window so we
-                # don't immediately re-go-dormant on the same idle reading before traffic lands.
-                self._scale_to_zero_cooldown_until = time.time() + max(interval, 60.0)
-                # Suspend ONLY after an ACKED quiesce (else inbound black-holes while we sleep), and
-                # re-check idle — inbound may have landed during the quiesce await.
-                if not dormant_ok:
-                    self._scale_to_zero_abandon_suspend()
-                    continue
-                if not self._scale_to_zero_is_idle():
-                    logger.info("scale-to-zero: inbound arrived during quiesce — skipping suspend")
-                    self._scale_to_zero_abandon_suspend()
-                    continue
-                await self._scale_to_zero_self_suspend()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.debug("scale-to-zero watcher iteration error", exc_info=True)
-
-    async def _scale_to_zero_self_suspend(self) -> None:
-        """Suspend this machine, in-guest where possible and via NAS otherwise (fail-awake).
-
-        Called ONLY after a clean, acked go_dormant(), with the re-dial already held.
-        """
-        from gateway.scale_to_zero import (
-            brokered_sleep_url, request_brokered_suspend, self_suspend_available, suspend_self
-        )
-        try:
-            if self_suspend_available():
-                accepted = await asyncio.to_thread(suspend_self)
-                lever = "self-suspend"
-                if accepted:
-                    # flaps answers seconds BEFORE the kernel freezes, so the fence has to span
-                    # that gap.
-                    await self._scale_to_zero_await_freeze_gap()
-                    self._scale_to_zero_hold_redial(False)
-                else:
-                    self._scale_to_zero_abandon_suspend()
-            else:
-                # No in-guest API (Azure ACA): NAS holds the credential for the stop verb and
-                # brokers it for us.
-                url = brokered_sleep_url()
-                if not url:
-                    # The watcher held on our behalf; nothing is coming to freeze the machine, so
-                    # a held supervisor would just stay offline.
-                    self._scale_to_zero_abandon_suspend()
-                    logger.debug(
-                        "scale-to-zero: no suspend lever available — dormant without platform suspend"
-                    )
-                    return
-                # The watcher already holds the supervisor across this call.
-                accepted = await asyncio.to_thread(request_brokered_suspend, url)
-                lever = "brokered suspend"
-                if not accepted:
-                    self._scale_to_zero_abandon_suspend()
-            if not accepted:
-                logger.warning(
-                    "scale-to-zero: %s not accepted — machine stays awake (fail-awake); will "
-                    "retry on the next idle window", lever,
-                )
-        except Exception:
-            logger.debug("scale-to-zero: self-suspend failed", exc_info=True)
-            self._scale_to_zero_abandon_suspend()
-
-    async def _scale_to_zero_await_freeze_gap(self) -> None:
-        """Hold the re-dial fence across the flaps-2xx -> kernel-freeze gap.
-
-        Sliced on the WALL clock rather than one ``asyncio.sleep`` because a Fly suspend stops
-        CLOCK_MONOTONIC while CLOCK_REALTIME keeps tracking host time. Measured on a Fly machine
-        (gru, 2026-09-03) across a 252.219s freeze: ``time.monotonic()`` advanced 0.501s,
-        ``time.time()`` advanced 252.219s. ``asyncio.sleep`` runs on ``loop.time()`` (monotonic),
-        so a single sleep would resume with its REMAINDER after the wake and delay the drain
-        re-dial by exactly that much, on every wake of every Fly agent.
-
-        On the wall clock the deadline is already past by the time we resume, so the fence costs
-        nothing after a freeze while still spanning the full gap before one. That decoupling is
-        what lets FLY_FREEZE_GRACE_S be sized for the slowest (largest-RAM) machine.
-        """
-        from gateway.scale_to_zero import FLY_FREEZE_GRACE_S, FLY_FREEZE_GRACE_TICK_S
-        deadline = time.time() + FLY_FREEZE_GRACE_S
-        while time.time() < deadline:
-            await asyncio.sleep(FLY_FREEZE_GRACE_TICK_S)
-
-    def _scale_to_zero_abandon_suspend(self) -> None:
-        """Undo a quiesce we are not going to follow with a suspend.
-
-        All three together: a released supervisor still advertising `draining` reads as
-        mid-shutdown until the next real inbound event, and an abort that skips the cooldown
-        re-runs on every tick.
-        """
-        self._scale_to_zero_hold_redial(False)
-        # Same guard as _exit_external_drain: a real shutdown drain must win, so never resurrect
-        # a stopping gateway to `running`.
-        if not getattr(self, "_draining", False) and self._running:
-            self._scale_to_zero_status(self._serving_state(), "scale-to-zero: status restore failed")
-        # An abort before the cooldown is set would otherwise retry every tick.
-        self._scale_to_zero_cooldown_until = max(
-            self._scale_to_zero_cooldown_until, time.time() + 60.0
-        )
-
-    def _scale_to_zero_hold_redial(self, held: bool) -> bool:
-        """Hold or release the relay's reconnect supervisor. Returns whether the transport actually
-        took it, so the caller can refuse to suspend without the protection rather than fail open."""
-        try:
-            adapter = self._relay_adapter_for_dormancy()
-            if adapter is None:
-                return False
-            method = getattr(adapter, "hold_redial" if held else "release_redial", None)
-            if not callable(method):
-                return False
-            # Trust the adapter's answer rather than the absence of an exception: it deliberately
-            # never raises, so "did not throw" proves nothing.
-            return method() is True
-        except Exception:
-            logger.debug("scale-to-zero: redial hold toggle failed", exc_info=True)
-            return False
 
     # External drain control: the dashboard writes/removes ``.drain_request.json`` (gateway/drain_control.py);
     # the watcher flips between accepting and refusing NEW turns WITHOUT exiting (reversible).
@@ -769,48 +364,17 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
             error_message=error_message, **extra,
         )
 
-    # Per-platform circuit breaker (pause/resume): reconnect watcher + /platform pause|resume.
-    def _pause_failed_platform(self, platform, *, reason: str = "") -> None:
-        """Pause a queued platform (manual ``/platform pause`` only — the watcher never auto-pauses)."""
-        info = getattr(self, "_failed_platforms", {}).get(platform)
-        if info is None or info.get("paused"):
-            return
-        info["paused"] = True
-        info["pause_reason"] = reason or "auto-paused after repeated failures"
-        # next_retry=inf: a stale code path missing "paused" still never fires.
-        info["next_retry"] = float("inf")
-        self._update_platform_runtime_status(
-            platform.value, platform_state="paused", error_code=None, error_message=info["pause_reason"],
-        )
-        logger.warning(
-            "%s paused after %d consecutive failures (%s) — fix the underlying issue then run `/platform "
-            "resume %s` to retry, or `hermes gateway restart` to restart the gateway.",
-            platform.value, info.get("attempts", 0), info["pause_reason"], platform.value,
-        )
-
-    def _resume_paused_platform(self, platform) -> bool:
-        """Unpause a platform (reset attempts, retry on the next watcher tick). True iff it was paused."""
-        info = getattr(self, "_failed_platforms", {}).get(platform)
-        if info is None or not info.get("paused"):
-            return False
-        info["paused"] = False
-        info.pop("pause_reason", None)
-        info["attempts"] = 0
-        info["next_retry"] = time.monotonic()  # retry on next watcher tick
-        self._update_platform_runtime_status(platform.value, platform_state="retrying")
-        logger.info("%s resumed — retrying on next watcher tick", platform.value)
-        return True
 
     # Drain / interrupt
     def _drain_work_counts(self) -> tuple:
-        """``(agents, cron, api, deferred)`` the drain waits on; a managed-worker turn is a chat turn."""
+        """``(agents, api, deferred)`` the drain waits on; a managed-worker turn is a chat turn."""
         return (
-            self._running_agent_count() + managed_turn_count(self), self._active_cron_job_count(),
+            self._running_agent_count() + managed_turn_count(self),
             self._active_api_run_count(), self._active_deferred_agent_worker_count(),
         )
 
     async def _drain_active_agents(
-        self, timeout: float, cron_timeout: Optional[float] = None
+        self, timeout: float, api_timeout: Optional[float] = None
     ) -> tuple[dict[str, Any], bool]:
         snapshot = self._snapshot_running_agents()
         loop = asyncio.get_running_loop()
@@ -825,21 +389,19 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
                 self._update_runtime_status("draining")
                 last_counts, last_status_at = counts, now
 
-        # Cron/API/deferred work lives outside ``_running_agents``; fold it in or it is killed unwarned.
+        # API/deferred work lives outside ``_running_agents``; fold it in or it is killed unwarned.
         _maybe_update_status(force=True)
         if not self._running_agents and not any(last_counts):
             return snapshot, False
-        # Cron and api_server runs ride the cron floor: a chat turn is announced+resumable, but a killed
-        # cron run is a permanent failure and a killed /v1 run fails a caller blocked on its result.
-        # On ``restart_drain_timeout``'s 0 default they were killed after 0.00s (#82161, #132989).
+        # API runs retain their independent drain floor.
         started = loop.time()
         deadline = started + timeout
-        cron_deadline = started + (timeout if cron_timeout is None else cron_timeout)
+        api_deadline = started + (timeout if api_timeout is None else api_timeout)
 
         def _still_draining() -> bool:
             now = loop.time()
-            agents, cron, api, deferred = self._drain_work_counts()
-            return bool(((agents or deferred) and now < deadline) or ((cron or api) and now < cron_deadline))
+            agents, api, deferred = self._drain_work_counts()
+            return bool(((agents or deferred) and now < deadline) or (api and now < api_deadline))
 
         # Both budgets at 0 = an expired deadline (loop unentered), so timed_out still comes from real state.
         while _still_draining():
@@ -903,71 +465,6 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         )
         return False
 
-    async def _notify_interrupted_cron_jobs(self, job_ids) -> int:
-        """Tell the owner of each just-interrupted cron job that its run died; returns notices sent.
-
-        The cron worker can't (its thread reaches ``_deliver_result`` after teardown closed the
-        transport), so this runs post-interrupt while adapters are still connected. Best-effort.
-
-        Its thread reaches ``_deliver_result`` asynchronously, and by then ``_bounded_adapter_teardown`` has
-        closed the transport — so the notice never leaves the process, and ``_consume_interrupted_flag``
-        discards the resulting ``delivery_error`` along with it. The run's only trace is a line in jobs.json
-        nobody reads (#82232).
-        Must therefore be called from the post-interrupt phase, while adapters are still connected — the
-        same window ``_notify_active_sessions_of_shutdown`` relies on for chat sessions, which is blind to
-        cron work because cron runs on the scheduler's own thread pool rather than ``self._running_agents``
-        (#60432).
-        """
-        if not job_ids:
-            return 0
-        try:
-            from cron.jobs import get_job
-            from cron.scheduler import _resolve_delivery_targets
-        except Exception as e:
-            logger.debug("Cron interrupt notification unavailable: %s", e)
-            return 0
-        action = t("gateway.shutdown.action_restarting" if self._restart_requested else "gateway.shutdown.action_shutting_down")
-        notified: set = set()
-        for job_id in job_ids:
-            try:
-                job = get_job(job_id)
-                if not job:
-                    continue
-                # deliver=local / unresolvable-origin jobs resolve to zero targets and stay silent (no home-
-                # channel fallback). Interrupted notices are failure-category status: honor failure_deliver.
-                # See #43014.
-                targets = _resolve_delivery_targets(job, for_failure=True)
-            except Exception as e:
-                logger.debug("Cron interrupt targets unresolved for %s: %s", job_id, e)
-                continue
-            job_name = job.get("name") or job_id
-            msg = t("gateway.shutdown.cron_interrupted", job=job_name, action=action)
-            for target in targets or ():
-                try:
-                    platform = Platform(str(target.get("platform", "")).lower())
-                except Exception:
-                    continue
-                adapter = self.adapters.get(platform)
-                if adapter is None or not self._restart_notification_allowed(platform):
-                    continue
-                chat_id = str(target.get("chat_id"))
-                thread_id = target.get("thread_id")
-                dedup_key = (job_id, *_notice_target_key(platform.value, chat_id, thread_id))
-                if dedup_key in notified:
-                    continue
-                with _log_suppressed(logging.DEBUG, "Cron interrupt notice to %s:%s raised: %s", platform.value, chat_id):
-                    metadata = self._thread_metadata_for_target(platform, chat_id, thread_id, adapter=adapter)
-                    async def send_notice():
-                        if await self._send_notice_logged(
-                            adapter, chat_id, msg, platform.value, "Cron interrupt notice to %s:%s failed: %s",
-                            "Cron interrupt notice to %s:%s raised: %s", metadata=metadata,
-                        ):
-                            notified.add(dedup_key)
-                    from gateway.warning_notifications import present_notification
-                    await present_notification(send_notice, platform=platform)
-        if notified:
-            logger.info("Shutdown: delivered %d interrupted-cron-job notice(s)", len(notified))
-        return len(notified)
 
     async def _shutdown_notification_target(self, session_key: str):
         """``(source, platform_str, chat_id, thread_id, profile)``: persisted origin > cached source >
@@ -1027,7 +524,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         Called at the start of stop() while adapters are connected; send failures never block shutdown.
         """
         restart_source = self._restart_command_source if self._restart_requested else None
-        msg = t("gateway.shutdown.notice_restart" if self._restart_requested else "gateway.shutdown.notice_shutdown")
+        msg = ("⚠️ Hermes is restarting — your current task will be interrupted. Send any message after the restart and I'll try to resume where you left off." if self._restart_requested else "⚠️ Hermes is shutting down — your current task will be interrupted. When it is back online, send any message and I'll try to pick up where we left off.")
         restart_key = None
         if restart_source is not None:
             with suppress(Exception):
@@ -1405,54 +902,6 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         watcher_env.pop("_HERMES_GATEWAY", None)
         return watcher_env
 
-    @staticmethod
-    def _spawn_windows_restart_watcher(hermes_cmd: list, current_pid: int, restart_after_s: float) -> None:
-        """Spawn the detached Windows watcher (``python -c``), retrying once without job breakaway."""
-        import subprocess
-        from hermes_cli._subprocess_compat import (
-            windows_detach_flags_without_breakaway, windows_detach_popen_kwargs
-        )
-        watcher_env = GatewayShutdownMixin._restart_watcher_env()
-        # host_gateway_child_env does not copy the parent dotenv. The watcher
-        # still has to run inside the venv this process is using, or the
-        # respawn cannot import hermes.
-        if not watcher_env.get("VIRTUAL_ENV"):
-            inherited = os.environ.get("VIRTUAL_ENV")
-            if inherited:
-                watcher_env["VIRTUAL_ENV"] = inherited
-        project_root = Path(__file__).resolve().parent.parent
-        # Console python under CREATE_NO_WINDOW: nothing flashes. NOT pythonw.exe — a console-less
-        # watcher makes every console-subsystem descendant allocate a visible conhost (#54220/#56747).
-        # The watcher runs sys.executable (console python) under the CREATE_NO_WINDOW detach kwargs below:
-        # it owns one hidden console, inherited by the `hermes gateway restart` child, so nothing flashes.
-        # See #54220, #56747.
-        from hermes_cli._launchers import runtime_command
-        watcher_argv = runtime_command(project_root,
-            [str(current_pid), str(restart_after_s), *hermes_cmd, "gateway", "restart"],
-            code=_WINDOWS_RESTART_WATCHER)
-        watcher_python = watcher_argv[0]
-        popen_kwargs = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=watcher_env)
-        # Break away from the parent CLI's job object or be reaped when the CLI exits; a job without
-        # BREAKAWAY_OK rejects CREATE_BREAKAWAY_FROM_JOB (OSError) — retry once without the bit.
-        try:
-            subprocess.Popen(watcher_argv, **popen_kwargs, **windows_detach_popen_kwargs())  # detached-spawn: ok — restart watcher, must outlive the gateway it restarts
-        except OSError:
-            try:
-                subprocess.Popen(
-                    watcher_argv, **popen_kwargs, creationflags=windows_detach_flags_without_breakaway(),
-                )
-            except OSError as exc:
-                # Both spawns failed. Log only the interpreter basename and numeric errno — never
-                # argv, env, watcher source, or str(exc) (may carry a full path) — and return.
-                winerror = getattr(exc, "winerror", None)
-                logger.warning(
-                    "Detached restart watcher was not started after the "
-                    "no-breakaway retry (%s; %s=%r). The gateway will not "
-                    "be respawned by this restart attempt.", os.path.basename(watcher_python),
-                    "winerror" if winerror is not None else "errno",
-                    winerror if winerror is not None else exc.errno,
-                )
-
     async def _launch_detached_restart_command(self) -> None:
         from gateway.run import _resolve_hermes_bin
         import shutil
@@ -1466,9 +915,6 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         self._detached_restart_helper_started = True
         current_pid = os.getpid()
         restart_after_s = max(float(getattr(self, "_restart_drain_timeout", 0.0) or 0.0) + 5.0, 5.0)
-        if sys.platform == "win32":
-            GatewayShutdownMixin._spawn_windows_restart_watcher(hermes_cmd, current_pid, restart_after_s)
-            return
         cmd = " ".join(shlex.quote(part) for part in hermes_cmd)
         shell_cmd = (
             f"deadline=$(( $(date +%s) + {int(restart_after_s)} )); "
@@ -1483,41 +929,8 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         )
 
     def _wedged_agent_count(self) -> int:
-        """Work units the restart wait may skip: chat agents idle past ``agent.gateway_timeout`` and
-        cron runs older than the scheduler's stale-inflight allowance (#115469).
-
-        API work has no activity clock and pending sentinels are brand-new, so neither counts.
-        """
-        return self._wedged_chat_agent_count() + self._wedged_cron_job_count()
-
-    def _restart_wait_cron_counts(self) -> dict:
-        """``cron.scheduler.get_restart_wait_cron_counts``, counted per profile-scoped run.
-
-        Fail-soft toward waiting: if the split can't be read, every active cron run stays
-        awaitable and nothing is excluded.
-        """
-        try:
-            from cron.scheduler import get_restart_wait_cron_counts
-            return get_restart_wait_cron_counts()
-        except Exception:
-            return {"awaitable": self._active_cron_job_count(), "wedged": 0, "restart_safe": 0}
-
-    def _wedged_cron_job_count(self) -> int:
-        """Cron runs past ``cron.scheduler.get_wedged_job_ids``'s allowance; 0 if cron can't import."""
-        return self._restart_wait_cron_counts()["wedged"]
-
-    def _restart_safe_cron_count(self) -> int:
-        """Cron runs whose worker owns a restart-safe systemd scope; 0 if cron can't import.
-
-        Such a worker runs outside the gateway cgroup, so neither the tool-process sweep nor
-        ``mark_running_jobs_interrupted`` reaches it, and its final send rides the durable delivery
-        queue for whichever gateway is live next. The restart after-turn wait must therefore not
-        hold the gateway in ``draining`` for it: waiting buys the run nothing and refuses new turns
-        for up to the whole cap (observed live: a 100-minute job held the gateway ~30 minutes).
-        Degraded (no user bus) workers are NOT in this set — they share the cgroup and die with a
-        systemd stop, so they keep holding the wait.
-        """
-        return self._restart_wait_cron_counts()["restart_safe"]
+        """Chat agents idle past the inactivity timeout can be skipped by restart wait."""
+        return self._wedged_chat_agent_count()
 
     def _wedged_chat_agent_count(self) -> int:
         """Running chat agents with no activity for ``agent.gateway_timeout`` (0 when disabled);
@@ -1546,25 +959,14 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         )
 
     def _awaitable_work_count(self) -> int:
-        """Active work minus the units the restart wait must not hold for.
-
-        Two disjoint exclusions: wedged turns (idle past ``agent.gateway_timeout`` / past the cron
-        in-flight allowance — restart is their remedy, #115469) and cron runs executing in a
-        restart-safe external worker (``_restart_safe_cron_count``), which outlives this process
-        either way. Cron runs are counted per profile-scoped run by the scheduler, not by
-        subtracting from the bare-ID active count: two profiles can run the same job ID, and one
-        excluded run must not hide the other.
-        """
-        non_cron = (
+        """Active work excluding wedged chat turns."""
+        active = (
             self._running_agent_count()
             + managed_turn_count(self)
             + self._active_api_run_count()
             + self._active_deferred_agent_worker_count()
         )
-        return (
-            max(0, non_cron - self._wedged_chat_agent_count())
-            + self._restart_wait_cron_counts()["awaitable"]
-        )
+        return max(0, active - self._wedged_chat_agent_count())
 
     def _describe_active_work(self) -> list:
         """One dict per in-flight work unit the restart wait is holding for, so an observer
@@ -1592,14 +994,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
                         unit["current_tool"] = summary.get("current_tool")
                         unit["idle_s"] = summary.get("seconds_since_activity")
             units.append(unit)
-        with suppress(Exception):
-            from cron.scheduler import get_running_job_details, get_wedged_job_ids
-            wedged = get_wedged_job_ids()
-            for job in get_running_job_details():
-                units.append({"kind": "cron", "job_id": job["job_id"], "elapsed_s": job["elapsed_s"],
-                              "pid": job["worker_pid"] or os.getpid(), "external": bool(job["worker_pid"]),
-                              "wedged": job["job_id"] in wedged,
-                              "restart_safe": bool(job.get("restart_safe"))})
+
         units.extend(uncounted_runtime_work_units(self, os.getpid()))
         for kind, count in (("api", self._active_api_run_count()), ("deferred", self._active_deferred_agent_worker_count())):
             units.extend({"kind": kind, "pid": os.getpid()} for _ in range(count))
@@ -1617,10 +1012,9 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         if self._awaitable_work_count() <= 0:
             logger.warning(
                 "Restart requested with %d active work unit(s), none awaitable "
-                "(%d wedged past the inactivity timeout, %d in restart-safe external cron "
-                "workers that outlive this process); skipping the after-turn wait and "
+                "(%d wedged past the inactivity timeout); skipping the after-turn wait and "
                 "proceeding to stop()/drain", active,
-                self._wedged_agent_count(), self._restart_safe_cron_count(),
+                self._wedged_agent_count(),
             )
             return False
         timeout = float(getattr(self, "_restart_after_turn_timeout", 0.0) or 0.0)
@@ -1651,10 +1045,10 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
             if (now - last_status_at) >= 30.0:
                 logger.info(
                     "Restart deferred: waiting on %d active work unit(s) "
-                    "(%d wedged and excluded, %d restart-safe and excluded; "
+                    "(%d wedged and excluded; "
                     "%.0fs remaining before force drain): %s",
                     self._awaitable_work_count(), self._wedged_agent_count(),
-                    self._restart_safe_cron_count(), deadline - now,
+                    deadline - now,
                     self._describe_active_work(),
                 )
                 self._scale_to_zero_status("draining", "restart wait: status mark failed")
@@ -1663,9 +1057,9 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         if self._active_work_count() > 0:
             logger.warning(
                 "Restart deferred wait: %d excluded work unit(s) remain "
-                "(%d wedged, %d restart-safe external cron); proceeding to stop()/drain",
+                "(%d wedged); proceeding to stop()/drain",
                 self._active_work_count(), self._wedged_agent_count(),
-                self._restart_safe_cron_count(),
+
             )
             return False
         logger.info("Restart deferred wait complete — active work drained; proceeding to stop()")
@@ -1739,8 +1133,8 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
             return None
 
     @staticmethod
-    def _stop_kill_tool_subprocesses(phase: str) -> list:
-        """Kill tool subprocesses + terminal envs + browsers; returns cron job IDs marked interrupted.
+    def _stop_kill_tool_subprocesses(phase: str) -> None:
+        """Kill tool subprocesses, terminal environments, and browsers.
 
         Called twice: after a drain timeout (reclaim children before systemd SIGKILLs) and as a final
         catch-all. Best-effort; one failing subsystem cannot block the rest.
@@ -1762,22 +1156,6 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
                 "Shutdown (%s): killed %d tool subprocess(es)",
                 lambda: process_registry.kill_all(source="gateway_shutdown"))
 
-        def _mark_cron_interrupted() -> list:
-            # kill_all() is global: a cron job mid-dispatch lost its tool subprocess and its agent thread may
-            # still emit a plausible response from truncated output — mark it interrupted, never success.
-            # Any cron job still dispatched at this instant just had its tool subprocess killed above
-            # (kill_all() has no per-job-ID targeting — it's a global sweep). No-op when no cron job is in
-            # flight. See #60432.
-            from cron.scheduler import mark_running_jobs_interrupted
-            _interrupted = mark_running_jobs_interrupted(
-                f"Gateway shutdown ({phase}) killed the job's tool subprocess before the run finished."
-            )
-            if _interrupted:
-                logger.warning(
-                    "Shutdown (%s): marked %d in-flight cron job(s) interrupted: %s",
-                    phase, len(_interrupted), ", ".join(_interrupted),
-                )
-            return _interrupted
 
         def _interrupt_delegations() -> None:
             from tools.async_delegation import interrupt_all as _interrupt_async
@@ -1787,7 +1165,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
             )
 
         _step("process_registry.kill_all", _kill_processes)
-        _marked_cron_jobs = _step("mark_running_jobs_interrupted", _mark_cron_interrupted) or []
+
         _step("async interrupt_all", _interrupt_delegations)
         def _cleanup_environments() -> None:
             from tools.terminal_tool_lifecycle import cleanup_all_environments
@@ -1799,11 +1177,11 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
 
         _step("cleanup_all_environments", _cleanup_environments)
         _step("cleanup_all_browsers", _cleanup_browsers)
-        return _marked_cron_jobs
+
 
     @staticmethod
-    async def _stop_kill_tool_subprocesses_off_loop(phase: str) -> list:
-        """Run _stop_kill_tool_subprocesses in a worker thread; returns cron job IDs marked interrupted.
+    async def _stop_kill_tool_subprocesses_off_loop(phase: str) -> None:
+        """Run _stop_kill_tool_subprocesses in a worker thread.
 
         ``kill_all`` fans out into per-target ``kill_process`` calls that do blocking work
         (registry checkpoint disk I/O, ``subprocess.run`` for systemd scopes, sandbox exec),
@@ -1811,7 +1189,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         Offloaded with ``asyncio.to_thread`` — the loop's default executor, deliberately NOT
         the gateway-owned ``self._executor``, which ``_stop_quiesce_and_close_session_dbs``
         drains right after this phase. Phase order is preserved: callers await this before
-        cron notices / adapter teardown. If the surrounding stop task is cancelled while the
+        adapter teardown. If the surrounding stop task is cancelled while the
         worker runs, the thread is left to finish on its own; the thread-based shutdown
         watchdog remains the hard backstop.
         """
@@ -1851,41 +1229,40 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         logger.info("Shutdown phase: notify_active_sessions done at +%.2fs", ctx.elapsed())
 
     async def _stop_drain_active_work(self, timeout: float, ctx: GatewayShutdownMixin._StopContext) -> None:
-        """Pre-mark resume_pending, drain agents/cron/API work into ``ctx``."""
+        """Pre-mark resume_pending, drain agents and API work into ``ctx``."""
         from gateway.run import GatewayRunner
         # Pre-mark resume_pending BEFORE the drain so a mid-drain SIGKILL still leaves a durable marker.
         _pre_drain_keys = await GatewayRunner._mark_running_sessions_resume_pending(
             self, "pre-drain mark_resume_pending"
         )
-        _cron_at_start = self._active_cron_job_count()
         _api_at_start = self._active_api_run_count()
         _deferred_at_start = ctx.deferred_count()
-        # Cron floor clamped to the watchdog leash; getattr-guard for bare shutdown-path doubles.
-        _cron_drain_cfg = getattr(self, "_cron_drain_timeout", DEFAULT_GATEWAY_CRON_DRAIN_TIMEOUT)
+        # The API floor is clamped to the watchdog leash.
+        _api_drain_cfg = getattr(self, "_api_drain_timeout", DEFAULT_GATEWAY_API_DRAIN_TIMEOUT)
         # Under launchd the real leash is launchd's own exit timeout, not our watchdog
-        # (drain + grace): a signal-driven stop that lets cron work push past it is SIGKILLed
+        # (drain + grace): a signal-driven stop that lets work push past it is SIGKILLed
         # before cleanup runs.
         # ``timeout`` is already the effective (launchd-capped) drain, so this is the same
         # leash the thread watchdog is armed with — dump margin included.
-        _cron_leash = effective_stop_watchdog_delay(self, resolve_shutdown_watchdog_delay(timeout))
-        _cron_timeout = resolve_cron_drain_budget(
-            timeout, _cron_drain_cfg, watchdog_delay=_cron_leash, elapsed=ctx.elapsed(),
+        _api_leash = effective_stop_watchdog_delay(self, resolve_shutdown_watchdog_delay(timeout))
+        _api_timeout = resolve_api_drain_budget(
+            timeout, _api_drain_cfg, watchdog_delay=_api_leash, elapsed=ctx.elapsed(),
         )
-        if (_cron_at_start or _api_at_start) and _cron_timeout > timeout:
+        if _api_at_start and _api_timeout > timeout:
             logger.info(
-                "Shutdown drain: %d in-flight cron job(s), %d api_server run(s) — waiting up to "
-                "%.0fs for them (cron_drain_timeout=%.0fs, restart_drain_timeout=%.0fs)",
-                _cron_at_start, _api_at_start, _cron_timeout, _cron_drain_cfg, timeout,
+                "Shutdown drain: %d api_server run(s) — waiting up to "
+                "%.0fs for them (api_drain_timeout=%.0fs, restart_drain_timeout=%.0fs)",
+                _api_at_start, _api_timeout, _api_drain_cfg, timeout,
             )
         _drain_started_at = time.monotonic()
-        ctx.active_agents, ctx.timed_out = await self._drain_active_agents(timeout, _cron_timeout)
+        ctx.active_agents, ctx.timed_out = await self._drain_active_agents(timeout, _api_timeout)
         ctx.drain_elapsed = time.monotonic() - _drain_started_at
         logger.info(
             "Shutdown phase: drain done at +%.2fs (drain took %.2fs, timed_out=%s, active_at_start=%d, "
-            "active_now=%d, cron_at_start=%d, cron_now=%d, api_at_start=%d, api_now=%d, "
+            "active_now=%d, api_at_start=%d, api_now=%d, "
             "deferred_at_start=%d, deferred_now=%d)", ctx.elapsed(), ctx.drain_elapsed,
-            ctx.timed_out, len(ctx.active_agents), self._running_agent_count(), _cron_at_start,
-            self._active_cron_job_count(), _api_at_start, self._active_api_run_count(),
+            ctx.timed_out, len(ctx.active_agents), self._running_agent_count(),
+            _api_at_start, self._active_api_run_count(),
             _deferred_at_start, ctx.deferred_count(),
         )
         if ctx.timed_out:
@@ -1900,13 +1277,13 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
                     logger.debug("clear_resume_pending after drain failed for %s: %s", _sk, _e)
 
     async def _stop_interrupt_remaining_work(self, ctx: GatewayShutdownMixin._StopContext) -> None:
-        """Drain timed out: mark resume_pending, interrupt, settle, kill tool subprocesses, notify cron."""
+        """Drain timed out: mark resume_pending, interrupt, settle, and kill subprocesses."""
         from gateway.run import GatewayRunner
         logger.warning(
             "Gateway drain timed out after %.1fs with %d active agent(s), "
-            "%d in-flight cron job(s), %d api_server run(s), and %d deferred agent worker(s); "
+            "%d api_server run(s), and %d deferred agent worker(s); "
             "interrupting remaining work.", ctx.drain_elapsed, self._running_agent_count(),
-            self._active_cron_job_count(), self._active_api_run_count(), ctx.deferred_count(),
+            self._active_api_run_count(), ctx.deferred_count(),
         )
         # Mark resume_pending BEFORE interrupting so the next message auto-resumes (stuck sessions
         # still escalate via .restart_failure_counts). CURRENT _running_agents, not the drain snapshot.
@@ -1932,14 +1309,9 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
             logger.debug("Re-signaled interrupt for work still live at settle-window exit")
         # Kill tool subprocesses NOW: deferring past adapter/DB teardown risks the systemd cgroup SIGKILL.
         # Off-loop: the sweep does blocking kills that must not monopolize the event loop (#116327).
-        _interrupted_cron_jobs = await GatewayRunner._stop_kill_tool_subprocesses_off_loop("post-interrupt")
+        await GatewayRunner._stop_kill_tool_subprocesses_off_loop("post-interrupt")
         logger.info("Shutdown phase: post-interrupt tool kill done at +%.2fs", ctx.elapsed())
-        # Last window with the transport up (the cron worker's own notice arrives after teardown).
-        with _log_suppressed(logging.DEBUG, "Cron interrupt notification failed: %s"):
-            # The cron worker whose run we just killed will try to deliver its own "interrupted" notice, but
-            # it gets there after the adapter teardown below and the message is lost (#82232).
-            await self._notify_interrupted_cron_jobs(_interrupted_cron_jobs)
-        logger.info("Shutdown phase: cron interrupt notices done at +%.2fs", ctx.elapsed())
+
 
     async def _stop_finalize_agents_and_adapters(self, ctx: GatewayShutdownMixin._StopContext) -> None:
         """Detached restart launch, agent finalization, idle-cache cleanup, adapter teardown."""
@@ -2066,16 +1438,16 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
         # taken before the adapters were released; a run whose handler task was cancelled at disconnect
         # has already left it, so that term under-counts — the live worker-scoped count below covers
         # the cancelled-handler case (#116535).
-        _cron_live = self._active_cron_job_count()
+
         _api_live = ctx.api_live
         _api_worker_live = self._active_api_worker_count()
         _deferred_live = ctx.deferred_count() + managed_turn_count(self)  # + authority turns/mutations
-        if _cron_live or _api_live or _api_worker_live or _deferred_live:
+        if _api_live or _api_worker_live or _deferred_live:
             logger.warning(
-                "Shutdown phase: %d cron job(s) / %d API-server run(s) / %d API-server worker(s) / "
+                "Shutdown phase: %d API-server run(s) / %d API-server worker(s) / "
                 "%d deferred/authority worker(s) still running after the executor quiesce — skipping the SessionDB "
                 "close/checkpoint, leaving state.db open for the live writer (#102198, #116535)",
-                _cron_live, _api_live, _api_worker_live, _deferred_live,
+                _api_live, _api_worker_live, _deferred_live,
             )
             return
         _step = GatewayShutdownMixin._quiet_step
@@ -2109,9 +1481,9 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
     async def _stop_persist_exit_state(self, ctx: GatewayShutdownMixin._StopContext) -> None:
         """Clean-shutdown marker, restart markers, terminal runtime status; process bootstrap
         releases PID/lock ownership after the writer drain."""
-        from gateway.run import _hermes_home, _shutdown_gateway_health_export
+        from gateway.run import _hermes_home
         if getattr(self, "_startup_cleanup_only", False):  # start never ran: keep startup_failed + crash markers
-            return _shutdown_gateway_health_export(self)
+            return
         # Clean-shutdown marker skips crash-turn recovery next boot; a timed-out drain left
         # half-finished sessions, so no marker — the next startup recovers their turn markers.
         if not ctx.timed_out:
@@ -2161,7 +1533,6 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
                 logger.warning("Timed out flushing terminal gateway runtime status")
         except Exception:
             logger.debug("Failed to flush terminal gateway runtime status", exc_info=True)
-        _shutdown_gateway_health_export(self)
         logger.info("Gateway stopped (total teardown %.2fs)", ctx.elapsed())
 
     def _shutdown_watchdog_snapshot(self, ctx: GatewayShutdownMixin._StopContext) -> dict:
@@ -2171,7 +1542,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
             "draining": bool(self._draining),
             "running": bool(self._running),
             "active_agents": self._running_agent_count(),
-            "active_cron_jobs": self._active_cron_job_count(),
+
             "active_api_runs": self._active_api_run_count(),
             "active_deferred_agent_workers": ctx.deferred_count(),
             "restart_drain_timeout": self._restart_drain_timeout,

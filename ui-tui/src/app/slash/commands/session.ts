@@ -8,14 +8,12 @@ import type {
   SessionCompressResponse,
   SessionUsageResponse,
   SlashExecResponse,
-  VoiceToggleResponse
 } from '@hermes/shared/gateway-types'
 import { sessionScopedModelArg, TUI_SESSION_MODEL_FLAG } from '@hermes/shared/slash-input'
 
 import { usageBarsText } from '../../../components/overlayPrimitives.js'
+import { slashCmdEn } from '../../../copy/slashCmd.js'
 import { introMsg, toTranscriptMessages } from '../../../domain/messages.js'
-import { t } from '../../../i18n/runtime.js'
-import { formatVoiceRecordKey, parseVoiceRecordKey } from '../../../lib/platform.js'
 import type { PanelSection } from '../../../types.js'
 import { applyConfiguredTuiTheme } from '../../createGatewayEventHandler.js'
 import { DEFAULT_INDICATOR_STYLE, INDICATOR_STYLES, type IndicatorStyle } from '../../interfaces.js'
@@ -115,7 +113,7 @@ export const sessionCommands: SlashCommand[] = [
     name: 'bg',
     run: (arg, ctx) => {
       if (!arg) {
-        return ctx.transcript.sys(t('slashCmd.session.bg.usage'))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.session.bg.usage)
       }
 
       ctx.gateway.rpc<BackgroundStartResponse>('prompt.background', { session_id: ctx.sid, text: arg }).then(
@@ -125,7 +123,7 @@ export const sessionCommands: SlashCommand[] = [
           }
 
           patchUiState(state => ({ ...state, bgTasks: new Set(state.bgTasks).add(r.task_id!) }))
-          ctx.transcript.sys(t('slashCmd.session.bg.started', r.task_id))
+          ctx.transcript.sys(slashCmdEn.slashCmd.session.bg.started(r.task_id))
         })
       )
     }
@@ -136,7 +134,7 @@ export const sessionCommands: SlashCommand[] = [
     name: 'btw',
     run: (arg, ctx) => {
       if (!arg) {
-        return ctx.transcript.sys(t('slashCmd.session.btw.usage'))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.session.btw.usage)
       }
 
       ctx.gateway.rpc<BackgroundStartResponse>('prompt.btw', { session_id: ctx.sid, text: arg }).then(
@@ -145,7 +143,7 @@ export const sessionCommands: SlashCommand[] = [
             return
           }
 
-          ctx.transcript.sys(t('slashCmd.session.btw.answering', r.task_id))
+          ctx.transcript.sys(slashCmdEn.slashCmd.session.btw.answering(r.task_id))
         })
       )
     }
@@ -185,12 +183,12 @@ export const sessionCommands: SlashCommand[] = [
               if (r.confirm_required) {
                 patchOverlayState({
                   confirm: {
-                    cancelLabel: t('slashCmd.session.model.cancel'),
-                    confirmLabel: t('slashCmd.session.model.switchAnyway'),
+                    cancelLabel: slashCmdEn.slashCmd.session.model.cancel,
+                    confirmLabel: slashCmdEn.slashCmd.session.model.switchAnyway,
                     danger: true,
-                    detail: r.confirm_message || r.warning || t('slashCmd.session.model.expensiveDetail'),
+                    detail: r.confirm_message || r.warning || slashCmdEn.slashCmd.session.model.expensiveDetail,
                     onConfirm: () => switchModel(true),
-                    title: t('slashCmd.session.model.expensiveTitle')
+                    title: slashCmdEn.slashCmd.session.model.expensiveTitle
                   }
                 })
 
@@ -198,13 +196,13 @@ export const sessionCommands: SlashCommand[] = [
               }
 
               if (!r.value) {
-                return ctx.transcript.sys(t('slashCmd.session.model.invalidResponse'))
+                return ctx.transcript.sys(slashCmdEn.slashCmd.session.model.invalidResponse)
               }
 
               ctx.transcript.sys(
                 r.deferred
-                  ? t('slashCmd.session.model.switchedDeferred', r.value)
-                  : t('slashCmd.session.model.switched', r.value)
+                  ? slashCmdEn.slashCmd.session.model.switchedDeferred(r.value)
+                  : slashCmdEn.slashCmd.session.model.switched(r.value)
               )
               ctx.local.maybeWarn(r)
 
@@ -237,7 +235,7 @@ export const sessionCommands: SlashCommand[] = [
       // CLOSE the current one, so guard it while a turn is in-flight to avoid
       // corrupting streaming/busy state. Bare opens the overlay to browse.
       if (trimmed) {
-        if (ctx.session.guardBusySessionSwitch(t('slashCmd.session.sessions.busyGuardAction'))) {
+        if (ctx.session.guardBusySessionSwitch(slashCmdEn.slashCmd.session.sessions.busyGuardAction)) {
           return
         }
 
@@ -276,11 +274,11 @@ export const sessionCommands: SlashCommand[] = [
             ctx.session.resetVisibleHistory(r.info ?? null)
           }
 
-          const value = r.value || t('slashCmd.session.personality.defaultValue')
+          const value = r.value || slashCmdEn.slashCmd.session.personality.defaultValue
           ctx.transcript.sys(
             r.history_reset
-              ? t('slashCmd.session.personality.changedCleared', value)
-              : t('slashCmd.session.personality.changed', value)
+              ? slashCmdEn.slashCmd.session.personality.changedCleared(value)
+              : slashCmdEn.slashCmd.session.personality.changed(value)
           )
           ctx.local.maybeWarn(r)
         })
@@ -342,17 +340,17 @@ export const sessionCommands: SlashCommand[] = [
             }
 
             if ((r.removed ?? 0) <= 0) {
-              return ctx.transcript.sys(t('slashCmd.session.compress.nothing'))
+              return ctx.transcript.sys(slashCmdEn.slashCmd.session.compress.nothing)
             }
 
             const removed = r.removed ?? 0
             const count = String(removed)
-            const tok = r.usage?.total ? t('slashCmd.session.compress.tokSuffix', compactNumber(r.usage.total)) : ''
+            const tok = r.usage?.total ? slashCmdEn.slashCmd.session.compress.tokSuffix(compactNumber(r.usage.total)) : ''
 
             ctx.transcript.sys(
               (removed === 1
-                ? t('slashCmd.session.compress.compressedOne', count)
-                : t('slashCmd.session.compress.compressedOther', count)) + tok
+                ? slashCmdEn.slashCmd.session.compress.compressedOne(count)
+                : slashCmdEn.slashCmd.session.compress.compressedOther(count)) + tok
             )
           })
         )
@@ -378,144 +376,7 @@ export const sessionCommands: SlashCommand[] = [
           // Resume hydrates destination authority/history before closing the
           // source; changing only sid would inherit the source owner's epoch.
           ctx.session.resumeById(r.session_id)
-          ctx.transcript.sys(t('slashCmd.session.branch.branched', r.title ?? ''))
-        })
-      )
-    }
-  },
-
-  {
-    help: 'voice mode: [on|off|tts|status]',
-    name: 'voice',
-    run: (arg, ctx) => {
-      const normalized = (arg ?? '').trim().toLowerCase()
-
-      const action =
-        normalized === 'on' || normalized === 'off' || normalized === 'tts' || normalized === 'status'
-          ? normalized
-          : 'status'
-
-      // Read-aloud ran in the sidecar's own turn; a shared-gateway turn runs on the owner, which
-      // never speaks a TUI reply, so the toggle would say "on" and stay silent.
-      if (action === 'tts' && ctx.gateway.gw?.isCanonical) {
-        return ctx.transcript.sys(t('canonical.controls.notAvailable', 'voice tts'))
-      }
-
-      // T9: the shared owner holds a session's voice mode (its /voice handler, per session). The
-      // sidecar's voice.toggle flipped the owner's process-global HERMES_VOICE for every chat; run
-      // the owner's handler instead and mirror the mode it reports back.
-      if (ctx.gateway.gw?.isCanonical && ctx.sid) {
-        const sid = ctx.sid
-        const command = normalized === 'on' || normalized === 'off' ? `voice ${normalized}` : 'voice status'
-
-        return void ctx.gateway.gw
-          .request<SlashExecResponse>('slash.exec', { command, session_id: sid })
-          .then(r => {
-            if (ctx.stale()) {
-              return
-            }
-
-            const text = r?.output?.trim()
-
-            if (text) {
-              ctx.transcript.sys(text)
-            }
-
-            return ctx.gateway.rpc<ConfigGetValueResponse>('config.get', { key: 'voice', session_id: sid })
-          })
-          .then(r => {
-            if (!r || ctx.stale()) {
-              return
-            }
-
-            // Local sessions refuse `/voice tts` (the owner never speaks a TUI reply), so speech
-            // output stays off; the mic mode follows the gateway's per-session state.
-            ctx.voice.setVoiceEnabled(r.value === 'voice_only' || r.value === 'all')
-            ctx.voice.setVoiceTts(false)
-          })
-          .catch(ctx.guardedErr)
-      }
-
-      ctx.gateway.rpc<VoiceToggleResponse>('voice.toggle', { action }).then(
-        ctx.guarded<VoiceToggleResponse>(r => {
-          ctx.voice.setVoiceEnabled(!!r.enabled)
-          ctx.voice.setVoiceTts(!!r.tts)
-
-          // Render the configured record key (config.yaml ``voice.record_key``)
-          // instead of hardcoded "Ctrl+B" — the gateway response carries the
-          // current value so /voice status and /voice on stay in sync with
-          // both the CLI and the TUI's actual binding (#18994).
-          //
-          // Copilot review on #19835 caught that rendering from the fresh
-          // backend response WITHOUT updating the frontend ``voice.recordKey``
-          // state would skew display and binding between config-edit and
-          // the next ``mtime`` poll (~5s). Parse once, push into state so
-          // ``useInputHandlers()`` picks up the new binding immediately.
-          //
-          // Round-2 follow-up: only push state when the response actually
-          // carries ``record_key`` — otherwise an older gateway (or a future
-          // branch that forgets to include it) would clobber a custom user
-          // binding back to the default on every /voice invocation. The
-          // label still falls back to the documented default for display.
-          const parsed = r.record_key ? parseVoiceRecordKey(r.record_key) : undefined
-
-          if (parsed) {
-            ctx.voice.setVoiceRecordKey(parsed)
-          }
-
-          const recordKeyLabel = formatVoiceRecordKey(parsed ?? parseVoiceRecordKey('ctrl+b'))
-
-          // Match CLI's _show_voice_status / _enable_voice_mode /
-          // _toggle_voice_tts output shape so users don't have to learn
-          // two vocabularies.
-          if (action === 'status') {
-            const mode = r.enabled ? t('slashCmd.session.voice.on') : t('slashCmd.session.voice.off')
-            const tts = r.tts ? t('slashCmd.session.voice.on') : t('slashCmd.session.voice.off')
-            ctx.transcript.sys(t('slashCmd.session.voice.statusTitle'))
-            ctx.transcript.sys(t('slashCmd.session.voice.statusMode', mode))
-            ctx.transcript.sys(t('slashCmd.session.voice.statusTts', tts))
-            ctx.transcript.sys(t('slashCmd.session.voice.statusRecordKey', recordKeyLabel))
-
-            // CLI's "Requirements:" block — surfaces STT/audio setup issues
-            // so the user sees "STT provider: MISSING ..." instead of
-            // silently failing on every record-key press.
-            if (r.details) {
-              ctx.transcript.sys('')
-              ctx.transcript.sys(t('slashCmd.session.voice.requirements'))
-
-              for (const line of r.details.split('\n')) {
-                if (line.trim()) {
-                  ctx.transcript.sys(`    ${line}`)
-                }
-              }
-            }
-
-            return
-          }
-
-          if (action === 'tts') {
-            ctx.transcript.sys(r.tts ? t('slashCmd.session.voice.ttsEnabled') : t('slashCmd.session.voice.ttsDisabled'))
-
-            return
-          }
-
-          // on/off — mirror cli.py:_enable_voice_mode's 3-line output
-          if (r.enabled) {
-            ctx.transcript.sys(r.tts ? t('slashCmd.session.voice.enabledWithTts') : t('slashCmd.session.voice.enabled'))
-            ctx.transcript.sys(t('slashCmd.session.voice.recordHint', recordKeyLabel))
-
-            // Spoken-stop hint — backend-sourced from voice.stop_phrases so a
-            // custom phrase renders correctly; absent/empty means the feature
-            // is disabled (stop_phrases: []) and no hint is shown.
-            if (r.stop_hint) {
-              ctx.transcript.sys(`  ${r.stop_hint}`)
-            }
-
-            ctx.transcript.sys(t('slashCmd.session.voice.ttsHint'))
-            ctx.transcript.sys(t('slashCmd.session.voice.offHint'))
-          } else {
-            ctx.transcript.sys(t('slashCmd.session.voice.disabled'))
-          }
+          ctx.transcript.sys(slashCmdEn.slashCmd.session.branch.branched(r.title ?? ''))
         })
       )
     }
@@ -538,8 +399,8 @@ export const sessionCommands: SlashCommand[] = [
         .request<SlashExecResponse>('slash.exec', { command: cmd.slice(1), session_id: ctx.sid })
         .then(
           ctx.guarded<SlashExecResponse>(r => {
-            const body = r.output || t('slashCmd.session.pet.noOutput')
-            ctx.transcript.sys(r.warning ? t('slashCmd.session.pet.warning', r.warning, body) : body)
+            const body = r.output || slashCmdEn.slashCmd.session.pet.noOutput
+            ctx.transcript.sys(r.warning ? slashCmdEn.slashCmd.session.pet.warning(r.warning, body) : body)
           })
         )
         .catch(ctx.guardedErr)
@@ -558,13 +419,13 @@ export const sessionCommands: SlashCommand[] = [
           .rpc<ConfigGetValueResponse>('config.get', { key: 'theme' })
           .then(
             ctx.guarded<ConfigGetValueResponse>(r =>
-              ctx.transcript.sys(t('slashCmd.session.theme.current', r.value || 'auto'))
+              ctx.transcript.sys(slashCmdEn.slashCmd.session.theme.current(r.value || 'auto'))
             )
           )
       }
 
       if (!['auto', 'light', 'dark'].includes(value)) {
-        return ctx.transcript.sys(t('slashCmd.session.theme.usage'))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.session.theme.usage)
       }
 
       // Apply only after the write is confirmed (mirrors /indicator): a
@@ -580,7 +441,7 @@ export const sessionCommands: SlashCommand[] = [
             }
 
             applyConfiguredTuiTheme(value)
-            ctx.transcript.sys(t('slashCmd.session.theme.switched', value))
+            ctx.transcript.sys(slashCmdEn.slashCmd.session.theme.switched(value))
           })
         )
         .catch(ctx.guardedErr)
@@ -596,7 +457,7 @@ export const sessionCommands: SlashCommand[] = [
           .rpc<ConfigGetValueResponse>('config.get', { key: 'skin' })
           .then(
             ctx.guarded<ConfigGetValueResponse>(r =>
-              ctx.transcript.sys(t('slashCmd.session.skin.current', r.value || t('slashCmd.session.skin.defaultValue')))
+              ctx.transcript.sys(slashCmdEn.slashCmd.session.skin.current(r.value || slashCmdEn.slashCmd.session.skin.defaultValue))
             )
           )
       }
@@ -605,7 +466,7 @@ export const sessionCommands: SlashCommand[] = [
         .rpc<ConfigSetResponse>('config.set', { key: 'skin', value: arg })
         .then(
           ctx.guarded<ConfigSetResponse>(
-            r => r.value && ctx.transcript.sys(t('slashCmd.session.skin.switched', r.value))
+            r => r.value && ctx.transcript.sys(slashCmdEn.slashCmd.session.skin.switched(r.value))
           )
         )
     }
@@ -623,13 +484,13 @@ export const sessionCommands: SlashCommand[] = [
           .rpc<ConfigGetValueResponse>('config.get', { key: 'indicator' })
           .then(
             ctx.guarded<ConfigGetValueResponse>(r =>
-              ctx.transcript.sys(t('slashCmd.session.indicator.current', r.value || DEFAULT_INDICATOR_STYLE))
+              ctx.transcript.sys(slashCmdEn.slashCmd.session.indicator.current(r.value || DEFAULT_INDICATOR_STYLE))
             )
           )
       }
 
       if (!(INDICATOR_STYLES as readonly string[]).includes(value)) {
-        return ctx.transcript.sys(t('slashCmd.session.indicator.usage', INDICATOR_STYLES.join('|')))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.session.indicator.usage(INDICATOR_STYLES.join('|')))
       }
 
       ctx.gateway.rpc<ConfigSetResponse>('config.set', { key: 'indicator', value }).then(
@@ -642,7 +503,7 @@ export const sessionCommands: SlashCommand[] = [
           // uses the new style without waiting for the 5s mtime poll
           // to re-apply config.full.
           patchUiState({ indicatorStyle: value as IndicatorStyle })
-          ctx.transcript.sys(t('slashCmd.session.indicator.switched', r.value))
+          ctx.transcript.sys(slashCmdEn.slashCmd.session.indicator.switched(r.value))
         })
       )
     }
@@ -656,7 +517,7 @@ export const sessionCommands: SlashCommand[] = [
         .rpc<ConfigSetResponse>('config.set', { key: 'yolo', session_id: ctx.sid })
         .then(
           ctx.guarded<ConfigSetResponse>(r =>
-            ctx.transcript.sys(r.value === '1' ? t('slashCmd.session.yolo.on') : t('slashCmd.session.yolo.off'))
+            ctx.transcript.sys(r.value === '1' ? slashCmdEn.slashCmd.session.yolo.on : slashCmdEn.slashCmd.session.yolo.off)
           )
         )
     }
@@ -675,7 +536,7 @@ export const sessionCommands: SlashCommand[] = [
             ctx.guarded<ConfigGetValueResponse>(
               r =>
                 r.value &&
-                ctx.transcript.sys(t('slashCmd.session.reasoning.currentWithDisplay', r.value, r.display || 'hide'))
+                ctx.transcript.sys(slashCmdEn.slashCmd.session.reasoning.currentWithDisplay(r.value, r.display || 'hide'))
             )
           )
       }
@@ -708,7 +569,7 @@ export const sessionCommands: SlashCommand[] = [
             }))
           }
 
-          ctx.transcript.sys(t('slashCmd.session.reasoning.current', r.value))
+          ctx.transcript.sys(slashCmdEn.slashCmd.session.reasoning.current(r.value))
         })
       )
     }
@@ -722,7 +583,7 @@ export const sessionCommands: SlashCommand[] = [
       const valid = new Set(['', 'status', 'normal', 'fast', 'ultrafast', 'on', 'off', 'toggle'])
 
       if (!valid.has(mode)) {
-        return ctx.transcript.sys(t('slashCmd.session.fast.usage'))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.session.fast.usage)
       }
 
       if (!mode || mode === 'status') {
@@ -730,7 +591,7 @@ export const sessionCommands: SlashCommand[] = [
           .rpc<ConfigGetValueResponse>('config.get', { key: 'fast', session_id: ctx.sid })
           .then(
             ctx.guarded<ConfigGetValueResponse>(r =>
-              ctx.transcript.sys(t('slashCmd.session.fast.mode', fastModeWord(r.value)))
+              ctx.transcript.sys(slashCmdEn.slashCmd.session.fast.mode(fastModeWord(r.value)))
             )
           )
           .catch(ctx.guardedErr)
@@ -741,7 +602,7 @@ export const sessionCommands: SlashCommand[] = [
         .then(
           ctx.guarded<ConfigSetResponse>(r => {
             const next = fastModeWord(r.value)
-            ctx.transcript.sys(t('slashCmd.session.fast.mode', next))
+            ctx.transcript.sys(slashCmdEn.slashCmd.session.fast.mode(next))
             patchUiState(state => ({
               ...state,
               info: state.info
@@ -766,7 +627,7 @@ export const sessionCommands: SlashCommand[] = [
       const valid = new Set(['', 'status', 'queue', 'steer', 'interrupt'])
 
       if (!valid.has(mode)) {
-        return ctx.transcript.sys(t('slashCmd.session.busy.usage'))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.session.busy.usage)
       }
 
       if (!mode || mode === 'status') {
@@ -778,7 +639,7 @@ export const sessionCommands: SlashCommand[] = [
           .then(
             ctx.guarded<ConfigGetValueResponse>(r => {
               const current = r.value || 'interrupt'
-              ctx.transcript.sys(t('slashCmd.session.busy.mode', current))
+              ctx.transcript.sys(slashCmdEn.slashCmd.session.busy.mode(current))
             })
           )
           .catch(ctx.guardedErr)
@@ -798,7 +659,7 @@ export const sessionCommands: SlashCommand[] = [
               patchUiState({ busyInputMode: next })
             }
 
-            ctx.transcript.sys(t('slashCmd.session.busy.mode', next))
+            ctx.transcript.sys(slashCmdEn.slashCmd.session.busy.mode(next))
           })
         )
         .catch(ctx.guardedErr)
@@ -813,7 +674,7 @@ export const sessionCommands: SlashCommand[] = [
         .rpc<ConfigSetResponse>('config.set', { key: 'verbose', session_id: ctx.sid, value: arg || 'cycle' })
         .then(
           ctx.guarded<ConfigSetResponse>(
-            r => r.value && ctx.transcript.sys(t('slashCmd.session.verbose.current', r.value))
+            r => r.value && ctx.transcript.sys(slashCmdEn.slashCmd.session.verbose.current(r.value))
           )
         )
     }
@@ -855,13 +716,13 @@ export const sessionCommands: SlashCommand[] = [
           const sections: PanelSection[] = []
 
           const plan =
-            usageModel.plan_name ?? (usageModel.status === 'free' ? t('slashCmd.session.usage.freePlan') : null)
+            usageModel.plan_name ?? (usageModel.status === 'free' ? slashCmdEn.slashCmd.session.usage.freePlan : null)
 
           if (plan) {
             sections.push({
               text: usageModel.renews_display
-                ? t('slashCmd.session.usage.planRenews', plan, usageModel.renews_display)
-                : t('slashCmd.session.usage.plan', plan)
+                ? slashCmdEn.slashCmd.session.usage.planRenews(plan, usageModel.renews_display)
+                : slashCmdEn.slashCmd.session.usage.plan(plan)
             })
           }
 
@@ -870,17 +731,14 @@ export const sessionCommands: SlashCommand[] = [
           }
 
           if (usageModel.status === 'free') {
-            sections.push({ text: t('slashCmd.session.usage.freeNote') })
+            sections.push({ text: slashCmdEn.slashCmd.session.usage.freeNote })
           } else if (usageModel.status === 'low') {
             sections.push({
-              text: t(
-                'slashCmd.session.usage.lowNote',
-                usageModel.total_spendable_display ?? t('slashCmd.session.usage.lowBalanceFallback')
-              )
+              text: slashCmdEn.slashCmd.session.usage.lowNote(usageModel.total_spendable_display ?? slashCmdEn.slashCmd.session.usage.lowBalanceFallback)
             })
           }
 
-          ctx.transcript.panel(t('slashCmd.session.usage.balanceTitle'), sections)
+          ctx.transcript.panel(slashCmdEn.slashCmd.session.usage.balanceTitle, sections)
           showedBalance = true
         } else {
           const creditsLines = r?.credits_lines ?? []
@@ -897,24 +755,24 @@ export const sessionCommands: SlashCommand[] = [
 
             showedBalance = windowLines.length > 0
           } else if (creditsLines.length) {
-            ctx.transcript.panel(t('slashCmd.session.usage.nousBalanceTitle'), [{ text: creditsLines.join('\n') }])
+            ctx.transcript.panel(slashCmdEn.slashCmd.session.usage.nousBalanceTitle, [{ text: creditsLines.join('\n') }])
             showedBalance = true
           }
         }
 
         if (!r?.calls) {
           if (!showedBalance) {
-            sys(t('slashCmd.session.usage.noCalls'))
+            sys(slashCmdEn.slashCmd.session.usage.noCalls)
           }
 
-          sys(t('slashCmd.session.usage.cta'))
+          sys(slashCmdEn.slashCmd.session.usage.cta)
 
           return
         }
 
-        ctx.transcript.panel(t('slashCmd.session.usage.usageTitle'), usageTotalsSections(r))
+        ctx.transcript.panel(slashCmdEn.slashCmd.session.usage.usageTitle, usageTotalsSections(r))
 
-        sys(t('slashCmd.session.usage.cta'))
+        sys(slashCmdEn.slashCmd.session.usage.cta)
       })
     }
   }

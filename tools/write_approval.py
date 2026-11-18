@@ -175,14 +175,7 @@ def _slash_review_surface() -> bool:
             return get_session_env(name, "") or ""
         except Exception:  # standalone/tests: process env is the fallback
             return os.environ.get(name, "") or ""
-    if _env("HERMES_KANBAN_TASK").strip():
-        return False
-    try:
-        from utils import is_truthy_value
-        if is_truthy_value(_env("HERMES_CRON_SESSION")):
-            return False
-    except Exception:
-        pass
+
     platform = (_env("HERMES_SESSION_PLATFORM") or os.environ.get("HERMES_PLATFORM", "")).strip().lower()
     return platform not in {"webhook", "msgraph_webhook", "api_server"}
 
@@ -238,9 +231,8 @@ def _prompt_inline_memory_approval(summary: str, detail: str) -> Optional[bool]:
         return None
     header = summary.strip() or "Save to memory?"
     try:
-        from tools.approval_prompt import callback_accepts
-        extra = {"title": "Save to memory?"} if callback_accepts(callback, "title") else {}
-        choice = callback(detail.strip() or header, f"Save to memory: {header}", allow_permanent=False, **extra)
+        choice = callback(detail.strip() or header, f"Save to memory: {header}",
+                          allow_permanent=False, title="Save to memory?")
     except Exception as e:
         logger.error("Inline memory approval prompt failed: %s", e)
         return None

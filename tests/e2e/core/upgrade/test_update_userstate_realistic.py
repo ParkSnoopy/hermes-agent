@@ -9,7 +9,7 @@ local bare origin), then a home built the way users build it, mostly through the
   config sits at the oldest ``_config_version`` HEAD still migrates and ``work``'s one version
   behind, so the update's config migration (active profile + siblings) runs; ``research`` is
   current and must come through byte-for-byte;
-* a custom skill, a user plugin under ``~/.hermes/plugins/``, a cron job made by ``hermes cron``;
+* a custom skill, a user plugin under ``~/.hermes/plugins/``, and historical scheduler data;
 * two broken profiles next to them (a dangling symlink, a profile whose config.yaml is not YAML);
 * local files the user dropped inside the checkout (an untracked notes file and an extension dir).
 
@@ -100,8 +100,7 @@ def _snapshot(sb: I.Sandbox) -> dict:
     hh = sb.hermes_home
     snap["custom_skill"] = I.tree_digest(hh / "skills" / "my-own-skill")
     snap["plugin"] = I.tree_digest(hh / "plugins" / "my-plugin")
-    snap["cron"] = sorted((j.get("id"), j.get("name"), j.get("prompt"), j.get("schedule_display") or str(j.get("schedule")))
-                          for j in I.cron_jobs(hh))
+    snap["cron"] = I.tree_digest(hh / "cron")
     snap["badyaml"] = (hh / "profiles" / "badyaml" / "config.yaml").read_bytes()
     snap["ghost"] = os.readlink(hh / "profiles" / "ghost")
     return snap
@@ -142,7 +141,8 @@ def _seed_home(sb: I.Sandbox, provider: FakeLLMServer) -> tuple[dict[str, str], 
     plugin.mkdir(parents=True, exist_ok=True)
     (plugin / "plugin.yaml").write_text("name: my-plugin\nversion: 0.0.1\ndescription: user plugin\n", encoding="utf-8")
     (plugin / "__init__.py").write_text("def register(ctx):\n    pass\n", encoding="utf-8")
-    _ok(sb.cli("cron", "create", "--name", "nightly", "0 3 * * *", "summarize the day"))
+    (hh / "cron").mkdir()
+    (hh / "cron" / "jobs.json").write_text('{"jobs": [{"id": "old-job"}]}\n', encoding="utf-8")
     os.symlink(str(sb.root / "moved-away-home"), hh / "profiles" / "ghost")
     (hh / "profiles" / "badyaml").mkdir()
     (hh / "profiles" / "badyaml" / "config.yaml").write_text("model: [unclosed\n  : :\n", encoding="utf-8")

@@ -31,7 +31,7 @@ hermes chat --toolsets all              # everything
 ```yaml
 toolsets:
   - hermes-cli          # default for CLI
-  # - hermes-telegram   # override for Telegram gateway
+
 ```
 
 ### Interactive management
@@ -45,7 +45,7 @@ Or in-session:
 ```
 /tools list
 /tools disable browser
-/tools enable discord
+/tools enable browser
 ```
 
 ## Core Toolsets
@@ -57,30 +57,23 @@ Or in-session:
 | `code_execution` | `execute_code` | Run Python scripts that call Hermes tools programmatically. |
 | `connections` | `manage_connections` | Connect the user to apps: managed connector accounts through the Nous gateway, and local MCP servers from the catalog. It can add a second named account of an app and rename accounts. On the desktop every action is a card that blocks until the user settles it; off the desktop managed actions return a connect link per app. |
 | `coding` | composite (`file` + `terminal` + `search` + `web` + `skills` + `browser` + `todo` + `memory` + `session_search` + `clarify` + `code_execution` + `delegation` + `vision`) | Coding-focused bundle for software work: file editing, terminal, search, web docs, skills, browser, delegate, and code execution. |
-| `cronjob` | `cronjob_manage` | Schedule and manage recurring tasks. |
 | `debugging` | composite (`file` + `terminal` + `web`) | Debug bundle — file, process/terminal, web extract/search. |
 | `delegation` | `delegate_task` | Spawn isolated subagent instances for parallel work. |
-| `discord` | `discord` | Core Discord text/embed/DM actions (gateway-only). Active on the `hermes-discord` toolset. |
-| `discord_admin` | `discord_admin` | Discord moderation (bans, role changes, channel management). Active on the `hermes-discord` toolset; requires the bot to hold the relevant Discord permissions. |
-| `feishu_doc` | `feishu_doc_read` | Read Feishu/Lark document content. Used by the Feishu document-comment intelligent-reply handler. |
-| `feishu_drive` | `feishu_drive_add_comment`, `feishu_drive_list_comments`, `feishu_drive_list_comment_replies`, `feishu_drive_reply_comment` | Feishu/Lark drive comment operations. Scoped to the comment agent; not exposed on `hermes-cli` or other messaging toolsets. |
 | `file` | `patch`, `read_file`, `search_files`, `write_file` | File reading, writing, searching, and editing. |
-| `computer_use` | `computer_use` | Background desktop control via cua-driver — does not steal cursor/focus. Works with any tool-capable model. macOS, Windows, and Linux; requires `cua-driver` on `$PATH`. |
+| `computer_use` | `computer_use` | Background desktop control via cua-driver — does not steal cursor/focus. Works with any tool-capable model. Linux; requires `cua-driver` on `$PATH`. |
 | `context_engine` | (varies) | Runtime tools exposed by the active context-engine plugin (empty until a plugin populates it). |
 | `image_gen` | `image_generate` | Text-to-image generation via FAL.ai (with opt-in OpenAI / xAI backends). |
 | `video_gen` | `video_generate`, `xai_video_edit`, `xai_video_extend` | Text-to-video and image-to-video via plugin-registered backends (xAI Grok-Imagine, FAL.ai Veo 3.1 / Pixverse v6 / Kling 3.0 / Kling O3). Pass `image_url` to animate an image; omit it for text-to-video. `xai_video_edit` / `xai_video_extend` are provider-specific edit/extend tools, gated on xAI Imagine credentials. |
-| `kanban` | `kanban_attach`, `kanban_attach_url`, `kanban_attachments`, `kanban_block`, `kanban_comment`, `kanban_complete`, `kanban_create`, `kanban_heartbeat`, `kanban_link`, `kanban_list`, `kanban_request_changes`, `kanban_request_review`, `kanban_show`, `kanban_unblock` | Multi-agent coordination tools. Registered for dispatcher-spawned task workers (`HERMES_KANBAN_TASK`) and for platforms whose saved selection lists `kanban` (`hermes tools enable kanban --platform <p>`; the `all`/`*` wildcard does **not** enable it). Workers mark tasks done, request first-class review, block, heartbeat, comment, and create/link follow-up tasks; orchestrator profiles additionally get board-routing tools like list/unblock. `delegate_task` children are not Kanban run owners: their schema strips/disables this toolset and runtime guards reject direct board mutations, even if parent `HERMES_KANBAN_*` env vars are present. |
 | `memory` | `memory` | Persistent cross-session memory management. |
-| `desktop_ui` | `annotate_preview`, `close_terminal`, `desktop_preview`, `drive_preview`, `focus_pane`, `gui_tour`, `react_to_message`, `read_terminal`, `read_window_below`, `set_theme`, `show_tip` | Affordances that act on the Hermes desktop app itself — read/close the embedded terminal pane, open, read, close, interact with, and annotate the in-app browser, identify the OS window behind the app, reveal a pane, react to a message, run a guided tour (highlight + narrate UI elements in the app or the preview pane), and set the accent colour, light/dark mode and layout (or show a picker card for the user to choose). Enabled for sessions whose source is the desktop app, whichever backend it's connected to (local, SSH, URL, or Hermes Cloud). Never present on CLI, TUI, messaging, or cron sessions. |
+| `desktop_ui` | `annotate_preview`, `close_terminal`, `desktop_preview`, `drive_preview`, `focus_pane`, `gui_tour`, `react_to_message`, `read_terminal`, `read_window_below`, `set_theme`, `show_tip` | Affordances that act on the Hermes desktop app itself — read/close the embedded terminal pane, open, read, close, interact with, and annotate the in-app browser, identify the OS window behind the app, reveal a pane, react to a message, run a guided tour (highlight + narrate UI elements in the app or the preview pane), and set the accent colour, light/dark mode and layout (or show a picker card for the user to choose). Enabled for sessions whose source is the desktop app, whichever backend it's connected to (local, SSH, URL, or Hermes Cloud). Never present on CLI, TUI, or messaging sessions. |
 | `project` | `desktop_project` | Create and switch desktop [Projects](../user-guide/cli.md) (named, multi-folder workspaces) via one `create`/`switch`/`list` action enum. GUI / desktop sessions only. |
-| `catalog` | `manage_catalog` | Search the plugin catalog and skills hub, and install items through the approval card into this chat's profile. Enabled for sessions whose source is the desktop app, whichever backend it's connected to (local, SSH, URL, or Hermes Cloud). Never present on CLI, TUI, messaging, or cron sessions, even when a config list names it. `all` does not include it. Deferred behind `tool_search` by default. Remove it with `agent.disabled_toolsets: [catalog]`. |
+| `catalog` | `manage_catalog` | Search the plugin catalog and skills hub, and install items through the approval card into this chat's profile. Enabled for sessions whose source is the desktop app, whichever backend it's connected to (local, SSH, URL, or Hermes Cloud). Never present on CLI, TUI, or messaging sessions, even when a config list names it. `all` does not include it. Deferred behind `tool_search` by default. Remove it with `agent.disabled_toolsets: [catalog]`. |
 | `safe` | `image_generate`, `vision_analyze`, `web_extract`, `web_search` (via `includes`) | Read-only research + media generation. No file writes, no terminal, no code execution. |
 | `search` | `web_search` | Web search only (without extract). |
 | `session_search` | `session_search` | Search past conversation sessions. |
 | `skills` | `skill_manage`, `skill_view`, `skills_list` | Skill CRUD and browsing. |
 | `terminal` | `process_manage`, `terminal` | Shell command execution and background process management. |
 | `todo` | `todo_list` | Task list management within a session. |
-| `tts` | `text_to_speech` | Text-to-speech audio generation. |
 | `vision` | `vision_analyze` | Image analysis via vision-capable models. |
 | `video` | `video_analyze` | Video analysis and understanding tools (opt-in, not in the default toolset — add explicitly via `--toolsets`). |
 | `web` | `web_extract`, `web_search` | Web search and page content extraction. |
@@ -88,34 +81,16 @@ Or in-session:
 
 ## Platform Toolsets
 
-Platform toolsets define the complete tool configuration for a deployment target. Most messaging platforms use the same set as `hermes-cli`:
+Platform toolsets define the complete tool configuration for a deployment target:
 
 | Toolset | Differences from `hermes-cli` |
 |---------|-------------------------------|
-| `hermes-cli` | Full toolset — the default for interactive CLI sessions. Includes file, terminal, web, browser, memory, skills, vision, image_gen, todo, tts, delegation, code_execution, cronjob, session_search, clarify, computer_use, and the kanban tools (all check_fn-gated at runtime). |
-| `hermes-acp` | Drops `clarify`, `cronjob`, `image_generate`, `text_to_speech`, `computer_use`, and the kanban tools. Focused on coding tasks in IDE context. |
-| `hermes-api-server` | Drops `clarify`, `text_to_speech`, `computer_use`, and the kanban tools. Keeps everything else — suitable for programmatic access where user interaction isn't possible. |
-| `hermes-cron` | Same as `hermes-cli`. |
-| `hermes-telegram` | Same as `hermes-cli`. |
-| `hermes-discord` | Adds `discord` and `discord_admin` on top of `hermes-cli`. |
-| `hermes-slack` | Same as `hermes-cli`. |
-| `hermes-whatsapp` | Same as `hermes-cli`. |
-| `hermes-signal` | Same as `hermes-cli`. |
-| `hermes-matrix` | Same as `hermes-cli`. |
-| `hermes-mattermost` | Same as `hermes-cli`. |
-| `hermes-email` | Same as `hermes-cli`. |
-| `hermes-sms` | Same as `hermes-cli`. |
-| `hermes-bluebubbles` | Same as `hermes-cli`. |
-| `hermes-dingtalk` | Same as `hermes-cli`. |
-| `hermes-feishu` | Adds the five `feishu_doc_*` / `feishu_drive_*` tools (only used by the document-comment handler, not the regular chat adapter). |
-| `hermes-qqbot` | Same as `hermes-cli`. |
-| `hermes-wecom` | Same as `hermes-cli`. |
-| `hermes-wecom-callback` | Same as `hermes-cli`. |
-| `hermes-weixin` | Same as `hermes-cli`. |
+| `hermes-cli` | Full toolset — the default for interactive CLI sessions. Tools can be gated by runtime availability. |
+| `hermes-acp` | Focused on coding tasks in IDE context. |
+| `hermes-api-server` | Suitable for programmatic access where user interaction isn't possible. |
 | `hermes-webhook` | Restricted safe subset — only `web_search`, `web_extract`, `vision_analyze`, and `clarify`. Webhook-triggered runs get no terminal, file, or browser access. |
 | `hermes-gateway` | Internal gateway orchestrator toolset — union of every `hermes-<platform>` toolset; used when the gateway needs to accept any message source. |
 
-Platforms provided by plugins get an implicit `hermes-<platform>` bundle that is not part of `hermes-gateway`. For example, `hermes-homeassistant` and `hermes-yuanbao` still resolve once the `homeassistant` / `yuanbao` catalog plugin is installed, but they are no longer built-in toolsets.
 
 ## Dynamic Toolsets
 
@@ -159,8 +134,7 @@ custom_toolsets:
 
 A handful of tools have an additional availability check on top of toolset membership and are **not** turned on by `all`/`*` alone:
 
-- **Capability-gated** tools (browser, `computer_use`, `code_execution`, Feishu, cronjob) appear only when their backend/credential prerequisite is configured.
-- **Workflow-gated** tools — the `kanban` toolset — are deliberately opt-in. `all`/`*` does **not** enable kanban; you must list `kanban` explicitly (or be a dispatcher-spawned worker with `HERMES_KANBAN_TASK` set). Kanban tools mutate shared board state, so they stay off by default even under `all`.
+- **Capability-gated** tools (browser, `computer_use`, `code_execution`) appear only when their backend/credential prerequisite is configured.
 
 ## Relationship to `hermes tools`
 

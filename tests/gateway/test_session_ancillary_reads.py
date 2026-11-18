@@ -19,7 +19,7 @@ def probe(tmp_path, mode):
                             cwd=root, env=env, capture_output=True, text=True, timeout=90, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
     receipt = json.loads((home / 'receipt.json').read_text())
-    assert receipt['mode'] == mode and receipt['authenticated_ws']
+    assert receipt['mode'] == mode and receipt['authority_dispatch']
     print(json.dumps(receipt))
 
 

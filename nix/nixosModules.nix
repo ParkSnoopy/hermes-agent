@@ -208,8 +208,7 @@
         else
           cfg.workingDirectory;
 
-      # The hardening and the environment that the gateway unit and the
-      # backend unit share.
+      # The hardening and the environment for the gateway unit.
       commonServiceConfig = {
         User = cfg.user;
         Group = cfg.group;
@@ -236,27 +235,20 @@
       commonUnitEnvironment = {
         HOME = cfg.stateDir;
       }
-      // common.processEnvironment { inherit hermesHome; }
-      // common.backendSessionEnvironment { inherit cfg; };
+      // common.processEnvironment { inherit hermesHome; };
 
       unitPath = common.processPath { inherit pkgs cfg; };
 
-      # Whether the service uid gets a systemd user manager, and with it the
-      # user bus that restart-safe cron workers need (see the `linger` attribute
-      # under createUser). Read back off `config` rather than assumed, so an
-      # operator who declares the user themselves — or who turns the default off
-      # — does not pay for a bus that will never arrive.
-      lingerEnabled = ((config.users.users.${cfg.user} or { }).linger or false) == true;
 
     in
     {
       options.services.hermes-agent =
-        common.sharedOptions {
+        (common.sharedOptions {
           defaultPackage = hermes-agent;
           defaultPackageText = lib.literalExpression "hermes-agent.packages.\${system}.default";
           defaultWorkingDirectory = "${cfg.stateDir}/workspace";
           defaultWorkingDirectoryText = lib.literalExpression ''"''${cfg.stateDir}/workspace"'';
-        }
+        })
         // (
           with lib;
           {
@@ -359,21 +351,13 @@
               createHome = true;
               shell = pkgs.bashInteractive;
 
-              # The cron scheduler launches every job in a transient `systemd-run
-              # --user --scope` so a gateway restart cannot kill a running job,
-              # and that needs a systemd user manager for this uid. A system
-              # service has no /run/user/<uid> unless the uid lingers, and the
-              # dispatch fails closed — without this, no cron job runs at all.
-              #
-              # Needs nixpkgs >= 25.05 (users.manageLingering). In container mode cron
-              # runs inside the container, so the host uid needs no user manager.
-              linger = lib.mkDefault (!cfg.container.enable);
+
             };
           })
 
           # ── Host CLI ──────────────────────────────────────────────────────
           # Add the hermes CLI to system PATH and export HERMES_HOME system-wide
-          # so interactive shells share state (sessions, skills, cron) with the
+          # so interactive shells share state (sessions and skills) with the
           # gateway service instead of creating a separate ~/.hermes/.
           (lib.mkIf cfg.addToSystemPackages {
             environment.systemPackages = [ effectivePackage ];
@@ -399,19 +383,7 @@
                 opt = options.services.hermes-agent.workingDirectory;
                 optionPath = "services.hermes-agent";
               }
-              ++ common.backendBindAssertions {
-                inherit cfg;
-                optionPath = "services.hermes-agent";
-              }
-              ++ [
-                {
-                  # Container mode runs one command in one container. A second
-                  # process needs its own container and its own ports. This
-                  # module does not do that.
-                  assertion = !(cfg.container.enable && cfg.backend.mode != "none");
-                  message = "services.hermes-agent: backend.mode is not supported together with container.enable — the container runs the gateway only.";
-                }
-              ];
+              ;
           }
 
           # ── Per-user profile for extraPackages ───────────────────────────
@@ -567,41 +539,18 @@
             systemd.services.hermes-agent = {
               description = "Hermes Agent Gateway";
               wantedBy = [ "multi-user.target" ];
-              # linger-users.service is the unit that runs `loginctl
-              # enable-linger` for a declared `users.users.<name>.linger`.
               after = [
                 "network-online.target"
-              ]
-              ++ lib.optional lingerEnabled "linger-users.service";
+              ];
               wants = [
                 "network-online.target"
-              ]
-              ++ lib.optional lingerEnabled "linger-users.service";
+              ];
 
               # cfg.environment and cfg.environmentFiles are written to
               # $HERMES_HOME/.env by the activation script. load_hermes_dotenv()
               # reads them at Python startup — no systemd EnvironmentFile needed.
               environment = commonUnitEnvironment;
 
-              # Wait for the user bus that `systemd-run --user --scope` connects
-              # to. Ordering after linger-users.service is not enough on its own:
-              # `loginctl enable-linger` returns before logind has finished
-              # starting user@<uid>.service, and run_gateway() resolves
-              # XDG_RUNTIME_DIR / DBUS_SESSION_BUS_ADDRESS exactly once at
-              # startup — so a bus that appears after ExecStart is a bus this
-              # process never sees, for its whole lifetime.
-              #
-              # Bounded and non-fatal: a gateway without cron beats no gateway.
-              preStart = lib.mkIf lingerEnabled ''
-                for _ in $(seq 1 50); do
-                  [ -S "/run/user/$(id -u)/bus" ] && break
-                  sleep 0.2
-                done
-                if [ ! -S "/run/user/$(id -u)/bus" ]; then
-                  echo "hermes-agent: no user bus at /run/user/$(id -u)/bus after 10s;" \
-                       "restart-safe cron dispatch will fail for the life of this process" >&2
-                fi
-              '';
 
               serviceConfig = commonServiceConfig // {
                 ExecStart = lib.escapeShellArgs (common.gatewayArgv cfg);
@@ -611,25 +560,6 @@
             };
           })
 
-          # ── The backend: hermes serve or hermes dashboard ─────────────────
-          # This is a different process from the gateway. Both use one
-          # HERMES_HOME.
-          (lib.mkIf (!cfg.container.enable && cfg.backend.mode != "none") {
-            systemd.services.hermes-backend = {
-              description = common.backendDescription cfg;
-              wantedBy = [ "multi-user.target" ];
-              after = [ "network-online.target" ];
-              wants = [ "network-online.target" ];
-
-              environment = commonUnitEnvironment;
-
-              serviceConfig = commonServiceConfig // {
-                ExecStart = lib.escapeShellArgs (common.backendArgv { inherit pkgs cfg; });
-              };
-
-              path = unitPath;
-            };
-          })
 
           # ══════════════════════════════════════════════════════════════════
           # MODE B: OCI container (persistent writable layer)

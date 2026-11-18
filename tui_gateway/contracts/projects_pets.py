@@ -168,7 +168,7 @@ method("projects.for_cwd", params=ProjectsForCwdParams, result=ProjectsForCwdRes
 
 
 class RepoDiscoveryPolicy(Result):
-    """``methods_projects._repo_discovery_policy`` — the effective ``desktop.repo_scan_*`` config."""
+    """``methods_projects._repo_discovery_policy`` — the effective ``projects.repo_scan`` config."""
 
     enabled: bool
     roots: list[str]
@@ -176,14 +176,11 @@ class RepoDiscoveryPolicy(Result):
 
 
 class RepoDiscoveryPolicyParams(Params):
-    """The policy the desktop scanned under (short or ``repo_scan_*`` long keys both accepted)."""
+    """The canonical policy under which the client scanned repositories."""
 
     enabled: bool | None = None
     roots: list[str] | None = None
     exclude_paths: list[str] | None = None
-    repo_scan_enabled: bool | None = None
-    repo_scan_roots: list[str] | None = None
-    repo_scan_exclude_paths: list[str] | None = None
 
 
 class DiscoveredRepo(Result):
@@ -241,13 +238,13 @@ class ProjectTreeSession(StoredSessionRow):
 
 
 class ProjectTreeLane(Result):
-    """One branch / worktree / kanban lane inside a repo; ``sessions`` is empty unless hydrated."""
+    """One branch / worktree lane inside a repo; ``sessions`` is empty unless hydrated."""
 
     id: str
     label: str
     path: str | None = None
     isMain: bool = False
-    isKanban: bool = False
+
     # True only when the placement saw git (probe or persisted repo root). The
     # path-only heuristic lane for a non-git folder is isMain but isGit=False,
     # so the renderer never offers `git switch` on it (#61362).

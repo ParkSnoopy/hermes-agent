@@ -8,7 +8,6 @@ description: "Authoritative reference for Hermes built-in tools, grouped by tool
 
 This page documents Hermes' built-in tools, grouped by toolset. Availability varies by platform, credentials, and enabled toolsets.
 
-**Quick counts (current registry):** ~85 tools — 4 browser tools (`browser_exec`, `browser_cdp`, `browser_dialog`, `browser_vault`), 4 file tools, 2 terminal tools (`terminal`, `process_manage`), 11 desktop-GUI tools (`read_terminal`, `close_terminal`, `desktop_preview`, `drive_preview`, `annotate_preview`, `read_window_below`, `focus_pane`, `react_to_message`, `gui_tour`, `show_tip`, `set_theme` — desktop-app sessions only), 2 web tools, 5 Feishu tools, 14 kanban tools (registered when the kanban dispatcher spawns the agent), 1 project tool (`desktop_project`; desktop/GUI sessions), 2 Discord tools, 3 video tools (`video_generate`, `xai_video_edit`, `xai_video_extend`), and a handful of standalone tools (`memory`, `clarify`, `delegate_task`, `execute_code`, `cronjob_manage`, `session_search`, `skill_view`/`skill_manage`/`skills_list`, `text_to_speech`, `image_generate`, `vision_analyze`, `video_analyze`, `todo_list`, `computer_use`, `x_search`).
 
 :::tip MCP Tools
 In addition to built-in tools, Hermes can load tools dynamically from MCP servers. MCP tools appear with the prefix `mcp__<server>__` (e.g., `mcp__github__create_issue` for the `github` MCP server). See [MCP Integration](../user-guide/features/mcp.md) for configuration.
@@ -64,36 +63,11 @@ token). Other sessions do not see it.
 |------|-------------|----------------------|
 | `execute_code` | Run a Python script that can call Hermes tools programmatically. Use this when you need 3+ tool calls with processing logic between them, need to filter/reduce large tool outputs before they enter your context, need conditional branching (… | — |
 
-## `cronjob` toolset
-
-| Tool | Description | Requires environment |
-|------|-------------|----------------------|
-| `cronjob_manage` | Unified scheduled-task manager. Use `action="create"`, `"list"`, `"update"`, `"pause"`, `"resume"`, `"run"`, or `"remove"` to manage jobs. Supports skill-backed jobs with one or more attached skills, and `skills=[]` on update clears attached skills. Cron runs happen in fresh sessions with no current-chat context. | — |
-
 ## `delegation` toolset
 
 | Tool | Description | Requires environment |
 |------|-------------|----------------------|
 | `delegate_task` | Spawn subagents in isolated contexts; each gets its own conversation, terminal session, and toolset, and only its final summary returns to you. Provide 'goal' for a single task or 'tasks' for a parallel batch (limits and nesting rules… | — |
-
-## `feishu_doc` toolset
-
-Scoped to the Feishu document-comment intelligent-reply handler (`gateway/platforms/feishu_comment.py`). Not exposed on `hermes-cli` or the regular Feishu chat adapter.
-
-| Tool | Description | Requires environment |
-|------|-------------|----------------------|
-| `feishu_doc_read` | Read the full text content of a Feishu/Lark document (Docx, Doc, or Sheet) given its file_type and token. | Feishu app credentials |
-
-## `feishu_drive` toolset
-
-Scoped to the Feishu document-comment handler. Drives comment read/write operations on drive files.
-
-| Tool | Description | Requires environment |
-|------|-------------|----------------------|
-| `feishu_drive_add_comment` | Add a top-level comment on a Feishu/Lark document or file. | Feishu app credentials |
-| `feishu_drive_list_comments` | List whole-document comments on a Feishu/Lark file, most recent first. | Feishu app credentials |
-| `feishu_drive_list_comment_replies` | List replies on a specific Feishu comment thread (whole-doc or local-selection). | Feishu app credentials |
-| `feishu_drive_reply_comment` | Post a reply on a Feishu comment thread, with optional `@`-mention. | Feishu app credentials |
 
 ## `file` toolset
 
@@ -110,17 +84,17 @@ For local files, a full unredacted read (including all pages of the same file ve
 
 | Tool | Description | Requires environment |
 |------|-------------|----------------------|
-| `computer_use` | Background desktop control via cua-driver — screenshots (SOM / vision / AX), click / drag / scroll / type / key / wait, list_apps, focus_app. Does NOT steal the user's cursor or keyboard focus. Works with any tool-capable model. macOS, Windows, and Linux. | `cua-driver` on `$PATH` (install via `hermes tools`). |
+| `computer_use` | Background desktop control via cua-driver — screenshots (SOM / vision / AX), click / drag / scroll / type / key / wait, list_apps, focus_app. Does NOT steal the user's cursor or keyboard focus. Works with any tool-capable model. Linux. | `cua-driver` on `$PATH` (install via `hermes tools`). |
 
 
 :::note
 **Honcho tools** (`honcho_profile`, `honcho_search`, `honcho_context`, `honcho_reasoning`, `honcho_conclude`) are no longer built-in. They are available via the Honcho memory provider plugin from the plugin catalog (`hermes plugins install honcho`). See [Memory Providers](../user-guide/features/memory-providers.md) for installation and usage.
 
-**Home Assistant tools** (`ha_list_entities`, `ha_get_state`, `ha_list_services`, `ha_call_service`, toolset `homeassistant`) are no longer built-in. They come from the `homeassistant` catalog plugin (`hermes plugins install homeassistant`). See [Home Assistant](../user-guide/messaging/homeassistant.md).
+**Home Assistant tools** (`ha_list_entities`, `ha_get_state`, `ha_list_services`, `ha_call_service`, toolset `homeassistant`) are no longer built-in. They come from the `homeassistant` catalog plugin (`hermes plugins install homeassistant`). See Home Assistant.
 
 **Spotify tools** (`spotify_playback`, `spotify_devices`, `spotify_queue`, `spotify_search`, `spotify_playlists`, `spotify_albums`, `spotify_library`, toolset `spotify`) are no longer built-in. They come from the `spotify` catalog plugin (`hermes plugins install spotify`, then `hermes spotify login`). See [Spotify](../user-guide/features/spotify.md).
 
-**Yuanbao tools** (`yb_query_group_info`, `yb_query_group_members`, `yb_send_dm`, `yb_search_sticker`, `yb_send_sticker`, toolset `yuanbao`) are no longer built-in. They come from the `yuanbao` Hermes Labs plugin (`hermes plugins install yuanbao`). See [Yuanbao](../user-guide/messaging/yuanbao.md).
+**Yuanbao tools** (`yb_query_group_info`, `yb_query_group_members`, `yb_send_dm`, `yb_search_sticker`, `yb_send_sticker`, toolset `yuanbao`) are no longer built-in. They come from the `yuanbao` Hermes Labs plugin (`hermes plugins install yuanbao`). See Yuanbao.
 :::
 
 ## `image_gen` toolset
@@ -128,27 +102,6 @@ For local files, a full unredacted read (including all pages of the same file ve
 | Tool | Description | Requires environment |
 |------|-------------|----------------------|
 | `image_generate` | Generate images from text prompts (text-to-image) or edit/transform an existing image (image-to-image) via the user-configured backend (FAL.ai, OpenAI, OpenAI Codex auth, xAI, Krea). Pass `image_url` to edit an image and `reference_image_urls` for style references; omit both for text-to-image. The model is user-configured and not selectable by the agent. Returns a single image URL or local path. | FAL_KEY / OPENAI_API_KEY / Codex OAuth / xAI OAuth / KREA_API_KEY |
-
-## `kanban` toolset
-
-Registered when the agent is either (a) spawned by the kanban dispatcher (`HERMES_KANBAN_TASK` env set) or (b) running in a profile that explicitly enables the `kanban` toolset. Task-scoped workers use lifecycle tools for their assigned task; orchestrator profiles additionally get board-routing tools like `kanban_list` and `kanban_unblock`. See [Kanban Multi-Agent](../user-guide/features/kanban.md) for the full workflow.
-
-| Tool | Description | Requires environment |
-|------|-------------|----------------------|
-| `kanban_show` | Show the active kanban task assigned to this worker (title, description, comments, dependencies). | `HERMES_KANBAN_TASK` or `kanban` toolset |
-| `kanban_list` | List board tasks with filters. Orchestrator-only; hidden from dispatcher-spawned task workers. | profile with `kanban` toolset |
-| `kanban_complete` | Mark the current task done with a structured handoff payload (results, artifacts, follow-ups). | `HERMES_KANBAN_TASK` or `kanban` toolset |
-| `kanban_block` | Block the current task on a question for the user — the dispatcher pauses, surfaces the question, and resumes once a human replies. | `HERMES_KANBAN_TASK` or `kanban` toolset |
-| `kanban_request_review` | Hand the implementation to a reviewer with `summary`, optional structured `metadata`, and an optional reviewer profile. Moves the same task to `review`; it is not a block and does not affect block-loop accounting. | `HERMES_KANBAN_TASK` or `kanban` toolset |
-| `kanban_request_changes` | Reviewer verdict for an actively claimed review run. Closes the review run, reapplies parent gating, and routes the task back to the original implementer without using a block. | `HERMES_KANBAN_TASK` or `kanban` toolset |
-| `kanban_heartbeat` | Send a progress heartbeat during a long-running operation so the dispatcher knows the worker is still alive. | `HERMES_KANBAN_TASK` or `kanban` toolset |
-| `kanban_comment` | Add a comment to the task thread without changing its state — useful for surfacing intermediate findings. | `HERMES_KANBAN_TASK` or `kanban` toolset |
-| `kanban_create` | Fan out child tasks from the current task. Used by orchestrators and follow-up-spawning workers. | `HERMES_KANBAN_TASK` or `kanban` toolset |
-| `kanban_link` | Link tasks with a parent → child dependency edge. | `HERMES_KANBAN_TASK` or `kanban` toolset |
-| `kanban_unblock` | Move a blocked task to `ready` when all parents are done, or `todo` while any parent remains open. Orchestrator-only; hidden from dispatcher-spawned task workers. | profile with `kanban` toolset |
-| `kanban_attach` | Attach a file to a task by passing its bytes inline (base64). Stored as a real attachment under the task's attachments dir, capped at 25 MB. | `HERMES_KANBAN_TASK` or `kanban` toolset |
-| `kanban_attach_url` | Attach a file to a task by URL — Hermes downloads it server-side and stores it as a real attachment (capped at 25 MB). Only http/https URLs. | `HERMES_KANBAN_TASK` or `kanban` toolset |
-| `kanban_attachments` | List the files attached to a task: id, filename, content_type, size, uploader, and the absolute on-disk path. | `HERMES_KANBAN_TASK` or `kanban` toolset |
 
 ## `project` toolset
 
@@ -166,7 +119,7 @@ Tools for driving desktop [Projects](../user-guide/cli.md) — named, multi-fold
 
 ## `catalog` toolset
 
-Enabled for sessions whose source is the desktop app, whichever backend it's connected to. CLI, TUI, `hermes -z`, cron, kanban and messaging sessions never get it, even when a config list names it. `all` does not include it. Remove it with `agent.disabled_toolsets: [catalog]`.
+Enabled for sessions whose source is the desktop app, whichever backend it's connected to. CLI, TUI, `hermes -z`, kanban and messaging sessions never get it, even when a config list names it. `all` does not include it. Remove it with `agent.disabled_toolsets: [catalog]`.
 
 | Tool | Description | Requires environment |
 |------|-------------|----------------------|
@@ -197,7 +150,7 @@ Enabled for sessions whose source is the desktop app, whichever backend it's con
 
 Enabled for sessions whose source is the Hermes desktop app, on any backend it
 is connected to (local, SSH, URL, or Hermes Cloud). Absent from CLI, TUI,
-messaging, and cron sessions.
+and messaging sessions.
 
 | Tool | Description | Requires environment |
 |------|-------------|----------------------|
@@ -229,7 +182,7 @@ Handles are applied at the **primitive**, not the call site, so one edit names e
 
 | Handle | What it names |
 |---|---|
-| `overlay-nav` | the left nav of any route overlay (settings, cron, profiles, agents) |
+| `overlay-nav` | the left nav of any route overlay (settings, profiles, agents) |
 | `nav-<id>` | one row in that nav — `nav-models`, `nav-appearance`, … |
 | `field-<schemaKey>` | one settings row, by its config key — `field-model`, `field-provider`, … |
 | `page-tabs` | the filter tabs on any `PageSearchShell` page (artifacts, skills, …) |
@@ -340,26 +293,4 @@ The single `video_generate` tool covers both modalities — pass `image_url` to 
 | Tool | Description | Requires environment |
 |------|-------------|----------------------|
 | `x_search` | Search X (Twitter) posts, profiles, and threads using xAI's built-in `x_search` Responses tool. Read-only public X discovery for current discussion, reactions, or claims on public X (not general web pages). Does not post, reply, like, DM, upload media, delete, or inspect the authenticated X account — those need a separate authenticated X API surface (e.g. the `xurl` skill). Off by default — opt in via `hermes tools` → 🐦 X (Twitter) Search. Schema is only registered when xAI credentials are configured (check_fn-gated). | XAI_API_KEY **or** xAI Grok OAuth (SuperGrok / Premium+) login |
-
-## `tts` toolset
-
-| Tool | Description | Requires environment |
-|------|-------------|----------------------|
-| `text_to_speech` | Convert text to speech audio. Returns a MEDIA: path that the platform delivers as a voice message. On Telegram it plays as a voice bubble, on Discord/WhatsApp as an audio attachment. In CLI mode, saves to ~/voice-memos/. Voice and provider… | — |
-
-## `discord` toolset
-
-Registered on the `hermes-discord` platform toolset (gateway only). Uses the same bot token as the messaging adapter.
-
-| Tool | Description | Requires environment |
-|------|-------------|----------------------|
-| `discord` | Read and participate in a Discord server. Actions include `search_members`, `fetch_messages`, `send_message`, `react`, `fetch_channel`, `list_channels`, and more. | `DISCORD_BOT_TOKEN` |
-
-## `discord_admin` toolset
-
-Registered on the `hermes-discord` platform toolset. Moderation actions require the bot to hold the matching Discord permissions.
-
-| Tool | Description | Requires environment |
-|------|-------------|----------------------|
-| `discord_admin` | Manage a Discord server via the REST API: list guilds/channels/roles, create/edit/delete channels, manage role grants, timeouts, kicks, and bans. | `DISCORD_BOT_TOKEN` + bot permissions |
 

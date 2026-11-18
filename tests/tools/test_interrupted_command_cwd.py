@@ -3,7 +3,7 @@
 The command wrapper prints the ``__HERMES_CWD_*`` marker AFTER the command
 returns, so a killed / timed-out command emits none and ``env.cwd`` still holds
 whatever the last command to FINISH left there. One local environment is shared
-by every session (``_resolve_container_task_id`` collapses cwd-only overrides to
+by every session (``_resolve_task_id`` collapses cwd-only overrides to
 ``"default"``), so that leftover is routinely ANOTHER session's directory.
 
 Without the ``cwd_observed`` gate, the post-command dual-write stamped that
@@ -43,7 +43,7 @@ def _run(env, session_key, command, timeout=30):
     the record only when the command reported where it finished.
     """
     command_cwd = tt._resolve_command_cwd(
-        workdir=None, default_cwd=env.cwd, session_key=session_key, env_type="local"
+        workdir=None, default_cwd=env.cwd, session_key=session_key
     )
     result = env.execute(command, cwd=command_cwd, timeout=timeout)
     if result.get("cwd_observed"):
@@ -154,9 +154,8 @@ class TestTerminalToolReadsTheFlag:
     def _tool(self, monkeypatch, env, command, task_id, timeout=None):
         import json
 
-        # One shared env for every session, like the real local backend
-        # (_resolve_container_task_id collapses cwd-only sessions to "default").
-        monkeypatch.setattr(tt, "_active_environments", {"default": env})
+        # Deliberately reuse the same shell to exercise the observed-cwd fence.
+        monkeypatch.setattr(tt, "_active_environments", {tt._resolve_task_id(task_id): env})
         monkeypatch.setattr(tt, "_last_activity", {})
         monkeypatch.setattr(
             tt, "_get_env_config",

@@ -27,9 +27,9 @@ def deny_config(monkeypatch):
 
 @pytest.fixture
 def clean_env(monkeypatch):
-    """Non-interactive, non-gateway, non-cron, non-yolo baseline."""
+    """Non-interactive, non-gateway, non-yolo baseline."""
     for var in ("HERMES_YOLO_MODE", "HERMES_GATEWAY_SESSION",
-                "HERMES_CRON_SESSION", "HERMES_INTERACTIVE",
+                "HERMES_INTERACTIVE",
                 "HERMES_EXEC_ASK"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(mod, "_YOLO_MODE_FROZEN", False)
@@ -221,7 +221,7 @@ class TestDenyOrdering:
     )
     @pytest.mark.parametrize(
         "env_type",
-        ["docker", "modal", "daytona", "vercel_sandbox"],
+        ["docker", "vercel_sandbox"],
     )
     def test_container_backend_cannot_skip_deny(
             self, guard, env_type, deny_config, clean_env, monkeypatch):
@@ -239,7 +239,7 @@ class TestDenyOrdering:
     )
     @pytest.mark.parametrize(
         "env_type",
-        ["docker", "modal", "daytona", "vercel_sandbox"],
+        ["docker", "vercel_sandbox"],
     )
     def test_container_backend_still_skips_non_denied_command(
             self, guard, env_type, deny_config, clean_env):

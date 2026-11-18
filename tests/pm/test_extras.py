@@ -89,65 +89,6 @@ def test_declared_extra_gates_match_dependency_selection():
                 )
 
 
-def test_faster_whisper_targets_are_gated(monkeypatch):
-    """The local-STT extra's anchor is faster-whisper, which has no win_arm64 or darwin-x64 build.
-
-    An extra whose anchor can never import there must be refused up front: without the gate,
-    ensure_import rebuilt the whole dependency environment and still failed the anchor — on every
-    status probe, forever. ``voice`` is deliberately NOT gated (its sounddevice/numpy are
-    installable on those targets; see the selection test above), so the lazy STT path asks for
-    ``stt-whisper``, the extra that carries only faster-whisper.
-    """
-    monkeypatch.setattr(extras, "_PLATFORM_GATES", None)
-    targets = {
-        "win32-arm64": {"sys_platform": "win32", "platform_system": "Windows",
-                        "platform_machine": "ARM64", "os_name": "nt"},
-        "darwin-x64": {"sys_platform": "darwin", "platform_system": "Darwin",
-                       "platform_machine": "x86_64", "os_name": "posix"},
-        "linux-x64": {"sys_platform": "linux", "platform_system": "Linux",
-                      "platform_machine": "x86_64", "os_name": "posix"},
-    }
-    supported = {
-        target: extras.extra_supported("stt-whisper", environment=environment,
-                                       importable=lambda _: False)
-        for target, environment in targets.items()
-    }
-    assert supported == {"win32-arm64": False, "darwin-x64": False, "linux-x64": True}
-
-
-def test_faster_whisper_carriers_pin_av_below_pyav19():
-    """faster-whisper 1.2.1 passes ``metadata_errors`` to ``av.open()``, a kwarg
-    PyAV 19 removed, so the pair fails every local transcription with a TypeError
-    (#135245; fixed upstream in SYSTRAN/faster-whisper#1495, unreleased as of 1.2.1).
-    faster-whisper only declares ``av>=11``, so every extra carrying 1.2.1 must
-    exact-pin a pre-19 ``av`` under the same platform marker, or the next lock
-    refresh resolves the broken pair.
-    """
-    import tomllib
-    from pathlib import Path
-    from packaging.requirements import Requirement
-
-    root = Path(__file__).resolve().parents[2]
-    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    optional = pyproject["project"]["optional-dependencies"]
-    carriers = {
-        extra: [Requirement(req) for req in reqs]
-        for extra, reqs in optional.items()
-        if any(req.name == "faster-whisper" for req in map(Requirement, reqs))
-    }
-    assert carriers, "no extra carries faster-whisper: retire this pin and test"
-    for extra, reqs in carriers.items():
-        fw = next(r for r in reqs if r.name == "faster-whisper")
-        if not fw.specifier.contains("1.2.1"):
-            continue  # a newer faster-whisper may carry the upstream fix
-        av_reqs = [req for req in reqs if req.name == "av"]
-        assert len(av_reqs) == 1, f"{extra} must pin av alongside faster-whisper 1.2.1"
-        (spec,) = av_reqs[0].specifier
-        assert spec.operator == "==", f"{extra}: av must be exact-pinned"
-        assert int(spec.version.split(".")[0]) < 19, f"{extra}: av must exclude PyAV 19"
-        assert av_reqs[0].marker == fw.marker, f"{extra}: av must share faster-whisper's marker"
-
-
 @pytest.fixture
 def synced(monkeypatch):
     calls: list[list[str]] = []
@@ -161,7 +102,7 @@ def test_available_missing_module():
 
 
 @pytest.mark.parametrize(("extra", "module"), [
-    ("teams", "microsoft_teams.apps"),
+    ("fal", "fal_client"),
 ])
 def test_available_counts_sys_modules_fakes(monkeypatch, extra, module):
     monkeypatch.setitem(sys.modules, module, SimpleNamespace())
@@ -280,10 +221,10 @@ def test_every_anchor_extra_exists_in_pyproject():
 
 def test_legacy_selection_carries_extras_the_main_era_venv_lazily_installed(monkeypatch, tmp_path):
     """Migrating a main-era venv must keep opt-in extras it already had (FAL
-    image generation, a messaging SDK), or the first PM launch prompts to
+    image generation, web search), or the first PM launch prompts to
     reinstall them. Umbrella and gated-off extras are never carried."""
     monkeypatch.setattr(extras, "_PLATFORM_GATES", {"piper": "python_version < '0'"})
-    site = main_era_venv(tmp_path, "fal_client", "telegram")
+    site = main_era_venv(tmp_path, "fal_client", "firecrawl")
     (site / "piper").mkdir()
     (site / "google").mkdir()
     (site / "google" / "auth").mkdir()
@@ -293,7 +234,7 @@ def test_legacy_selection_carries_extras_the_main_era_venv_lazily_installed(monk
     selection = extras.legacy_selection(tmp_path)
 
     assert selection[0] == "all"
-    assert {"fal", "telegram", "vertex", "exa"} <= set(selection)
+    assert {"fal", "firecrawl", "vertex", "exa"} <= set(selection)
     assert "messaging" not in selection
     assert "piper" not in selection
     assert "hindsight" not in selection  # Catalog plugin owns this dependency, not a core extra.

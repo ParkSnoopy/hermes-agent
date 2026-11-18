@@ -39,7 +39,7 @@ async def test_profile_bound_ticket_never_reaches_a_sibling_authority(tmp_path, 
             SessionSource(platform=Platform.LOCAL, chat_id='local-x', user_id='uid:other'), 'route')
 
         def connect(profile_id, **scope):
-            # Exactly gateway/run_api.py's redeem → identity → operator connection binding.
+            # The redeemed grant selects its authority before binding the operator connection.
             ticket = store.mint(profile_id=profile_id, subject='uid:attacker', purpose='interactive', **scope)
             grant = store.redeem(ticket, profile_id=None, purpose='interactive')
             authority = authority_for_profile_id(runner, grant['profile_id'])
@@ -68,13 +68,13 @@ async def test_profile_bound_ticket_never_reaches_a_sibling_authority(tmp_path, 
         assert 'result' in await call(alpha, 'session.list')
         assert 'result' in await call(alpha, 'session.list', profile='alpha')  # own-profile selector
         assert (await call(alpha, 'session.list', profile='default'))['error']['message'] == 'profile_mismatch'
-        # The Desktop's shared-primary socket asks for a host-scoped grant and keeps its sibling route.
+        # An explicitly host-scoped interactive grant retains its served-sibling route.
         host = connect(str(root.resolve()), scope='host')
         listed = await call(host, 'session.list', profile='beta')
         assert [row['session_id'] for row in listed['result']['sessions']] == ['beta-private'], listed
         assert (await call(host, 'session.list', profile='gamma'))['error']['message'] == 'profile_mismatch'
         with pytest.raises(PermissionError):
-            store.mint(profile_id=alpha_id, subject='uid:1', purpose='native-http', scope='host')
+            store.mint(profile_id=alpha_id, subject='uid:1', purpose='worker-adoption', scope='host')
     finally:
         for connection in connections:
             with owner_scope(connection.authority):

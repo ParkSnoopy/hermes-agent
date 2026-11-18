@@ -375,7 +375,7 @@ def test_profile_child_uses_the_target_profiles_persistent_container(two_profile
     tokens = set_session_vars(session_key="agent:main:telegram:dm:1", profile="default")
     try:
         with delegated_profile_scope(coder):
-            assert terminal_tool._resolve_container_task_id("child-task") == "profile:coder"
+            assert terminal_tool._resolve_task_id("child-task") == "profile:coder"
             assert get_session_env("HERMES_SESSION_PROFILE", "") == "default"
     finally:
         clear_session_vars(tokens)
@@ -394,9 +394,9 @@ def test_child_routed_back_to_the_launch_profile_uses_the_launch_profiles_contai
     tokens = set_session_vars(session_key="agent:coder:telegram:dm:1", profile="coder")
     try:
         with delegated_profile_scope(coder):
-            assert terminal_tool._resolve_container_task_id("parent-task") == "profile:coder"
+            assert terminal_tool._resolve_task_id("parent-task") == "profile:coder"
             with delegated_profile_scope(launch):
-                assert terminal_tool._resolve_container_task_id("child-task") == "default"
-            assert terminal_tool._resolve_container_task_id("parent-task") == "profile:coder"
+                assert terminal_tool._resolve_task_id("child-task") == "default"
+            assert terminal_tool._resolve_task_id("parent-task") == "profile:coder"
     finally:
         clear_session_vars(tokens)

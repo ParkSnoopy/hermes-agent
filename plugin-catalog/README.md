@@ -1,6 +1,6 @@
 # Hermes Plugin Catalog
 
-Curated, Nous-approved Hermes plugins. Each YAML file in this directory
+Pinned third-party Hermes plugins. Each YAML file in this directory
 (except `removed.yaml`) is one catalog entry, discoverable via
 `hermes plugins catalog` / `hermes plugins search` and installable with
 `hermes plugins install <name>`.

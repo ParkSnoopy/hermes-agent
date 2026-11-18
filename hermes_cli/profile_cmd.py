@@ -77,11 +77,7 @@ def _render_distribution_plan(plan) -> None:
             if er.description:
                 line += f" — {er.description}"
             print(line)
-    if plan.has_cron:
-        print(
-            "\n  ⚠ This distribution ships cron jobs.  They will NOT run "
-            "automatically — review and enable manually."
-        )
+
 
 
 def _profile_status(args):
@@ -197,7 +193,6 @@ def _profile_create(args):
     no_skills = getattr(args, "no_skills", False)
     clone_from = getattr(args, "clone_from", None)
     clone_channels = getattr(args, "clone_channels", False)
-    sync_imports = getattr(args, "sync_imports", False)
     clone_config = clone or clone_from is not None
     cloned = clone_config or clone_all
     source_label = clone_from or get_active_profile_name()
@@ -205,7 +200,7 @@ def _profile_create(args):
         profile_dir = create_profile(
             name=name, clone_from=clone_from, clone_all=clone_all, clone_config=clone_config,
             no_alias=no_alias, no_skills=no_skills, description=getattr(args, "description", None),
-            clone_channels=clone_channels, sync_imports=sync_imports,
+            clone_channels=clone_channels,
         )
     except (ValueError, FileExistsError, FileNotFoundError) as e:
         _die(f"Error: {e}")
@@ -223,9 +218,6 @@ def _profile_create(args):
             memory_provider = cloned_memory_provider(profile_dir)
             if memory_provider:
                 print(f"Cloned memory provider config ({memory_provider}) too.")
-        if sync_imports:
-            print(f"Import sources carried over — `hermes -p {name} import-agent --sync` "
-                  "keeps pulling the same Claude Code / Codex trees.")
         _print_channel_clone_notice(name, source_label, clone_channels, "--clone-all" if clone_all else "--clone")
     else:
         # Fresh profiles only: clones already carry the source's (user-curated) skills.
@@ -515,11 +507,7 @@ def _profile_install(args):
                 f"  Next: copy .env.EXAMPLE to .env and fill in required keys:\n"
                 f"    {plan.target_dir}/.env.EXAMPLE"
             )
-        if plan.has_cron:
-            print(
-                "  Cron jobs were included but are NOT scheduled automatically.\n"
-                f"  Review them with:  hermes -p {plan.manifest.name} cron list"
-            )
+
         print(f"\n  Use with:      hermes -p {plan.manifest.name} chat")
     except (DistributionError, ValueError) as e:
         _die(f"Error: {e}")
@@ -550,8 +538,7 @@ def _profile_update(args):
                 return
         plan = update_distribution(canon, force_config=force_config)
         print(f"\n✓ Updated '{plan.manifest.name}' → v{plan.manifest.version}")
-        if plan.has_cron:
-            print(f"  Cron files were refreshed.  Review with:  hermes -p {plan.manifest.name} cron list")
+
     except (DistributionError, ValueError) as e:
         _die(f"Error: {e}")
 

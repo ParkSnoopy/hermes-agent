@@ -128,7 +128,6 @@ def test_restart_wait_owner_is_attachable_on_start_and_recover(monkeypatch, tmp_
     """GW-6: an owner in a restart's after-turn wait (draining/restart_wait) still owns its turns;
     reopening the TUI to answer a parked prompt must attach, not refuse or re-ensure it."""
     import io
-    import os
     module = _load_bootstrap()
     home = (tmp_path / "home").resolve()
     home.mkdir()
@@ -143,30 +142,26 @@ def test_restart_wait_owner_is_attachable_on_start_and_recover(monkeypatch, tmp_
     reply = json.dumps({"ok": True, "protocol": 1, "id": 1, "result": {
         "instance_id": endpoint.instance_id, "profile_id": endpoint.profile_id, "ticket": "grant",
         "runtime_protocol": 1}}).encode() + b"\n"
-    if os.name == "nt":
-        import gateway.runtime_bootstrap_windows as windows_bootstrap
-        monkeypatch.setattr(windows_bootstrap, "query_runtime_control", lambda h, req, timeout: reply)
-    else:
-        import hermes_cli.gateway_runtime_discovery as discovery
-        stream = io.BytesIO(reply)
+    import hermes_cli.gateway_runtime_discovery as discovery
+    stream = io.BytesIO(reply)
 
-        class Peer:
-            def __enter__(self):
-                return self
+    class Peer:
+        def __enter__(self):
+            return self
 
-            def __exit__(self, *args):
-                return False
+        def __exit__(self, *args):
+            return False
 
-            def sendall(self, _request):
-                pass
+        def sendall(self, _request):
+            pass
 
-            def settimeout(self, _timeout):
-                pass
+        def settimeout(self, _timeout):
+            pass
 
-            def recv(self, size):
-                return stream.read(size)
+        def recv(self, size):
+            return stream.read(size)
 
-        monkeypatch.setattr(discovery, "connect_private", lambda h, timeout: Peer())
+    monkeypatch.setattr(discovery, "connect_private", lambda h, timeout: Peer())
 
     result = module.bootstrap(start, recover=recover)
 

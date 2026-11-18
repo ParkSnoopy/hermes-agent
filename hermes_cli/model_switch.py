@@ -1823,12 +1823,10 @@ def model_selection_config_updates(result: ModelSwitchResult, current_model_cfg:
     targets the inline key belongs to ONE endpoint: it survives only a same-route re-pick (same
     provider and base_url) — ``custom:a`` -> ``custom:b`` must not hand endpoint A's secret to B.
     The ``key_env`` / ``api_key_env`` credential POINTER (written by custom-endpoint activation
-    and, for REGISTRY providers too, by the Desktop settings UI (#106336); resolved by
+    and, for REGISTRY providers too, by custom endpoint setup; resolved by
     runtime_provider / auxiliary_client / ``auth._model_level_key_env``) clears only when the
     route changed: left behind it routes the NEW provider's requests to the OLD endpoint's env
-    var, but a same-provider same-base_url model re-pick keeps it whatever the provider is. The
-    dashboard re-adds an explicitly submitted key / the target provider's own pointer after this
-    (``_apply_main_model_assignment`` / ``_resolve_assignment_credentials``)."""
+    var, but a same-provider same-base_url model re-pick keeps it whatever the provider is."""
     model_cfg = current_model_cfg if isinstance(current_model_cfg, dict) else {}
     updates: dict[str, Any] = {
         "default": result.new_model, "provider": result.target_provider,
@@ -1922,7 +1920,7 @@ def persist_model_selection(result: ModelSwitchResult, config_path: Any = None) 
     config lock, once one exists, must wrap the same section."""
     from pathlib import Path
     from hermes_cli.config import _CONFIG_LOCK, atomic_config_replace, get_config_path, read_user_config_raw
-    from hermes_cli.config_backend import supports_file_tooling, write_config_keys
+    from hermes_cli.config_backend import supports_file_tooling
     path = Path(config_path) if config_path else get_config_path()
     planned_from = read_user_config_raw(path).get("model")
     updates = model_selection_config_updates(result, planned_from)

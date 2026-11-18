@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import type { RewindOverlay } from '../app/interfaces.js'
 import { $rewindFocus, $rewindScrollRestore, rewindFocusIndex } from '../app/rewindFocusStore.js'
-import { useT } from '../i18n/useT.js'
+import { overlaysEn } from '../copy/overlays.js'
 import { clampOffset, ensureVisible, fitBrowseHint, messageRange, pagerLines, pagerMessages } from '../lib/transcriptPager.js'
 import type { Theme } from '../theme.js'
 
@@ -34,7 +34,7 @@ export function RewindBrowse({
   req,
   t
 }: RewindBrowseProps) {
-  const T = useT()
+  const T = overlaysEn
   const { stdout } = useStdout()
   const [idx, setIdx] = useState(req.targets.length - 1)
   const target = req.targets[idx]

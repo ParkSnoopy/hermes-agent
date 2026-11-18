@@ -2,7 +2,7 @@ name: brownout
 title: Brownout
 repo: https://github.com/Osiyomeoh/brownout
 sha: 6d983d5da32c6cdd6a3551426de87d44a78dbfea
-description: "Power-cut guard for the machine Hermes runs on. When mains power drops it messages you (Telegram or any hermes send target) with the battery level, measures the real drain and sends a runway, and on /brownout park (or by itself at critical battery if you don't answer) pauses active cron jobs and blocks new tool calls with a pre_tool_call hook. When power is back it resumes only the jobs it paused and tells you. Nothing is killed or deleted; it stops the next tool call, not one already running. Undelivered alerts are retried in order. Disclosure — one daemon thread per Hermes home polls power every poll_seconds (default 15) by running `pmset -g batt` (macOS), reading /sys/class/power_supply (Linux) or running `upsc` (NUT UPS, opt-in); alerts go out by running the documented `hermes send --to <notify_target> --file -` CLI with a 30 s timeout, using the gateway's own credentials. No network calls of its own, no credentials read, no telemetry. Writes only to <HERMES_HOME>/plugin-data/brownout/ (events log, state, command queue, watcher lock)."
+description: "Power observation and battery-runway alerts for the machine running Hermes. Disclosure — one daemon thread per Hermes home polls power at poll_seconds (default fifteen), using Linux /sys/class/power_supply, opt-in upsc for a NUT UPS, or the upstream macOS pmset reader. Notifications invoke hermes send with a thirty-second timeout using gateway credentials, and undelivered alerts are retried in order. State, event log, command queue and watcher lock stay under <HERMES_HOME>/plugin-data/brownout. The upstream pre_tool_call parking gate stops new calls rather than killing a running call; it deletes nothing. No direct network calls, credential reads or telemetry."
 maintainer: Osiyomeoh
 tier: community
 category: automation
@@ -11,7 +11,7 @@ docs_url: https://github.com/Osiyomeoh/brownout/blob/6d983d5da32c6cdd6a3551426de
 version: "0.1.0"
 platforms: [linux, macos]
 known_issues:
-  - "Proven on real hardware on macOS (pmset). Linux sysfs and NUT UPS readers are covered by parser tests on recorded formats only."
+  ["The pinned upstream park/recovery workflow also pauses and resumes built-in scheduler jobs. That part is unavailable. Automatic critical-battery parking must not be treated as compatible until its retired-API dependency is reviewed; the independent alerts have not been runtime-tested here.", "Proven on real hardware on macOS (pmset). Linux sysfs and NUT UPS readers are covered by parser tests on recorded formats only."]
 capabilities:
   provides_tools: []
   provides_hooks: [pre_tool_call]

@@ -22,7 +22,7 @@ Without multiplexing, one gateway process serves exactly one profile — its
 `.env`, sessions, skills, and platform adapters — and multi-profile installs
 run one process per profile. Multiplexing collapses that into a single
 process: the default profile plus every served named profile get their own
-adapters, secrets, sessions, and cron ticks, while sharing one event loop, one
+adapters, secrets and sessions, while sharing one event loop, one
 HTTP listener, one process lock, and one status surface.
 
 The design constraint that shapes everything below: **profile A's turns must
@@ -43,7 +43,7 @@ is documented as a known limitation at the end of this document.
   the explicit flag second (`gateway_multiplex_mode.default_gateway_multiplexes`
   / `explicit_multiplex_flag`), never the merged default: `named_profile_served_
   by_running_multiplexer`, the enroll warning, the dashboard's listener guard,
-  the cron-fire port resolver, container boot, and the migration plan
+  container boot and the migration plan
   (`_read_multiplex_flag`, so an unset default reads as "not yet multiplexed"
   and the fold proceeds).
 - Env override: `GATEWAY_MULTIPLEX_PROFILES` accepts explicit truthy/falsy
@@ -60,7 +60,7 @@ is documented as a known limitation at the end of this document.
   as its LAST boot step: the host arms the guard when the machine has more than
   one servable profile home, instead of waiting for the first
   `?profile=<other>` request. Activation is one-way, and anything the backend
-  had already done by then (idle-reaper transcript flushes, hosted rooms, cron)
+  had already done by then (idle-reaper transcript flushes, hosted rooms)
   was never re-scoped. It runs last because activation also freezes
   `os.environ` as the launch profile's credentials, and that snapshot is the
   only source for launch keys with no `.env` to rebuild from (systemd
@@ -151,7 +151,7 @@ credentials are picked up through the profile scope on the next turn — never
 via `os.environ`. This holds at the loader boundary, not just the gateway's
 reload helper: `hermes_cli.env_loader.load_hermes_dotenv` skips the
 process-global load whenever multiplexing is active *and* a profile-home
-override is installed (import-time and cron callers hit it mid-turn), while
+override is installed (import-time callers hit it mid-turn), while
 still hydrating the profile's external secret sources into its private
 snapshot (`#77562`). The unscoped startup load is unchanged.
 
@@ -188,7 +188,7 @@ dropped, not misdelivered). Full schema and matching rules:
 is the single chokepoint for which profiles a multiplexer serves: default plus
 every valid profile directory, optionally filtered by allowlist. A malformed
 allowlist fails safe to default-only. The served set gates adapter startup,
-cron ticking (`#69377`), `/p/<profile>/` HTTP admission, route eligibility,
+`/p/<profile>/` HTTP admission, route eligibility,
 and the runtime status surface. An excluded profile stays installed and can
 still run its own standalone gateway.
 
@@ -304,8 +304,6 @@ HERMES_HOME override. Asset writes are atomic, type- and size-capped.
 - Scoped platform gates: A2A (`A2A_PORT`) and Buzz enablement are read through
   the profile's own scope / `platforms.<name>` section, so a launch-profile
   env var no longer enables an inbound listener in every secondary.
-- Fallback: an external `cron.provider` does not support multiplexing and
-  falls back to the built-in ticker with a warning.
 
 ## Known limitations
 
@@ -316,7 +314,7 @@ Process-global state that is not yet profile-scoped:
 | MCP discovery and tool registration | Process-global; the first profile to build an agent wins the discovery slot. Full per-profile MCP registries are tracked in `#67605`. |
 | Terminal / sandbox env (`TERMINAL_*`) | Global by allowlist; tools read it from the process environment. |
 | Built-in tool registry | Built-ins are process-global; plugin-registered tools are overlaid per profile via `hermes_home_key()`. |
-| Provider/capability registries | Same hybrid overlay pattern (browser, image-gen, TTS, transcription, video-gen, web-search, secret sources). |
+| Provider/capability registries | Same hybrid overlay pattern (browser, image-gen, video-gen, web-search, secret sources). |
 | HTTP listener, relay ingress, process lock | One per process, owned by the default/active profile. Per-profile `runtime_status.json` is still written. |
 
 ## Non-goals

@@ -6,8 +6,8 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { CompletionItem } from '../app/interfaces.js'
 import { getUiState, sessionCwd } from '../app/uiStore.js'
+import { libTextEn } from '../copy/libText.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { t } from '../i18n/runtime.js'
 import { asRpcResult } from '../lib/rpc.js'
 import { listWidgetApps } from '../sdk/registry.js'
 
@@ -167,8 +167,8 @@ export function useCompletion(input: string, blocked: boolean, gw: GatewayClient
           setCompletions([
             {
               text: '',
-              display: t('libText.completion.unavailable'),
-              meta: e instanceof Error && e.message ? e.message : t('libText.completion.unavailableMeta')
+              display: libTextEn.libText.completion.unavailable,
+              meta: e instanceof Error && e.message ? e.message : libTextEn.libText.completion.unavailableMeta
             }
           ])
           setCompIdx(0)

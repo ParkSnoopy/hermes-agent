@@ -39,7 +39,7 @@ NOT_A_LOCAL_READ = {
 # The read-only argument forms of a read whose other subcommands write.
 READ_FORMS = {"usage": "bare only (`reset` refused)", "memory": "bare / `pending`",
               "skills": "bare/`pending`/`diff`; `approve`/`reject`/`approval` control; hub refused",
-              "suggestions": "bare only", "kanban": "list/show/stats/assignees/context/runs/log/diagnostics",
+              "suggestions": "bare only",
               "cron": "bare / `list`; add/edit/pause/resume/run/remove control, from the classic CLI's own command socket only"}
 
 

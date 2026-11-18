@@ -64,6 +64,14 @@ def _payload(pr_number=None, action: str = "synchronize") -> bytes:
     return json.dumps(body).encode()
 
 
+def test_retired_cron_route_is_rejected_without_starting_adapter():
+    adapter = _make_adapter()
+    route = {"secret": _INSECURE_NO_AUTH, "cron_job": "job"}
+    with pytest.raises(ValueError, match="unsupported cron_job"):
+        adapter._validate_route("old", route)
+    assert not adapter._dynamic_route_allowed("old", route)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("route, match", [
     ({**_coalesce_route(), "coalesce": {"window_seconds": 5}}, "coalesce block"),

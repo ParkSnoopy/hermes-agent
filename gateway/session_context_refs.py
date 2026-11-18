@@ -1,6 +1,6 @@
 """``@`` references of one turn: expanded once, in the session's workspace, on the text the model reads.
 
-The inbound prepare step, the classic CLI's API-only text (``cli_turn_v1.api_text``: voice prefix,
+The inbound prepare step, the classic CLI's API-only text (``cli_turn_v1.api_text``:
 model-switch and skills notes) and managed workers (``--safe-mode`` / ``--ignore-user-config``,
 which never pass the inbound step) all expand here. A local session's refusal is the turn's reply:
 its adapter delivers through settlement, so a side ``send`` would never reach the viewer.
@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 async def expand_references(text, *, cwd, context_length, plugins=True):
     """``(text, refusal)``: the expanded text, or the refusal when the injection was refused. A failed
     expansion leaves the text as typed."""
-    from agent.i18n import t
     try:
         from agent.context_references import preprocess_context_references_async
         expand = partial(preprocess_context_references_async, cwd=cwd, context_length=context_length, allowed_root=cwd)
@@ -27,7 +26,7 @@ async def expand_references(text, *, cwd, context_length, plugins=True):
         logger.warning("@ context reference expansion failed: %s", exc, exc_info=True)
         return text, None
     if result.blocked:
-        return text, "\n".join(result.warnings) or t("gateway.notify.context_injection_refused")
+        return text, "\n".join(result.warnings) or 'Context injection refused.'
     return (result.message if result.expanded else text), None
 
 

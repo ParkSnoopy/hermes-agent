@@ -624,7 +624,7 @@ CREATE INDEX IF NOT EXISTS idx_session_admissions_cron_request
 CREATE TABLE IF NOT EXISTS worker_executions (
     execution_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,
-    kind TEXT NOT NULL CHECK (kind IN ('cron','child','compute','kanban')),
+    kind TEXT NOT NULL CHECK (kind IN ('cron','child','compute')),
     owner_epoch INTEGER NOT NULL,
     generation INTEGER NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('registered','running','unknown','terminal')),
@@ -1254,7 +1254,7 @@ logger = logging.getLogger("hermes_state")
 
 _FTS_REBUILD_LOCK_TIMEOUT_SECONDS = 120.0
 _FTS_REBUILD_LOCK_POLL_SECONDS = 0.1
-_IS_WINDOWS = sys.platform == "win32"
+
 # Post-break re-acquire budget: the fresh inode is contended only by live processes — never the full timeout.
 _LOCK_BREAK_REACQUIRE_SECONDS = 5.0
 
@@ -1418,25 +1418,6 @@ def _describe_lock_holder(record) -> str:
     return f"pid {record.get('pid')}{age}"
 
 
-def _acquire_msvcrt_lock(lock_path, handle, timeout):
-    """Windows counterpart of ``_acquire_db_flock`` (no orphan break); same True / False / None contract."""
-    import msvcrt
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            return True
-        except (BlockingIOError, OSError) as exc:
-            if not is_advisory_lock_contention(exc):
-                logger.warning("Could not acquire FTS rebuild lock %s (%s) — deferring on a non-contention error.",
-                               lock_path, exc)
-                return None
-            if time.monotonic() >= deadline:
-                return False
-            time.sleep(_FTS_REBUILD_LOCK_POLL_SECONDS)
-
-
 @contextlib.contextmanager
 def fts_rebuild_admission(db_path, *, timeout_seconds=None):
     """Serialize full structural FTS rebuilds on *db_path* across processes.  Yields True when this process
@@ -1461,16 +1442,13 @@ def fts_rebuild_admission(db_path, *, timeout_seconds=None):
         return
     acquired = False
     try:
-        if _IS_WINDOWS:
-            acquired = _acquire_msvcrt_lock(lock_path, handle, timeout)
-        else:
-            acquired, handle = _acquire_db_flock(
-                lock_path, handle, timeout, _FTS_REBUILD_LOCK_POLL_SECONDS, "FTS rebuild lock")
+        acquired, handle = _acquire_db_flock(
+            lock_path, handle, timeout, _FTS_REBUILD_LOCK_POLL_SECONDS, "FTS rebuild lock")
         if acquired is None:
             # Already logged with the real errno; "held by another process" would be a lie.
             acquired = False
         elif not acquired:
-            record = None if _IS_WINDOWS else _read_lock_holder_record(handle)
+            record = _read_lock_holder_record(handle)
             if timeout <= 0:
                 # Non-blocking probe from an in-process retry: keep it quiet.
                 logger.info("FTS rebuild lock %s is busy — deferring this retry "
@@ -1484,11 +1462,7 @@ def fts_rebuild_admission(db_path, *, timeout_seconds=None):
     finally:
         try:
             with contextlib.suppress(OSError):  # best-effort release
-                if acquired and _IS_WINDOWS:
-                    import msvcrt
-                    handle.seek(0)
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-                elif acquired:
+                if acquired:
                     import fcntl
                     _clear_lock_holder_record(handle)
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

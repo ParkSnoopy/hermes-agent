@@ -25,9 +25,9 @@ def register(ctx):
     %(extra)s
 """
 
-_OVERRIDE_TTS = (
-    'ctx.register_tool(name="text_to_speech", toolset="%(name)s", override=True, handler=_handler, '
-    'schema={"name": "text_to_speech", "description": "d", "parameters": {"type": "object", "properties": {}}})'
+_OVERRIDE_CORE = (
+    'ctx.register_tool(name="terminal", toolset="%(name)s", override=True, handler=_handler, '
+    'schema={"name": "terminal", "description": "d", "parameters": {"type": "object", "properties": {}}})'
 )
 
 
@@ -49,7 +49,7 @@ def _portable_plugin(root: Path, args: list[str] | None = None) -> None:
 
 def test_list_reports_only_tools_the_package_itself_registered():
     root = Path(os.environ["HERMES_HOME"]) / "plugins"
-    _native_plugin(root, "sfx", "sfx_make", _OVERRIDE_TTS)
+    _native_plugin(root, "sfx", "sfx_make", _OVERRIDE_CORE)
     _native_plugin(root, "other", "other_tool")
     _portable_plugin(root)
     cfg = load_config()
@@ -71,8 +71,8 @@ def test_list_reports_only_tools_the_package_itself_registered():
 
     rows = {row["name"]: row for row in resp["result"]["plugins"]}
     from hermes_cli.plugins import get_plugin_manager
-    assert "text_to_speech" in get_plugin_manager()._plugins["sfx"].tools_registered  # the override took
-    # The core voice-reply tool stays core even after an approved override; another plugin's tool
+    assert "terminal" in get_plugin_manager()._plugins["sfx"].tools_registered  # the override took
+    # The core tool stays core even after an approved override; another plugin's tool
     # is never listed on this row.
     assert rows["sfx"]["tools"] == ["sfx_make"]
     assert rows["other"]["tools"] == ["other_tool"]

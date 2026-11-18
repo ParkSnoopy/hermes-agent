@@ -818,23 +818,21 @@ class _ChildRun:
         return redact_child_result(entry_dict, getattr(self.child, "_delegate_output_schema", None), force=False)
 
     def seed_workspace(self) -> None:
-        """Seed cwd/container aliases and optional worktree isolation for the child;
+        """Seed local cwd and optional worktree isolation for the child;
         ``goal`` is extended with the worktree contract note when isolation engaged."""
         import uuid as _uuid
         self.child_task_id = self.subagent_id or f"subagent-{self.task_index}-{_uuid.uuid4().hex[:8]}"
         self.parent_task_id = getattr(self.parent_agent, "_current_task_id", None)
         # Seed the child's cwd record from the parent's: same starting directory,
-        # but the child's later `cd`s stay in its own record. Per-session container
-        # isolation keys containers by task_id; the child must share the PARENT's.
+        # but the child's later `cd`s stay in its own local shell and cwd record.
         # The parent's record is read in the parent's scope; the child's is written in the child's (cwd records
         # are keyed by the active profile, and a profile-routed child looks its own up as that profile).
         from tools.delegate_tool_routes import child_profile_scope
         with _quiet("Child cwd seed failed: %s"):
-            from tools.terminal_tool import get_session_cwd, record_session_cwd, register_container_alias
+            from tools.terminal_tool import get_session_cwd, record_session_cwd
             parent_cwd = get_session_cwd(self.parent_task_id)
             with child_profile_scope(self.child):
                 record_session_cwd(self.child_task_id, parent_cwd)
-            register_container_alias(self.child_task_id, self.parent_task_id)
 
         self.worktree_info = _create_isolated_worktree(self.parent_agent, self.parent_task_id, self.subagent_id)
         if self.worktree_info is not None:

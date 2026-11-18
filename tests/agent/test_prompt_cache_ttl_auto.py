@@ -10,7 +10,7 @@ from agent.prompt_caching import MACHINE_PACED_SOURCES, auto_cache_ttl_for_sourc
 
 def test_auto_tier_follows_session_pace():
     assert auto_cache_ttl_for_source("cli") == "1h"
-    assert auto_cache_ttl_for_source("telegram") == "1h"
+    assert auto_cache_ttl_for_source("desktop") == "1h"
     assert auto_cache_ttl_for_source(None) == "1h", "an unknown/blank source is a person until proven otherwise"
     for source in MACHINE_PACED_SOURCES:
         assert auto_cache_ttl_for_source(source) == "5m", source

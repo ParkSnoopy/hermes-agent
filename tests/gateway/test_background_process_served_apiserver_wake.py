@@ -6,20 +6,94 @@ self-posted it to the unprefixed shared listener with the PRIMARY key — resumi
 DEFAULT profile's store — and an event whose source did name a route-only served profile resolved
 no adapter and was deferred forever.
 
-Invariant (mirrors the Kanban one): the served profile whose own session store holds that exact
+Invariant: the served profile whose own session store holds that exact
 session is woken in-process, in that profile's scope, through the one shared adapter, without a
 secondary credential; the default profile keeps its HTTP self-post; a served profile that does not
 own the session never gets a wake in anyone's store.
 """
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from gateway.config import Platform
 from gateway.run import GatewayRunner
-from tests.gateway.test_kanban_notifier_served_apiserver_wake import (
-    RecordingApiServerAdapter, _FakeHttpSession, _own_session, served,
-)
+from hermes_constants import get_hermes_home
+from hermes_state import SessionDB
+
+
+class RecordingApiServerAdapter:
+    supports_async_delivery = False
+
+    def __init__(self):
+        self.turns, self.homes, self.profiles = [], [], []
+
+    async def run_internal_session_turn(self, *, session_id, text, profile, notification_category="result"):
+        self.homes.append(str(get_hermes_home()))
+        self.profiles.append(profile)
+        self.turns.append({"session_id": session_id, "text": text, "category": notification_category})
+
+    async def send(self, chat_id, text, metadata=None):
+        from gateway.platforms.base import SendResult
+        return SendResult(success=False, error="API server uses HTTP request/response, not send()")
+
+
+class _FakeResponse:
+    status = 200
+
+    async def text(self):
+        return ""
+
+    async def read(self):
+        return b""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakeHttpSession:
+    calls = []
+
+    def __init__(self, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def post(self, url, json=None, headers=None):
+        type(self).calls.append({"url": url, "json": json, "headers": headers})
+        return _FakeResponse()
+
+
+@pytest.fixture
+def served(tmp_path, monkeypatch):
+    root = tmp_path / ".hermes"
+    (root / "profiles" / "builder").mkdir(parents=True)
+    (root / "profiles" / "atlas").mkdir(parents=True)
+    (root / "config.yaml").write_text("gateway:\n  multiplex_profiles: true\n", encoding="utf-8")
+    (root / ".env").write_text("", encoding="utf-8")
+    (root / "profiles" / "builder" / "config.yaml").write_text("{}\n", encoding="utf-8")
+    (root / "profiles" / "builder" / ".env").write_text("", encoding="utf-8")
+    monkeypatch.setenv("HERMES_HOME", str(root))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr("hermes_constants.get_default_hermes_root", lambda: root)
+    return SimpleNamespace(root=root, builder=root / "profiles" / "builder", atlas=root / "profiles" / "atlas")
+
+
+def _own_session(home, session_id, profile_name):
+    db = SessionDB(home / "state.db")
+    try:
+        db.create_session(session_id, source="webui", profile_name=profile_name)
+    finally:
+        db.close()
 
 SESSION = "20260918_090000_aa11bb"  # a served profile's api_server session (raw id)
 

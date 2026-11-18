@@ -142,7 +142,7 @@ async def deliver_wake(adapter: Any, *, text: str, session_id: str = "", source:
             from hermes_state_runtime import RuntimeStoreError
             category = {"notification_category": notification_category} if notification_category != "result" else {}
             try:
-                if await admit_route_wake(runner, adapter, source, text, "kanban-wake", category):
+                if await admit_route_wake(runner, adapter, source, text, "background-wake", category):
                     return  # committed to the session FIFO: never interrupts the admitted turn
             except RuntimeStoreError as exc:
                 raise WakeNotAccepted(str(exc), reason=exc.reason) from exc

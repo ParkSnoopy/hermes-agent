@@ -44,28 +44,20 @@ def _described() -> dict:
     return {s["name"]: s["enabled"] for s in _call("profiles.describe", {})["mcp_servers"]}
 
 
-def test_describe_matches_the_runtime_once_legacy_disabled_is_migrated(profile_dir):
-    """Describe reads ``enabled``; a legacy ``disabled: true`` reads as off, and the config
-    migration turns it into the ``enabled: false`` the runtime resolver honours."""
-    from hermes_cli.config_migrations import run_migrations
+def test_describe_matches_the_runtime_enabled_flag(profile_dir):
+    """The editor and runtime resolve the same current enablement field."""
     from hermes_cli.tools_config import enabled_mcp_server_names
-    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+
 
     _write_mcp(profile_dir, {
         "on": {"command": "on", "enabled": True},
         "off": {"command": "off", "enabled": False},
-        # `hermes mcp add` writes `enabled: true`; the old editor then only added `disabled: true`.
-        "legacy-off": {"command": "legacy", "enabled": True, "disabled": True},
+
         "implicit-on": {"command": "implicit"},
     })
-    expected = {"on": True, "off": False, "legacy-off": False, "implicit-on": True}
+    expected = {"on": True, "off": False, "implicit-on": True}
     assert _described() == expected
 
-    token = set_hermes_home_override(profile_dir)
-    try:
-        run_migrations(45, {"env_added": [], "config_added": [], "warnings": []}, quiet=True)
-    finally:
-        reset_hermes_home_override(token)
 
     live = enabled_mcp_server_names({"mcp_servers": _read_mcp(profile_dir)})
     assert {name: name in live for name in expected} == expected == _described()
@@ -77,12 +69,11 @@ def test_configure_toggle_is_what_the_runtime_resolver_and_describe_see(profile_
     _write_mcp(profile_dir, {
         "keep": {"command": "keep", "enabled": False},
         "drop": {"command": "drop"},
-        "legacy": {"command": "legacy", "disabled": True},
+
     })
 
-    _call("profiles.configure", {"enabled_mcp_servers": ["keep", "legacy"]})
+    _call("profiles.configure", {"enabled_mcp_servers": ["keep"]})
 
     on_disk = _read_mcp(profile_dir)
-    assert not any("disabled" in entry for entry in on_disk.values())
-    assert enabled_mcp_server_names({"mcp_servers": on_disk}) == {"keep", "legacy"}
-    assert _described() == {"keep": True, "drop": False, "legacy": True}
+    assert enabled_mcp_server_names({"mcp_servers": on_disk}) == {"keep"}
+    assert _described() == {"keep": True, "drop": False}

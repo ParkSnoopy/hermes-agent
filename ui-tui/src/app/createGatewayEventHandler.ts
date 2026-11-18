@@ -17,8 +17,11 @@ import type { UsageLimit } from '@hermes/shared/plan-usage'
 import { STARTUP_IMAGE, STARTUP_QUERY } from '../config/env.js'
 import { STREAM_BATCH_MS } from '../config/timing.js'
 import { buildSetupRequiredSections, setupRequiredTitle } from '../content/setup.js'
+import { canonicalEn } from '../copy/canonical.js'
+import { gatewayMsgEn } from '../copy/gatewayMsg.js'
+import { sessionEn } from '../copy/session.js'
+import { slashCmdEn } from '../copy/slashCmd.js'
 import { usageFromTick } from '../domain/usage.js'
-import { t } from '../i18n/runtime.js'
 import { billingDialogCopy, usageLimitDialog } from '../lib/billingDialog.js'
 import { type ImageAttachment, stageImagePath } from '../lib/imageAttachments.js'
 import { isTodoDone } from '../lib/liveProgress.js'
@@ -56,8 +59,6 @@ import {
   switchCanonicalModel
 } from './slash/canonicalSessionControls.js'
 import { loadSlashCatalog, refreshSlashCatalogOnSkillsChange } from './slashCatalog.js'
-import { reportStartupLatency } from './startupLatency.js'
-import { markNextSubmitVoice } from './submissionCore.js'
 import { captureDestination, isCurrentDestination } from './submissionDestination.js'
 import { turnController } from './turnController.js'
 import { getTurnState } from './turnStore.js'
@@ -71,18 +72,11 @@ import {
   stderrLooksLikeProblem,
   stderrProblemActivity
 } from './userMessages.js'
-import { handleVoiceCapture } from './voicePartialStore.js'
-import { isWakeUserDisabled } from './wakeState.js'
 
 const NO_PROVIDER_RE = /\bNo (?:LLM|inference) provider configured\b/i
 
 const NOTICE_LEVELS: readonly NoticeLevel[] = ['error', 'info', 'success', 'warn']
 const isNoticeLevel = (value: unknown): value is NoticeLevel => NOTICE_LEVELS.includes(value as NoticeLevel)
-
-type VoiceSubmitMode = 'direct' | 'draft'
-
-const normalizeVoiceSubmitMode = (value: unknown): VoiceSubmitMode =>
-  typeof value === 'string' && value.trim().toLowerCase() === 'draft' ? 'draft' : 'direct'
 
 // Shallow-compare Usage to avoid creating a new object reference when values
 // haven't changed. A fresh reference on every streaming event forces every
@@ -458,95 +452,6 @@ const normalizeSubagentStatus = (status: unknown, fallback: SubagentStatus): Sub
   return KNOWN_SUBAGENT_STATUSES.has(normalized) ? normalized : fallback
 }
 
-interface VoiceTranscriptDeps {
-  enqueue: GatewayEventHandlerContext['composer']['enqueue']
-  getFullConfigOnce: () => Promise<ConfigFullResponse | null>
-  setInput: GatewayEventHandlerContext['composer']['setInput']
-  setVoiceEnabled: GatewayEventHandlerContext['voice']['setVoiceEnabled']
-  setVoiceProcessing: GatewayEventHandlerContext['voice']['setProcessing']
-  setVoiceRecording: GatewayEventHandlerContext['voice']['setRecording']
-  submitRef: GatewayEventHandlerContext['submission']['submitRef']
-  sys: GatewayEventHandlerContext['system']['sys']
-}
-
-function handleVoiceTranscript(
-  payload: Extract<AnyGatewayEvent, { type: 'voice.transcript' }>['payload'],
-  deps: VoiceTranscriptDeps
-): void {
-  const {
-    enqueue,
-    getFullConfigOnce,
-    setInput,
-    setVoiceEnabled,
-    setVoiceProcessing,
-    setVoiceRecording,
-    submitRef,
-    sys
-  } = deps
-
-  // Explicit user-intent stop: the user said (or typed) a bare stop
-  // phrase. The backend already halted the capture loop and flipped
-  // voice mode off — mirror it here like a manual /voice off, and say
-  // so (this is intent, not the no-speech timeout below).
-  if (payload?.stop_phrase) {
-    setVoiceEnabled(false)
-    setVoiceRecording(false)
-    setVoiceProcessing(false)
-    sys(t('gatewayMsg.voice.stopPhrase'))
-
-    return
-  }
-
-  // CLI parity: the 3-strikes silence detector flipped off automatically.
-  // Mirror that on the UI side and tell the user why the mode is off.
-  if (payload?.no_speech_limit) {
-    setVoiceEnabled(false)
-    setVoiceRecording(false)
-    setVoiceProcessing(false)
-    sys(t('gatewayMsg.voice.noSpeechLimit'))
-
-    return
-  }
-
-  const text = String(payload?.text ?? '').trim()
-
-  if (!text) {
-    return
-  }
-
-  const destination = captureDestination()
-  void getFullConfigOnce().then(cfg => {
-    if (!isCurrentDestination(destination)) {
-      enqueue?.(text, text, destination)
-
-      return
-    }
-
-    const submitMode = normalizeVoiceSubmitMode(cfg?.config?.voice?.submit_mode)
-
-    if (submitMode === 'draft') {
-      setInput(current => (current.trim() ? `${current.trimEnd()} ${text}` : text))
-
-      return
-    }
-
-    // Default to CLI parity. Clear + defer submit so the cleared input
-    // is committed before submit reads it; invalid config also falls
-    // back to this established direct-submit behavior.
-    setInput('')
-    setTimeout(() => {
-      if (isCurrentDestination(destination)) {
-        // Only a transcript submitted where it was spoken is a voice turn;
-        // one re-routed to its own session's queue lands as typed text.
-        markNextSubmitVoice(text)
-        submitRef.current(text)
-      } else {
-        enqueue?.(text, text, destination)
-      }
-    }, 0)
-  })
-}
-
 interface ErrorEventSinks {
   panel: GatewayEventHandlerContext['transcript']['panel']
   setStatus: (status: string) => void
@@ -560,7 +465,7 @@ function handleErrorEvent(
 ): void {
   // Build/RPC failures are not authority to settle a versioned turn.
   if (versionedGenericError) {
-    sys(`error: ${String(payload?.message || t('gatewayMsg.error.unknown'))}`)
+    sys(`error: ${String(payload?.message || gatewayMsgEn.gatewayMsg.error.unknown)}`)
 
     return
   }
@@ -568,13 +473,13 @@ function handleErrorEvent(
   turnController.recordError()
   flashPet('failed')
 
-  const message = String(payload?.message || t('gatewayMsg.error.unknown'))
+  const message = String(payload?.message || gatewayMsgEn.gatewayMsg.error.unknown)
 
   turnController.pushActivity(message, 'error')
 
   if (NO_PROVIDER_RE.test(message)) {
     panel(setupRequiredTitle(), buildSetupRequiredSections())
-    setStatus(t('session.status.setupRequired'))
+    setStatus(sessionEn.session.status.setupRequired)
 
     return
   }
@@ -614,7 +519,7 @@ function applyDeferredPickOutcome(
       patchUiState({ info: { ...info, model: update.model, ...(typeof update.provider === 'string' ? { provider: update.provider } : {}) } })
     }
 
-    sys(t('slashCmd.session.model.deferredRefused', String(update.target_model ?? ''), String(update.reason ?? 'refused')))
+    sys(slashCmdEn.slashCmd.session.model.deferredRefused(String(update.target_model ?? ''), String(update.reason ?? 'refused')))
 
     return
   }
@@ -630,7 +535,7 @@ function applyDeferredPickOutcome(
           // Refused again (a queued turn or another pick moved the session first): say so once,
           // never re-ask in a loop.
           if (mutation?.result.status === 'confirmation_required') {
-            sys(t('slashCmd.session.model.confirmStale'))
+            sys(slashCmdEn.slashCmd.session.model.confirmStale)
           }
         },
         (error: unknown) => sys(`error: ${error instanceof Error ? error.message : String(error)}`)
@@ -695,7 +600,7 @@ function applySessionInfo(payload: unknown, { appendMessage, setHistoryItems, se
   patchUiState(state => ({
     ...state,
     info,
-    status: state.status === t('session.status.startingAgent') ? 'ready' : state.status,
+    status: state.status === sessionEn.session.status.startingAgent ? 'ready' : state.status,
     storedSid,
     usage: info.usage ? mergeUsageStable(state.usage, info.usage) : state.usage
   }))
@@ -822,9 +727,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
   }
 
   const { appendMessage, panel, setHistoryItems } = ctx.transcript
-  const { setInput, enqueue } = ctx.composer
-  const { submitLiteralRef, submitRef } = ctx.submission
-  const { setProcessing: setVoiceProcessing, setRecording: setVoiceRecording, setVoiceEnabled } = ctx.voice
+  const { submitLiteralRef } = ctx.submission
 
   let pendingThinkingStatus = ''
   let thinkingStatusTimer: null | ReturnType<typeof setTimeout> = null
@@ -856,7 +759,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
     persistedAbandonedClarify.add(clarify.requestId)
     appendMessage({
       role: 'system',
-      text: formatAbandonedClarify(clarify.questions, clarify.answers ?? {}, t('gatewayMsg.clarify.timedOut'))
+      text: formatAbandonedClarify(clarify.questions, clarify.answers ?? {}, gatewayMsgEn.gatewayMsg.clarify.timedOut)
     })
     patchOverlayState({ clarify: null })
   }
@@ -957,7 +860,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
     }
 
     agentsNudgedThisTurn = true
-    turnController.pushActivity(t('gatewayMsg.agents.workingNudge'), 'info')
+    turnController.pushActivity(gatewayMsgEn.gatewayMsg.agents.workingNudge, 'info')
   }
 
   const resetAgentsNudgeTurnState = () => {
@@ -1024,7 +927,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
       }
 
       if (!sid) {
-        return sys(t('gatewayMsg.startup.querySkipped'))
+        return sys(gatewayMsgEn.gatewayMsg.startup.querySkipped)
       }
 
       const destination = captureDestination()
@@ -1039,7 +942,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
             await rpc('image.attach', { path: STARTUP_IMAGE, session_id: sid })
           }
         } catch (e) {
-          return sys(t('gatewayMsg.startup.imageAttachFailed', rpcErrorMessage(e)))
+          return sys(gatewayMsgEn.gatewayMsg.startup.imageAttachFailed(rpcErrorMessage(e)))
         }
       }
 
@@ -1047,7 +950,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
       // launches, `hermes --tui -q "…"`) — submit LITERALLY, bypassing the
       // slash/!/interpolation dispatcher, matching one-shot's semantics.
       if (!isCurrentDestination(destination)) {
-        return sys(t('canonical.submit.startupQuerySwitched'))
+        return sys(canonicalEn.canonical.submit.startupQuerySwitched)
       }
 
       submitLiteralRef.current(STARTUP_QUERY || 'What do you see in this image?', attachments)
@@ -1067,21 +970,11 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
       applySkin(skin)
     }
 
-    reportStartupLatency(gw)
-
     // Kick off the config fetch once the gateway is actually ready. If handler
     // construction does this during React render, a startup transport error can
     // report through sys(), mutate transcript state, and trip React's
     // "too many re-renders" guard in embedded dashboard PTYs.
     ensureAgentsNudgeConfig()
-
-    // Arm "Hey Hermes" if this surface owns it (server gates on config).
-    // Fire-and-forget + idempotent server-side, so reconnects are harmless.
-    // Skipped when the user explicitly ran `/wake off` this session — an
-    // explicit opt-out must survive gateway reconnects (see wakeState.ts).
-    if (!isWakeUserDisabled()) {
-      void rpc('wake.start', { surface: 'tui' }).catch(() => undefined)
-    }
 
     // The pre-session catalog; useSlashCatalog owns every session-bound load, reconnects included.
     if (!getUiState().sid) {
@@ -1101,13 +994,13 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
       // After resumeById: it synchronously sets status to 'resuming…' on entry,
       // so override it here to keep the distinct "recovering" label visible for
       // the duration of the resume RPC (which later flips status to 'ready').
-      patchUiState({ status: t('gatewayMsg.status.recoveringSession') })
+      patchUiState({ status: gatewayMsgEn.gatewayMsg.status.recoveringSession })
 
       return
     }
 
     if (STARTUP_RESUME_ID) {
-      patchUiState({ status: t('session.status.resuming') })
+      patchUiState({ status: sessionEn.session.status.resuming })
       resumeById(STARTUP_RESUME_ID)
       scheduleStartupPrompt()
 
@@ -1123,7 +1016,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
     getFullConfigOnce()
       .then(cfg => {
         if (!cfg?.config?.display?.tui_auto_resume_recent) {
-          patchUiState({ status: t('gatewayMsg.status.forgingSession') })
+          patchUiState({ status: gatewayMsgEn.gatewayMsg.status.forgingSession })
           newSession()
           scheduleStartupPrompt()
 
@@ -1134,20 +1027,20 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
           const target = r?.session_id
 
           if (target) {
-            patchUiState({ status: t('gatewayMsg.status.resumingMostRecent') })
+            patchUiState({ status: gatewayMsgEn.gatewayMsg.status.resumingMostRecent })
             resumeById(target)
             scheduleStartupPrompt()
 
             return
           }
 
-          patchUiState({ status: t('gatewayMsg.status.forgingSession') })
+          patchUiState({ status: gatewayMsgEn.gatewayMsg.status.forgingSession })
           newSession()
           scheduleStartupPrompt()
         })
       })
       .catch(() => {
-        patchUiState({ status: t('gatewayMsg.status.forgingSession') })
+        patchUiState({ status: gatewayMsgEn.gatewayMsg.status.forgingSession })
         newSession()
         scheduleStartupPrompt()
       })
@@ -1195,10 +1088,6 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
     }
 
     if (handledBeforeSwitch(ev)) {
-      return
-    }
-
-    if (handleVoiceCapture(ev, ctx.voice)) {
       return
     }
 
@@ -1306,11 +1195,11 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
           sys(p.text)
 
           const brief = p.text.startsWith('✓')
-            ? t('gatewayMsg.goal.complete')
+            ? gatewayMsgEn.gatewayMsg.goal.complete
             : p.text.startsWith('↻')
-              ? t('gatewayMsg.goal.continuing')
+              ? gatewayMsgEn.gatewayMsg.goal.continuing
               : p.text.startsWith('⏸')
-                ? t('gatewayMsg.goal.paused')
+                ? gatewayMsgEn.gatewayMsg.goal.paused
                 : 'ready'
 
           setStatus(brief)
@@ -1406,81 +1295,22 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         return
       }
 
-      case 'voice.transcript':
-        // Pass the handler-construction captures (same references as before extraction).
-        handleVoiceTranscript(ev.payload, {
-          enqueue,
-          getFullConfigOnce,
-          setInput,
-          setVoiceEnabled,
-          setVoiceProcessing,
-          setVoiceRecording,
-          submitRef,
-          sys
-        })
-
-        return
-      case 'wake.detected': {
-        // "Hey Hermes": optionally open a fresh session (start_new_session),
-        // then arm voice capture so the user can speak hands-free. Mirrors CLI.
-        void (async () => {
-          // Multi-profile routing: the TUI is a single-profile process, so a
-          // phrase enrolled by ANOTHER profile can't be routed here — surface
-          // the switch command instead of starting voice on the wrong profile.
-          const wakeProfile = ev.payload?.profile?.trim()
-          const ownProfile = getUiState().info?.profile_name || 'default'
-
-          if (wakeProfile && wakeProfile !== ownProfile) {
-            sys(t('gatewayMsg.wake.otherProfile', wakeProfile))
-            await rpc('wake.resume', {}).catch(() => undefined)
-
-            return
-          }
-
-          if (ev.payload?.start_new_session !== false) {
-            await newSession()
-          }
-
-          const sid = getUiState().sid
-
-          if (!sid) {
-            await rpc('wake.resume', {}).catch(() => undefined)
-
-            return
-          }
-
-          setVoiceEnabled(true)
-          // A shared-owner session's voice mode is the owner's per-session /voice state (T9), the
-          // one voice.record gates on; the sidecar's voice.toggle flips only its global flag.
-          await (gw.isCanonical
-            ? gw.request('slash.exec', { command: 'voice on', session_id: sid })
-            : rpc('voice.toggle', { action: 'on' }))
-          await rpc('voice.record', { action: 'start', session_id: sid })
-        })().catch((e: unknown) => {
-          sys(t('gatewayMsg.wake.failed', rpcErrorMessage(e)))
-
-          void rpc('wake.resume', {}).catch(() => undefined)
-        })
-
-        return
-      }
-
       case 'gateway.start_timeout':
         reportGatewayStartTimeout(ev.payload?.stderr_tail, setStatus)
 
         return
 
       case 'gateway.protocol_error':
-        setStatus(t('gatewayMsg.status.protocolWarning'))
+        setStatus(gatewayMsgEn.gatewayMsg.status.protocolWarning)
         restoreStatusAfter(4000)
 
         if (!turnController.protocolWarned) {
           turnController.protocolWarned = true
-          turnController.pushActivity(t('gatewayMsg.protocol.noiseDetected'), 'info')
+          turnController.pushActivity(gatewayMsgEn.gatewayMsg.protocol.noiseDetected, 'info')
         }
 
         if (ev.payload?.preview) {
-          turnController.pushActivity(t('gatewayMsg.protocol.noise', String(ev.payload.preview).slice(0, 120)), 'info')
+          turnController.pushActivity(gatewayMsgEn.gatewayMsg.protocol.noise(String(ev.payload.preview).slice(0, 120)), 'info')
         }
 
         return
@@ -1518,7 +1348,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         // during the (potentially long) reference phase without transcript spam.
         if (typeof ev.payload?.refs_done === 'number' && typeof ev.payload?.refs_total === 'number') {
           turnController.pushActivity(
-            t('gatewayMsg.moa.refs', String(ev.payload.refs_done), String(ev.payload.refs_total)),
+            gatewayMsgEn.gatewayMsg.moa.refs(String(ev.payload.refs_done), String(ev.payload.refs_total)),
             'info',
             'MoA'
           )
@@ -1530,7 +1360,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         // Phase transition — currently only phase="aggregator" (fan-out done,
         // aggregator acting). Swap the progress line for aggregator copy.
         if (ev.payload?.phase === 'aggregator') {
-          turnController.pushActivity(t('gatewayMsg.moa.aggregating'), 'info', 'MoA')
+          turnController.pushActivity(gatewayMsgEn.gatewayMsg.moa.aggregating, 'info', 'MoA')
         }
 
         return

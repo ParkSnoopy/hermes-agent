@@ -176,8 +176,7 @@ def _node_card(node: dict[str, Any]) -> dict[str, Any]:
     if mem:
         meta = f"{'profile memory' if node.get('memorySource') == 'profile' else 'memory'} · {date}"
     else:
-        count = int(node.get("useCount", 0) or 0)
-        meta = " · ".join([str(node.get("category") or "skill"), date] + ([f"x{count}"] if count else []) + (["pinned"] if node.get("pinned") else []))
+        meta = " · ".join([str(node.get("category") or "skill"), date] + (["pinned"] if node.get("pinned") else []))
     return {
         "glyph": MEMORY_GLYPH if mem else SKILL_GLYPH, "label": text if len(text) <= 26 else text[:23].rstrip() + "…",
         "meta": meta, "style": STYLE_MEMORY if mem else STYLE_SKILL,

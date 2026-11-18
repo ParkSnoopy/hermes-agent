@@ -6,7 +6,6 @@ is that a git checkout must never see a dirty tracked catalog.json."""
 
 from __future__ import annotations
 
-import dataclasses
 import io
 import json
 import urllib.request
@@ -114,8 +113,7 @@ def test_loader_ignores_unknown_fields():
 
 
 def test_min_engine_gate(monkeypatch):
-    from hermes_cli.web_routers.local_models import _engine_too_old
-
+    from hermes_cli.local_runtime.local_models import _engine_too_old
     from hermes_cli.local_runtime.binaries import Engine
     from pathlib import Path
 

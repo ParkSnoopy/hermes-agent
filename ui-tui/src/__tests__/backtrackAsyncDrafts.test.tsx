@@ -104,7 +104,6 @@ function mount(request: (method: string, params: any) => Promise<unknown>) {
       restoreDraft: (...args: any[]) => (composer.actions.restoreDraft as any)(...args),
       setInput: (v: any) => composer.actions.setInput(v)
     },
-    voice: {}
   } as any)
 
   return { composer: () => composer, gw, send, slash, submit: () => submission, sys }

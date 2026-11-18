@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
-from agent.i18n import t
+
 
 
 @pytest.fixture
@@ -48,9 +48,9 @@ def test_dock_paints_goal_on_top_and_queue_last_and_follows_their_lifecycle(herm
     assert all(get_cwidth(line) <= 80 for line in lines)
     dock.collapsed = True
     collapsed = dock.dock_text(columns=80, rows=40)
-    counts = f"{t('cli.subagents.goal_active')} · {t('cli.subagents.count_queued', count=4)}"
+    counts = f"{'goal active'} · {(f'{4} queued')}"
     assert "\n" not in collapsed
-    assert f"{t('cli.subagents.heading_session_restore', count=counts)} · ⊙ Goal" in collapsed
+    assert f"{(f'{counts} · Ctrl+R restore')} · ⊙ Goal" in collapsed
     assert "Ctrl+T" not in collapsed  # the monitor only lists subagents/processes
     assert get_cwidth(collapsed) <= 80
 

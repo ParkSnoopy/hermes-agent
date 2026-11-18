@@ -71,7 +71,7 @@ resolve_update_ref() {
 }
 
 run_source_installer() {
-  local repo="$1" work="$2" logs="$3" ref="$4" label="$5" desktop="${6:-}"
+  local repo="$1" work="$2" logs="$3" ref="$4" label="$5"
   local script="$work/install-$label.sh" text help_text rc=0
   # Buffer before grep: git show | grep -q can lose to SIGPIPE under pipefail.
   text="$(git -C "$repo" show "$ref:scripts/install.sh")" || return
@@ -86,11 +86,7 @@ run_source_installer() {
   if grep -qF -- --skip-browser <<< "$help_text" && ! grep -qF 'pm.cli' <<< "$text"; then
     flags+=(--skip-browser)
   fi
-  if [ "$desktop" = desktop ]; then
-    grep -qF -- --include-desktop <<< "$text" \
-      || { fail "ref $ref does not support --include-desktop; this leg cannot mean what it claims"; return 1; }
-    flags+=(--include-desktop)
-  fi
+
   bash "$script" "${flags[@]}" < /dev/null 2>&1 | ts_prefix > "$logs/install-$label.log" || rc=$?
   log_group "install.sh ($label) transcript" "$logs/install-$label.log"
   [ "$rc" -eq 0 ] || { fail "install.sh ($label) exited $rc; log at $logs/install-$label.log"; return "$rc"; }

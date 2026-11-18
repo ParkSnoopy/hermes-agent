@@ -41,11 +41,6 @@ const buildCtx = (appended: Msg[]) =>
       panel: () => undefined,
       setHistoryItems: () => undefined
     },
-    voice: {
-      setProcessing: () => undefined,
-      setRecording: () => undefined,
-      setVoiceEnabled: () => undefined
-    }
   }) as any
 
 const activityTexts = () => getTurnState().activity.map(item => item.text)

@@ -1,11 +1,10 @@
 """Public Codex commentary is a display projection, never a replay mutation."""
 
-from hermes_cli.web_routers.sessions import _project_for_display
+from agent.history_commentary import project_history_commentary as _project_for_display
 from tui_gateway.server import _history_to_messages
 from agent.history_commentary import visible_commentary
 from hermes_constants import get_hermes_home_override
 
-import asyncio
 import pytest
 
 
@@ -40,15 +39,6 @@ def _row(text="I will inspect the files."):
     }
 
 
-def test_rest_history_separates_public_commentary_without_changing_source():
-    row = _row()
-    projected = _project_for_display([row])[0]
-
-    assert projected["display_commentary"] == ["I will inspect the files."]
-    assert projected["display_reasoning"] == "Private summary."
-    assert projected["codex_message_items"] == row["codex_message_items"]
-    assert projected["tool_calls"] == row["tool_calls"]
-    assert row["reasoning"] == "Private summary.\n\nI will inspect the files."
 
 
 def test_gateway_history_uses_same_display_projection():
@@ -65,10 +55,7 @@ def test_rest_history_shows_a_steer_as_the_users_own_words():
     from agent.prompt_builder import steer_user_row
 
     row = steer_user_row("fix the header too")
-    projected = _project_for_display([row])[0]
-
-    # Same words session.resume shows; the model-facing marker stays in the source.
-    assert projected["display_content"] == "fix the header too"
+    # The model-facing marker stays in the source.
     assert _history_to_messages([row])[0]["text"] == "fix the header too"
     assert row["content"].startswith("[OUT-OF-BAND USER MESSAGE")
 
@@ -126,136 +113,8 @@ def test_owner_profile_settings_apply_to_rest_and_rpc(monkeypatch, tmp_path, dis
     assert observed == [str(enabled_home), str(disabled_home), str(enabled_home)] * 2
 
 
-def test_rest_pages_bind_the_history_owner_for_messages_and_around(
-    monkeypatch, tmp_path
-):
-    from hermes_cli import config as config_mod
-    from hermes_cli.web_routers import sessions
-    import hermes_state_timeline
-
-    row = _row()
-    homes = {name: tmp_path / name for name in ("visible", "hidden")}
-    monkeypatch.setattr(
-        sessions, "_cron_profile_home", lambda profile: (profile, homes[profile])
-    )
-    monkeypatch.setattr(
-        config_mod,
-        "load_config",
-        lambda: {
-            "display": {
-                "show_commentary": str(get_hermes_home_override())
-                == str(homes["visible"])
-            }
-        },
-    )
-
-    class FakeDB:
-        def resolve_session_id(self, sid):
-            return sid
-
-        def resolve_resume_session_id(self, sid):
-            return sid
-
-        def get_messages(self, *args, **kwargs):
-            return [row]
-
-    monkeypatch.setattr(
-        sessions, "_with_db", lambda profile, fn, read_only: fn(FakeDB())
-    )
-    monkeypatch.setattr(sessions, "_timeline_session_id", lambda db, sid, owner: sid)
-    monkeypatch.setattr(
-        hermes_state_timeline,
-        "get_session_messages_around",
-        lambda *args, **kwargs: {"messages": [row], "pagination": {}},
-    )
-
-    async def exercise():
-        for profile, expected in (
-            ("visible", ["I will inspect the files."]),
-            ("hidden", []),
-        ):
-            page = await sessions.get_session_messages(
-                "sid",
-                profile=profile,
-                limit=120,
-                offset=0,
-                order="latest",
-                include_compacted=True,
-            )
-            around = await sessions.get_session_messages_around(
-                "sid", row_id=1, profile=profile, limit=120
-            )
-            assert page["messages"][0]["display_commentary"] == expected
-            assert around["messages"][0]["display_commentary"] == expected
-            assert page["profile"] == around["profile"] == profile
-
-    asyncio.run(exercise())
 
 
-def test_unscoped_rest_history_uses_custom_home_of_its_database(monkeypatch, tmp_path):
-    from hermes_cli import config as config_mod
-    from hermes_cli.web_routers import sessions
-    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
-    import hermes_state_timeline
-
-    custom, default = tmp_path / "custom", tmp_path / "default"
-    monkeypatch.setattr(
-        sessions, "_cron_profile_home", lambda profile: ("default", default)
-    )
-    monkeypatch.setattr(
-        config_mod,
-        "load_config",
-        lambda: {
-            "display": {
-                "show_commentary": str(get_hermes_home_override()) != str(custom)
-            }
-        },
-    )
-    row = _row()
-
-    class FakeDB:
-        def resolve_session_id(self, sid):
-            return sid
-
-        def resolve_resume_session_id(self, sid):
-            return sid
-
-        def get_messages(self, *args, **kwargs):
-            return [row]
-
-    monkeypatch.setattr(
-        sessions, "_with_db", lambda profile, fn, read_only: fn(FakeDB())
-    )
-    monkeypatch.setattr(sessions, "_timeline_session_id", lambda db, sid, owner: sid)
-    monkeypatch.setattr(
-        hermes_state_timeline,
-        "get_session_messages_around",
-        lambda *args, **kwargs: {"messages": [row], "pagination": {}},
-    )
-
-    async def exercise():
-        page = await sessions.get_session_messages(
-            "sid",
-            profile=None,
-            limit=120,
-            offset=0,
-            order="latest",
-            include_compacted=True,
-        )
-        around = await sessions.get_session_messages_around(
-            "sid",
-            row_id=1,
-            profile=None,
-            limit=120,
-        )
-        assert page["messages"][0]["display_commentary"] == []
-        assert around["messages"][0]["display_commentary"] == []
-
-    token = set_hermes_home_override(str(custom))
-    try:
-        asyncio.run(exercise())
-    finally:
-        reset_hermes_home_override(token)
 
 
 def test_cold_resume_uses_the_resumed_session_home(monkeypatch, tmp_path):

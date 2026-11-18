@@ -119,7 +119,7 @@ def _gateway_runner():
     adapter = MagicMock()
     adapter.send = AsyncMock()
     runner.adapters = {Platform.TELEGRAM: adapter}
-    runner._voice_mode = {}
+
     runner.hooks = SimpleNamespace(emit=AsyncMock(), loaded_hooks=False)
     runner._session_model_overrides = {}
     runner._pending_model_notes, runner._background_tasks = {}, set()

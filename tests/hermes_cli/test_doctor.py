@@ -1,6 +1,6 @@
 """Tests for hermes_cli.doctor."""
 
-import importlib.util
+
 import os
 import subprocess
 import sys
@@ -143,13 +143,15 @@ class TestDoctorToolAvailabilitySummary:
         unavailable = [{"name": "image_gen", "env_vars": [], "tools": ["image_generate"]},
                        {"name": "homeassistant", "env_vars": [], "tools": []}]
         monkeypatch.setattr(doctor_tools, "_enabled_cli_toolsets_for_doctor", lambda: {"image_gen"})
-        monkeypatch.setattr(doctor_tools, "_apply_doctor_tool_availability_overrides", lambda a, u: (a, u))
+
         monkeypatch.setattr(doctor_tools, "_doctor_web_capability_rows", list)
         fake_model_tools = types.SimpleNamespace(
             check_tool_availability=lambda: ([], unavailable),
             TOOLSET_REQUIREMENTS={"image_gen": {"name": "image_gen"}, "homeassistant": {"name": "homeassistant"}},
         )
         monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+        monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+        monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
@@ -250,6 +252,8 @@ class TestDoctorEnvFileEncoding:
             TOOLSET_REQUIREMENTS={},
         )
         monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+        monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+        monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
         # Run doctor. If the .env read still uses locale encoding, this
         # raises UnicodeDecodeError and the test fails.
@@ -275,62 +279,13 @@ class TestDoctorEnvFileEncoding:
             TOOLSET_REQUIREMENTS={},
         )
         monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+        monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+        monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
         with pytest.raises(SystemExit):
             doctor_mod.run_doctor(Namespace(fix=False))
 
 
-class TestDoctorToolAvailabilityOverrides:
-
-
-    def test_marks_kanban_available_only_when_missing_worker_env_gate(self, monkeypatch):
-        monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
-
-        available, unavailable = doctor_tools._apply_doctor_tool_availability_overrides(
-            [],
-            [{"name": "kanban", "env_vars": [], "tools": ["kanban_show"]}],
-        )
-
-        assert available == ["kanban"]
-        assert unavailable == []
-
-    def test_leaves_kanban_unavailable_when_worker_env_is_set(self, monkeypatch):
-        monkeypatch.setenv("HERMES_KANBAN_TASK", "probe")
-        kanban_entry = {"name": "kanban", "env_vars": [], "tools": ["kanban_show"]}
-
-        available, unavailable = doctor_tools._apply_doctor_tool_availability_overrides(
-            [],
-            [kanban_entry],
-        )
-
-        assert available == []
-        assert unavailable == [kanban_entry]
-
-
-
-
-def test_doctor_reports_vercel_backend_diagnostics(monkeypatch, tmp_path):
-    monkeypatch.setenv("TERMINAL_ENV", "vercel_sandbox")
-    monkeypatch.setenv("TERMINAL_VERCEL_RUNTIME", "python3.13")
-    monkeypatch.setenv("TERMINAL_CONTAINER_DISK", "2048")
-    monkeypatch.setenv("VERCEL_TOKEN", "super-secret-value")
-    monkeypatch.delenv("VERCEL_PROJECT_ID", raising=False)
-    monkeypatch.setenv("VERCEL_TEAM_ID", "team")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "vercel" else None)
-
-    fake_model_tools = types.SimpleNamespace(
-        check_tool_availability=lambda *a, **kw: ([], []),
-        TOOLSET_REQUIREMENTS={},
-    )
-    monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
-
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        doctor_mod.run_doctor(Namespace(fix=False))
-
-    out = buf.getvalue()
-    assert "VERCEL_PROJECT_ID" in out  # names the missing auth var
-    assert "super-secret-value" not in out  # never echoes the token value
 
 
 # ── Memory provider section (doctor should only check the *active* provider) ──
@@ -378,6 +333,8 @@ class TestDoctorMemoryProviderSection:
             TOOLSET_REQUIREMENTS={},
         )
         monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+        monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+        monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
         # Stub auth checks to avoid real API calls
         try:
@@ -482,6 +439,8 @@ def test_run_doctor_accepts_named_provider_from_providers_section(monkeypatch, t
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
     try:
         from hermes_cli import auth as _auth_mod
@@ -526,6 +485,8 @@ def test_run_doctor_accepts_stable_key_when_provider_name_differs(
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
     try:
         from hermes_cli import auth as _auth_mod
@@ -568,6 +529,8 @@ def test_run_doctor_accepts_bare_custom_provider(monkeypatch, tmp_path):
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
     try:
         from hermes_cli import auth as _auth_mod
@@ -605,6 +568,8 @@ def test_run_doctor_flags_missing_credentials_for_active_openrouter_provider(mon
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
@@ -659,6 +624,8 @@ def test_run_doctor_accepts_hermes_provider_ids_that_catalog_aliases(
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
     try:
         from hermes_cli import auth as _auth_mod
@@ -706,6 +673,8 @@ def test_run_doctor_accepts_vendor_slugs_for_named_custom_provider(monkeypatch, 
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
     try:
         from hermes_cli import auth as _auth_mod
@@ -762,6 +731,8 @@ def test_run_doctor_vendor_slug_policy_for_openai_api_endpoint(
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
     try:
         from hermes_cli import auth as _auth_mod
@@ -805,6 +776,8 @@ def test_run_doctor_accepts_kimi_coding_cn_provider(monkeypatch, tmp_path):
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
     try:
         from hermes_cli import auth as _auth_mod
@@ -846,6 +819,8 @@ def _doctor_env_for_browser(monkeypatch, tmp_path):
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
     try:
         from hermes_cli import auth as _auth_mod
@@ -950,6 +925,8 @@ def test_run_doctor_kimi_cn_env_is_detected_and_probe_is_null_safe(monkeypatch, 
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
     try:
         from hermes_cli import auth as _auth_mod
@@ -999,6 +976,8 @@ def test_run_doctor_dashscope_retries_china_endpoint_after_intl_unauthorized(mon
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
     try:
         from hermes_cli import auth as _auth_mod
@@ -1058,6 +1037,8 @@ def test_run_doctor_opencode_go_skips_invalid_models_probe(monkeypatch, tmp_path
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
     try:
         from hermes_cli import auth as _auth_mod
@@ -1152,6 +1133,8 @@ def _run_doctor_with_healthy_oauth_fallback(
         TOOLSET_REQUIREMENTS={},
     )
     monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+    monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+    monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
     from hermes_cli import auth as _auth_mod
 
@@ -1254,6 +1237,8 @@ class TestDoctorXaiOAuthStatus:
             TOOLSET_REQUIREMENTS={},
         )
         monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+        monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+        monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
         from hermes_cli import auth as _auth_mod
         monkeypatch.setattr(_auth_mod, "get_nous_auth_status_local", lambda: {"logged_in": False})
@@ -1296,6 +1281,8 @@ class TestDoctorXaiOAuthStatus:
             TOOLSET_REQUIREMENTS={},
         )
         monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+        monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+        monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
         from hermes_cli import auth as _auth_mod
         monkeypatch.setattr(_auth_mod, "get_nous_auth_status_local", lambda: {"logged_in": True})
@@ -1370,6 +1357,8 @@ class TestDoctorStaleMaxIterationsDrift:
             TOOLSET_REQUIREMENTS={},
         )
         monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+        monkeypatch.setattr("tools.registry.registry.check_tool_availability", fake_model_tools.check_tool_availability)
+        monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", lambda: fake_model_tools.TOOLSET_REQUIREMENTS)
 
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf), pytest.raises(SystemExit):
@@ -1525,22 +1514,6 @@ def test_run_doctor_warns_when_lightpanda_binary_missing(monkeypatch, tmp_path):
     assert "Lightpanda selected but binary not found" in out
 
 
-def test_docker_daemon_probe_uses_version_not_info(monkeypatch):
-    """`docker info` needs the /info endpoint, which socket proxies commonly block, so doctor reported
-    "daemon not running" against a working DOCKER_HOST (#72927). `docker version` (/version) is what the
-    backend itself probes with."""
-    from hermes_cli import doctor_tools
-
-    calls: list = []
-    monkeypatch.setattr(doctor_tools, "find_docker", lambda: "/usr/bin/docker")
-    monkeypatch.setattr(doctor_tools, "_run_ok", lambda cmd, timeout, **kw: calls.append(cmd) or True)
-    monkeypatch.setattr(doctor_tools, "_require", lambda *a, **k: None)
-
-    doctor_tools._check_docker_backend("docker", False, [])
-
-    assert calls == [["/usr/bin/docker", "version"]]
-
-
 def test_doctor_reports_auxiliary_blocks_that_do_not_resolve(tmp_path, monkeypatch):
     """A routed auxiliary.<task> block that the runtime resolver rejects is a doctor finding, not a
     silent fall-back to the main model (#116055); a resolvable one is not flagged."""
@@ -1558,98 +1531,7 @@ def test_doctor_reports_auxiliary_blocks_that_do_not_resolve(tmp_path, monkeypat
     assert len(issues) == 1 and "auxiliary.background_review" in issues[0] and "no-such-provider" in issues[0]
 
 
-@pytest.mark.platforms("macos")
-class TestMacOSTCCGrants:
-    """macOS TCC grant persistence check (#86385): a cdhash-pinned DR (pre-#73681
-    local builds) silently resets Screen Recording/Accessibility grants on every
-    rebuild while the Settings toggle stays ON."""
 
-    @staticmethod
-    def _darwin_bundle(monkeypatch, tmp_path, dr):
-        monkeypatch.setattr(doctor_platform, "_desktop_app_bundle", lambda: tmp_path / "Hermes.app")
-        if dr is not ...:
-            monkeypatch.setattr(doctor_platform, "_macos_desktop_dr", lambda app: dr)
-
-    def test_silent_without_desktop_bundle(self, monkeypatch, capsys):
-        monkeypatch.setattr(doctor_platform, "_desktop_app_bundle", lambda: None)
-        doctor_platform.check_macos_tcc_grants()
-        assert capsys.readouterr().out == ""
-
-    def test_warns_on_cdhash_pinned_dr(self, monkeypatch, capsys, tmp_path):
-        self._darwin_bundle(
-            monkeypatch, tmp_path,
-            'designated => identifier "com.nousresearch.hermes" and cdhash H"97e692f3890f781fa0ad5ad6cb9d769cfaf42628"',
-        )
-        doctor_platform.check_macos_tcc_grants()
-        out = capsys.readouterr().out
-        assert "TCC grants will reset after every update" in out
-        assert "hermes update" in out
-        assert "signing identity is stable" not in out
-
-    def test_identifier_dr_is_stable_with_upgrade_hint_and_repair_info(self, monkeypatch, capsys, tmp_path):
-        self._darwin_bundle(monkeypatch, tmp_path, 'designated => identifier "com.nousresearch.hermes"')
-        doctor_platform.check_macos_tcc_grants()
-        out = capsys.readouterr().out
-        assert "TCC signing identity is stable" in out
-        assert "--setup-tcc-identity" in out
-        assert "tccutil reset ScreenCapture com.nousresearch.hermes" in out
-
-    def test_certificate_anchored_dr_is_stable_without_upgrade_hint(self, monkeypatch, capsys, tmp_path):
-        self._darwin_bundle(
-            monkeypatch, tmp_path,
-            'designated => identifier "com.nousresearch.hermes" and certificate root = H"aabbcc"',
-        )
-        doctor_platform.check_macos_tcc_grants()
-        out = capsys.readouterr().out
-        assert "TCC signing identity is stable" in out
-        assert "--setup-tcc-identity" not in out
-        assert "tccutil reset ScreenCapture com.nousresearch.hermes" in out
-
-    @pytest.mark.parametrize("failure", ["none", "empty", "timeout", "no_codesign"])
-    def test_unreadable_dr_warns_and_never_claims_stable(self, monkeypatch, capsys, tmp_path, failure):
-        """codesign failing, hanging, missing or printing nothing degrades to a
-        warning; an empty DR must not false-positive as a stable identity."""
-        if failure in ("none", "empty"):
-            self._darwin_bundle(monkeypatch, tmp_path, None if failure == "none" else "")
-        else:
-            self._darwin_bundle(monkeypatch, tmp_path, ...)
-            if failure == "timeout":
-                monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/codesign")
-
-                def _timeout(*args, **kwargs):
-                    raise subprocess.TimeoutExpired(cmd=["codesign"], timeout=15)
-
-                monkeypatch.setattr(subprocess, "run", _timeout)
-            else:
-                monkeypatch.setattr(shutil, "which", lambda _name: None)
-        doctor_platform.check_macos_tcc_grants()
-        out = capsys.readouterr().out
-        assert "could not read code-signing requirement" in out
-        assert "stable" not in out
-
-
-@pytest.mark.parametrize("probe_error,free,root,expected,issues", [
-    (None, 50 << 30, False, "store is writable", []),
-    (OSError(28, "No space left on device"), 50 << 30, False, "NOT writable (ENOSPC", ["is not writable"]),
-    (None, 10 << 20, False, "free — cron jobs stop when it fills", ["Free disk space"]),
-    # root may fill the reserved blocks: 0 B for disk_usage, but statvfs f_bfree says 4 GB
-    pytest.param(None, 0, True, "store is writable", [], id="root-reserved-blocks",
-                 marks=pytest.mark.skipif(not hasattr(os, "geteuid"), reason="no os.geteuid")),
-])
-def test_cron_store_check_reports_writability_and_low_space(
-        monkeypatch, tmp_path, capsys, probe_error, free, root, expected, issues):
-    from cron import store_health
-
-    (tmp_path / "cron").mkdir()
-    monkeypatch.setattr(doctor, "HERMES_HOME", tmp_path)
-    monkeypatch.setattr(store_health, "probe_store", lambda _d: probe_error)
-    monkeypatch.setattr(store_health.shutil, "disk_usage", lambda _d: SimpleNamespace(free=free))
-    if hasattr(os, "geteuid"):  # rows run as the user they name, whoever runs the suite
-        monkeypatch.setattr(os, "geteuid", lambda: 0 if root else 1000)
-        monkeypatch.setattr(os, "statvfs", lambda _d: SimpleNamespace(f_bfree=1 << 20, f_frsize=4096))
-    finding = doctor_state._check_cron_store(False)
-    assert expected in capsys.readouterr().out
-    assert len(finding.issues) == len(issues) and all(any(s in i for i in finding.issues) for s in issues)
 
 
 @pytest.mark.platforms("any")  # the wrapper name differs per host (.bat on Windows)

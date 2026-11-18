@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from utils import is_truthy_value
 
 logger = logging.getLogger(__name__)
 _DEFAULT_BROWSER_PROVIDER = "local"
-_DEFAULT_MODAL_MODE = "auto"
-_VALID_MODAL_MODES = {"auto", "direct", "managed"}
 
 
 def managed_nous_tools_enabled(*, force_fresh: bool = False) -> bool:
@@ -52,46 +49,6 @@ def normalize_browser_cloud_provider(value: object | None) -> str:
     return provider or _DEFAULT_BROWSER_PROVIDER
 
 
-def coerce_modal_mode(value: object | None) -> str:
-    """Return the requested modal mode when valid, else the default."""
-    mode = str(value or _DEFAULT_MODAL_MODE).strip().lower()
-    return mode if mode in _VALID_MODAL_MODES else _DEFAULT_MODAL_MODE
-
-
-normalize_modal_mode = coerce_modal_mode
-
-
-def has_direct_modal_credentials() -> bool:
-    """Return True when direct Modal credentials/config are available. The token pair is a
-    profile credential: read it through the secret scope so the default profile's Modal
-    account never selects the direct backend for a multiplexed secondary."""
-    if _scoped_credential("MODAL_TOKEN_ID") and _scoped_credential("MODAL_TOKEN_SECRET"):
-        return True
-    try:
-        return (Path.home() / ".modal.toml").exists()
-    except OSError:  # includes PermissionError on Path.home()
-        return False
-
-
-def resolve_modal_backend_state(modal_mode: object | None, *, has_direct: bool,
-                                managed_ready: bool,
-                                managed_enabled: bool | None = None) -> dict[str, Any]:
-    """Resolve direct vs managed Modal backend: ``direct``/``managed`` are exclusive; ``auto``
-    prefers managed when available, else direct."""
-    requested_mode = coerce_modal_mode(modal_mode)
-    if managed_enabled is None:
-        managed_enabled = managed_nous_tools_enabled()
-    managed_ok = managed_enabled and managed_ready
-    exclusive = {"managed": "managed" if managed_ok else None,
-                 "direct": "direct" if has_direct else None}
-    selected_backend = exclusive.get(
-        requested_mode, "managed" if managed_ok else "direct" if has_direct else None)
-    return {"requested_mode": requested_mode, "mode": requested_mode, "has_direct": has_direct,
-            "managed_ready": managed_ready,
-            "managed_mode_blocked": requested_mode == "managed" and not managed_enabled,
-            "selected_backend": selected_backend}
-
-
 def _scoped_credential(name: str) -> str:
     """Read a credential env var under the active profile secret scope; raw env fallback only
     if ``agent.secret_scope`` cannot import (a packaging edge must never lose the key)."""
@@ -126,15 +83,13 @@ def _env_source_suppressed(provider_id: str, env_var: str) -> bool:
 
 def resolve_provider_secret(env_var: str, provider_id: str, config_value: str = "",
                             env_getter=None) -> str:
-    """Resolve a voice-provider API key (single owner for STT/TTS lookup). Order: explicit
+    """Resolve a provider API key. Order: explicit
     ``config_value`` -> profile secret scope / env -> ``.env`` via ``env_getter`` (or
     ``hermes_cli.config.get_env_value``) -> credential pool for ``provider_id``. Under an
     active multiplex turn the profile scope is authoritative: a miss returns ``""`` rather
     than borrowing another profile's env or pool. Never raises. The env/.env tier is skipped
     entirely while ``env:<env_var>`` is suppressed for ``provider_id`` (#116155).
 
-    Resolution order (fixes #68003 — keys added via ``hermes auth add <provider>`` were invisible to the
-    voice tools, which only consulted env/.env):
     """
     key = str(config_value or "").strip()
     if key:
@@ -167,19 +122,6 @@ def resolve_provider_secret(env_var: str, provider_id: str, config_value: str = 
     return ""
 
 
-def resolve_openai_audio_api_key() -> str:
-    """Prefer VOICE_TOOLS_OPENAI_KEY, else OPENAI_API_KEY (scope-aware, pool fallback for the
-    latter). Must go through the secret scope: a raw ``os.environ`` read could bill another
-    profile's account under multiplex.
-
-    Outside a multiplexed turn, ``OPENAI_API_KEY`` additionally falls back to the credential pool (``hermes
-    auth add openai-api``) via ``resolve_provider_secret`` — same #68003 fix as the other voice providers.
-    The dedicated voice-tools override remains env/scope-only.
-    """
-    return (resolve_provider_secret("VOICE_TOOLS_OPENAI_KEY", "")
-            or resolve_provider_secret("OPENAI_API_KEY", "openai-api"))
-
-
 def prefers_gateway(config_section: str) -> bool:
     """True when ``<section>.use_gateway`` is set in config.yaml. Never raises."""
     try:
@@ -201,7 +143,7 @@ _DEFAULT_NAME_KEYS = ("provider", "backend", "cloud_provider")
 # not the cloud provider — excluded.
 _SELECTION_NAME_KEYS = {
     "browser": ("cloud_provider",), "web": ("backend",),
-    **dict.fromkeys(("image_gen", "video_gen", "tts", "stt"), _DEFAULT_NAME_KEYS),
+    **dict.fromkeys(("image_gen", "video_gen"), _DEFAULT_NAME_KEYS),
 }
 
 

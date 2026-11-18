@@ -14,7 +14,6 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from typing import TextIO
@@ -147,16 +146,11 @@ def prune_site_pth(venv_dir: Path) -> None:
     ``uv sync`` leaves two behind: ``_virtualenv.pth`` (repoints
     ``sys.prefix`` at the venv) and the project's ``__editable__`` pointer
     (names the BUILD machine — the payload wires the repo snapshot itself,
-    see scripts/build/launcher_wrapper.py). Bundled launchers process every
-    other .pth with ``site.addsitedir()``; pywin32.pth is load-bearing on
-    Windows (win32\\lib on sys.path is what makes ``import pywintypes``
-    resolve, which portalocker/concurrent-log-handler need to write logs).
+    see scripts/build/launchers.py). Bundled launchers process every
+    other .pth with ``site.addsitedir()``.
     """
-    if (venv_dir / "Scripts").is_dir():
-        sites = [venv_dir / "Lib" / "site-packages"]
-    else:
-        lib = venv_dir / "lib"
-        sites = sorted(lib.glob("python*/site-packages")) if lib.is_dir() else []
+    lib = venv_dir / "lib"
+    sites = sorted(lib.glob("python*/site-packages")) if lib.is_dir() else []
     for site_dir in sites:
         if not site_dir.is_dir():
             continue
@@ -169,21 +163,7 @@ def prune_site_pth(venv_dir: Path) -> None:
 
 
 def _read_pipe(fd: int) -> bytes:
-    size = 65536
-    if sys.platform == "win32":
-        import _winapi
-        import msvcrt
-
-        # Bootstrap can run on Python 3.11, before Windows os.set_blocking
-        # exists. Peek keeps the sole reader bounded without changing pipe mode.
-        try:
-            available, _ = _winapi.PeekNamedPipe(msvcrt.get_osfhandle(fd), 0)
-        except BrokenPipeError:
-            return b""
-        if not available:
-            raise BlockingIOError
-        size = min(size, available)
-    return os.read(fd, size)
+    return os.read(fd, 65536)
 
 
 def _run_streaming(command: list[str], *, cwd: Path, env: dict[str, str],
@@ -199,8 +179,7 @@ def _run_streaming(command: list[str], *, cwd: Path, env: dict[str, str],
     try:
         # A descendant can keep stdout open after proc exits. Nonblocking reads
         # bound that drain without leaving a thread stuck in readline()/close().
-        if sys.platform != "win32":
-            os.set_blocking(pipe.fileno(), False)
+        os.set_blocking(pipe.fileno(), False)
         decoder = io.IncrementalNewlineDecoder(
             codecs.getincrementaldecoder(pipe.encoding)(errors="replace"), translate=True,
         )

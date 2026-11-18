@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from agent.i18n import t
+
 
 
 
@@ -188,7 +188,11 @@ class TestBusyInputMode:
             cli.process_command("/queue first prompt")
             cli.process_command(command)
         assert cli._pending_input_items() == ["first prompt"]
-        assert printed[-1].strip() == t(usage_key)
+        assert printed[-1].strip() == {
+            "cli.queue.usage_remove": "Usage: /queue rm <number>",
+            "cli.queue.usage_edit": "Usage: /queue edit <number> <new prompt>",
+            "cli.queue.usage_move": "Usage: /queue move <from> <to>",
+        }[usage_key]
 
     def test_queue_edit_accepts_tab_after_index(self):
         cli = _make_cli()
@@ -385,7 +389,7 @@ class TestHistoryDisplay:
         cli._handle_resume_command("/resume")
         output = capsys.readouterr().out
 
-        assert t("cli.session.recent_header") in output
+        assert 'Recent sessions:' in output
         assert "Checking Running Hermes Agent" in output
 
 
@@ -416,7 +420,7 @@ class TestHistoryDisplay:
         output = capsys.readouterr().out
 
         assert "Unknown command" not in output
-        assert t("cli.session.recent_header") in output
+        assert 'Recent sessions:' in output
         assert "Checking Running Hermes Agent" in output
         assert "20260401_201329_d85961" in output
 
@@ -601,29 +605,6 @@ class TestRootLevelProviderOverride:
 
         assert cfg["model"]["base_url"] == "https://example.com/v1"
 
-    def test_terminal_vercel_runtime_bridged_to_env(self, tmp_path, monkeypatch):
-        """Classic CLI must expose terminal.vercel_runtime to terminal_tool.py."""
-        import hermes_yaml as yaml
-
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-        monkeypatch.delenv("TERMINAL_VERCEL_RUNTIME", raising=False)
-
-        config_path = hermes_home / "config.yaml"
-        config_path.write_text(yaml.safe_dump({
-            "terminal": {
-                "backend": "vercel_sandbox",
-                "vercel_runtime": "python3.13",
-            },
-        }))
-
-        import cli
-        monkeypatch.setattr(cli, "_hermes_home", hermes_home)
-        cfg = cli.load_cli_config()
-
-        assert cfg["terminal"]["vercel_runtime"] == "python3.13"
-        assert os.environ["TERMINAL_VERCEL_RUNTIME"] == "python3.13"
 
     def test_normalize_root_model_keys_moves_to_model(self):
         """_normalize_root_model_keys migrates root keys into model section."""

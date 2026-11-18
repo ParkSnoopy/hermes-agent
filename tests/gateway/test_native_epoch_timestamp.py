@@ -16,11 +16,15 @@ CHAT = '15551234567@s.whatsapp.net'
 
 @pytest.mark.asyncio
 async def test_epoch_zero_producer_timestamp_runs_with_local_time_and_keeps_retry_identity(tmp_path, monkeypatch):
-    from plugins.platforms.whatsapp.adapter import WhatsAppAdapter
-    monkeypatch.setenv('WHATSAPP_ALLOWED_USERS', '15551234567')
+    from gateway.platforms.api_server import APIServerAdapter
+    from gateway.platform_registry import PlatformEntry, platform_registry
+    monkeypatch.setenv('GATEWAY_ALLOW_ALL_USERS', 'true')
+    platform_registry.register(PlatformEntry('test_timestamp_transport', 'Test', lambda config: None, lambda: True))
+    platform = Platform('test_timestamp_transport')
     runner = GatewayRunner(GatewayConfig(sessions_dir=tmp_path / 'sessions'))
-    adapter = WhatsAppAdapter(PlatformConfig(enabled=True, extra={'session_path': str(tmp_path / 'wa')}))
-    adapter.gateway_runner, runner.adapters = runner, {Platform.WHATSAPP: adapter}
+    adapter = APIServerAdapter(PlatformConfig(enabled=True))
+    adapter.platform = platform
+    adapter.gateway_runner, runner.adapters = runner, {platform: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='stamp')
     runner._wire_adapter_handlers(adapter)
     stamps = []

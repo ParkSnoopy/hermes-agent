@@ -105,7 +105,6 @@ def turn_env(monkeypatch, tmp_path, marker_home):
     monkeypatch.setattr(server, "_sync_agent_model_with_config", lambda sid, session: None)
     monkeypatch.setattr(server, "_session_cwd", lambda session: str(tmp_path))
     monkeypatch.setattr(server, "_register_session_cwd", lambda session: None)
-    monkeypatch.setattr(server, "_tts_stream_begin", lambda: None)
     monkeypatch.setattr(server, "_sync_session_key_after_compress", lambda *a, **k: None)
     monkeypatch.setattr(server, "_get_usage", lambda agent: {})
 
@@ -167,7 +166,6 @@ def test_sibling_backend_record_does_not_resurrect_a_cleared_marker(tmp_path, mo
 
 
 def _patch_local_interrupt(monkeypatch, session):
-    monkeypatch.setattr(server, "_tts_stream_stop", lambda: None)
     monkeypatch.setattr(server, "_sess_nowait", lambda params, rid: (session, None))
     monkeypatch.setattr(server, "_sess", lambda params, rid: (session, None))
     monkeypatch.setattr(server, "_session_uses_compute_host", lambda current: False)
@@ -458,7 +456,7 @@ def test_config_widens_freshness_window(emits, schedule_env, marker_home, monkey
     monkeypatch.setattr(
         server,
         "_load_cfg",
-        lambda: {"desktop": {"auto_continue": {"freshness_minutes": 120}}},
+        lambda: {"sessions": {"auto_continue": {"freshness_minutes": 120}}},
     )
     monkeypatch.setattr(
         server, "time", types.SimpleNamespace(time=lambda: time.time() + 3600)
@@ -485,7 +483,7 @@ def test_disabled_by_config(schedule_env, marker_home, monkeypatch):
     monkeypatch.setattr(
         server,
         "_load_cfg",
-        lambda: {"desktop": {"auto_continue": {"enabled": False}}},
+        lambda: {"sessions": {"auto_continue": {"enabled": False}}},
     )
 
     result = server._maybe_schedule_auto_continue("sid", _session(), "session-key")

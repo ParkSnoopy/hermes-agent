@@ -40,7 +40,7 @@ from tools.environments.local import hermes_subprocess_env
 from agent.fast_mode import STATIC_TIERS
 from agent.replay_cleanup import canonicalize_replay_history
 from agent.reasoning_effort import clamp_effort, route_supported_efforts
-from agent.voice_turn_route import session_runtime_view
+
 from agent.compaction_display import project_compaction_message_for_display
 from agent.skill_commands import describe_skill_invocation
 from agent.conversation_loop import INTERRUPT_WAITING_FOR_MODEL_PREFIX
@@ -179,12 +179,11 @@ _DETAIL_MODES = frozenset({"hidden", "collapsed", "expanded"})
 # mcp.servers.* = rediscovery, cold npx spawn, ~30s OAuth wait; profiles.* = skill-tree walk + state.db
 # open; bot_relay.* = a FULL one-turn agent conversation (600s); setup.* / session.active_list =
 # Desktop-polled and under GIL pressure block the WS read loop (false "needs setup", stalled
-# interrupts); voice.*/wake.* = SYNCHRONOUS faster-whisper install (300s); session.workspace.move =
+# interrupts); session.workspace.move =
 # git subprocess probes on an arbitrary (maybe slow) mount; session.save = a full stored-session read + JSON
 # render (up to sessions.max_export_messages rows, ~0.8s at the default cap); onboarding.start = session
 # creation + a prompt.submit; onboarding.state = a bounded wait on the boot-time due answer.
 _LONG_HANDLERS = frozenset({
-    "session.foreign.list", "session.foreign.preview", "session.foreign.import",
     "billing.state", "subscription.state", "subscription.preview", "subscription.change",
     "subscription.resume", "subscription.upgrade", "usage.bars", "session.usage", "billing.step_up",
     "browser.manage", "cli.exec", "complete.path", "complete.slash", "llm.oneshot", "model.options",
@@ -195,12 +194,11 @@ _LONG_HANDLERS = frozenset({
     "profiles.list", "profiles.set_asset", "bot_relay.roster.sync", "bot_relay.outbox.drain",
     "bot_relay.deliver", "bot_relay.reply", "image.generate", "projects.discover_repos",
     "projects.record_repos", "projects.for_cwd", "projects.tree", "projects.project_sessions",
-    "setup.runtime_check", "setup.status", "free_tier.provision", "voice.toggle", "voice.record", "voice.tts", "wake.start",
-    "wake.status", "session.active_list", "session.branch", "session.compress", "session.list",
+    "setup.runtime_check", "setup.status", "free_tier.provision", "session.active_list", "session.branch", "session.compress", "session.list",
     "session.resume", "session.save", "session.workspace.move", "shell.exec", "skills.manage", "slash.exec",
-    "onboarding.start", "onboarding.state", "subagent.roster",
+    "subagent.roster",
     "command.dispatch",  # /goal draft invokes the auxiliary model; never block the RPC reader
-    "shared_metrics.set",  # consent reconcile waits on the metrics store's write lock
+
 })
 
 _rpc_pool_workers = max(2, env_int("HERMES_TUI_RPC_POOL_WORKERS", 8))
@@ -259,7 +257,7 @@ def _load_interim_assistant_messages() -> bool:
 
 def _shutdown_sessions() -> None:
     # Durable-first: flush transcripts (bounded budget) BEFORE the slow teardown so a supervisor SIGKILL can't lose them.
-    for step in (_flush_sessions_before_exit, _release_gateway_wake_owner, _stop_turns_before_exit):
+    for step in (_flush_sessions_before_exit, _stop_turns_before_exit):
         with contextlib.suppress(Exception):
             step()
     with _sessions_lock:
@@ -379,9 +377,8 @@ def _profile_db(params: dict | None = None, *, writer: bool = False):
     """Yield the SessionDB for ``params['profile']`` (None when unavailable); closes dedicated
     profile handles, leaves the launch-profile shared handle open.
 
-    Foreign-profile handles are read-only unless ``writer=True``: that store belongs to ITS
-    gateway/dashboard, and a writer here would take its write lock per RPC. Mirrors
-    hermes_cli.web_routers.profiles._read_profile_db."""
+    Foreign-profile handles are read-only unless ``writer=True``: that store belongs to its
+    gateway, and a writer here would take its write lock per RPC."""
     profile = (params.get("profile") or "").strip() or None if isinstance(params, dict) else None
     # Launch/own profile → the shared _get_db() handle (left open); another profile → a dedicated
     # handle closed below (app-global remote mode). db is None when unavailable.
@@ -393,9 +390,9 @@ def _profile_db(params: dict | None = None, *, writer: bool = False):
                 from hermes_state_registry import acquire
                 db = acquire(Path(profile_home) / "state.db")
             else:
-                from hermes_cli.web_server_sessions import _open_session_db_at_path
+                from hermes_state import SessionDB
                 _bootstrap_served_profile_store(Path(profile_home) / "state.db")
-                db = _open_session_db_at_path(Path(profile_home) / "state.db", read_only=True)
+                db = SessionDB(db_path=Path(profile_home) / "state.db", read_only=True)
             owns = True
         except Exception as exc:
             logger.warning("TUI profile session store unavailable for %s: %s", profile, exc)
@@ -600,8 +597,7 @@ def _emit(event: str, sid: str, payload: dict | None = None) -> bool:
 from tui_gateway import server_requests as _server_requests
 
 _server_requests.bind_sinks(lambda frame: write_json(frame), lambda event, sid, payload: _emit(event, sid, payload),
-                            lambda sid: _session_client_answers_requests(sid),
-                            lambda sid: _session_answering_clients(sid))
+                            lambda sid: _session_client_answers_requests(sid))
 
 
 # Live WS peer transports (maintained by tui_gateway.ws): the only route for session-less background
@@ -675,7 +671,7 @@ def _open_requests(sid: str) -> list[dict]:
     if (session := _sessions.get(sid)) is not None:
         with session.get("history_lock", threading.Lock()):
             mirrored = session.get("_compute_host_open_request")
-            return [dict(mirrored)] if isinstance(mirrored, dict) and mirrored.get("replayable", True) else []
+            return [dict(mirrored)] if isinstance(mirrored, dict) else []
     return []
 
 
@@ -947,7 +943,7 @@ def _set_session_context(session_key: str, cwd: str | None = None, *, ui_session
             session_id = getattr(sess.get("agent"), "session_id", None) or session_key
         return set_session_vars(
             session_key=session_key, session_id=session_id, source=source,
-            profile=profile, cwd=resolved, ui_session_id=ui_session_id, cron_session="")
+            profile=profile, cwd=resolved, ui_session_id=ui_session_id)
     return []
 
 
@@ -996,110 +992,6 @@ def _clarify_block(sid: str, questions: list[dict]) -> dict:
     result = server_requests.send("clarify", sid, {"questions": wire}, timeout=_clarify_timeout_seconds(),
                                   qids=[e["qid"] for e in questions])
     return result or {"answers": {}, "outcome": "undelivered"}
-
-
-# A tour action is a DOM op the renderer answers in ms; the generous deadline exists only because a
-# preview tour's first action injects the engine into a live page.
-_TOUR_TIMEOUT_S = 45
-# Until a session's client has proven it answers at all, hold it to a deadline a working renderer cannot miss.
-_TOUR_PROBE_TIMEOUT_S = 10
-
-_TOUR_BRIDGE_UNAVAILABLE = json.dumps({
-    "success": False,
-    "error": ("No Hermes Desktop window answered the tour request. The tour is driven by the desktop app's "
-              "renderer, which updates separately from this backend, so an app build older than the tour tool "
-              "has nothing listening. Update the Hermes Desktop app and start a new session. Do not retry tour "
-              "in this session.")})
-
-
-def _tour_request(sid: str, payload: dict) -> str:
-    """Bridge the tour tool callback onto a ``tour`` server request without paying for a client that cannot answer: against
-    an older app nobody answers ``tour`` and each action would block the full deadline, stacking per
-    turn. First action per session gets the short probe deadline; unanswered → bridge marked unavailable
-    for that session; once answered, the full deadline. Verdict lives on the record, so a new session re-probes.
-
-    The renderer's ``tour`` handler ships in the desktop bundle, but the tool is offered by this
-    backend — and the two update on different clocks. The model then does what the schema tells it to and
-    tries the next action, so a single "give me a tour" turn stacks those waits (the timeouts reported
-    against #89620).
-    """
-    session = _sessions.get(sid)
-    if session is None:  # detached caller: throwaway record, plain bridge, unprobed ({} is falsy but a REAL record)
-        session = {}
-    state = session.get("tour_bridge")
-    if state == "unanswered":
-        return _TOUR_BRIDGE_UNAVAILABLE
-    answer = _ask("tour", sid, dict(payload),
-                  timeout=_TOUR_TIMEOUT_S if state == "answered" else _TOUR_PROBE_TIMEOUT_S)
-    if answer:
-        session["tour_bridge"] = "answered"
-    elif state != "answered":
-        session["tour_bridge"] = "unanswered"
-    return answer or _TOUR_BRIDGE_UNAVAILABLE
-
-
-_PREVIEW_ACTION_TIMEOUT_S = 45
-# Until a session's client has proven it answers preview.act at all, hold it to a
-# deadline a working renderer cannot miss (same ladder as the tour probe).
-_PREVIEW_ACTION_PROBE_TIMEOUT_S = 10
-# An unanswered probe condemns the bridge only until the cooldown expires: the
-# renderer may attach late (app launched after the turn started). One caller at
-# a time re-probes; concurrent siblings fail fast instead of stacking waits.
-_PREVIEW_ACTION_REPROBE_COOLDOWN_S = 30
-
-_PREVIEW_ACTION_BRIDGE_UNAVAILABLE = json.dumps({
-    "success": False,
-    "error": ("No Hermes Desktop window answered the preview action request. The drive_preview / "
-              "annotate_preview bridge is served by the desktop app's renderer, which updates "
-              "separately from this backend, so an app build older than the tool has nothing "
-              "listening. Update the Hermes Desktop app, open a page with open_preview, and try "
-              "again in this session after a short cooldown.")})
-
-# One in-flight cooldown-expiry reprobe per session: concurrent callers fail fast.
-_preview_action_reprobe: dict[str, object] = {}
-_preview_action_reprobe_lock = threading.Lock()
-
-
-def _preview_action_request(sid: str, payload: dict) -> str:
-    """Bridge the drive_preview / annotate_preview callback onto a ``preview.act`` server request
-    without paying for a client that cannot answer: against an older app (or a session no window
-    hosts, #94272 / #119333) nobody answers ``preview.act`` and each action would block the full
-    deadline, stacking per turn exactly like the tour timeouts (#89620). First action per session
-    gets the short probe deadline; unanswered → bridge marked unavailable for that session with a
-    cooldown-gated reprobe; once answered, the full deadline. The verdict lives on the session
-    record, so a new session re-probes. Interrupt ≠ timeout: a cancelled wait (Stop, session close)
-    returns without poisoning the state, because ``send()``'s None conflates the two and only the
-    cooldown-reprobe token distinguishes an in-flight probe — so state flips only through it.
-    """
-    with _sessions_lock:
-        session = _sessions.get(sid)
-        if session is None:
-            # detached caller: throwaway record, plain bridge, unprobed ({} is falsy but a REAL record)
-            session = {}
-        state = session.get("preview_action_bridge")
-        now = time.monotonic()
-        if state == "unanswered" and now < session.get("preview_action_bridge_retry_at", 0):
-            return _PREVIEW_ACTION_BRIDGE_UNAVAILABLE
-        if state == "unanswered":
-            with _preview_action_reprobe_lock:
-                if _preview_action_reprobe.get(sid) is not None:
-                    return _PREVIEW_ACTION_BRIDGE_UNAVAILABLE
-                _preview_action_reprobe[sid] = object()
-                session["preview_action_bridge_retry_at"] = now + _PREVIEW_ACTION_REPROBE_COOLDOWN_S
-    try:
-        answer = _ask("preview.act", sid, dict(payload),
-                      timeout=_PREVIEW_ACTION_TIMEOUT_S if state == "answered" else _PREVIEW_ACTION_PROBE_TIMEOUT_S)
-    finally:
-        if state == "unanswered":
-            with _preview_action_reprobe_lock:
-                _preview_action_reprobe.pop(sid, None)
-    with _sessions_lock:
-        if answer:
-            session["preview_action_bridge"] = "answered"
-        elif session.get("preview_action_bridge") != "answered":
-            session["preview_action_bridge"] = "unanswered"
-            session["preview_action_bridge_retry_at"] = time.monotonic() + _PREVIEW_ACTION_REPROBE_COOLDOWN_S
-    return answer or _PREVIEW_ACTION_BRIDGE_UNAVAILABLE
 
 
 def _clear_pending(sid: str | None = None) -> None:
@@ -1418,7 +1310,7 @@ def _live_session_identity(session: dict) -> tuple[str, str]:
     carries. The profile default is the LAST resort, never the answer for a chat that made its own pick."""
     pending = session.get("pending_model_switch") or {}
     mirror = _metadata_mirror(session)
-    agent = session_runtime_view(session.get("agent"))
+    agent = session.get("agent")
     override = session.get("model_override") or {}
     model = (str(pending.get("display_model") or "").strip() or mirror.get("model")
              or getattr(agent, "model", "") or override.get("model"))
@@ -1450,7 +1342,7 @@ def _fast_tier_applies(agent, model: str, provider: str, *, route_known: bool, t
 def _session_info(agent, session: dict | None = None) -> dict:
     if session is None:
         session = next((c for c in _sessions.values() if c.get("agent") is agent), None)
-    agent = session_runtime_view(agent)
+
     sess = session or {}
     mirror = _metadata_mirror(session)
     cwd = _display_session_cwd(session)
@@ -1514,11 +1406,11 @@ def _session_info(agent, session: dict | None = None) -> dict:
     live_agent = agent is not None and not sess.get("_compute_host_active")
     if live_agent:
         with contextlib.suppress(Exception):
-            from model_tools import get_toolset_for_tool
+            from tools.registry import registry
             info["tools"] = {}
             for t in getattr(agent, "tools", []) or []:
                 name = t["function"]["name"]
-                info["tools"].setdefault(get_toolset_for_tool(name) or "other", []).append(name)
+                info["tools"].setdefault(registry.get_toolset_for_tool(name) or "other", []).append(name)
         with contextlib.suppress(Exception):
             from hermes_cli.banner import get_available_skills
             info["skills"] = get_available_skills()
@@ -1626,15 +1518,9 @@ def _hydrate_session_cwd(sid: str, key: str, session_db, profile_home: str | Non
         if db is not None:
             row = db.get_session(key) if hasattr(db, "get_session") else None
             if row and _resumable_stored_cwd(row.get("cwd"), profile_home):
-                # An ssh or sandbox session's stored cwd is its workspace: explicit, so the remote terminal uses it
-                # instead of the backend default (an unpicked launch dir is never persisted for them). Host backends
-                # keep main's semantics (resolved outside the sessions lock: I/O).
-                remote = not _host_cwd_is_terminal_cwd(profile_home)
                 with _sessions_lock:
                     if sid in _sessions:
                         _sessions[sid]["cwd"] = row["cwd"]
-                        if remote:
-                            _sessions[sid]["explicit_cwd"] = True
                 # Lazy desktop rows already carry their explicitly chosen cwd, so they never reach the fresh-cwd
                 # branch below. Claim a generation before probing to keep an older probe from overwriting a later
                 # workspace move; complete rows do not need another probe on every resume.
@@ -1647,7 +1533,7 @@ def _hydrate_session_cwd(sid: str, key: str, session_db, profile_home: str | Non
                         logger.debug("failed to enrich resumed session git metadata", exc_info=True)
             elif (not (row and row.get("cwd")) or _is_other_profiles_cwd(row["cwd"], profile_home)) and hasattr(
                 db, "update_session_cwd"
-            ) and not _is_remote_launch_cwd(_sessions.get(sid)):
+            ):
                 # A stored cwd that was set aside (Hermes's own host tree) stays as stored: only an empty row is filled,
                 # or a named profile's row holding another profile's dir (#87584), repaired to this session's own.
                 try:
@@ -1997,7 +1883,7 @@ from hermes_state import _BARE_BILLING_PROVIDERS
 
 from . import (
     session_registry as _session_registry, agent_factory as _agent_factory,
-    slash_worker_client as _slash_worker_client, methods_voice as _methods_voice, methods_browser as _methods_browser, methods_slash as _methods_slash,
+    slash_worker_client as _slash_worker_client, methods_liveness as _methods_liveness, methods_browser as _methods_browser, methods_slash as _methods_slash,
     methods_complete_helpers as _methods_complete_helpers, session_auto_continue as _session_auto_continue,
     plugin_inject as _plugin_inject,
     rpc_dispatch as _rpc_dispatch,
@@ -2013,25 +1899,25 @@ from . import (
     methods_config_set as _methods_config_set, methods_images as _methods_images,
     methods_profiles as _methods_profiles, methods_prompt as _methods_prompt, methods_session as _methods_session,
     methods_tools as _methods_tools, methods_tools_plugin_servers as _methods_tools_plugin_servers,
-    methods_projects as _methods_projects, methods_session_foreign as _methods_session_foreign,
+    methods_projects as _methods_projects,
     methods_session_control as _methods_session_control, methods_subagents as _methods_subagents,
     methods_vault as _methods_vault, methods_free_tier as _methods_free_tier,
     methods_connectors as _methods_connectors, methods_connectors_account as _methods_connectors_account,
     methods_display as _methods_display, methods_display_watch as _methods_display_watch,
-    methods_onboarding as _methods_onboarding, methods_i18n as _methods_i18n, methods_machine as _methods_machine,
-    methods_shared_metrics as _methods_shared_metrics, methods_plugin_catalog as _methods_plugin_catalog)
+    methods_machine as _methods_machine,
+    methods_plugin_catalog as _methods_plugin_catalog)
 
 for _m in (
     _session_registry, _agent_factory, _slash_worker_client,
     _session_transports, _session_reaper, _session_lifecycle, _session_workdir, _compute_host_bridge, _model_switch,
     _session_compression, _change_watcher, _tool_progress, _session_notifications,
     _prompt_attachments, _session_history, _agent_callbacks, _session_auto_continue, _plugin_inject, _rpc_dispatch,
-    _methods_complete_helpers, _methods_slash, _methods_voice, _methods_browser,
+    _methods_complete_helpers, _methods_slash, _methods_liveness, _methods_browser,
     _methods_session, _methods_prompt, _methods_config,
     _methods_config_set, _methods_complete, _methods_tools, _methods_tools_plugin_servers, _methods_profiles, _methods_images,
-    _methods_bot_relay, _prompt_turn, _billing_view, _methods_projects, _methods_session_foreign,
+    _methods_bot_relay, _prompt_turn, _billing_view, _methods_projects,
     _methods_session_control, _methods_subagents, _methods_vault, _methods_free_tier, _methods_connectors,
-    _methods_connectors_account, _methods_display, _methods_display_watch, _methods_onboarding,
-    _methods_i18n, _methods_machine, _methods_shared_metrics, _methods_plugin_catalog):
+    _methods_connectors_account, _methods_display, _methods_display_watch,
+    _methods_machine, _methods_plugin_catalog):
     _m.register(sys.modules[__name__])
 del _m

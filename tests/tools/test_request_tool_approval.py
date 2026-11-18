@@ -3,7 +3,7 @@
 
 These verify that a plugin-driven approval reuses the SAME machinery as a
 Tier-2 dangerous-command match: session/permanent allowlist, the CLI prompt,
-the gateway submit_pending path, cron_mode, and fail-closed timeouts.
+the gateway submit_pending path and fail-closed timeouts.
 """
 
 import pytest
@@ -13,6 +13,12 @@ from tools import approval_prompt
 import tools.approval_context as tools_approval_context
 from tools import approval_context
 from tools.approval import request_tool_approval
+
+
+@pytest.fixture(autouse=True)
+def _materialize_mcp_sdk_symbols():
+    """Approval unit tests do not use the MCP SDK."""
+    yield
 
 
 @pytest.fixture(autouse=True)
@@ -113,27 +119,6 @@ class TestRequestToolApproval:
         assert calls["permanent"] == []  # session != always
 
 
-    def test_cron_deny_mode_blocks(self, monkeypatch):
-        monkeypatch.setattr(approval, "_is_interactive_cli", lambda: False)
-        monkeypatch.setattr(approval, "_is_gateway_approval_context", lambda: False)
-        monkeypatch.setattr(tools_approval_context, "_is_gateway_approval_context", lambda: False)
-        monkeypatch.setattr(approval, "_is_cron_approval_context", lambda: True)
-        monkeypatch.setattr(tools_approval_context, "_is_cron_approval_context", lambda: True)
-        monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "deny")
-        res = request_tool_approval("terminal", "smtp send")
-        assert res["approved"] is False
-        assert "cron" in res["message"].lower()
-
-    def test_cron_approve_mode_allows(self, monkeypatch):
-        monkeypatch.setattr(approval, "_is_interactive_cli", lambda: False)
-        monkeypatch.setattr(approval, "_is_gateway_approval_context", lambda: False)
-        monkeypatch.setattr(tools_approval_context, "_is_gateway_approval_context", lambda: False)
-        monkeypatch.setattr(approval, "_is_cron_approval_context", lambda: True)
-        monkeypatch.setattr(tools_approval_context, "_is_cron_approval_context", lambda: True)
-        monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "approve")
-        res = request_tool_approval("terminal", "smtp send")
-        assert res["approved"] is True
-
 
     def test_distinct_reasons_get_distinct_keys(self, monkeypatch):
         """Two different reasons on the SAME tool must not share an [a]lways
@@ -156,14 +141,12 @@ class TestRequestToolApproval:
         res = request_tool_approval("terminal", "any", rule_key="my-rule")
         assert res["pattern_key"] == "plugin_rule:my-rule"
 
-    def test_no_human_non_cron_fails_closed(self, monkeypatch):
-        """Non-interactive, non-gateway, NON-cron context blocks (fail-closed)
+    def test_no_human_fails_closed(self, monkeypatch):
+        """A non-interactive, non-gateway context blocks (fail-closed)
         — a plugin-flagged action never runs ungated without a human."""
         monkeypatch.setattr(approval, "_is_interactive_cli", lambda: False)
         monkeypatch.setattr(approval, "_is_gateway_approval_context", lambda: False)
         monkeypatch.setattr(tools_approval_context, "_is_gateway_approval_context", lambda: False)
-        monkeypatch.setattr(approval, "_is_cron_approval_context", lambda: False)
-        monkeypatch.setattr(tools_approval_context, "_is_cron_approval_context", lambda: False)
         res = request_tool_approval("terminal", "smtp send")
         assert res["approved"] is False
         assert "no interactive user or gateway" in res["message"].lower()
@@ -173,8 +156,6 @@ class TestRequestToolApproval:
         monkeypatch.setattr(approval, "_is_interactive_cli", lambda: False)
         monkeypatch.setattr(approval, "_is_gateway_approval_context", lambda: False)
         monkeypatch.setattr(tools_approval_context, "_is_gateway_approval_context", lambda: False)
-        monkeypatch.setattr(approval, "_is_cron_approval_context", lambda: False)
-        monkeypatch.setattr(tools_approval_context, "_is_cron_approval_context", lambda: False)
         monkeypatch.setattr(approval, "_is_single_query_approval_context", lambda: False)
         monkeypatch.setattr(approval_context, "_get_approval_mode", lambda: "manual")
         monkeypatch.setenv("HERMES_EXEC_ASK", "1")
@@ -203,8 +184,6 @@ class TestRequestToolApproval:
         monkeypatch.setattr(approval, "_is_interactive_cli", lambda: False)
         monkeypatch.setattr(approval, "_is_gateway_approval_context", lambda: False)
         monkeypatch.setattr(tools_approval_context, "_is_gateway_approval_context", lambda: False)
-        monkeypatch.setattr(approval, "_is_cron_approval_context", lambda: False)
-        monkeypatch.setattr(tools_approval_context, "_is_cron_approval_context", lambda: False)
         monkeypatch.setattr(approval, "_is_single_query_approval_context", lambda: False)
         monkeypatch.setattr(approval_context, "_get_approval_mode", lambda: "manual")
         monkeypatch.setattr(approval_context, "_get_unattended_approval_mode", lambda: "deny")

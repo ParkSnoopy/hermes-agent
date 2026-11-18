@@ -3,8 +3,8 @@
 ``O_CREAT | O_EXCL`` (fails on ANY existing path, even a dangling link); overwrites ``lstat`` +
 ``unlink`` first (removes the link, never its target) then create exclusively, so the pair
 can't be raced. ``private=True`` (default) = ``0o700`` dirs / ``0o600`` files for spills that
-may hold pre-redaction secrets; ``private=False`` keeps umask perms for cache dirs bind-mounted
-into remote backends (``credential_files._CACHE_DIRS``). Disk failures raise ``OSError``."""
+may hold pre-redaction secrets; ``private=False`` keeps umask permissions. Disk failures raise
+``OSError``."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import os
 import stat
 from pathlib import Path
 from typing import IO
-from hermes_dir_acl import make_user_dir
+from hermes_user_dirs import make_user_dir
 
 __all__ = ["ensure_spill_dir", "open_exclusive", "write_text_exclusive"]
 

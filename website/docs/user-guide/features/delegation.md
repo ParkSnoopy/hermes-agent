@@ -274,7 +274,7 @@ delegation:
 
 If omitted, subagents use the same model as the parent.
 
-In Desktop, set the same keys under **Settings → Model → Subagents** (see [Desktop](../desktop.md#subagent-models-and-limits)). The page edits the profile chosen under **Applies to**, affects subagents launched after you click **Apply**, and never changes the main model or a child that is already running.
+In Desktop, set the same keys under **Settings → Model → Subagents**. The page edits the profile chosen under **Applies to**, affects subagents launched after you click **Apply**, and never changes the main model or a child that is already running.
 
 ### Cost strategy: frontier planner, inexpensive workers
 
@@ -291,7 +291,7 @@ delegation:
 
 Resolution order: `delegation.base_url` (direct endpoint) takes precedence, then `delegation.provider` (full credential bundle resolved via the runtime provider system), and when neither is set children inherit the parent's provider and credentials; `delegation.model` applies in all cases, and when it is empty children inherit the parent's model. Setting `delegation.provider` alongside `delegation.base_url` keeps the explicit endpoint but carries that provider's request overrides and max output tokens into the child. An explicit `delegation.request_overrides` dict is honored on every branch and merges over those runtime-derived values (see [Configuration](#configuration) below).
 
-Note that the pin is global: with the default strategy `delegate_task` has no per-task model parameter, so every child in a batch runs on the configured delegation model. For quality-sensitive subtasks that need a stronger model, either leave `delegation.model` unset for that session, use a delegation strategy plugin (below), or hand the task to the [kanban board](kanban.md#per-task-model-override), which does support a per-task model override.
+Note that the pin is global: with the default strategy `delegate_task` has no per-task model parameter, so every child in a batch runs on the configured delegation model. For quality-sensitive subtasks that need a stronger model, either leave `delegation.model` unset for that session, use a delegation strategy plugin (below), or hand the task to the kanban board, which does support a per-task model override.
 
 ### Delegation strategies (`delegation.backend`)
 
@@ -381,7 +381,6 @@ Certain tools are blocked for subagents even when the parent has them:
 - `clarify` — subagents cannot interact with the user
 - `memory` — no writes to shared persistent memory
 - `send_message` — no cross-platform side effects
-- `cronjob` — no scheduling more work in the parent's name
 
 Both roles retain `execute_code` (programmatic tool calling) so children can batch mechanical work.
 
@@ -401,9 +400,9 @@ A child that exhausts its budget returns with `exit_reason: max_iterations` and 
 
 By default there is **no wall-clock timeout** on subagents. Children fail only from what they're actually doing — API errors, tool errors, or hitting their iteration budget — never from a delegation-level stopwatch. Earlier releases shipped a hard cap (300s, later 600s), which kept killing legitimately busy children mid-task: deep code reviews, large research fan-outs, and slow reasoning models routinely need more than 10 minutes while making steady progress the whole time.
 
-Genuinely stuck children are still detected on every runtime, with or without a configured cap: the heartbeat staleness monitor watches each child's progress signals (API calls, tool starts, activity-timestamp ticks). A child whose progress is completely frozen past the stale threshold — 450s idle between turns, 1200s while inside a tool — is interrupted and its wait is **abandoned**: the parent gets a `status: "timeout"` entry whose error reads `Subagent stopped making progress after N API call(s) — no activity for 450s (heartbeat stale threshold); the pending worker was abandoned.` The wait ends even in one-shot runs (`hermes chat -Q`, Bot Chat one-shot, cron) that have no gateway inactivity watchdog behind them, so a wedged child can no longer hold the turn or its session lease forever. An in-flight model wait still counts as progress — subagents refresh the activity clock while waiting on the provider, so a slow local / long-prefill completion is not treated as stalled.
+Genuinely stuck children are still detected on every runtime, with or without a configured cap: the heartbeat staleness monitor watches each child's progress signals (API calls, tool starts, activity-timestamp ticks). A child whose progress is completely frozen past the stale threshold — 450s idle between turns, 1200s while inside a tool — is interrupted and its wait is **abandoned**: the parent gets a `status: "timeout"` entry whose error reads `Subagent stopped making progress after N API call(s) — no activity for 450s (heartbeat stale threshold); the pending worker was abandoned.` The wait ends even in one-shot runs (`hermes chat -Q`, Bot Chat one-shot) that have no gateway inactivity watchdog behind them, so a wedged child can no longer hold the turn or its session lease forever. An in-flight model wait still counts as progress — subagents refresh the activity clock while waiting on the provider, so a slow local / long-prefill completion is not treated as stalled.
 
-If you want a cap anyway (e.g. cost control on unattended cron-driven delegation), opt in per-install:
+If you want a cap anyway (e.g. cost control on unattended delegation), opt in per-install:
 
 ```yaml
 delegation:
@@ -573,7 +572,7 @@ The dispatch response includes the paths as `live_transcripts`, and the files ar
 tail -f ~/.hermes/cache/delegation/live/deleg_ab12cd34/task-0.log
 ```
 
-Each line is timestamped and shows the child's assistant text, thinking snippets, tool calls (`-> tool_name({args})`), tool results, and a final status marker. A `manifest.json` in the same directory describes the batch (goals, task count, per-task status). The logs persist after completion — they double as the full-fidelity operational record alongside the summary — and directories older than 7 days are pruned automatically on new dispatches. Because they live under `cache/delegation`, they are also readable from remote terminal backends (Docker/Modal/SSH).
+Each line is timestamped and shows the child's assistant text, thinking snippets, tool calls (`-> tool_name({args})`), tool results, and a final status marker. A `manifest.json` in the same directory describes the batch (goals, task count, per-task status). The logs persist after completion — they double as the full-fidelity operational record alongside the summary — and directories older than 7 days are pruned automatically on new dispatches. Because they live under `cache/delegation`, they are also readable from remote terminal backends (Docker/SSH).
 
 ## Depth Limit and Nested Orchestration
 
@@ -693,7 +692,6 @@ Top-level model-facing `delegate_task` calls run in the background automatically
 
 For **durable execution** that must survive session closure or process restart, use:
 
-- `cronjob` (action=`create`) — schedules a separate agent run; immune to parent-turn interrupts.
 - `terminal(background=True, notify_on_complete=True)` — long-running shell commands that keep running while the agent does other things.
 :::
 
@@ -702,7 +700,7 @@ For **durable execution** that must survive session closure or process restart, 
 - Each subagent gets its **own terminal session** (separate from the parent)
 - Subagents inherit the parent's enabled toolsets; the model cannot select or widen them per call
 - **Nested delegation is opt-in** — only `role="orchestrator"` children can delegate further, and only when `max_spawn_depth` is raised from its default of 1 (flat). Disable globally with `orchestrator_enabled: false`.
-- Leaf subagents **cannot** call: `delegate_task`, `clarify`, `memory`, `send_message`, `cronjob`. Orchestrator subagents retain `delegate_task` but keep the other blocks. Both roles retain `execute_code` (programmatic tool calling) so children can batch mechanical work instead of burning reasoning iterations.
+- Leaf subagents **cannot** call: `delegate_task`, `clarify`, `memory`, `send_message`. Orchestrator subagents retain `delegate_task` but keep the other blocks. Both roles retain `execute_code` (programmatic tool calling) so children can batch mechanical work instead of burning reasoning iterations.
 - **Cancellation follows ownership** — `/stop` or closing/resetting the owning session ends its background children and the synchronous descendants beneath them; each returns an interrupted completion carrying its partial output
 - Only the final summary enters the parent's context, keeping token usage efficient
 - Subagents inherit the parent's **API key, provider configuration, and credential pool** (enabling key rotation on rate limits)
@@ -739,7 +737,7 @@ With isolation on:
   the child produced nothing.
 
 Scope: opt-in, git-only, and local-terminal-backend-only. In a non-git
-directory, on docker/ssh/modal backends, or if worktree creation fails, the
+directory, on docker/ssh backends, or if worktree creation fails, the
 setting degrades silently to today's shared-workspace behavior — never an
 error.
 

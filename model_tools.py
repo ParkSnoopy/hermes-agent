@@ -24,7 +24,7 @@ from tools.registry import (
 from tools.registry import _MAX_TOOL_ERROR_CHARS as _TOOL_ERROR_MAX_LEN
 from toolsets import resolve_toolset, validate_toolset
 from tools.arg_coercion import coerce_tool_args
-from tools.todo_tool import TODO_LEGACY_ALIASES, TODO_SCHEMA
+
 
 logger = logging.getLogger(__name__)
 
@@ -52,15 +52,6 @@ def _is_delegated_child_context() -> bool:
     except Exception:
         return False
 
-
-def _is_dispatcher_owned_worker() -> bool:
-    """False when HERMES_KANBAN_* is present but this execution does not own it
-    (delegate_task child, or a cron job fired in-process from a worker)."""
-    try:
-        from agent.delegation_context import is_dispatcher_owned_worker_context
-        return is_dispatcher_owned_worker_context()
-    except Exception:
-        return True
 
 
 # --- Async bridging (single source of truth; registry.dispatch uses it too) ---
@@ -166,26 +157,8 @@ except Exception as e:
     logger.debug("Plugin discovery failed: %s", e)
 
 
-# Backward-compat constants (built once after discovery)
-TOOL_TO_TOOLSET_MAP: dict[str, str] = registry.get_tool_to_toolset_map()
-
-TOOLSET_REQUIREMENTS: dict[str, dict] = registry.get_toolset_requirements()
-
 # Tool names from the last get_tool_definitions() call (execute_code sandbox fallback).
 _last_resolved_tool_names: list[str] = []
-
-
-# Legacy toolset names (old _tools-suffixed names -> tool name lists)
-_LEGACY_TOOLSET_MAP = {
-    "web_tools": ["web_search", "web_extract"],
-    "terminal_tools": ["terminal"],
-    "vision_tools": ["vision_analyze"],
-    "image_tools": ["image_generate"],
-    "skills_tools": ["skills_list", "skill_view", "skill_manage"],
-    "cronjob_tools": ["cronjob_manage"],
-    "file_tools": ["read_file", "write_file", "patch", "search_files"],
-    "tts_tools": ["text_to_speech"],
-}
 
 
 # --- get_tool_definitions (the main schema provider) --------------------------
@@ -202,15 +175,15 @@ _tool_defs_expiry: dict[tuple, float] = {}  # cache key -> time.monotonic() dead
 _tool_defs_cache_lock = threading.Lock()
 # FIFO cap: 8 covers a long-lived gateway's warm set of platform/toolset combos.
 # Hard cap on memoized get_tool_definitions() results. A long-lived Gateway process sees many distinct
-# toolset/config fingerprints over its lifetime (per-session toolset sets, config edits, kanban-task
-# toggles); without a bound the cache grows unboundedly. 8 comfortably covers the warm working set (the
+# toolset/config fingerprints over its lifetime (per-session toolset sets and config edits);
+# without a bound the cache grows unboundedly. 8 comfortably covers the warm working set (the
 # handful of distinct platform/toolset combos a gateway actually serves) while keeping the cap small.
 # (#19251)
 _TOOL_DEFS_CACHE_MAX = 8
 
 
 def _clear_tool_defs_cache() -> None:
-    """Drop memoized results when a dynamic-schema dependency changes (discord caps, sandbox mode)."""
+    """Drop memoized results when a dynamic-schema dependency changes (such as sandbox mode)."""
     with _tool_defs_cache_lock:
         _tool_defs_cache.clear()
         _tool_defs_expiry.clear()
@@ -277,7 +250,7 @@ def _tool_defs_cache_key(
 
     Covers every argument plus everything that changes the result without one:
     registry generation, check_fn cache epoch, config.yaml stat signature (dynamic
-    schemas), kanban context, profile scope. check_fn verdicts expire the entry
+    schemas), profile scope. check_fn verdicts expire the entry
     itself (see get_tool_definitions).
     """
     profile_scope = check_fn_cache_scope()
@@ -292,8 +265,8 @@ def _tool_defs_cache_key(
     return (
         registry.current_scope_key(), frozenset(enabled_toolsets) if enabled_toolsets is not None else None,
         frozenset(disabled_toolsets) if disabled_toolsets else None, registry._generation, cfg_fp,
-        bool(os.environ.get("HERMES_KANBAN_TASK")), bool(skip_tool_search_assembly),
-        _is_delegated_child_context(), _is_dispatcher_owned_worker(), profile_scope, check_fn_cache_epoch(),
+        bool(skip_tool_search_assembly),
+        _is_delegated_child_context(), profile_scope, check_fn_cache_epoch(),
     )
 
 
@@ -318,9 +291,6 @@ def _apply_toolset_selection(tools: set, names: list[str], quiet_mode: bool, *, 
                     )
             else:
                 resolved = resolve_toolset(name)
-        elif name in _LEGACY_TOOLSET_MAP:
-            label = f"{verb} legacy toolset"
-            resolved = _LEGACY_TOOLSET_MAP[name]
         else:
             if not quiet_mode:
                 print(f"⚠️  Unknown toolset: {name}")
@@ -335,11 +305,7 @@ def _select_tool_names(enabled_toolsets: Optional[list[str]], disabled_toolsets:
     tools: set = set()
     if enabled_toolsets is not None:
         enabled = list(enabled_toolsets)
-        # Dispatcher-spawned kanban workers always get the lifecycle handoff
-        # tools, even when the assignee profile restricts its chat toolsets.
-        if (os.environ.get("HERMES_KANBAN_TASK") and not _is_delegated_child_context()
-                and _is_dispatcher_owned_worker() and "kanban" not in enabled):
-            enabled.append("kanban")
+
         _apply_toolset_selection(tools, enabled, quiet_mode, disable=False)
     else:
         from toolsets import TOOLSET_SESSION_PLATFORMS, get_all_toolsets
@@ -371,17 +337,6 @@ def _rewrite_execute_code(td: dict[str, Any], available: set) -> Optional[dict[s
     from tools.code_execution_tool import SANDBOX_ALLOWED_TOOLS, build_execute_code_schema, _get_execution_mode
     return _fn_def(build_execute_code_schema(SANDBOX_ALLOWED_TOOLS & available, mode=_get_execution_mode()))
 
-
-def _discord_rewriter(schema_fn_name: str):
-    """Schema depends on the bot's privileged intents and the config action allowlist; None drops the tool."""
-    def _rewrite(td: dict[str, Any], available: set) -> Optional[dict[str, Any]]:
-        try:
-            from tools import discord_tool as _dt
-            dynamic = getattr(_dt, schema_fn_name)()
-        except Exception:
-            dynamic = None
-        return None if dynamic is None else _fn_def(dynamic)
-    return _rewrite
 
 
 def _rewrite_browser_cdp(td: dict[str, Any], available: set) -> Optional[dict[str, Any]]:
@@ -416,12 +371,12 @@ def _rewrite_delegate_task(td: dict[str, Any], available: set) -> Optional[dict[
     the line when none apply, so the model never learns ghost vocabulary. Two
     source variants exist (depth-off also names delegate_task itself); test the
     longer one first because the sibling list is a substring of it."""
-    blocked_present = [t for t in ("clarify", "memory", "cronjob_manage") if t in available]
-    if len(blocked_present) == 3:
+    blocked_present = [t for t in ("clarify", "memory") if t in available]
+    if len(blocked_present) == 2:
         return td
     fn = td.get("function", {})
     desc = fn.get("description", "")
-    for full, self_named in (("delegate_task, clarify, memory, or cronjob", True), ("clarify, memory, or cronjob", False)):
+    for full, self_named in (("delegate_task, clarify, or memory", True), ("clarify or memory", False)):
         if full in desc:
             break
     else:
@@ -444,12 +399,8 @@ _VAULT_INPUT_TOOL_HINT = "the browser's input tool"
 def _rewrite_browser_vault(td: dict[str, Any], available: set) -> Optional[dict[str, Any]]:
     """Name the concrete input tool for typing the login identifier (`fill_input` inside browser_exec code).
     Resolved here because the two live in different toolsets."""
-    preview = "drive_preview" in available
     if "browser_exec" in available:
-        concrete = "`fill_input` inside browser_exec" + (
-            " (or drive_preview action=type on the in-app browser)" if preview else "")
-    elif preview:
-        concrete = "drive_preview action=type"
+        concrete = "`fill_input` inside browser_exec"
     else:
         return td
     fn = td["function"]
@@ -468,10 +419,7 @@ def _rewrite_input_tool_for_vault(td: dict[str, Any], available: set) -> Optiona
     if "browser_vault" not in available:
         return td
     fn = td["function"]
-    note = _VAULT_NO_PASSWORD_NOTE
-    if fn["name"] == "drive_preview":
-        note += " For this in-app page pass target=preview (the default when no managed browser page is open)."
-    return _fn_def({**fn, "description": fn.get("description", "") + note})
+    return _fn_def({**fn, "description": fn.get("description", "") + _VAULT_NO_PASSWORD_NOTE})
 
 
 def _compose_rewriters(*fns):
@@ -486,12 +434,10 @@ def _compose_rewriters(*fns):
 
 _DYNAMIC_SCHEMA_REWRITERS = {
     "execute_code": _rewrite_execute_code,
-    "discord": _discord_rewriter("get_dynamic_schema_core"),
-    "discord_admin": _discord_rewriter("get_dynamic_schema_admin"),
+
     "browser_cdp": _rewrite_browser_cdp,
     "browser_exec": _compose_rewriters(_rewrite_browser_exec, _rewrite_browser_exec_vision, _rewrite_input_tool_for_vault),
     "browser_vault": _rewrite_browser_vault,
-    "drive_preview": _rewrite_input_tool_for_vault,
     "delegate_task": _rewrite_delegate_task,
 }
 
@@ -523,11 +469,7 @@ def _compute_tool_definitions(enabled_toolsets: Optional[list[str]] = None, disa
                               quiet_mode: bool = False, skip_tool_search_assembly: bool = False) -> list[dict[str, Any]]:
     """Uncached implementation of :func:`get_tool_definitions`."""
     tools_to_include = _select_tool_names(enabled_toolsets, disabled_toolsets, quiet_mode)
-    # Selection is per schema, not per process/profile. Kanban's local checks
-    # are uncached; the outer definitions cache already keys on this selection.
-    from tools.kanban_toolset_context import scoped_kanban_toolset_selection
-    with scoped_kanban_toolset_selection(enabled_toolsets):
-        filtered_tools = _apply_dynamic_schemas(registry.get_definitions(tools_to_include, quiet=quiet_mode))
+    filtered_tools = _apply_dynamic_schemas(registry.get_definitions(tools_to_include, quiet=quiet_mode))
     global _last_resolved_tool_names
     _last_resolved_tool_names = [t["function"]["name"] for t in filtered_tools]
 
@@ -628,12 +570,6 @@ def _resolve_active_context_length() -> int:
 # Intercepted by the agent loop (need agent-level state); dispatch returns a stub error.
 _AGENT_LOOP_TOOLS = {"todo_list", "memory", "session_search", "delegate_task"}
 
-# Legacy tool-name aliases accepted at every dispatch seam (old sessions/saved
-# prompts keep working); schemas advertise only new names.
-_LEGACY_TOOL_ALIASES = {
-    **dict.fromkeys(TODO_LEGACY_ALIASES, TODO_SCHEMA["name"]), "cronjob": "cronjob_manage", "process": "process_manage",
-    "tour": "gui_tour", "tip": "show_tip",
-}
 _READ_SEARCH_TOOLS = {"read_file", "search_files"}
 
 
@@ -737,19 +673,17 @@ def _dispatch_bridge_tool(function_name: str, function_args: dict[str, Any],
     if not ts.is_bridge_tool(function_name):
         return None
     # Un-collapsed catalog scoped to the session's toolsets, so a restricted
-    # session (subagent, kanban worker) can't reach the whole registry via the bridge.
+    # session (such as a subagent) can't reach the whole registry via the bridge.
     try:
         current_defs = get_tool_definitions(enabled_toolsets=enabled_toolsets, disabled_toolsets=disabled_toolsets,
                                             quiet_mode=True, skip_tool_search_assembly=True) or []
     except Exception:
         current_defs = []
     args = function_args or {}
-    from tools.managed_gateway_identity import CallRef
-    call = CallRef(turn_id=ids.turn_id, tool_call_id=ids.tool_call_id) if ids else None
     if function_name == ts.TOOL_SEARCH_NAME:
-        return ts.dispatch_tool_search(args, current_tool_defs=current_defs, call=call), None
+        return ts.dispatch_tool_search(args, current_tool_defs=current_defs), None
     if function_name == ts.TOOL_DESCRIBE_NAME:
-        return ts.dispatch_tool_describe(args, current_tool_defs=current_defs, call=call), None
+        return ts.dispatch_tool_describe(args, current_tool_defs=current_defs), None
     # Session-scoped names for the error path below: a core tool stripped from this
     # session (clarify in a subagent) must not be told to "call it directly".
     underlying_name, underlying_args, err = ts.resolve_underlying_call(args, ts.session_tool_names(current_defs))
@@ -859,7 +793,7 @@ def _execute_tool(function_name: str, function_args: dict[str, Any], original_ar
     def _dispatch(next_args: dict[str, Any]) -> Any:
         from tools.connectors import dispatch_connector_call, is_connector_name
         if is_connector_name(function_name):
-            return dispatch_connector_call(function_name, next_args, ids.tool_call_id, ids.turn_id, ids.task_id)
+            return dispatch_connector_call(function_name, next_args, ids.tool_call_id, task_id=ids.task_id)
         return registry.dispatch(function_name, next_args, **dispatch_kwargs)
 
     with _approval_observability(ids):
@@ -915,7 +849,7 @@ def handle_function_call(
     if not isinstance(function_args, dict):
         function_args = {}
     trace = list(tool_request_middleware_trace or [])
-    function_name = _LEGACY_TOOL_ALIASES.get(function_name, function_name)
+
     ids = _CallIds(task_id, session_id, tool_call_id, turn_id, api_request_id, conversation_id)
     start = time.monotonic()
 
@@ -989,30 +923,3 @@ def handle_function_call(
         logger.exception(error_msg)
         return _emit(tool_error(_sanitize_tool_error(error_msg)), duration_ms=_elapsed_ms(start),
                      status="error", error_type=type(e).__name__, error_message=str(e))
-
-
-# =============================================================================
-# Backward-compat wrapper functions (registry pass-throughs)
-# =============================================================================
-
-def get_all_tool_names() -> list[str]:
-    return registry.get_all_tool_names()
-
-
-def get_toolset_for_tool(tool_name: str) -> Optional[str]:
-    return registry.get_toolset_for_tool(tool_name)
-
-
-def get_available_toolsets() -> dict[str, dict]:
-    """Toolset availability info for UI display."""
-    return registry.get_available_toolsets()
-
-
-def check_toolset_requirements() -> dict[str, bool]:
-    """{toolset: available_bool} for every registered toolset."""
-    return registry.check_toolset_requirements()
-
-
-def check_tool_availability(quiet: bool = False) -> tuple[list[str], list[dict]]:
-    """(available_toolsets, unavailable_info)."""
-    return registry.check_tool_availability(quiet=quiet)

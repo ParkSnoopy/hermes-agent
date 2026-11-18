@@ -11,8 +11,7 @@ from gateway.session_admission import admission_fingerprint
 from gateway.owner_identity import same_owner
 from hermes_state_runtime import RuntimeStoreError, _admission, _epoch, _secret_digest, _session
 
-# A venv launcher (uv's Windows python.exe, pip's exe shim) sits between the owner's
-# handle and the interpreter; the real worker is never further away than this.
+# Bound the ancestry check for launcher trampolines between owner and interpreter.
 MAX_LAUNCHER_HOPS = 3
 
 
@@ -53,11 +52,8 @@ def verify_worker_identity(process, hello):
 
 def owner_worker_subject():
     """The subject a managed worker's adoption ticket carries: the owner's own OS identity. The
-    control channel mints a worker ticket only for a same-user peer (``uid:<n>`` / ``sid:<sid>``)."""
-    if os.name == 'nt':
-        from gateway.runtime_bootstrap_windows import _process_sid
-        return 'sid:' + _process_sid(os.getpid())
-    return f'uid:{os.getuid()}'  # windows-footgun: ok — POSIX branch
+    control channel mints a worker ticket only for a same-user peer (``uid:<n>``)."""
+    return f'uid:{os.getuid()}'
 
 
 def reserve_admission_worker(authority, *, admission_id, process, principal_id, hello, worker_subject=None):

@@ -128,7 +128,7 @@ class SessionCreateParams(ProfileParams):
     model: str | None = None
     provider: str | None = None
     reasoning_effort: str | None = None
-    fast: bool | None = None  # presence is the contract: omitted inherits, true pins priority, false pins normal
+
     service_tier: str | None = None
     close_on_disconnect: bool = False
     hidden: bool = False
@@ -448,7 +448,7 @@ class UndoIntent(WireEnum):
 
 
 class SessionUndoParams(SessionParams):
-    # ``retry``: the client resends the dropped turn (Ink /retry), so metrics count a retry, not an undo.
+    # ``retry``: the client resends the dropped turn (Ink /retry), so omit the undo rollback hint.
     intent: UndoIntent | None = None
 
 
@@ -620,7 +620,7 @@ class SessionInterruptResult(Result):
 
 
 method("session.interrupt", params=SessionInterruptParams, result=SessionInterruptResult,
-       doc="Stop the running turn (and streaming TTS); retires the crash-recovery marker.")
+       doc="Stop the running turn; retire the crash-recovery marker.")
 
 
 class CorrectionStatus(WireEnum):
@@ -671,7 +671,7 @@ class SpawnTreeListParams(ProfileParams):
 
 
 class SpawnTreeEntry(OpenModel):
-    """Index row (``server._append_spawn_tree_index``) or a legacy file scan."""
+    """A persisted spawn-tree index row."""
 
     path: str
     session_id: str | None = None

@@ -58,8 +58,7 @@ def convert_base64_images_to_links(text: str) -> str:
 
 def _store_full_text(url: str, content: str) -> Optional[str]:
     """Write the full page to cache/web; absolute path or None (best-effort: the truncated content is still
-    returned). cache/web is mounted read-only into remote backends (credential_files _CACHE_DIRS) so
-    read_file can page the complete text on any backend."""
+    returned). The local read_file tool can page the complete text."""
     try:
         import hashlib
         from hermes_constants import get_hermes_dir
@@ -99,11 +98,6 @@ def _truncate_with_footer(content: str, url: str, char_limit: int) -> tuple[str,
         tail = tail[nl + 1:]
 
     stored_path = _store_full_text(url, content)
-    if stored_path:
-        # The footer is read by the AGENT, whose read_file runs inside the active backend: render the
-        # path where docker/modal/ssh/... see the mounted cache, not the host path (#72389, #81984).
-        from tools.credential_files import to_agent_visible_cache_path
-        stored_path = to_agent_visible_cache_path(stored_path)
     footer_lines = [
         "", "─" * 8 + " [TRUNCATED] " + "─" * 8,
         f"Showing {len(head):,} chars (head) + {len(tail):,} chars (tail) "

@@ -167,7 +167,10 @@ def test_record_repos_persists_and_shows_zero_session_repo(tmp_path):
     repo.mkdir()
 
     # Repo-first: a scanned repo with no hermes sessions still surfaces.
-    _call("projects.record_repos", {"repos": [{"root": str(repo), "label": "fresh-repo"}]})
+    policy = _call("projects.discover_repos")["discovery_policy"]
+    recorded = _call("projects.record_repos", {
+        "repos": [{"root": str(repo), "label": "fresh-repo"}], "discovery_policy": policy})
+    assert recorded["accepted"] is True
 
     by_label = {r["label"]: r for r in _call("projects.discover_repos")["repos"]}
     assert "fresh-repo" in by_label
@@ -190,10 +193,12 @@ def test_scan_time_is_not_treated_as_session_activity(tmp_path):
     never_opened = tmp_path / "never-opened"
     never_opened.mkdir()
 
-    _call(
+    policy = _call("projects.discover_repos")["discovery_policy"]
+    recorded = _call(
         "projects.record_repos",
-        {"repos": [{"root": str(never_opened)}, {"root": str(worked_in)}]},
+        {"repos": [{"root": str(never_opened)}, {"root": str(worked_in)}], "discovery_policy": policy},
     )
+    assert recorded["accepted"] is True
 
     by_root = {r["root"]: r for r in _call("projects.discover_repos")["repos"]}
     idle = by_root[str(never_opened)]
@@ -460,11 +465,7 @@ def test_disabled_discovery_clears_cache_and_rejects_new_scan(monkeypatch, tmp_p
         server,
         "_load_cfg",
         lambda: {
-            "desktop": {
-                "repo_scan_enabled": False,
-                "repo_scan_roots": [],
-                "repo_scan_exclude_paths": [],
-            }
+            "projects": {"repo_scan": {"enabled": False, "roots": [], "exclude_paths": []}}
         },
     )
     result = _call(
@@ -496,11 +497,7 @@ def test_nondefault_policy_rejects_stale_or_legacy_results(monkeypatch, tmp_path
         server,
         "_load_cfg",
         lambda: {
-            "desktop": {
-                "repo_scan_enabled": True,
-                "repo_scan_roots": [str(root)],
-                "repo_scan_exclude_paths": [],
-            }
+            "projects": {"repo_scan": {"enabled": True, "roots": [str(root)], "exclude_paths": []}}
         },
     )
 
@@ -713,11 +710,16 @@ def test_record_repos_writes_to_the_requested_profiles_projects_db(monkeypatch, 
     _bind_profiles(monkeypatch, tmp_path, {"default": launch_home, "coder": coder_home})
 
     with _serving_launch_profile(launch_home):
-        _call("projects.record_repos", {"repos": [{"root": str(launch_repo), "label": "launch"}]})
-        _call(
+        launch_policy = _call("projects.discover_repos")["discovery_policy"]
+        coder_policy = _call("projects.discover_repos", {"profile": "coder"})["discovery_policy"]
+        recorded_launch = _call("projects.record_repos", {
+            "repos": [{"root": str(launch_repo), "label": "launch"}], "discovery_policy": launch_policy})
+        recorded_coder = _call(
             "projects.record_repos",
-            {"profile": "coder", "repos": [{"root": str(coder_repo), "label": "coder"}]},
+            {"profile": "coder", "repos": [{"root": str(coder_repo), "label": "coder"}],
+             "discovery_policy": coder_policy},
         )
+        assert recorded_launch["accepted"] is True and recorded_coder["accepted"] is True
 
         launch_repos = _call("projects.discover_repos")["repos"]
         coder_repos = _call("projects.discover_repos", {"profile": "coder"})["repos"]
@@ -740,7 +742,10 @@ def test_projects_without_a_profile_stay_on_the_launch_home(monkeypatch, tmp_pat
         created = _call(
             "projects.create", {"name": "Launch only", "folders": [str(repo)], "use": True}
         )["project"]
-        _call("projects.record_repos", {"repos": [{"root": str(repo), "label": "only"}]})
+        policy = _call("projects.discover_repos")["discovery_policy"]
+        recorded = _call("projects.record_repos", {
+            "repos": [{"root": str(repo), "label": "only"}], "discovery_policy": policy})
+        assert recorded["accepted"] is True
 
         omitted = _call("projects.list")
         blank = _call("projects.list", {"profile": ""})

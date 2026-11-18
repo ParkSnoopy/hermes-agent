@@ -18,7 +18,7 @@ when_to_use:
 when_not_to_use:
   - Small bounded task (under ~10 units) - do it inline or call the tool directly
   - Tight serial dependency (B needs A's output) - orchestration overhead is wasted
-  - Work that must outlive this process (days, restarts) - use `cronjob` or the kanban swarm instead
+  - Work that must outlive this process (days, restarts)
 ---
 
 # Dynamic Workflow Skill
@@ -27,7 +27,7 @@ Runs large fan-out work as a workflow: the plan, the loop and every intermediate
 result live in a script and on disk, so the parent's context holds only verified
 results. Covers one-shot fan-outs, adversarial convergence (attempts + refuters),
 and multi-wave campaigns that integrate dozens of worker branches. It does not
-make `delegate_task` durable across restarts; that is the kanban swarm's job.
+make `delegate_task` durable across restarts.
 
 ## When to Use
 
@@ -57,7 +57,7 @@ Two layers, split by a real capability boundary:
 |---|---|---|
 | Use for | DETERMINISTIC work: fetch N URLs, parse N files, run N commands, template N outputs, build manifests, merge outputs | LLM-JUDGMENT work: classify, review, decide, write, refute, refactor one unit |
 | Holds | loop, branching, intermediate variables | nothing; one call with `tasks=[...]`, each task its own isolated agent |
-| Tools | the sandbox set above; it can NOT call `delegate_task` | the parent's toolsets, inherited unchanged (no per-task narrowing); children lose `delegate_task`, `clarify`, `memory`, `send_message`, `cronjob_manage` |
+| Tools | the sandbox set above; it can NOT call `delegate_task` | the parent's toolsets, inherited unchanged (no per-task narrowing); children lose `delegate_task`, `clarify`, `memory`, `send_message` |
 | Concurrency | yours (`ThreadPoolExecutor`, batches) | bounded by `delegation.max_concurrent_children` |
 | Cost | tool calls only | one full agent tree per task; multiplies linearly |
 
@@ -171,7 +171,7 @@ The one-shot recipe does not scale to a whole-codebase pass. What did:
 - Calling `delegate_task` inside an `execute_code` script: not in the sandbox.
 - Synthesizing on the same turn as the fan-out call: the files do not exist yet.
 - Promising background-durable-for-days from `delegate_task`: it is turn-scoped
-  and dies with the process. Durable graph = kanban swarm; one-off = `cronjob`.
+  and dies with the process.
 - Trusting `summary` for content, or `status=completed` for completion.
 - Same framing in every "independent" attempt: they collapse to one answer.
 - `git stash` anywhere in a worktree campaign: `refs/stash` is shared across

@@ -3,23 +3,54 @@
 N45: a /stop while the claimed turn still builds its agent (the slot holds the pending sentinel)
 must latch on the authority, so the agent the turn adopts starts interrupted and never runs tools.
 N53: an idle /stop or /new (between turns: slot released, next row not yet claimed) must still
-cancel the queued messaging follow-up. Real GatewayRunner, DiscordAdapter, SessionAuthority and
+cancel the queued messaging follow-up. Real GatewayRunner, SessionAuthority and
 drain over a real SessionDB; only agent construction/conversation is a stand-in.
 """
 import asyncio
 
 import pytest
 from tests.waiting import async_wait_until
+from gateway.config import Platform, PlatformConfig
+from gateway.platform_registry import PlatformEntry, platform_registry
+from gateway.platforms.base import BasePlatformAdapter, SendResult
+
+
+class TestTransport(BasePlatformAdapter):
+    __test__ = False
+
+    def __init__(self):
+        super().__init__(PlatformConfig(enabled=True, typing_indicator=False), Platform('test_transport'))
+
+    async def connect(self, *, is_reconnect=False):
+        return True
+
+    async def disconnect(self):
+        pass
+
+    async def send(self, chat_id, content, reply_to=None, metadata=None):
+        return SendResult(success=True, message_id='sent')
+
+    async def get_chat_info(self, chat_id):
+        return {'id': chat_id}
+
+
+@pytest.fixture
+def test_transport(monkeypatch):
+    platform_registry.register(PlatformEntry(
+        name='test_transport', label='Test transport', adapter_factory=lambda cfg: TestTransport(),
+        check_fn=lambda: True, allow_all_env='TEST_TRANSPORT_ALLOW_ALL',
+    ))
+    monkeypatch.setenv('TEST_TRANSPORT_ALLOW_ALL', 'true')
+    yield
+    platform_registry.unregister('test_transport')
 
 
 def _owner(monkeypatch):
-    from gateway.config import GatewayConfig, Platform, PlatformConfig
+    from gateway.config import GatewayConfig
     from gateway.run import GatewayRunner
-    from plugins.platforms.discord.adapter import DiscordAdapter
 
-    monkeypatch.setenv('DISCORD_ALLOWED_USERS', '42')
     runner = GatewayRunner(GatewayConfig())
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token='fixture-token', typing_indicator=False))
+    adapter = TestTransport()
     sent = []
 
     async def send(chat_id, content, reply_to=None, metadata=None):
@@ -27,7 +58,7 @@ def _owner(monkeypatch):
         sent.append(content)
         return SendResult(success=True, message_id=f's{len(sent)}')
     monkeypatch.setattr(adapter, 'send', send)
-    runner.adapters = {Platform.DISCORD: adapter}
+    runner.adapters = {adapter.platform: adapter}
     return runner, adapter, sent
 
 
@@ -36,7 +67,7 @@ async def _until(predicate, timeout=10):
 
 
 @pytest.mark.asyncio
-async def test_stop_during_agent_construction_latches_so_the_turn_runs_no_tools(monkeypatch):
+async def test_stop_during_agent_construction_latches_so_the_turn_runs_no_tools(monkeypatch, test_transport):
     from gateway.platforms.event import MessageEvent
     from gateway.run_turn_runner import TurnRunner
     from gateway.session_authority import initialize_session_authority
@@ -93,7 +124,7 @@ async def test_stop_during_agent_construction_latches_so_the_turn_runs_no_tools(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('command', ['/stop', '/new'])
-async def test_idle_stop_and_new_cancel_the_queued_followup(monkeypatch, command):
+async def test_idle_stop_and_new_cancel_the_queued_followup(monkeypatch, command, test_transport):
     from gateway.platforms.event import MessageEvent
     from gateway.session_authority import SessionAuthority, initialize_session_authority
     from gateway.session_contract import SessionRef

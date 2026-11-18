@@ -6,14 +6,14 @@ description: 'Choose your learning path through the Hermes Agent documentation b
 
 # Learning Path
 
-Hermes Agent can do a lot — CLI assistant, Telegram/Discord bot, task automation, RL training, and more. This page helps you figure out where to start and what to read based on your experience level and what you're trying to accomplish.
+Hermes Agent can do a lot — CLI and TUI assistance, task automation, RL training, and more. This page helps you figure out where to start and what to read based on your experience level and what you're trying to accomplish.
 
 :::tip Start Here
 If you haven't installed Hermes Agent yet, begin with the [Installation guide](./installation.md) and then run through the [Quickstart](./quickstart.md). Everything below assumes you have a working installation.
 :::
 
 :::tip First-time provider setup
-First-time users almost always want `hermes setup --portal` — one OAuth covers a model plus the four Tool Gateway tools (search/image/TTS/browser). See [Nous Portal](../integrations/nous-portal.md).
+First-time users almost always want `hermes setup --portal` — one OAuth covers a model plus the Tool Gateway tools (search/image/browser). See [Nous Portal](../integrations/nous-portal.md).
 :::
 
 ## How to Use This Page
@@ -27,7 +27,7 @@ First-time users almost always want `hermes setup --portal` — one OAuth covers
 | Level | Goal | Recommended Reading | Time Estimate |
 |---|---|---|---|
 | **Beginner** | Get up and running, have basic conversations, use built-in tools | [Installation](./installation.md) → [Quickstart](./quickstart.md) → [CLI Usage](../user-guide/cli.md) → [Configuration](../user-guide/configuration.md) | ~1 hour |
-| **Intermediate** | Set up messaging bots, use advanced features like memory, cron jobs, and skills | [Sessions](../user-guide/sessions.md) → [Messaging](../user-guide/messaging/index.md) → [Tools](../user-guide/features/tools.md) → [Skills](../user-guide/features/skills.md) → [Memory](../user-guide/features/memory.md) → [Cron](../user-guide/features/cron.md) | ~2–3 hours |
+| **Intermediate** | Use advanced features like memory and skills | [Sessions](../user-guide/sessions.md) → [Tools](../user-guide/features/tools.md) → [Skills](../user-guide/features/skills.md) → [Memory](../user-guide/features/memory.md) | ~2–3 hours |
 | **Advanced** | Build custom tools, create skills, train models with RL, contribute to the project | [Architecture](../developer-guide/architecture.md) → [Adding Tools](../developer-guide/adding-tools.md) → [Creating Skills](../developer-guide/creating-skills.md) → [Contributing](../developer-guide/contributing.md) | ~4–6 hours |
 
 ## By Use Case
@@ -49,46 +49,24 @@ Use Hermes Agent as an interactive terminal assistant for writing, reviewing, an
 Pass files directly into your conversation with context files. Hermes Agent can read, edit, and run code in your projects.
 :::
 
-### "I want a Telegram/Discord bot"
-
-Deploy Hermes Agent as a bot on your favorite messaging platform.
-
-1. [Installation](./installation.md)
-2. [Configuration](../user-guide/configuration.md)
-3. [Messaging Overview](../user-guide/messaging/index.md)
-4. [Telegram Setup](../user-guide/messaging/telegram.md)
-5. [Discord Setup](../user-guide/messaging/discord.md)
-6. [Voice Mode](../user-guide/features/voice-mode.md)
-7. [Use Voice Mode with Hermes](../guides/use-voice-mode-with-hermes.md)
-8. [Security](../user-guide/security.md)
-
-For full project examples, see:
-- [Daily Briefing Bot](../guides/daily-briefing-bot.md)
-- [Team Telegram Assistant](../guides/team-telegram-assistant.md)
 
 ### "I want to automate tasks"
 
 Schedule recurring tasks, run batch jobs, or chain agent actions together.
 
 1. [Quickstart](./quickstart.md)
-2. [Cron Scheduling](../user-guide/features/cron.md)
-3. [Batch Processing](../user-guide/features/batch-processing.md)
-4. [Delegation](../user-guide/features/delegation.md)
-5. [Hooks](../user-guide/features/hooks.md)
+2. [Batch Processing](../user-guide/features/batch-processing.md)
+3. [Delegation](../user-guide/features/delegation.md)
+4. [Hooks](../user-guide/features/hooks.md)
 
-:::tip
-Cron jobs let Hermes Agent run tasks on a schedule — daily summaries, periodic checks, automated reports — without you being present.
-:::
+Use an external scheduler to invoke `hermes -q` for recurring tasks.
 
-### "I want a team of specialist Bots"
+### "I want parallel specialist work"
 
-Create named Bots with their own model, memory, skills, routines, and chats, then bring them together in group chats or through `@mentions`.
+Delegate work to subagents and use profiles to keep configurations separate.
 
-1. [Desktop](../user-guide/desktop.md)
-2. [Profiles](../user-guide/profiles.md)
-3. [Bot Mode](../user-guide/bot-mode.md)
-4. [Cron Scheduling](../user-guide/features/cron.md)
-5. [Multi-connection Desktop](../user-guide/multi-connection-desktop.md)
+1. [Profiles](../user-guide/profiles.md)
+2. [Delegation](../user-guide/features/delegation.md)
 
 ### "I want to build custom tools/skills"
 
@@ -142,10 +120,9 @@ Not sure what's available? Here's a quick directory of major features:
 | **Tools** | Built-in tools the agent can call (file I/O, search, shell, etc.) | [Tools](../user-guide/features/tools.md) |
 | **Skills** | Installable plugin packages that add new capabilities | [Skills](../user-guide/features/skills.md) |
 | **Memory** | Persistent memory across sessions | [Memory](../user-guide/features/memory.md) |
-| **Bot Mode** | Named specialist Bots with persistent chats, routines, group chats, and `@mentions` | [Bot Mode](../user-guide/bot-mode.md) |
+| **Profiles** | Separate configurations and session state | [Profiles](../user-guide/profiles.md) |
 | **Context Files** | Feed files and directories into conversations | [Context Files](../user-guide/features/context-files.md) |
 | **MCP** | Connect to external tool servers via Model Context Protocol | [MCP](../user-guide/features/mcp.md) |
-| **Cron** | Schedule recurring agent tasks | [Cron](../user-guide/features/cron.md) |
 | **Delegation** | Spawn sub-agents for parallel work | [Delegation](../user-guide/features/delegation.md) |
 | **Code Execution** | Run Python scripts that call Hermes tools programmatically | [Code Execution](../user-guide/features/code-execution.md) |
 | **Browser** | Web browsing and scraping | [Browser](../user-guide/features/browser.md) |

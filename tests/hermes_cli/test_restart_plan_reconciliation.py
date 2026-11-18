@@ -7,6 +7,8 @@ Pins:
   rows — the silent-miss tripwire.
 """
 
+import pytest
+
 from hermes_cli.update_inventory import (
     RuntimeRecord,
     UpdatePlan,
@@ -14,6 +16,11 @@ from hermes_cli.update_inventory import (
     match_runtime_outcomes,
     report_unaccounted_runtimes,
 )
+
+
+@pytest.fixture
+def _moa_caches_isolated():
+    """These pure plan tests do not use the model runtime caches."""
 
 
 def _plan(*runtimes: RuntimeRecord) -> UpdatePlan:
@@ -34,47 +41,47 @@ def _rt(profile: str, pid: int, supervisor: str = "manual") -> RuntimeRecord:
 
 
 
-def test_windows_service_supervisor_classification():
+def test_linux_service_supervisor_classification(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
     from hermes_cli.update_inventory import _detect_supervisor_for_pid
 
-    # An SCM-owned gateway PID classifies as windows-service even when the
-    # generic service-PID probe also knows the pid.
-    assert (
-        _detect_supervisor_for_pid(41, set(), {41}) == "windows-service"
-    )
-    assert (
-        _detect_supervisor_for_pid(41, {41}, {41}) == "windows-service"
-    )
-    # Without SCM ownership the existing classification is untouched.
-    assert _detect_supervisor_for_pid(42, set(), set()) == "manual"
-    assert _detect_supervisor_for_pid(42, set(), None) == "manual"
+    monkeypatch.setitem(sys.modules, "hermes_cli.gateway", SimpleNamespace(supports_systemd_services=lambda: True))
+    assert _detect_supervisor_for_pid(41, {41}) == "systemd"
+    assert _detect_supervisor_for_pid(42, {41}) == "manual"
 
 
-def test_windows_service_runtime_reconciles_via_service_profiles():
-    # The update path merges the pause token's service_profiles into
-    # relaunched_profiles after sc.exe start — a restarted SCM gateway
-    # must not trip the unaccounted tripwire.
-    outcomes = match_runtime_outcomes(
-        _plan(_rt("default", 500, supervisor="windows-service")),
-        restarted_services=["hermes-gateway"], relaunched_profiles=["default"],
-        externally_supervised_profiles=[], killed_pids=set(), failed_units=[],
-    )
-    assert outcomes == [
-        {"kind": "gateway", "profile": "default", "pid": 500,
-         "mechanism": "windows-service", "outcome": "restarted"}
-    ]
-    assert report_unaccounted_runtimes(outcomes) is False
+def test_recovery_restart_uses_detached_linux_session(monkeypatch):
+    from types import SimpleNamespace
+    from hermes_cli import update_restart_recovery as recovery
+
+    calls = []
+    monkeypatch.setattr(recovery, "_child_environment", lambda profile: {"profile": profile})
+
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return SimpleNamespace(returncode=0)
+
+    assert recovery._run_profile_restart("work", run=run)
+    assert calls[0][1]["start_new_session"] is True
+    assert calls[0][1]["env"] == {"profile": "work"}
+    assert calls[0][0][-4:] == ["gateway", "restart", "--interrupt", "--detach"]
 
 
-def test_windows_service_runtime_unaccounted_when_restart_fails():
-    outcomes = match_runtime_outcomes(
-        _plan(_rt("work", 501, supervisor="windows-service")),
-        restarted_services=[], relaunched_profiles=[],
-        externally_supervised_profiles=[], killed_pids=set(), failed_units=[],
-    )
-    assert outcomes[0]["mechanism"] == "windows-service"
-    assert outcomes[0]["outcome"] == "unaccounted"
-    assert report_unaccounted_runtimes(outcomes) is True
+def test_host_obligation_publication_syncs_file_and_directory(tmp_path, monkeypatch):
+    import os
+    import stat
+    from hermes_cli import update_host_obligation as obligation
+
+    synced = []
+    monkeypatch.setattr(obligation.os, "fsync", lambda fd: synced.append(os.fstat(fd).st_mode))
+    target = tmp_path / "obligation.json"
+    obligation.replace_bytes(target, b"replacement")
+
+    assert target.read_bytes() == b"replacement"
+    assert [stat.S_ISREG(synced[0]), stat.S_ISDIR(synced[1])] == [True, True]
+    assert len(synced) == 2
 
 
 def test_relaunched_profile_is_restarted():
@@ -117,36 +124,6 @@ def test_restarted_service_unit_matches_profile():
     )
     assert outcomes[0]["outcome"] == "restarted"
 
-
-def test_launchd_default_gateway_restarted_via_ai_hermes_label():
-    """macOS restart bookkeeping records ``ai.hermes.gateway``, which does not
-    contain the substring ``hermes-gateway``. The default-profile gateway must
-    still count as restarted — otherwise every Desktop update on launchd
-    exits 1 after a successful kickstart (receipt outcome=partial, tripwire
-    'never touched')."""
-    outcomes = match_runtime_outcomes(
-        _plan(_rt("default", 400, supervisor="launchd")),
-        restarted_services=["ai.hermes.gateway"], relaunched_profiles=[],
-        externally_supervised_profiles=[], killed_pids=set(), failed_units=[],
-    )
-    assert outcomes[0]["outcome"] == "restarted"
-    assert report_unaccounted_runtimes(outcomes) is False
-
-
-def test_launchd_named_profile_and_failed_label():
-    restarted = match_runtime_outcomes(
-        _plan(_rt("work", 401, supervisor="launchd")),
-        restarted_services=["ai.hermes.gateway-work"], relaunched_profiles=[],
-        externally_supervised_profiles=[], killed_pids=set(), failed_units=[],
-    )
-    assert restarted[0]["outcome"] == "restarted"
-    failed = match_runtime_outcomes(
-        _plan(_rt("default", 402, supervisor="launchd")),
-        restarted_services=[], relaunched_profiles=[],
-        externally_supervised_profiles=[], killed_pids=set(),
-        failed_units=["ai.hermes.gateway"],
-    )
-    assert failed[0]["outcome"] == "failed"
 
 
 def test_untouched_runtime_is_unaccounted_and_escalates(capsys):

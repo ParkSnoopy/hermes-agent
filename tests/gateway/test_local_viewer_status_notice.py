@@ -2,7 +2,7 @@
 
 On the shared owner a local route's ``LocalSessionAdapter.send`` publishes nothing, so a warning
 status or an ``AgentNotice`` raised during a viewer's turn reached no viewer. Real owner, real
-AIAgent turn over a loopback model, authenticated WebSocket viewer, in a disposable process.
+AIAgent turn over a loopback model, native authority viewer, in a disposable process.
 """
 import json
 import os
@@ -25,8 +25,12 @@ def test_local_viewer_receives_agent_status_and_notices(tmp_path, mode):
     home, state = tmp_path / 'home', tmp_path / 'state'
     home.mkdir()
     state.mkdir()
+    runtime = tmp_path / 'runtime'
+    runtime.mkdir()
     env = {k: os.environ[k] for k in ('PATH', 'SYSTEMROOT', 'LANG', 'TZ') if k in os.environ}
-    env.update(HOME=str(home), USERPROFILE=str(home), HERMES_HOME=str(state), PYTHONPATH=str(repo))
+    env.update(HOME=str(home), USERPROFILE=str(home), HERMES_HOME=str(state), HERMES_RUNTIME_DIR=str(runtime),
+               TMPDIR=str(tmp_path), TEMP=str(tmp_path), TMP=str(tmp_path),
+               XDG_CACHE_HOME=str(tmp_path / 'cache'), PYTHONPATH=str(repo))
     result = subprocess.run(
         [sys.executable, str(Path(__file__).parent / 'fixtures' / 'local_status_notice_peer.py'), mode],
         cwd=repo, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=100, check=False)

@@ -25,13 +25,10 @@ from pathlib import Path
 from typing import Iterator, Optional, Sequence
 
 from hermes_cli._subprocess_compat import (
-    IS_WINDOWS,
     NO_LAZY_FETCH_ENV,
     bounded_probe_run,
     kill_process_tree,
     noninteractive_git_env,
-    windows_detach_flags_without_breakaway,
-    windows_detach_popen_kwargs,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,23 +56,13 @@ def _locked_slot(lock: Path, *, wait: bool) -> Iterator[Optional[int]]:
     fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o644)
     try:
         try:
-            if IS_WINDOWS:
-                import msvcrt
+            import fcntl
 
-                msvcrt.locking(fd, msvcrt.LK_LOCK if wait else msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(fd, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+            fcntl.flock(fd, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
         except OSError:
             yield None
             return
-        try:
-            yield fd
-        finally:
-            if IS_WINDOWS:
-                os.lseek(fd, 0, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        yield fd
     finally:
         os.close(fd)
 
@@ -119,15 +106,10 @@ def run_bounded_git(repo_root: str, args: Sequence[str], timeout: float, env: Op
     """
     from hermes_cli.process_identity import release_process_group_once_empty, spawn_owned
 
-    cmd = ["git", *args]
-    if os.name == "posix":
-        cmd = ["nice", "-n", "19", *cmd]
-        group_kw: dict = {}
-    else:
-        group_kw = {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    cmd = ["nice", "-n", "19", "git", *args]
     with tempfile.TemporaryFile() as err:
         proc = spawn_owned(cmd, purpose=f"git {args[0]}", cwd=repo_root, stdin=subprocess.DEVNULL,
-                           stdout=subprocess.DEVNULL, stderr=err, env=env, **group_kw)
+                           stdout=subprocess.DEVNULL, stderr=err, env=env)
 
         def _reap() -> None:
             if proc.poll() is None:
@@ -276,14 +258,8 @@ def spawn_commit_graph_refresh(repo_root: Path) -> bool:
     kwargs: dict = dict(cwd=str(repo_root), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL, close_fds=True)
     try:
-        try:
-            # detached-spawn: ok — the refresh must neither delay the update nor die with it; slot-locked, bounded
-            subprocess.Popen(argv, **kwargs, **windows_detach_popen_kwargs())
-        except OSError:
-            if not IS_WINDOWS:
-                raise
-            # A job object without BREAKAWAY_OK refuses CREATE_BREAKAWAY_FROM_JOB; retry without it.
-            subprocess.Popen(argv, **kwargs, creationflags=windows_detach_flags_without_breakaway())
+        # detached-spawn: ok — slot-locked and bounded; outlives the update
+        subprocess.Popen(argv, **kwargs, start_new_session=True)
     except OSError:
         release_maintenance_slot(git_dir, _LOCK)
         raise

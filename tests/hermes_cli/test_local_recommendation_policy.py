@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from hermes_cli.local_runtime.catalog import recommended_entry, select_variant
 from hermes_cli.local_runtime.estimator import HardwareBudget
 
@@ -54,3 +56,41 @@ def test_spilled_model_remains_explicitly_browseable_on_16gb():
 
 def test_unified_memory_policy_does_not_inherit_discrete_recommendations():
     assert recommended_entry(_unified(24)) is None
+
+
+@pytest.mark.parametrize("budget", [_discrete(16), _discrete(24), _unified(128)],
+                         ids=["explicit-choice-required", "discrete", "unified"])
+def test_catalog_and_quickstart_share_resource_recommendation(monkeypatch, budget):
+    import subprocess
+    import urllib.request
+
+    def no_io(*args, **kwargs):
+        raise AssertionError("recommendation must not start processes or perform network I/O")
+
+    monkeypatch.setattr(subprocess, "run", no_io)
+    monkeypatch.setattr(subprocess, "Popen", no_io)
+    monkeypatch.setattr(urllib.request, "urlopen", no_io)
+
+    from hermes_cli.local_runtime import catalog, local_models
+
+    refreshes = []
+    monkeypatch.setattr(catalog, "refresh_catalog_soon", lambda: refreshes.append("requested"))
+    monkeypatch.setattr(local_models, "_eligible_entries", lambda: catalog.CATALOG)
+    monkeypatch.setattr(local_models, "_engine_too_old", lambda min_engine: False)
+    monkeypatch.setattr(local_models.hardware, "probe_budget", lambda *, planning: budget)
+    monkeypatch.setattr(local_models.bootstrap, "staged_model_ids", list)
+
+    picked = recommended_entry(budget)
+    rows = local_models.local_models_catalog()["models"]
+    recommended = [row for row in rows if row["recommended"]]
+    assert refreshes == ["requested"]
+    if picked is None:
+        assert recommended == []
+        with pytest.raises(local_models.LocalModelError, match="choose a model explicitly"):
+            local_models._quickstart_target(local_models.QuickstartBody(), budget)
+    else:
+        entry, variant = local_models._quickstart_target(local_models.QuickstartBody(), budget)
+        assert entry == picked[0]
+        assert variant == select_variant(entry, budget).variant
+        assert [row["id"] for row in recommended] == [entry.id]
+        assert recommended[0]["recommended_reason"] == picked[1]

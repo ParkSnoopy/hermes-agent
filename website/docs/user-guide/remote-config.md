@@ -45,7 +45,7 @@ A multi-profile process (gateway, dashboard) that serves a profile whose
 `secrets:` source supplies one of these names refuses to serve that profile.
 
 A Hermes process started for another profile (a `hermes -p <name>` worker, a
-profile's cron or bot child) keeps the `HERMES_CONFIG_*` deployment of the
+profile's bot child) keeps the `HERMES_CONFIG_*` deployment of the
 process that started it, so it reads that profile's config from the plane too.
 It does not inherit the plane credential: on-prem, put the
 `GATEWAY_RELAY_IDP_*` values where every profile reads them (the managed

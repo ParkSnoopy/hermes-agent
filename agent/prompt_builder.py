@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from hermes_constants import (
-    get_hermes_home, get_scratch_dir, get_skills_dir, is_wsl, reset_hermes_home_override, set_hermes_home_override,
+    get_hermes_home, get_scratch_dir, get_skills_dir, reset_hermes_home_override, set_hermes_home_override,
 )
 
 from agent.model_metadata import CHARS_PER_TOKEN
@@ -260,86 +260,6 @@ SESSION_SEARCH_GUIDANCE = (
 # (agent/context_compressor_tail.py::with_skill_safety_rule): fresh sessions no longer pay for it.
 SKILLS_GUIDANCE = "When you work out a non-trivial workflow, record it with skill_manage for future reuse."
 
-KANBAN_GUIDANCE = (
-    "# Kanban task execution protocol\n"
-    "You have been assigned ONE task from the shared board at `~/.hermes/kanban.db`. Your task id is in "
-    "`$HERMES_KANBAN_TASK`; your workspace is `$HERMES_KANBAN_WORKSPACE`. The `kanban_*` tools in your schema are your "
-    "primary coordination surface — they write directly to the shared SQLite DB and work regardless of terminal "
-    "backend (local/docker/modal/ssh).\n"
-    "\n"
-    "## Lifecycle\n\n"
-    "1. **Orient.** Call `kanban_show()` first (no args — it defaults to your task). The response includes title, "
-    "body, parent-task handoffs (summary + metadata), any prior attempts on this task if you're a retry, the full "
-    "comment thread, and a pre-formatted `worker_context` you can treat as ground truth.\n"
-    "2. **Work inside the workspace.** `cd $HERMES_KANBAN_WORKSPACE` before any file operations. The workspace is "
-    "yours for this run. Don't modify files outside it unless the task explicitly asks.\n"
-    "3. **Heartbeat on long operations.** Call `kanban_heartbeat(note=...)` every few minutes during long subprocesses "
-    "(training, encoding, crawling). Skip heartbeats for short tasks. **If your task may run longer than 1 hour, you "
-    "MUST call `kanban_heartbeat` at least once an hour** — the dispatcher reclaims tasks running past "
-    "`kanban.dispatch_stale_timeout_seconds` (default 4 hours) when no heartbeat has arrived in the last hour. A "
-    "reclaim re-queues the task as `ready` without penalty (no failure counter tick), but you lose your current run's "
-    "progress.\n"
-    "4. **Block on genuine ambiguity.** If you need a human decision you cannot infer (missing credentials, UX choice, "
-    "paywalled source, peer output you need first), call `kanban_block(reason=\"...\")` and stop. Don't guess. The "
-    "user will unblock with context and the dispatcher will respawn you.\n"
-    "5. **Finish with the review model encoded by the task graph.** Always include the structured handoff (`summary`, "
-    "`metadata`) on the lifecycle transition itself; never put secrets, tokens, or raw PII in these durable fields. If "
-    "`kanban_show()` lists child IDs, inspect those cards with `kanban_show(task_id=...)` before choosing the terminal "
-    "action. When any pre-created review, QA, or release child depends on your task, call `kanban_complete`: your "
-    "implementation phase is done, and completion is what releases those children. Never sticky-block that parent for "
-    "`review-required` and never request same-card review as well — either choice would strand or duplicate the "
-    "downstream lane. Otherwise, when this same task needs review before it is final, call "
-    "`kanban_request_review(summary=..., metadata=..., reviewer=<optional-profile>)`. The reviewer approves with "
-    "`kanban_complete`, returns actionable rework with `kanban_request_changes`, or uses `kanban_block` only for a "
-    "genuine external escalation. Review is not a block, so repeated review cycles do not trip unblock-loop "
-    "detection.\n"
-    "6. **If follow-up work appears, create it; don't do it.** Use `kanban_create(title=..., assignee=<right-profile>, "
-    "parents=[your-task-id])` to spawn a child task for the appropriate specialist profile instead of scope-creeping "
-    "into the next thing.\n"
-    "7. **Flag collision hotspots; don't pile on.** If your change keeps colliding with sibling branches in one file, "
-    "or a file your diff touches shows up in other cards' recent comments, do not silently add more to it: leave a "
-    "`kanban_comment` starting with `hotspot: <path> — <one-line reason>` on your card and repeat the flag in your "
-    "completion metadata, so the orchestrator can decompose that file before more work lands on it.\n"
-    "\n"
-    "## Orchestrator mode\n\n"
-    "If your task is itself a decomposition task (e.g. a planner profile given a high-level goal), use `kanban_create` "
-    "to fan out into child tasks — one per specialist, each with an explicit `assignee` and `parents=[...]` to express "
-    "dependencies. Then `kanban_complete` your own task with a summary of the decomposition. Do NOT execute the work "
-    "yourself; your job is routing, not implementation.\n"
-    "\n"
-    "**Decision ownership.** Design decisions belong to you, the orchestrator, not to workers — settle naming schemes, "
-    "schemas, file formats, and API shapes before fanning out. Never let two subtree cards decide the same question: "
-    "if two tasks would each pick one, decide it yourself and write the decision into BOTH card bodies. Every child "
-    "card body must carry the decisions it depends on, because workers cannot see sibling context.\n"
-    "\n"
-    "## Reference details that change outcomes\n\n"
-    "- **Workspace.** `cd $HERMES_KANBAN_WORKSPACE` first. For a `worktree` kind with no `.git`, `git worktree add "
-    "<path> ${HERMES_KANBAN_BRANCH:-wt/$HERMES_KANBAN_TASK}` from the main repo, then cd there. For a project-linked "
-    "task the workspace is a fresh `<repo>/.worktrees/<task-id>` and `$HERMES_KANBAN_BRANCH` a deterministic "
-    "`<project-slug>/<task-id>` — the main repo is two levels up, so run `git worktree add` from there.\n"
-    "- **Deliverables.** Files a human wants go in `kanban_complete(artifacts=[<absolute paths>])` (top-level param; "
-    "paths in `metadata` are NOT uploaded). Files must exist at completion.\n"
-    "- **Attachments.** Attach real downloadable artifacts instead of pasting links in comments: `kanban_attach` "
-    "(base64) or `kanban_attach_url` (server-side public http(s) fetch); 25 MB cap, `kanban_attachments` lists them. "
-    "Workers may only attach to their own task.\n"
-    "- **Created cards.** List ids in `kanban_complete(created_cards=[...])` ONLY when captured from a successful "
-    "`kanban_create` return — never invent or paste ids; the kernel rejects the completion on any phantom id.\n"
-    "- **Orchestrating: discover profiles first.** The dispatcher SILENTLY drops a card with an unknown assignee (it "
-    "sits in `ready` forever). Ground every assignee in a real profile (`hermes profile list`, or ask the user), and "
-    "express dependencies via `parents=[...]` on `kanban_create`, not prose.\n"
-    "\n"
-    "## Do NOT\n\n"
-    "- Do not shell out to `hermes kanban <verb>` for board operations. Use the `kanban_*` tools — they work across "
-    "all terminal backends.\n"
-    "- Do not complete a task you didn't actually finish. Block it.\n"
-    "- Do not call `clarify` to ask questions. You are running headless — there is no live user to answer. The call "
-    "will time out and the task will sit silently in `running` with no signal to the operator. Instead: "
-    "`kanban_comment` the context, then `kanban_block(reason=...)` so the task surfaces on the board as needing "
-    "input.\n"
-    "- Do not assign follow-up work to yourself. Assign it to the right specialist profile.\n"
-    "- Do not call `delegate_task` as a board substitute. `delegate_task` is for short reasoning subtasks inside your "
-    "own run; board tasks are for cross-agent handoffs that outlive one API loop."
-)
 
 TOOL_USE_ENFORCEMENT_GUIDANCE = (
     "# Tool-use enforcement\n"
@@ -661,19 +581,11 @@ DEVELOPER_ROLE_MODELS = ("gpt-5", "codex")
 # Hints for core surfaces only. A messaging platform's hint ships with its plugin
 # (``PlatformEntry.platform_hint``, read by agent/system_prompt._default_platform_hint).
 PLATFORM_HINTS = {
-    "cron": (
-        "You are running as a scheduled cron job. There is no user present — you cannot ask questions, "
-        "request clarification, or wait for follow-up. Execute the task fully and autonomously, making "
-        "reasonable decisions where needed. Your final response is automatically delivered to the job's "
-        "configured destination — put the primary content directly in your response."
-    ),
     "cli": (
         # Maintainer-verified live: the CLI prints raw text.
         "You are in a plain terminal (CLI). Markdown does NOT render — asterisks, headers, and fences appear as "
         "literal characters, so write plain text (indentation and blank lines are your only layout tools). Files: "
         "there is no attachment channel and MEDIA:/path tags are NOT intercepted here (they print as literal text) — "
-        # The cron local-only delivery caveat lives in cronjob_manage's deliver description (deferred: paid
-        # only when the tool is loaded), not in every CLI/TUI prompt.
         "deliver a file by stating its absolute path or URL in plain text; the user opens it themselves."
     ),
     "tui": (
@@ -714,102 +626,22 @@ PLATFORM_HINTS = {
     # 'desktop' or 'tui'). If a real WebUI chat surface ships, write a hint from its actual renderer.
 }
 
-# Telegram rich-messages extension — injected only with
-# ``platforms.telegram.extra.rich_messages: true`` (gateway.* or top-level).
-# NOTE: a "webui" hint lived here until 2026-08-29. It was a ghost (verified in the all-platform hint audit,
-# PR #97873): no code path constructs platform="webui" — the dashboard chat resolves to 'desktop' or 'tui'
-# (tui_gateway/server.py:_resolve_session_platform), and the browser chat tab is an xterm.js PTY hosting the
-# TUI, not an HTML chat renderer. Its content (tables/LaTeX/Mermaid, MEDIA: rich previews incl. Excalidraw)
-# described a renderer that does not exist anywhere in web/. If a real WebUI chat surface ships, write a
-# hint from its actual renderer — do not resurrect this text.
-TELEGRAM_RICH_MESSAGES_HINT = (
-    "Telegram now supports rich Markdown, so lean into it: whenever it makes the answer clearer or easier to scan, "
-    "actively reach for real Markdown tables (pipe `| col | col |` syntax), bullet and numbered lists, task lists (`- "
-    "[ ]` / `- [x]`), headings, nested blockquotes, collapsible details, footnotes/references, math/formulas (`$...$`, "
-    "`$$...$$`), underline, subscript/superscript, marked (highlighted) text, and anchors. Default to structured "
-    "formatting over dense paragraphs for any comparison, set of steps, key/value summary, or tabular data. Prefer "
-    "real Markdown tables and task lists over hand-built bullet substitutes when presenting structured data; these "
-    "degrade gracefully (tables become readable bullet groups) when rich rendering is unavailable, but advanced "
-    "constructs like math and collapsible details may render as plain source text in that case. "
-)
 
 # Environment hints — the machine/OS the agent's tools actually run on
 # (PLATFORM_HINTS describe the messaging channel instead).
-WSL_ENVIRONMENT_HINT = (
-    "You are running inside WSL (Windows Subsystem for Linux). The Windows host filesystem is mounted under /mnt/ — "
-    "/mnt/c/ is the C: drive, /mnt/d/ is D:, etc. The user's Windows files are typically at "
-    "/mnt/c/Users/<username>/Desktop/, Documents/, Downloads/, etc. When the user references Windows paths or desktop "
-    "files, translate to the /mnt/c/ equivalent. You can list /mnt/c/Users/ to discover the Windows username if needed."
-)
-
 
 # Backends that run commands (and every file tool) in a separate container / remote host: host OS/$HOME/cwd
 # would mislead, so the agent only sees the machine it can touch.
-_REMOTE_TERMINAL_BACKENDS = frozenset({"docker", "modal", "daytona", "ssh", "vercel_sandbox", "managed_modal"})
 
 # Used when the live probe fails: only what the backend choice implies — never an invented cwd/user/$HOME.
-_BACKEND_FALLBACK_DESCRIPTIONS: dict[str, str] = {
-    "docker": "a Docker container (Linux)",
-    "modal": "a Modal sandbox (Linux)",
-    "managed_modal": "a managed Modal sandbox (Linux)",
-    "daytona": "a Daytona workspace (Linux)",
-    "vercel_sandbox": "a Vercel sandbox (Linux)",
-    "ssh": "a remote host reached over SSH (likely Linux)",
-}
 
 # Per-process probe cache keyed by (home key, env_type, cwd_hint) so a mid-process backend switch
 # rebuilds; the home key because the probe runs against the profile's own terminal.* backend
 # (docker image / ssh host) and one multiplexed process serves several profiles.
-_BACKEND_PROBE_CACHE: dict[tuple[str, str, str], str] = {}
 
 
-def _plugin_backend_attr(backend: str, attr: str, default=None):
-    """*attr* of a plugin-registered terminal backend, fail-soft (unknown backend / raising plugin -> *default*)."""
-    try:
-        from agent.terminal_env_registry import provider_flag
-        return provider_flag(backend, attr, default)
-    except Exception:
-        return default
 
 
-def _plugin_backend_is_remote(backend: str) -> bool:
-    """Whether a plugin-registered terminal backend runs commands remotely (unknown names are local)."""
-    return bool(backend and backend != "local" and backend not in _REMOTE_TERMINAL_BACKENDS
-                and _plugin_backend_attr(backend, "is_remote", False))
-
-
-def _windows_marketing_version() -> str:
-    """"10"/"11" (``platform.release()`` says 10 for both; 11 is build >= 22000).
-
-    ``platform.release()`` reports the kernel version, which is ``10`` for BOTH Windows 10 and Windows 11 —
-    the prompt then claims "Windows (10)" on Windows 11 hosts and misleads the model about the OS (#51755).
-    Windows 11 is distinguished by build number: >= 22000 is 11. Falls back to ``platform.release()`` on any
-    lookup failure.
-    """
-    try:
-        return "11" if sys.getwindowsversion().build >= 22000 else "10"  # type: ignore[attr-defined]
-    except Exception:
-        import platform
-        return platform.release()
-
-
-_WINDOWS_BASH_SHELL_HINT = (
-    "Shell: on this Windows host your `terminal` tool runs commands through bash (git-bash / MSYS), NOT PowerShell or "
-    "cmd.exe. Use POSIX shell syntax (`ls`, `$HOME`, `&&`, `|`, single-quoted strings) inside terminal calls. "
-    "MSYS-style paths like `/c/Users/<user>/...` work alongside native `C:\\Users\\<user>\\...` paths. PowerShell "
-    "builtins (`Get-ChildItem`, `$env:FOO`, `Select-String`) will NOT work — use their POSIX equivalents (`ls`, "
-    "`$FOO`, `grep`). Path arguments for NATIVE Windows programs (git, rg, node, python, ...) are NOT translated: MSYS "
-    # no-tmp: ok — illustrates the MSYS path that FAILS for native Windows tools
-    "path conversion is disabled here, so `git -C /c/Users/x` or `node /tmp/a.js` fails with 'cannot change to'/'not "
-    "found' even though `cd /c/Users/x` (a bash builtin) works. Pass `C:/Users/x`-style forward-slash native paths to "
-    # no-tmp: ok — tells the model what NOT to use
-    "native tools, and prefer `$LOCALAPPDATA/Temp` (or `$TMPDIR`, which Hermes points at its own scratch dir) for scratch files a native tool must read — never a bare `/tmp`. When "
-    "answering prompts in a pty background process, use process(submit) — never process(write) with a bare trailing "
-    "newline: Enter on a Windows PTY is a carriage return, and a lone `\\n"
-    "` is not delivered as a line terminator, so the child's prompt silently never returns. When a CLI offers a "
-    "non-interactive path (flags, `--with-token`, config files, an OAuth device flow polled with curl), prefer it over "
-    "driving prompts."
-)
 
 
 def _tenv_read(name: str, default: str = "") -> str:
@@ -823,95 +655,25 @@ def _tenv_read(name: str, default: str = "") -> str:
     return terminal_env(name, default)
 
 
-_BACKEND_IMAGE_KEYS = {b: f"{b}_image" for b in ("docker", "modal", "daytona")}
 # (config key, default) pairs forwarded to _create_environment's container_config.
 # Single-line POSIX probe; `2>/dev/null` keeps a missing binary from polluting output.
 # OS/kernel only: the sandbox's user, $HOME and cwd are user-identifying and nothing consumes
 # them — the model can `whoami && pwd` when a task actually needs them.
-_BACKEND_PROBE_CMD = (
-    "printf 'os=%s\\nkernel=%s\\n' \"$(uname -s 2>/dev/null || echo unknown)\" "
-    "\"$(uname -r 2>/dev/null || echo unknown)\""
-)
 
 
-def _run_backend_probe(env_type: str, terminal_tool) -> str:
-    """Execute the probe command inside a freshly built backend; "" when it yields nothing."""
-    from tools.terminal_tool_backends import _container_config_from_config, _create_environment, _ssh_config_from_config
-    from tools.terminal_tool_lifecycle import _cleanup_env
-
-    config = terminal_tool._get_env_config()
-    # Same container_config shaper as the live terminal path: a private copy of the key table here
-    # drifted (no docker_network) and gave the probe a bridge-networked container under lockdown.
-    env = _create_environment(
-        env_type=env_type, image=config.get(_BACKEND_IMAGE_KEYS[env_type], "") if env_type in _BACKEND_IMAGE_KEYS else "", cwd=config.get("cwd", ""),
-        timeout=config.get("timeout", 180),
-        ssh_config=_ssh_config_from_config(config) if env_type == "ssh" else None,
-        container_config=(_container_config_from_config(config)
-                          if terminal_tool._is_container_backend(env_type) else None),
-        task_id="prompt-backend-probe", host_cwd=config.get("host_cwd"),
-        # Only ssh honors this: an isolated ControlMaster socket and no remote dir setup / file sync /
-        # snapshot. A normal SSHEnvironment would upload the whole ~/.hermes tree just to run `uname`,
-        # and its later __del__ would sync_back() and close the master shared with the agent's own env.
-        probe_only=True,
-    )
-    try:
-        result = env.execute(_BACKEND_PROBE_CMD, timeout=4)
-    finally:
-        # One-shot `uname`; without teardown the backend leaves a second idle sandbox
-        # (task_id="prompt-backend-probe") running for the whole process next to the agent's own.
-        try:
-            _cleanup_env(env, force_remove=True)
-        except Exception:
-            logger.debug("Backend probe cleanup failed", exc_info=True)
-    if result.get("returncode") != 0:
-        logger.debug("Backend probe returned non-zero: %r", result)
-        return ""
-    return (result.get("output") or "").strip()
 
 
-def _format_backend_probe(output: str) -> str:
-    """Render the probe's key=value lines as an indented summary ("" if nothing usable)."""
-    parsed = {k.strip(): v.strip() for k, _, v in (line.partition("=") for line in output.splitlines() if "=" in line)}
-    known = lambda key: parsed.get(key) if parsed.get(key) != "unknown" else None
-    os_line = " ".join(x for x in (known("os"), known("kernel")) if x)
-    return f"  OS: {os_line}" if os_line else ""
 
 
-def _probe_remote_backend(env_type: str) -> str | None:
-    """Describe the active non-local backend via a live probe; None if it failed (cached, failures included)."""
-    from hermes_constants import hermes_home_key
-    cache_key = (hermes_home_key(), env_type, _tenv_read("TERMINAL_CWD", ""))
-    formatted = _BACKEND_PROBE_CACHE.get(cache_key)
-    if formatted is None:
-        formatted = ""
-        try:
-            from tools import terminal_tool  # heavy; only needed for non-local backends
-        except Exception as e:
-            logger.debug("Backend probe unavailable (import failed): %s", e)
-        else:
-            try:
-                formatted = _format_backend_probe(_run_backend_probe(env_type, terminal_tool))
-            except Exception as e:
-                logger.debug("Backend probe failed: %s", e)
-        _BACKEND_PROBE_CACHE[cache_key] = formatted
-    return formatted or None
 
 
-def _clear_backend_probe_cache() -> None:
-    """Test helper — drop the backend probe cache so monkeypatched backends take effect."""
-    _BACKEND_PROBE_CACHE.clear()
 
 
 def _local_host_hints() -> list[str]:
     """Host OS / home / cwd block for a local terminal backend (tools run on this host)."""
     import platform
 
-    host = (
-        "WSL (Windows Subsystem for Linux)" if is_wsl()
-        else f"Windows ({_windows_marketing_version()})" if sys.platform == "win32"
-        else f"macOS ({platform.mac_ver()[0] or platform.release()})" if sys.platform == "darwin"
-        else f"{platform.system()} ({platform.release()})"
-    )
+    host = f"{platform.system()} ({platform.release()})"
     host_lines = [f"Host: {host}", f"User home directory: {os.path.expanduser('~')}"]
     try:
         host_lines.append(f"Current working directory: {resolve_agent_cwd()}")
@@ -924,14 +686,7 @@ def _local_host_hints() -> list[str]:
                           "and probes there, never under the system temp dir; entries idle for 24h are pruned)")
     except OSError:
         pass
-    if not (sys.platform == "win32" and not is_wsl()):
-        return ["\n".join(host_lines)]
-    host_lines.append(
-        "Note: on Windows, the machine hostname (e.g. from `hostname` or uname) is NOT the username. "
-        "Use the 'User home directory' above to construct paths under C:\\Users\\<user>\\, never the hostname."
-    )
-    # Windows-local terminal runs bash, not PowerShell — without this the model issues PowerShell syntax.
-    return ["\n".join(host_lines), _WINDOWS_BASH_SHELL_HINT]
+    return ["\n".join(host_lines)]
 
 
 def bot_screen_note(running: bool, display: str | None, holder: str) -> str:
@@ -970,28 +725,6 @@ def _bot_screen_hint() -> str:
         return ""
 
 
-def _remote_backend_hint(backend: str) -> str:
-    """Backend-only block for remote/sandbox backends (host info deliberately suppressed)."""
-    lead = (f"Terminal backend: {backend}. Your `terminal`, `read_file`, `write_file`, `patch`, and "
-            f"`search_files` tools all operate inside ")
-    probe = _probe_remote_backend(backend)
-    if probe:
-        return lead + (
-            f"this {backend} environment — NOT on the machine where Hermes itself is running. The host OS, "
-            f"home, and cwd of the Hermes process are irrelevant; only the following backend state matters:\n{probe}\n"
-            f"  The sandbox's current user, $HOME, and working directory are not listed here; if you need them, "
-            f"probe directly with a terminal call like `whoami && pwd`."
-        )
-    description = (
-        _BACKEND_FALLBACK_DESCRIPTIONS.get(backend)
-        or _plugin_backend_attr(backend, "env_description")
-        or f"a {backend} environment (likely Linux)"
-    )
-    return lead + (
-        f"{description} — NOT on the machine where Hermes itself runs. The backend probe didn't respond at "
-        f"prompt-build time, so the sandbox's OS, current user, $HOME, and working directory are unknown from here. "
-        f"If you need them, probe directly with a terminal call like `uname -a && whoami && pwd`."
-    )
 
 
 def _config_readonly(what: str) -> dict:
@@ -1012,17 +745,11 @@ def _embedder_environment_hint() -> str:
 
 
 def build_environment_hints() -> str:
-    """Execution-environment block: local backends get host OS/home/cwd; remote/sandbox
-    backends get ONLY the backend's own state (the agent's tools cannot touch the host).
-    WSL and embedder hints are appended."""
-    backend = (_tenv_read("TERMINAL_ENV") or "local").strip().lower()
-    is_remote_backend = backend in _REMOTE_TERMINAL_BACKENDS or _plugin_backend_is_remote(backend)
-    hints = [_remote_backend_hint(backend)] if is_remote_backend else _local_host_hints()
-    # A host-placed Bot Screen is only reachable from a local backend (a sandboxed terminal cannot
-    # open windows on the gateway host), and a sandbox-placed one is the sandbox probe's business.
-    if not is_remote_backend:
-        hints.append(_bot_screen_hint())
-    hints += [WSL_ENVIRONMENT_HINT] if is_wsl() else []
+    """Describe the local execution host without starting another environment."""
+    from tools.terminal_tool_config import require_local_environment
+    require_local_environment(_tenv_read("TERMINAL_ENV", "local"))
+    hints = [*_local_host_hints(), _bot_screen_hint()]
+
     return "\n\n".join(h for h in (*hints, _embedder_environment_hint()) if h)
 
 

@@ -6,12 +6,10 @@ a release that moves ``uv.lock`` (``hermes update``), ``hermes pm repair``, and 
 user-visible contract is that whatever feature the user had working before the rebuild still
 imports in the generation selected after it:
 
-* an extra the user installed with the documented command (``hermes pm install --extra telegram``);
+* an extra the user installed with the documented command (``hermes pm install --extra exa``);
 * the MCP client (an HTTP MCP server in config.yaml must still connect: ``hermes mcp test``
   against a real local streamable-HTTP server);
-* a gateway platform enabled in config.yaml (Discord): the update installs the platform's extra
-  instead of only warning that the SDK is missing (#124228);
-* extras a main-era venv carried (``[all]`` plus ``[messaging]``) across the
+* extras a main-era venv carried (``[all]`` plus ``[exa]``) across the
   legacy-venv migration to the first PM generation.
 
 Every check imports in the SELECTED generation's own interpreter (facts.json), booted as the
@@ -47,7 +45,7 @@ pytestmark = [
 ]
 
 MCP_NAME = "e2e-http"
-MANAGED = ("telegram", "discord", "mcp.client.streamable_http")
+MANAGED = ("exa_py", "mcp.client.streamable_http")
 
 
 def _mcp_test(sb: I.Sandbox, server: HttpMcpServer) -> str:
@@ -75,14 +73,12 @@ def rebuilt(tmp_path_factory, provider):
         sb, origin = P.install_head(root)
         P.configure(
             sb, provider.base_url,
-            extra=("platforms:\n  discord:\n    enabled: true\n"
-                   f"mcp_servers:\n  {MCP_NAME}:\n    url: {server.url}\n    connect_timeout: 30\n    timeout: 30\n"),
-            env_extra="DISCORD_BOT_TOKEN=fake-e2e-discord-token\n")
-        P.ok(sb.cli("pm", "install", "--extra", "telegram"), "the documented extra install failed")
+            extra=(f"mcp_servers:\n  {MCP_NAME}:\n    url: {server.url}\n    connect_timeout: 30\n    timeout: 30\n"))
+        P.ok(sb.cli("pm", "install", "--extra", "exa"), "the documented extra install failed")
         before = {"generation": P.selected_generation(sb), "imports": P.managed_imports(sb, *MANAGED),
                   "mcp": _mcp_test(sb, server)}
-        assert before["imports"]["telegram"] == "ok" and before["mcp"] == "", (
-            f"harness: `hermes pm install --extra telegram` exited 0 but left no SDK / MCP broken: {before}")
+        assert before["imports"]["exa_py"] == "ok" and before["mcp"] == "", (
+            f"harness: `hermes pm install --extra exa` exited 0 but left no SDK / MCP broken: {before}")
         P.publish_dependency_release(origin, root, 1)
         up = P.update(sb)
         after_update = {"generation": P.selected_generation(sb), "imports": P.managed_imports(sb, *MANAGED),
@@ -101,8 +97,8 @@ def test_update_rebuild_keeps_installed_extra_and_mcp(rebuilt):
     assert up.returncode == 0, "hermes update failed:\n" + P.diagnostics(sb, up)
     assert after["generation"] != rebuilt["before"]["generation"], (
         "harness: the dependency release did not make the update build a new generation\n" + P.diagnostics(sb, up))
-    assert after["imports"]["telegram"] == "ok", (
-        f"the extra installed with `hermes pm install --extra telegram` is gone after `hermes update`: "
+    assert after["imports"]["exa_py"] == "ok", (
+        f"the extra installed with `hermes pm install --extra exa` is gone after `hermes update`: "
         f"{after['imports']}\n" + P.diagnostics(sb, up))
     assert after["imports"]["mcp.client.streamable_http"] == "ok", after["imports"]
     assert after["mcp"] == "", "HTTP MCP server no longer connects after `hermes update`:\n" + after["mcp"]
@@ -113,18 +109,11 @@ def test_repair_keeps_installed_extra_and_mcp(rebuilt):
     assert rp.returncode == 0, "hermes pm repair failed on a healthy install:\n" + P.diagnostics(sb, rp)
     assert after["generation"] != rebuilt["after_update"]["generation"], (
         "`hermes pm repair` reported success but did not rebuild the environment\n" + P.diagnostics(sb, rp))
-    assert after["imports"]["telegram"] == "ok", (
-        f"the extra installed with `hermes pm install --extra telegram` is gone after `hermes pm repair`: "
+    assert after["imports"]["exa_py"] == "ok", (
+        f"the extra installed with `hermes pm install --extra exa` is gone after `hermes pm repair`: "
         f"{after['imports']}\n" + P.diagnostics(sb, rp))
     assert after["mcp"] == "", "HTTP MCP server no longer connects after `hermes pm repair`:\n" + after["mcp"]
 
-
-def test_configured_gateway_platform_has_its_sdk_after_update(rebuilt):
-    sb, up, after = rebuilt["sb"], rebuilt["update"], rebuilt["after_update"]
-    assert up.returncode == 0, P.diagnostics(sb, up)
-    assert after["imports"]["discord"] == "ok", (
-        f"configured discord platform has no SDK after `hermes update`: {after['imports']['discord']}\n"
-        + P.diagnostics(sb, up))
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +123,7 @@ def test_configured_gateway_platform_has_its_sdk_after_update(rebuilt):
 
 def _main_era_leg(tmp_path_factory, provider, name: str):
     """The newest pre-PM release installed main-era style (``venv/`` from N-1's own uv.lock with ``[all]``) plus
-    the ``[messaging]`` extra (Telegram, Discord, Slack SDKs) the main-era docs installed. Returns the leg and
+    the ``[exa]`` extra. Returns the leg and
     its pre-update import probe."""
     pre_pm = I.upgrade_base(PRE_PM_GENERATION)
     if pre_pm is None:
@@ -146,15 +135,15 @@ def _main_era_leg(tmp_path_factory, provider, name: str):
                   XDG_CONFIG_DIRS=str(no_cfg))
     uv = I.real_uv()
     assert uv is not None
-    cp = subprocess.run([uv, "sync", "-q", "--locked", "--extra", "all", "--extra", "messaging",
+    cp = subprocess.run([uv, "sync", "-q", "--locked", "--extra", "all", "--extra", "exa",
                          "--python", str(leg.install / "venv" / "bin" / "python")],
                         cwd=str(leg.install), env=uv_env, capture_output=True, text=True, timeout=1800, check=False)
-    assert cp.returncode == 0, f"harness: messaging install into the N-1 venv failed:\n{cp.stderr[-4000:]}"
+    assert cp.returncode == 0, f"harness: extra install into the N-1 venv failed:\n{cp.stderr[-4000:]}"
     with (leg.install / "pyproject.toml").open("rb") as fh:
-        assert "messaging" in tomllib.load(fh)["project"]["optional-dependencies"], "harness: N-1 has no messaging extra"
+        assert "exa" in tomllib.load(fh)["project"]["optional-dependencies"], "harness: N-1 has no exa extra"
     (leg.hermes_home / "config.yaml").write_text(I.provider_config(provider.base_url, None), encoding="utf-8")
     (leg.hermes_home / ".env").write_text(f"OPENAI_API_KEY={I.FAKE_KEY}\n", encoding="utf-8")
-    probe = "import telegram, discord, mcp.client.streamable_http; print('ok')"
+    probe = "import exa_py, mcp.client.streamable_http; print('ok')"
     pre = leg.run("-c", probe, argv0=leg.python)
     I.git("update-ref", "refs/heads/main", _refs().head, cwd=leg.origin)
     return leg, pre
@@ -194,14 +183,14 @@ def _assert_first_generation_keeps_the_old_venv(migrated):
     assert I.git("rev-parse", "HEAD", cwd=leg.install) == _refs().head, H.describe(up)
     selected = Path(leg.python)
     assert "installs" in selected.parts, f"update left the install on the legacy venv: {selected}\n{H.describe(up)}"
-    code = ("import importlib, json\nout = {}\nfor m in ('telegram', 'discord', 'mcp.client.streamable_http'):\n"
+    code = ("import importlib, json\nout = {}\nfor m in ('exa_py', 'mcp.client.streamable_http'):\n"
             "    try:\n        importlib.import_module(m); out[m] = 'ok'\n"
             "    except BaseException as e:\n        out[m] = f'{type(e).__name__}: {e}'\nprint(json.dumps(out))\n")
     cp = leg.run("-c", code, argv0=str(selected))
     assert cp.returncode == 0, H.describe(cp)
-    lost = [m for m in ("telegram", "discord") if f'"{m}": "ok"' not in cp.stdout]
+    lost = [m for m in ("exa_py",) if f'"{m}": "ok"' not in cp.stdout]
     assert not lost, (
-        f"messaging SDKs the main-era venv carried are gone from the first PM generation: {lost} {cp.stdout}\n"
+        f"extra SDKs the main-era venv carried are gone from the first PM generation: {lost} {cp.stdout}\n"
         + H.describe(up))
     assert '"mcp.client.streamable_http": "ok"' in cp.stdout, cp.stdout
 

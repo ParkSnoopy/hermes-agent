@@ -453,7 +453,7 @@ def test_update_hook_reads_a_masked_default_unit_as_an_opt_out(fleet, capsys, mo
     ("secondary_service", "secondary_uid", "secondary_home", "expected"),
     [
         (("systemd", True), 1000, "profiles/coder", "different service domain"),
-        (("launchd", False), 1000, "profiles/coder", "different service domain"),
+
         (("systemd", False), 2000, "profiles/coder", "UNIX privilege boundary"),
         (("systemd", False), 1000, "external", "outside"),
     ],
@@ -503,32 +503,32 @@ def test_update_hook_still_migrates_same_user_same_scope_profiles_under_the_defa
 
 def test_update_hook_folds_a_unit_less_default_when_every_secondary_shares_one_manager(fleet, capsys, monkeypatch):
     """The #118097 fleet: the default profile never had a gateway unit, every secondary runs under the
-    SAME manager (all launchd, one macOS user). That is one service domain, and the manager the plan
+    SAME manager and scope (all user systemd, one user). That is one service domain, and the manager the plan
     elects as the target (``target_service_kind``) is the reference the guard must agree with — not the
     default's empty unit list, which turned every such fleet into "blockers" instead of a fold.
     Controls: a default unit under another manager, and two managers among the secondaries, still refuse."""
     from hermes_cli.gateway_migrate_guards import auto_migration_blockers
     monkeypatch.setattr(gm, "_gateway_identity", lambda home, pid, service: (1000, home), raising=False)
-    fleet.services.update({"coder": ("launchd", False), "ops": ("launchd", False)})
+    fleet.services.update({"coder": ("systemd", False), "ops": ("systemd", False)})
     assert "default" not in fleet.services
     plan = gm.build_migration_plan()
-    assert plan.target_service_kind() == ("launchd", False)
+    assert plan.target_service_kind() == ("systemd", False)
     assert auto_migration_blockers(plan) == []
 
     gm.maybe_auto_migrate_after_update()
     out = capsys.readouterr().out
     assert "serves 3 profiles" in out and _config_flag(fleet.root) is True
     assert ("coder", "uninstall") in fleet.ops and ("ops", "uninstall") in fleet.ops
-    assert ("default", "install") in fleet.ops and fleet.services == {"default": ("launchd", False)}
+    assert ("default", "install") in fleet.ops and fleet.services == {"default": ("systemd", False)}
 
-    # Control 1: the default HAS a unit under another manager -> still a different service domain.
-    fleet.services.update({"default": ("systemd", False), "coder": ("launchd", False), "ops": ("launchd", False)})
+    # Control 1: the default HAS a unit under another scope -> still a different service domain.
+    fleet.services.update({"default": ("systemd", True), "coder": ("systemd", False), "ops": ("systemd", False)})
     fleet.pids.update({"coder": 4101, "ops": 4102})
     blockers = auto_migration_blockers(gm.build_migration_plan())
     assert blockers and all("different service domain" in b for b in blockers)
-    # Control 2: unit-less default, secondaries under two managers -> the non-elected one refuses.
+    # Control 2: unit-less default, secondaries under two scopes -> the non-elected one refuses.
     fleet.services.pop("default")
-    fleet.services.update({"coder": ("launchd", False), "ops": ("systemd", False)})
+    fleet.services.update({"coder": ("systemd", False), "ops": ("systemd", True)})
     blockers = auto_migration_blockers(gm.build_migration_plan())
     assert len(blockers) == 1 and "'ops'" in blockers[0] and "different service domain" in blockers[0]
 
@@ -962,23 +962,8 @@ def test_plan_names_every_process_it_will_sigterm_before_it_signals_anything(fle
 
 
 
-def test_windows_task_detection_reads_both_the_task_and_the_startup_fallback(monkeypatch):
-    """`hermes gateway install` falls back to a Startup-folder entry when it cannot register a
-    task; a migration that removed only the task would leave that entry launching a second
-    gateway at the next logon."""
-    from hermes_cli import gateway_windows as gww
-    for task, startup, expected in ((True, False, True), (False, True, True), (False, False, False)):
-        monkeypatch.setattr(gww, "is_task_registered", lambda t=task: t)
-        monkeypatch.setattr(gww, "is_startup_entry_installed", lambda s=startup: s)
-        assert gm._windows_task_installed() is expected
-    # A schtasks failure is not evidence of a second gateway: fail closed to "not installed".
-    monkeypatch.setattr(gww, "is_task_registered", lambda: (_ for _ in ()).throw(OSError("schtasks")))
-    assert gm._windows_task_installed() is False
-
-
-def test_windows_is_migratable_and_only_s6_is_refused(monkeypatch):
-    """The host predicate: Windows used to be a flat refusal with hand-migration instructions.
-    s6 stays refused -- its per-profile gateways are slots the container's own boot registers."""
+def test_migration_host_predicate_handles_systemd_and_s6(monkeypatch):
+    """A missing root s6 slot is refused; an ordinary Linux host can migrate."""
     from hermes_cli import gateway as gw
     monkeypatch.setattr(gw, "_running_under_s6", lambda: False)
     assert gm._host_supports_migration() is None

@@ -6,7 +6,6 @@ Disconnecting accounts remains a portal-only user decision.
 
 from typing import Any, Callable, Dict, Optional
 
-from tools.connectors.catalog_tool import MANAGE_CATALOG_SCHEMA, manage_catalog
 from tools.connectors.gateway import config as gateway_config
 from tools.connectors.managed import run_managed_action
 from tools.connectors.mcp import run_mcp_operation
@@ -21,7 +20,7 @@ def manage_connections(
     mcp_backend: Optional[Any] = None,
     session_id: Optional[str] = None,
     tool_call_id: Optional[str] = None,
-    turn_id: Optional[str] = None,
+
     connection_callback: Optional[Callable[[dict[str, Any]], Optional[str]]] = None,
     connectors_available: Optional[Callable[[], bool]] = None,
     card_surface: bool = False,
@@ -42,7 +41,7 @@ def manage_connections(
 
     return run_managed_action(
         action, managed, args,
-        client_factory=client_factory, session_id=session_id, tool_call_id=tool_call_id, turn_id=turn_id,
+        client_factory=client_factory, session_id=session_id, tool_call_id=tool_call_id,
         connection_callback=connection_callback, connectors_available=connectors_available,
         card_surface=card_surface,
     )
@@ -165,13 +164,4 @@ registry.register(
     ),
     check_fn=lambda: gateway_config.connectors_available(),
     emoji="🔗",
-)
-
-# Registry dispatch has no card callback, so it answers with the CLI pointer.
-registry.register(
-    name="manage_catalog",
-    toolset="catalog",
-    schema=MANAGE_CATALOG_SCHEMA,
-    handler=lambda args, **kw: manage_catalog(args, session_id=kw.get("session_id")),
-    emoji="🧩",
 )

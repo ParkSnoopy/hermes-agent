@@ -4,7 +4,7 @@
 override a schema verdict; it only vouches for an exact path (and what is below it) a reader uses.
 Four owners supply them:
 
-* Core selection keys (``browser.cloud_provider``, ``<category>.use_gateway``, ``stt.provider``):
+* Core selection keys (``browser.cloud_provider``, ``<category>.use_gateway``):
   :func:`tools.tool_backend_helpers.selection_config_keys`, built from ``read_selection``'s tables.
 * Core-owned unseeded keys outside that table, each listed with its reader (:data:`CORE_RUNTIME_KEYS`).
 * MoA preset fields under any preset name (:func:`hermes_cli.moa_config.is_preset_field_path`). Only a
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Core-owned keys read at runtime but deliberately absent from DEFAULT_CONFIG -> their reader.
 CORE_RUNTIME_KEYS: dict[str, str] = {
     "computer_use.backend": "plugins/computer_use/__init__.py configured_backend_name() (unset = cua)",
-    "dashboard.kanban": "plugins/kanban/dashboard/plugin_api.py (bundled dashboard tab preferences)",
+
 }
 
 

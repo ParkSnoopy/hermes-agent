@@ -249,7 +249,7 @@ def test_two_models_stay_resident_where_two_drafted_launches_fit(model):
 
 
 def _staged(monkeypatch, *entries):
-    from hermes_cli.web_routers import local_models as lm
+    from hermes_cli.local_runtime import local_models as lm
 
     monkeypatch.setattr(lm.catalog, "CATALOG", entries)
     monkeypatch.setattr(lm.bootstrap, "staged_model_ids", lambda: [e.variants[0].model_id for e in entries])

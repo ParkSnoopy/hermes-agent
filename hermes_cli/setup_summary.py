@@ -6,22 +6,6 @@ from tools import tool_backend_helpers
 
 logger = logging.getLogger("hermes_cli.setup")
 
-# provider -> (label, env vars: any one set means available; empty = always).
-# Local engines are (label, module, hint) and must be importable.
-_TTS_SUMMARY_ROWS = {
-    "elevenlabs": ("ElevenLabs", ("ELEVENLABS_API_KEY",)),
-    "openai": ("OpenAI", ("VOICE_TOOLS_OPENAI_KEY", "OPENAI_API_KEY")),
-    "minimax": ("MiniMax", ("MINIMAX_API_KEY",)), "mistral": ("Mistral Voxtral", ("MISTRAL_API_KEY",)),
-    "gemini": ("Google Gemini", ("GEMINI_API_KEY", "GOOGLE_API_KEY")),
-    "neutts": ("NeuTTS", "neutts", "run 'hermes setup tts'"),
-    "kittentts": ("KittenTTS", "kittentts", "run 'hermes setup tts'")}
-_TTS_SUMMARY_DEFAULT = ("Edge TTS", ())
-_STT_SUMMARY_ROWS = {
-    "openai": ("OpenAI", ("VOICE_TOOLS_OPENAI_KEY", "OPENAI_API_KEY")), "groq": ("Groq Whisper", ("GROQ_API_KEY",)),
-    "elevenlabs": ("ElevenLabs Scribe", ("ELEVENLABS_API_KEY",)), "xai": ("xAI", ()),
-    "deepinfra": ("DeepInfra", ("DEEPINFRA_API_KEY",))}
-_STT_SUMMARY_DEFAULT = ("Local Whisper", "faster_whisper", "run 'hermes tools' → Speech-to-Text")
-
 # Browser "missing" hint keyed by the configured provider; anything else gets the generic hint.
 _BROWSER_MISSING_HINTS = {
     "Browserbase": "BROWSERBASE_API_KEY/BROWSERBASE_PROJECT_ID",
@@ -48,18 +32,6 @@ _READY_ROWS = (
     ("hermes doctor", "       Check for issues"))
 
 
-def _voice_provider_status(kind: str, provider: str, rows: dict, default: tuple) -> tuple:
-    """Summary row for a TTS/STT provider. A keyed provider whose key is missing
-    falls through to the default row, matching the runtime fallback."""
-    row = rows.get(provider, default)
-    if isinstance(row[1], tuple) and row[1] and not any(_setup.get_env_value(v) for v in row[1]):
-        row = default
-    if isinstance(row[1], tuple):
-        return (f"{kind} ({row[0]})", True, None)
-    label, module, hint = row
-    if _setup._module_installed(module):
-        return (f"{kind} ({label}{' local' if kind == 'Text-to-Speech' else ''})", True, None)
-    return (f"{kind} ({label} — not installed)", False, hint)
 
 
 def _first_available_plugin_provider(registry: str, skip: str | None = None):
@@ -137,32 +109,8 @@ def _video_gen_row(config, feats):
     return (f"Video Generation ({backend})", True, None) if backend else None
 
 
-def _tts_row(config, feats):
-    # Configured provider, gated on its key (or local install)
-    if feats.tts.managed_by_nous:
-        return ("Text-to-Speech (OpenAI via Nous subscription)", True, None)
-    provider = _setup.cfg_get(config, "tts", "provider", default="edge")
-    return _voice_provider_status("Text-to-Speech", provider, _TTS_SUMMARY_ROWS, _TTS_SUMMARY_DEFAULT)
 
 
-def _stt_row(config, feats):
-    stt_feature = feats.features.get("stt")
-    if stt_feature is not None and stt_feature.managed_by_nous:
-        return ("Speech-to-Text (OpenAI via Nous subscription)", True, None)
-    provider = _setup.cfg_get(config, "stt", "provider", default="local") or "local"
-    return _voice_provider_status("Speech-to-Text", provider, _STT_SUMMARY_ROWS, _STT_SUMMARY_DEFAULT)
-
-
-def _modal_row(config, feats):
-    if feats.modal.managed_by_nous:
-        return ("Modal Execution (Nous subscription)", True, None)
-    if _setup.cfg_get(config, "terminal", "backend") == "modal":
-        if feats.modal.direct_override:
-            return ("Modal Execution (direct Modal)", True, None)
-        return ("Modal Execution", False, "run 'hermes setup terminal'")
-    if tool_backend_helpers.managed_nous_tools_enabled() and feats.nous_auth_present:
-        return ("Modal Execution (optional via Nous subscription)", True, None)
-    return None
 
 
 def _skills_hub_row(config, feats):
@@ -177,8 +125,8 @@ def _always_on_rows(config, feats):
 
 
 _TOOL_ROW_BUILDERS = (
-    _vision_row, _web_row, _browser_row, _image_gen_row, _video_gen_row, _tts_row, _stt_row,
-    _modal_row, _skills_hub_row, _always_on_rows)
+    _vision_row, _web_row, _browser_row, _image_gen_row, _video_gen_row,
+    _skills_hub_row, _always_on_rows)
 
 
 def _print_cmd_rows(rows):

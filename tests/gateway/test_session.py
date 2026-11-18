@@ -58,27 +58,18 @@ class TestSessionSourceRoundtrip:
 class TestBuildSessionContextPrompt:
 
 
-    def test_discord_prompt_stable_across_message_id(self):
-        """The cached system prompt must NOT vary with the triggering message_id.
-
-        message_id changes every turn; baking it into the Discord IDs block
-        busts the gateway agent-cache signature and rebuilds the AIAgent on
-        every message (destroying prompt caching). The volatile id is injected
-        per-turn into the user message instead — the cached block only carries
-        a static pointer.
-        """
-        from unittest.mock import patch
-        import gateway.session as _gs
+    def test_prompt_stable_across_message_id(self):
+        """Per-turn message IDs must not change cached prompt bytes."""
 
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(enabled=True, token="fake-d...oken"),
+                Platform.API_SERVER: PlatformConfig(enabled=True),
             },
         )
 
         def _prompt_for(msg_id):
             source = SessionSource(
-                platform=Platform.DISCORD,
+                platform=Platform.API_SERVER,
                 chat_id="chan-1",
                 chat_name="Server",
                 chat_type="group",
@@ -89,70 +80,14 @@ class TestBuildSessionContextPrompt:
             ctx = build_session_context(source, config)
             return build_session_context_prompt(ctx)
 
-        # Force the Discord IDs block on (it only emits when discord tools load).
-        with patch.object(_gs, "_discord_tools_loaded", return_value=True):
-            # Snowflake-length ids: short ones like "1001" collide with the
-            # runner's uid-keyed scratch path that the prompt embeds.
-            ids = ("1286745390127748101", "1286745390127748202", "1286745390127748303")
-            p1, p2, p3 = (_prompt_for(i) for i in ids)
+        ids = ("1286745390127748101", "1286745390127748202", "1286745390127748303")
+        p1, p2, p3 = (_prompt_for(i) for i in ids)
 
         assert p1 == p2 == p3, "system prompt must be stable across message_id"
         assert not any(i in p1 for i in ids)
 
 
 
-    def test_slack_tools_loaded_scope_failure_fails_closed(self, monkeypatch):
-        """A bound scope whose SLACK_BOT_TOKEN read fails must fail closed --
-        never borrow the ambient env token (another profile's). Pre-fix the
-        ``except Exception -> os.environ`` tail returned True here."""
-        from unittest.mock import patch
-        from agent import secret_scope as ss
-        from gateway.session import _slack_tools_loaded
-
-        class _ExplodingScope(dict):
-            def get(self, name, default=None):
-                raise RuntimeError("resolver boom")
-
-        monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-foreign")
-        ss.set_multiplex_active(True)
-        token = ss.set_secret_scope(_ExplodingScope())
-        try:
-            with patch("tools.mcp_tool_discovery.get_registered_mcp_server_names", return_value=[]), \
-                    patch("hermes_cli.config.load_config", return_value={}), \
-                    patch("hermes_cli.tools_config._get_platform_tools", return_value=["slack"]):
-                assert _slack_tools_loaded() is False
-        finally:
-            ss.reset_secret_scope(token)
-            ss.set_multiplex_active(False)
-
-    def test_slack_tools_loaded_detects_real_mcp_registration(self):
-        """Regression (review of #63234): a connected MCP server whose tools
-        are ACTUALLY registered in the live registry must be detected as
-        Slack capability, without mocking _slack_tools_loaded itself -- this
-        exercises the real tools.mcp_tool registration signal the earlier
-        (mocked-wholesale) tests didn't reach. Native SLACK_BOT_TOKEN/toolset
-        config is intentionally left unset so only the MCP path can pass."""
-        import os as _os
-        from unittest.mock import patch
-        from gateway.session import _slack_tools_loaded
-        from tools import mcp_tool_registration as _mcp_registration
-
-        # No native slack toolset / token configured.
-        with patch.dict(_os.environ, {}, clear=False):
-            _os.environ.pop("SLACK_BOT_TOKEN", None)
-
-            # Simulate a connected MCP server ("company-slack") that has
-            # registered a real tool, via the actual tracking function used
-            # by the live registration path (tools/mcp_tool.py:_track_mcp_tool_server),
-            # not a mock of the capability check.
-            _mcp_registration._track_mcp_tool_server("mcp-company-slack_post_message", "company-slack")
-            try:
-                assert _slack_tools_loaded() is True, (
-                    "A connected MCP server with 'slack' in its name and "
-                    "registered tools must be detected as Slack capability"
-                )
-            finally:
-                _mcp_registration._forget_mcp_tool_server("mcp-company-slack_post_message")
 
 
 

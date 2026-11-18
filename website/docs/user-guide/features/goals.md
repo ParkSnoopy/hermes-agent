@@ -23,16 +23,16 @@ Tasks where the agent does one turn and stops don't need `/goal`. Tasks where *y
 
 ## Goals vs Kanban: which one do I want?
 
-`/goal` and [Kanban](./kanban) both keep Hermes working without you re-prompting, so it's tempting to assume one flows into the other. It doesn't — the boundary is sharp:
+`/goal` and Kanban both keep Hermes working without you re-prompting, so it's tempting to assume one flows into the other. It doesn't — the boundary is sharp:
 
 - **`/goal` is single-session.** The loop feeds continuation prompts back into *this* conversation until the judge says done. Setting a goal never creates a kanban card, never assigns work to another profile, and never fans out. There is no handoff to the board, implicit or otherwise.
 - **Kanban is a board of many tasks.** Each card is dispatched to its own worker process with its own session. Cards, dependencies, assignees, and handoffs live on the board — not in `/goal`.
-- **The overlap is deliberate, and small.** A kanban card created with `--goal` runs the same Ralph-style continuation engine as `/goal` — but *inside that one card's worker session*. It borrows the engine, not the board. See [Goal-mode cards](./kanban#goal-mode-cards---goal).
+- **The overlap is deliberate, and small.** A kanban card created with `--goal` runs the same Ralph-style continuation engine as `/goal` — but *inside that one card's worker session*. It borrows the engine, not the board.
 
 | You want | Reach for |
 |---|---|
 | Keep iterating on one task in this chat until it's done | `/goal <text>` |
-| Many independent tasks, with dependencies, handoffs, or multiple profiles | [Kanban](./kanban) — `hermes kanban create …` |
+| Many independent tasks, with dependencies, handoffs, or multiple profiles | Kanban — `hermes kanban create …` |
 | One card on the board that should keep iterating until its acceptance criteria are met | A kanban card with `--goal` |
 
 :::note
@@ -58,7 +58,7 @@ What you'll see:
 | Command | What it does |
 |---|---|
 | `/goal <text>` | Set (or replace) the standing goal. Kicks off the first turn immediately so you don't need to send a separate message. |
-| `/goal -- <text>` | Set goal text that starts with a control word (`/goal -- pause the nightly cron`). Without `--`, `resume`/`continue`/`unpause`/`pause`/`status`/`show`/`unwait` followed by words run the control command and ignore the rest. |
+| `/goal -- <text>` | Set goal text that starts with a control word (`/goal -- pause the nightly build`). Without `--`, `resume`/`continue`/`unpause`/`pause`/`status`/`show`/`unwait` followed by words run the control command and ignore the rest. |
 | `/goal draft <text>` | Draft a structured completion contract from a plain-language objective, then set it. See [Completion contracts](#completion-contracts). |
 | `/goal show` | Print the active goal's completion contract. |
 | `/goal` or `/goal status` | Show the current goal, its status, and turns used. |

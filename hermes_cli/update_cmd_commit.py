@@ -36,7 +36,6 @@ from hermes_cli._early_recovery import (
     restore_interrupted_pull,
     write_durable_text,
 )
-from hermes_cli.update_cmd_common import _record_stop
 from hermes_cli.update_custody import run_git
 
 logger = logging.getLogger("hermes_cli.update_cmd")
@@ -82,8 +81,6 @@ POST_MOVE_MODULES = (
     "agent.delegation_context",
     "agent.provider_base",
     "agent.provider_registry",
-    "agent.terminal_env_provider",
-    "agent.terminal_env_registry",
     "gateway.config_loader",
     "gateway.platform_registry",
     "gateway.runtime_ownership",
@@ -329,10 +326,7 @@ def publish_recovery_closure(git_cmd, root: Path, pre: str) -> Path:
 
 
 def _fsync_dir(directory: Path) -> None:
-    """POSIX: make a directory's entries durable. Windows opens no directory handle; NTFS journals
-    the rename itself."""
-    if os.name == "nt":
-        return
+    """Make a directory's entries durable."""
     fd = os.open(directory, os.O_RDONLY)
     try:
         os.fsync(fd)
@@ -343,9 +337,8 @@ def _fsync_dir(directory: Path) -> None:
 def _absolute_git(git_cmd) -> str:
     """The git this run moves the tree with, as an absolute path for the next launch's repair.
 
-    A Windows install's git is often PM's store copy, on PATH only inside the updater
-    (``expose_pm_git``); the repair cannot look it up through ``pm`` when the killed move tore a
-    module ``pm`` imports (``hermes_constants``)."""
+    The repair must not need to import ``pm`` when the killed move tore one of its
+    dependencies (such as ``hermes_constants``)."""
     import shutil
 
     head = (list(git_cmd) or ["git"])[0] if not isinstance(git_cmd, str) else git_cmd
@@ -491,11 +484,11 @@ _COMPILE_ALL = (
 
 def _run_python(argv: list[str], *, stdin: str = "", timeout: float = 60) -> str | None:
     """Stdout of a read-only interpreter child (it never writes the checkout), None when it failed."""
-    from hermes_cli._subprocess_compat import windows_hide_flags
+
 
     try:
         done = subprocess.run(argv, input=stdin, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=timeout, creationflags=windows_hide_flags(), check=False)
+                              errors="replace", timeout=timeout, check=False)
     except (OSError, subprocess.SubprocessError):
         return None
     return done.stdout if done.returncode == 0 else None
@@ -691,12 +684,10 @@ def preflight_refusal(git_cmd, root: Path, target_ref: str, critical_files) -> s
         except ImportError:
             pass
         except Exception as exc:  # health: allow BLE001 -- fail closed: any probe error refuses before the first move
-            _record_stop("venv_foreign_owner")
             return f"✗ {exc}"  # pm's refusal carries its own remediation text
     broken = target_syntax_error(git_cmd, root, target_ref, critical_files)
     if broken is not None:
         path, error = broken
-        _record_stop("target_syntax_error")
         return (f"✗ The update target has a syntax error in a critical file:\n  {path}\n    "
                 + "\n    ".join(error.splitlines()[:6]))
     return None

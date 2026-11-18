@@ -1,4 +1,4 @@
-"""Tests for model_tools.py — function call dispatch, agent-loop interception, legacy toolsets."""
+"""Tests for model_tools.py — function call dispatch and toolset selection."""
 
 import json
 from unittest.mock import patch
@@ -26,6 +26,21 @@ class TestHandleFunctionCall:
         result = json.loads(handle_function_call("totally_fake_tool_xyz", {}))
         assert "error" in result
         assert "totally_fake_tool_xyz" in result["error"]
+
+    @pytest.mark.parametrize("name", ["todo", "cronjob", "process", "tour", "tip"])
+    def test_retired_tool_names_are_not_rewritten(self, name):
+        with patch("model_tools.registry.dispatch", return_value='{"error":"unknown"}') as dispatch:
+            handle_function_call(name, {})
+        assert dispatch.call_args.args[0] == name
+
+    def test_retired_toolset_is_not_expanded(self):
+        from model_tools import _select_tool_names
+        assert not _select_tool_names(["web_tools"], None, quiet_mode=True)
+
+    def test_todo_history_recognizes_only_current_name(self):
+        from tools.todo_tool import is_todo_tool_name
+        assert is_todo_tool_name("todo_list")
+        assert not is_todo_tool_name("todo")
 
 
 
@@ -498,7 +513,7 @@ class TestBridgeDispatch:
         with patch("model_tools.get_tool_definitions", return_value=[]), \
              patch.object(ts, "resolve_underlying_call", return_value=("mcp_x", {"a": 1}, None)), \
              patch.object(ts, "scoped_deferrable_names", return_value=frozenset()):
-            result = json.loads(handle_function_call("tool_call", {"name": "mcp_x"}))
+            result = json.loads(handle_function_call("tool_call", {"calls": [{"name": "mcp_x"}]}))
         assert result.get("error")
 
         with patch("model_tools.get_tool_definitions", return_value=[]), \
@@ -506,7 +521,7 @@ class TestBridgeDispatch:
              patch.object(ts, "scoped_deferrable_names", return_value=frozenset({"mcp_x"})), \
              patch.object(ts, "validate_deferred_call_args", return_value=None), \
              patch("model_tools.registry.dispatch", return_value='{"ok": true}') as disp:
-            out = handle_function_call("tool_call", {"name": "mcp_x"}, task_id="t")
+            out = handle_function_call("tool_call", {"calls": [{"name": "mcp_x"}]}, task_id="t")
         assert json.loads(out) == {"ok": True}
         assert disp.call_args.args[0] == "mcp_x" and disp.call_args.args[1] == {"a": 1}
 

@@ -55,7 +55,6 @@ it('an armed edit holding a paste and an image sends the pasted text and the att
     local: { getHistoryItems: () => [], getLastUserMsg: () => '', maybeWarn: vi.fn() },
     session: { newSession: vi.fn(), resumeById: vi.fn() },
     composer: { enqueue: vi.fn(), setInput: vi.fn() },
-    voice: {}
   } as any)
 
   slash('/rewind')

@@ -34,7 +34,7 @@ This single command does five things:
 2. Stores the refresh token at `~/.hermes/auth.json`
 3. Sets `model.provider: nous` in `~/.hermes/config.yaml`
 4. Picks a default agentic model (`anthropic/claude-sonnet-4.6` or similar)
-5. Turns on the Tool Gateway for web search, image generation, TTS, and browser automation
+5. Turns on the Tool Gateway for web search, image generation, and browser automation
 
 When it finishes, you're back at your terminal ready to chat.
 
@@ -73,7 +73,6 @@ You should see:
   ────────────
   Web search & extract  via Nous Portal
   Image generation      via Nous Portal
-  Text-to-speech        via Nous Portal
   Browser automation    via Nous Portal
 ```
 
@@ -133,7 +132,6 @@ hermes tools
 # → Web search       → "Nous Subscription"     (recommended)
 # → Image generation → "Nous Subscription"     (recommended)
 # → Browser          → "Browserbase"           (your existing key)
-# → TTS              → "Nous Subscription"     (recommended)
 ```
 
 These rows appear in `hermes tools` even before you've logged into Nous Portal — if you pick "Nous Subscription" without an active session, Hermes runs the Portal login inline (without changing your inference provider or your other tools).
@@ -145,30 +143,6 @@ hermes portal tools
 ```
 
 You'll see per-tool routing — `via Nous Portal` for the ones routed through the subscription, and the partner name (`browserbase`, `firecrawl`, etc.) for the ones using your own keys.
-
-## 7. (Optional) Enable voice mode
-
-Because the Tool Gateway includes OpenAI TTS, [voice mode](../user-guide/features/voice-mode.md) works without a separate OpenAI key:
-
-```bash
-hermes setup tts
-# → pick "Nous Subscription" for TTS
-# → pick a speech-to-text backend (local faster-whisper is free, no setup)
-```
-
-Then in any messaging-platform session (Telegram, Discord, Signal, etc.), send a voice message and Hermes will transcribe it, respond, and reply with synthesized voice — all on your Portal subscription.
-
-## 8. (Optional) Cron + always-on workflows
-
-The Portal subscription works for [cron jobs](../user-guide/features/cron.md) and [batch processing](../user-guide/features/batch-processing.md) the same way it works for interactive chat — the OAuth refresh token is reused automatically. No additional setup; just schedule cron jobs and they'll bill against your subscription.
-
-```bash
-hermes cron create "0 9 * * *" \
-  "Search the web for top AI news and summarize the 5 most important stories" \
-  --name "Daily AI news"
-```
-
-The cron job runs unattended, calls the model + web search + summarization all through your Portal subscription.
 
 ## Profiles and multi-user setups
 
@@ -260,7 +234,6 @@ hermes auth logout nous       # wipes the local refresh token
 | 1× web search key | Web routed through gateway |
 | 1× FAL key for image gen | Image gen routed through gateway |
 | 1× Browser Use / Browserbase key for browser | Browser routed through gateway |
-| 1× OpenAI key for TTS / voice mode | TTS routed through gateway |
 | 5 separate dashboards, top-ups, invoices | 1 subscription, 1 invoice |
 | Cross-machine: replicate all 5 keys | Cross-machine: re-OAuth once |
 
@@ -271,6 +244,5 @@ That's the deal. If you're using more than two of those backends anyway, the sub
 - **[Nous Portal integration page](../integrations/nous-portal.md)** — Overview of what's in the subscription
 - **[Tool Gateway](../user-guide/features/tool-gateway.md)** — Full details on every gateway-routed tool
 - **[Subscription proxy](../user-guide/features/subscription-proxy.md)** — Use your Portal subscription from non-Hermes tools
-- **[Voice mode](../user-guide/features/voice-mode.md)** — Set up voice conversations on the Portal subscription
 - **[OAuth over SSH](./oauth-over-ssh.md)** — Remote / headless login patterns
 - **[Profiles](../user-guide/profiles.md)** — Share one Portal login across multiple Hermes configurations

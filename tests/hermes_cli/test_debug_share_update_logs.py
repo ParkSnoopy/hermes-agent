@@ -13,8 +13,7 @@ These tests fail against the pre-fix capture set (five logs only).
 
 import pytest
 
-# Lines the writers really produce (main.py _UpdateOutputStream mirror and
-# scripts/desktop-update/windows.ps1 Write-HandoffLog / posix.sh log()).
+# Representative updater output and historical handoff log content.
 UPDATE_LOG_BODY = (
     "=== hermes update started 2026-09-02T03:21:09 ===\n"
     "→ Fetching updates...\n"

@@ -1,5 +1,5 @@
 import { describeRpcError } from '../app/userMessages.js'
-import { t } from '../i18n/runtime.js'
+import { slashEn } from '../copy/slash.js'
 
 export type RpcResult = Record<string, any>
 
@@ -14,4 +14,4 @@ export const rpcErrorMessage = (err: unknown) =>
     ? describeRpcError(err)
     : typeof err === 'string' && err.trim()
       ? describeRpcError(err)
-      : t('rpc.requestFailed')
+      : slashEn.rpc.requestFailed

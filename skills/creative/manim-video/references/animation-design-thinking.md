@@ -98,9 +98,8 @@ The visual should appear slightly BEFORE the narration describes it. When the vi
 # If narration for this scene is 8 seconds:
 # Total animation run_times + total self.wait() times = ~8 seconds.
 
-# Use manim-voiceover for automatic sync:
-with self.voiceover(text="The gradient points downhill") as tracker:
-    self.play(GrowArrow(gradient_arrow), run_time=tracker.duration)
+# Match the animation to the duration of the supplied audio clip.
+self.play(GrowArrow(gradient_arrow), run_time=8)
 ```
 
 ## Equation decomposition strategy

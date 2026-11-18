@@ -1,13 +1,7 @@
-"""Tests for hermes_cli.process_identity — spawn tags, the machine spawn
-ledger, and the updater's ledger-identified reap rung.
+"""Tests for hermes_cli.process_identity — spawn tags and the machine spawn ledger.
 
-Layer context (Aug 2026, after the 12-minute Windows update hang): reapers
-previously inferred process lineage from PPIDs and cmdline shape. These
-primitives make identity positive instead: spawners stamp children
-(HERMES_SPAWN), long-lived processes self-register (pid, create_time,
-purpose, spawner) in spawn-ledger.json, and `hermes update` reaps holders the
-ledger PROVES are orphaned backends — in any update context, no hand-off
-contract needed.
+Spawners stamp children and long-lived processes register their PID, start
+time, purpose and spawner, so identity does not rely on command substrings.
 
 Runs on any host: psutil interactions go through a fake module.
 """
@@ -273,12 +267,7 @@ def test_spawner_is_dead_tristate():
 
 
 class TestStrictBranchStatusRead:
-    """#142085: the strict branch of ``_pid_alive_matches`` read ``Process.status()`` on Windows,
-    where psutil's NtQuerySystemInformation path does not release the GIL — under load that froze
-    every other Python thread in the process for minutes. The non-strict branch already skipped
-    the read on Windows; the strict branch must too (Windows has no POSIX zombies, so the
-    STATUS_ZOMBIE comparison had nothing to contribute there). Tested on the real host: faking
-    ``os.name`` on POSIX proves nothing about the cost on Windows."""
+    """Strict identity checks must detect POSIX zombie processes."""
 
     @staticmethod
     def _spy_status(monkeypatch):
@@ -293,15 +282,6 @@ class TestStrictBranchStatusRead:
         monkeypatch.setattr(psutil.Process, "status", spy)
         return calls
 
-    @pytest.mark.platforms("windows")
-    def test_windows_strict_branch_skips_status(self, monkeypatch):
-        calls = self._spy_status(monkeypatch)
-        psutil = pytest.importorskip("psutil")
-        pid = os.getpid()
-        create_time = pi.process_birth(psutil.Process(pid))
-
-        assert pi._pid_alive_matches(pid, create_time, strict=True) is True
-        assert calls == []
 
     @pytest.mark.platforms("posix")
     def test_posix_strict_branch_still_probes_status(self, monkeypatch):
@@ -314,37 +294,6 @@ class TestStrictBranchStatusRead:
         assert pi._pid_alive_matches(pid, create_time, strict=True) is True
         assert calls == [pid]
 
-
-# ---------------------------------------------------------------------------
-# Updater rung: _ledger_reapable_backend_pids
-# ---------------------------------------------------------------------------
-
-def _holders(*pids):
-    return [(p, "python.exe", f"python.exe -m hermes_cli.main --profile p{p} serve") for p in pids]
-
-
-def test_updater_reaps_ledger_proven_orphans():
-    from hermes_cli import update_cmd_windows
-
-    entries = [
-        _entry(200, 2.0, spawner_pid=700, spawner_create=7.0),   # spawner dead → reap
-        _entry(201, 2.1, spawner_pid=500, spawner_create=5.0),   # spawner alive → keep
-        _entry(202, 2.2, purpose="chat", spawner_pid=700, spawner_create=7.0),  # not reapable purpose
-    ]
-    fake = _fake_psutil({500: 5.0})
-    with patch.dict(sys.modules, {"psutil": fake}), \
-         patch.object(pi, "ledger_entries", return_value=entries), \
-         patch.object(pi, "spawner_is_dead", wraps=pi.spawner_is_dead):
-        assert update_cmd_windows._ledger_reapable_backend_pids(_holders(200, 201, 202, 203)) == [200]
-
-
-
-
-def test_updater_ledger_rung_never_raises():
-    from hermes_cli import update_cmd_windows
-
-    with patch.object(pi, "ledger_entries", side_effect=RuntimeError("boom")):
-        assert update_cmd_windows._ledger_reapable_backend_pids(_holders(200)) == []
 
 
 def test_desktop_ssh_backend_spawn_shape_is_desktop_owned(monkeypatch):

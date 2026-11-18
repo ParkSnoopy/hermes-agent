@@ -266,15 +266,10 @@ def _pin_restore_held(agent, registered: set) -> tuple[bool, frozenset]:
 
 
 def _config_permitted_names(agent) -> set:
-    """Tool names this agent's toolset selection allows before ``check_fn``: all a pin may carry
-    forward. A client-surface toolset counts as allowed (only its client can add it, so its absence
-    here is no config choice); ``disabled_toolsets`` still strips it."""
+    """Tool names this agent's toolset selection allows before ``check_fn``."""
     from agent.oneshot_footprint import ONESHOT_DISABLED_TOOLSETS, agent_is_oneshot
     from model_tools import _select_tool_names
-    from toolsets import CLIENT_SURFACE_TOOLSETS
     enabled = getattr(agent, "enabled_toolsets", None)
-    if enabled is not None:
-        enabled = [*enabled, *CLIENT_SURFACE_TOOLSETS]
     disabled = getattr(agent, "disabled_toolsets", None)
     if disabled and agent_is_oneshot(agent):  # the one-shot gate is no config choice either: a pinned clarify stays,
         configured = set(getattr(agent, "_configured_disabled_toolsets", None) or ())  # unless config disables it

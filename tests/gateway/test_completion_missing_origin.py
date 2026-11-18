@@ -5,10 +5,9 @@ import pytest
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('platform', ['telegram', 'discord'])
 @pytest.mark.parametrize('compressed', [False, True], ids=['direct', 'compressed'])
 @pytest.mark.parametrize('missing_origin', [False, True], ids=['with-origin', 'null-origin'])
-async def test_completion_uses_logical_owner_after_route_restore(tmp_path, monkeypatch, platform, compressed, missing_origin):
+async def test_completion_uses_logical_owner_after_route_restore(tmp_path, monkeypatch, compressed, missing_origin):
     from gateway.config import GatewayConfig, Platform, PlatformConfig
     from gateway.platforms.event import MessageEvent
     from gateway.run import GatewayRunner
@@ -18,23 +17,18 @@ async def test_completion_uses_logical_owner_after_route_restore(tmp_path, monke
     from gateway.session_ingress_context import native_callback
     from hermes_constants import get_hermes_home
     from hermes_state_runtime import list_session_admissions
-    from plugins.platforms.discord.adapter import DiscordAdapter
-    from plugins.platforms.telegram.adapter import TelegramAdapter
-    from tests.gateway.test_completion_admission import pending
+    from tests.gateway.test_automation_compression_media import _chat_adapter, pending
     from tools import async_delegation as delegation
 
     # Admit through the real adapter and SQLite FIFO, stopping before a model turn.
     monkeypatch.setattr(SessionAuthority, '_schedule', lambda self, ref: None)
-    monkeypatch.setenv(platform.upper() + '_ALLOWED_USERS', '42')
     runner = GatewayRunner(GatewayConfig())
-    adapter_cls = TelegramAdapter if platform == 'telegram' else DiscordAdapter
-    adapter = adapter_cls(PlatformConfig(enabled=True, token='fixture-token', typing_indicator=False))
-    runner.adapters = {Platform(platform): adapter}
+    adapter = _chat_adapter(monkeypatch)
+    platform = adapter.platform.value
+    runner.adapters = {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='restore')
     runner._wire_adapter_handlers(adapter)
-    source = adapter.build_source(chat_id='-10042' if platform == 'telegram' else '42',
-                                  chat_type='group' if platform == 'telegram' else 'dm',
-                                  thread_id='7' if platform == 'telegram' else None, user_id='42')
+    source = adapter.build_source(chat_id='42', chat_type='dm', user_id='42')
     human = MessageEvent(text='human', source=source, message_id='human')
     with native_callback(runner, human, get_hermes_home()):
         receipt = await authority.admit_native(human)
@@ -82,9 +76,8 @@ async def test_local_null_origin_never_acknowledges_the_wrong_owner(tmp_path, mo
     from gateway.session import SessionEntry
     from gateway.session_automation import completion_admission
     from hermes_state_runtime import list_session_admissions
-    from tests.gateway.test_completion_admission import pending
+    from tests.gateway.test_automation_compression_media import pending
     from tests.gateway.test_session_end_delegations import _local
-    from tests.gateway.test_unviewed_completion_notes import _compress
     from tools import async_delegation as delegation
 
     runner, authority, ref, _ = await _local(tmp_path, monkeypatch)
@@ -93,7 +86,15 @@ async def test_local_null_origin_never_acknowledges_the_wrong_owner(tmp_path, mo
     # A reset keeps the local admission owner but starts a new transcript lineage.
     target = store.reset_session(key).session_id
     if compressed:
-        _compress(runner, authority, ref, target, target + '-child')
+        db = authority.db
+        assert db.try_acquire_compression_lock(target, 'lc7')
+        try:
+            db.publish_compression_child(parent_session_id=target, child_session_id=target + '-child',
+                                         source='cli', messages=[{'role': 'user', 'content': 'SUMMARY'}],
+                                         compression_lock_holder='lc7')
+        finally:
+            db.release_compression_lock(target, 'lc7')
+        assert store.advance_compression_session(key, target, target + '-child')
         target += '-child'
     wrong_owner = authority.logical_owner(target)
     assert wrong_owner != ref.session_id

@@ -206,14 +206,14 @@ def test_subprocess_run_shell_escaped_or_nested_verb_blocked(cmd):
 
 def test_a_test_owned_unit_can_be_cleaned_up_but_no_other(request):
     """A unit the test created under its own name may be stopped; every other Hermes unit stays refused."""
-    owned = "hermes-worker-kanban-t_selftest-run-1.scope"
+    owned = "hermes-worker-cron-t_selftest-run-1.scope"
     request.node.live_system_guard_owned_units = {owned}
     with pytest.raises(FileNotFoundError):
         subprocess.run(["systemctl", "--user", "stop", owned], env={"PATH": "/nonexistent"}, check=False)
     with pytest.raises(RuntimeError, match="live-system guard"):
         subprocess.run(["systemctl", "--user", "stop", owned, "hermes-dashboard.service"], check=False)
     with pytest.raises(RuntimeError, match="live-system guard"):
-        subprocess.run(["systemctl", "--user", "stop", "hermes-worker-kanban-other-run-1.scope"], check=False)
+        subprocess.run(["systemctl", "--user", "stop", "hermes-worker-cron-other-run-1.scope"], check=False)
 
 
 def test_subprocess_run_setsid_systemctl_blocked():

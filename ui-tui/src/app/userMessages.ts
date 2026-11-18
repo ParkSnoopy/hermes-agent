@@ -1,13 +1,11 @@
-// User-facing wording for gateway/transport failures in the TUI. Pure functions
-// so the copy — and the "what happened / what to do" shape — is unit-testable
-// without rendering. The English copy lives in i18n/en/userMessages.ts
-// (namespace `userMessages`); every exported message is a function so it is
-// resolved against the active locale at call time, never at import time.
-
 import type { ErrorSurface } from '@hermes/shared/gateway-events'
 
-import { messages, t } from '../i18n/runtime.js'
-import type { Translations } from '../i18n/types.js'
+import { canonicalEn } from '../copy/canonical.js'
+import { slashEn } from '../copy/slash.js'
+// User-facing wording for gateway/transport failures in the TUI. Pure functions
+// so the copy — and the "what happened / what to do" shape — is unit-testable
+// without rendering. The English copy lives in copy/userMessages.ts.
+import { userMessagesEn } from '../copy/userMessages.js'
 
 /** JSON-RPC error codes the gateway answers with. */
 export const RPC_INVALID_PARAMS = 4000
@@ -32,35 +30,35 @@ const detailLine = (raw: string | undefined): string | null => {
     return null
   }
 
-  return t('userMessages.details', text.length > DETAIL_LIMIT ? `${text.slice(0, DETAIL_LIMIT - 1)}…` : text)
+  return userMessagesEn.userMessages.details(text.length > DETAIL_LIMIT ? `${text.slice(0, DETAIL_LIMIT - 1)}…` : text)
 }
 
 // ── Backend process lifecycle ─────────────────────────────────────────────
 
-export const backendRestarting = (): string => t('userMessages.backend.restarting')
+export const backendRestarting = (): string => userMessagesEn.userMessages.backend.restarting
 
-export const backendRestartingActivity = (): string => t('userMessages.backend.restartingActivity')
+export const backendRestartingActivity = (): string => userMessagesEn.userMessages.backend.restartingActivity
 
 // Attached (dashboard / embedded) mode: only the socket dropped; Hermes and any
 // reply in progress are still alive on the backend and come back on reconnect.
-export const connectionLost = (): string => t('userMessages.backend.connectionLost')
+export const connectionLost = (): string => userMessagesEn.userMessages.backend.connectionLost
 
-export const connectionLostActivity = (): string => t('userMessages.backend.connectionLostActivity')
+export const connectionLostActivity = (): string => userMessagesEn.userMessages.backend.connectionLostActivity
 
 export const backendGaveUp = (code: null | number, lastLine?: string): string => {
   const detail = detailLine(lastLine)
 
   return [
-    code === null ? t('userMessages.backend.gaveUpTitle') : t('userMessages.backend.gaveUpTitleWithCode', String(code)),
+    code === null ? userMessagesEn.userMessages.backend.gaveUpTitle : userMessagesEn.userMessages.backend.gaveUpTitleWithCode(String(code)),
     detail,
-    t('userMessages.backend.gaveUpReconnect'),
-    t('userMessages.backend.gaveUpLogs')
+    userMessagesEn.userMessages.backend.gaveUpReconnect,
+    userMessagesEn.userMessages.backend.gaveUpLogs
   ]
     .filter(Boolean)
     .join('\n')
 }
 
-export const backendGaveUpActivity = (): string => t('userMessages.backend.gaveUpActivity')
+export const backendGaveUpActivity = (): string => userMessagesEn.userMessages.backend.gaveUpActivity
 
 /** Last line of the backend log tail that is not our own [lifecycle]/[startup] bookkeeping. */
 export const lastStderrLine = (tail: string): string | undefined =>
@@ -74,13 +72,13 @@ export const backendReconnecting = (attempt: number | undefined, delayMs: number
   const secs = Math.max(1, Math.round((delayMs ?? 1000) / 1000))
 
   return attempt && attempt > 0
-    ? t('userMessages.backend.reconnectingAttempt', String(secs), String(attempt))
-    : t('userMessages.backend.reconnecting', String(secs))
+    ? userMessagesEn.userMessages.backend.reconnectingAttempt(String(secs), String(attempt))
+    : userMessagesEn.userMessages.backend.reconnecting(String(secs))
 }
 
-export const backendSlowStart = (): string => t('userMessages.backend.slowStart')
+export const backendSlowStart = (): string => userMessagesEn.userMessages.backend.slowStart
 
-export const backendSlowStartStatus = (): string => t('userMessages.backend.slowStartStatus')
+export const backendSlowStartStatus = (): string => userMessagesEn.userMessages.backend.slowStartStatus
 
 // ── stderr noise ──────────────────────────────────────────────────────────
 
@@ -98,7 +96,7 @@ export const stderrLooksLikeProblem = (line: string): boolean => STDERR_PROBLEM_
 export const stderrProblemActivity = (line: string): string => {
   const m = /([A-Z][A-Za-z]*(?:Error|Exception)):/.exec(line)
 
-  return m ? t('userMessages.backend.stderrProblemNamed', m[1]) : t('userMessages.backend.stderrProblem')
+  return m ? userMessagesEn.userMessages.backend.stderrProblemNamed(m[1]) : userMessagesEn.userMessages.backend.stderrProblem
 }
 
 // ── RPC errors ────────────────────────────────────────────────────────────
@@ -123,7 +121,7 @@ export const isVersionSkewError = (err: unknown): boolean => {
   )
 }
 
-export const versionSkewMessage = (): string => t('userMessages.rpc.versionSkew')
+export const versionSkewMessage = (): string => userMessagesEn.userMessages.rpc.versionSkew
 
 const SESSION_NOT_FOUND_RE = /session not found/i
 const NOT_CONNECTED_RE = /^gateway not (?:connected|running)\b/
@@ -140,15 +138,15 @@ type RpcErrorRow = [
 const RPC_ERROR_ROWS: RpcErrorRow[] = [
   [
     (code, text) => (code === RPC_SESSION_NOT_FOUND || code === undefined) && SESSION_NOT_FOUND_RE.test(text),
-    () => t('userMessages.rpc.sessionNotFound')
+    () => userMessagesEn.userMessages.rpc.sessionNotFound
   ],
   // A stored chat the gateway opens read-only (gateway/session_history_mount.py) names its refusal by reason.
-  [(_code, text) => text === 'session_read_only', () => t('userMessages.rpc.sessionReadOnly')],
-  [(_code, text) => text === 'session_has_children', () => t('userMessages.rpc.sessionHasChildren')],
-  [(_code, text) => NOT_CONNECTED_RE.test(text), () => t('userMessages.rpc.notConnected')],
-  [(_code, text) => UNAVAILABLE_METHOD_RE.exec(text), m => t('userMessages.rpc.methodUnavailable', m?.[1] ?? '?')],
-  [(_code, text) => text.trim() === 'launch_credentials_unavailable', () => t('userMessages.rpc.launchCredentialsChanged')],
-  [(_code, text) => TIMED_OUT_RE.exec(text), m => t('userMessages.rpc.timedOut', m?.[1] ?? '?')]
+  [(_code, text) => text === 'session_read_only', () => userMessagesEn.userMessages.rpc.sessionReadOnly],
+  [(_code, text) => text === 'session_has_children', () => userMessagesEn.userMessages.rpc.sessionHasChildren],
+  [(_code, text) => NOT_CONNECTED_RE.test(text), () => userMessagesEn.userMessages.rpc.notConnected],
+  [(_code, text) => UNAVAILABLE_METHOD_RE.exec(text), m => userMessagesEn.userMessages.rpc.methodUnavailable(m?.[1] ?? '?')],
+  [(_code, text) => text.trim() === 'launch_credentials_unavailable', () => userMessagesEn.userMessages.rpc.launchCredentialsChanged],
+  [(_code, text) => TIMED_OUT_RE.exec(text), m => userMessagesEn.userMessages.rpc.timedOut(m?.[1] ?? '?')]
 ]
 
 let rpcErrorLogSink: ((line: string) => void) | null = null
@@ -165,7 +163,7 @@ const logReplacedWireText = (code: number | undefined, text: string): void => {
 /** Rewrite transport/session errors into plain words; other errors pass through. */
 export const describeRpcError = (err: unknown): string => {
   const { code, message } = rpcShape(err)
-  const text = message ?? (typeof err === 'string' && err.trim() ? err : t('rpc.requestFailed'))
+  const text = message ?? (typeof err === 'string' && err.trim() ? err : slashEn.rpc.requestFailed)
 
   if (isVersionSkewError(err)) {
     logReplacedWireText(code, text)
@@ -201,7 +199,7 @@ export const describeShellExecError = (err: unknown): string => {
     const backend = typeof data.detail === 'string' ? data.detail.trim() : ''
 
     // An older gateway names no backend: say so without a backend-shaped sentence.
-    return backend ? t('userMessages.rpc.shellBackendRefused', backend) : t('userMessages.rpc.shellBackendRefusedUnnamed')
+    return backend ? userMessagesEn.userMessages.rpc.shellBackendRefused(backend) : userMessagesEn.userMessages.rpc.shellBackendRefusedUnnamed
   }
 
   return describeRpcError(err)
@@ -216,19 +214,19 @@ export const describeSlashExecError = (command: string, err: unknown): string =>
     // The owner names what to use instead for its client-local refusals (gateway/session_commands.py
     // REFUSAL_HINTS) in `data.detail`; print it under the refusal.
     const detail = (err as { data?: { detail?: unknown } } | null)?.data?.detail
-    const refusal = t('canonical.controls.notAvailable', command)
+    const refusal = canonicalEn.canonical.controls.notAvailable(command)
 
     return typeof detail === 'string' && detail.trim() ? `${refusal}\n${detail.trim()}` : refusal
   }
 
   if (/slash worker timed out/.test(text)) {
-    return t('userMessages.rpc.slashTimedOut', command)
+    return userMessagesEn.userMessages.rpc.slashTimedOut(command)
   }
 
   if (/slash worker (?:exited|closed pipe|start failed)/.test(text)) {
     const detail = detailLine(text.replace(/^slash worker (?:exited|closed pipe:?|start failed:?)\s*/, ''))
 
-    return [t('userMessages.rpc.slashCrashed', command), detail].filter(Boolean).join('\n')
+    return [userMessagesEn.userMessages.rpc.slashCrashed(command), detail].filter(Boolean).join('\n')
   }
 
   return describeRpcError(err)
@@ -263,7 +261,7 @@ type TurnCopy = { hint: string; hintNoRetry?: string; title: string }
 type TurnCopyTable = Record<string, TurnCopy | undefined>
 
 // error_surface.code (snake_case wire values) → catalog leaf under userMessages.turn.code.
-const TURN_CODE_KEY: Record<string, keyof Translations['userMessages']['turn']['code']> = {
+const TURN_CODE_KEY: Record<string, keyof typeof userMessagesEn['userMessages']['turn']['code']> = {
   auth: 'auth',
   auth_permanent: 'authPermanent',
   billing: 'billing',
@@ -285,7 +283,7 @@ const TURN_CODE_KEY: Record<string, keyof Translations['userMessages']['turn']['
 }
 
 const turnCopyFor = (code: string, layer: string): TurnCopy => {
-  const turn = messages().userMessages.turn
+  const turn = userMessagesEn.userMessages.turn
   const codeKey = TURN_CODE_KEY[code]
   const byCode = codeKey ? (turn.code as TurnCopyTable)[codeKey] : undefined
 
@@ -307,7 +305,7 @@ export const describeTurnFailure = (payload: TurnFailure): string => {
 
   const title =
     typeof surface.provider === 'string' && surface.provider
-      ? t('userMessages.turn.withProvider', copy.title, surface.provider)
+      ? userMessagesEn.userMessages.turn.withProvider(copy.title, surface.provider)
       : copy.title
 
   // The backend always sets recoverable=true on a turn error; error_surface.retryable
@@ -316,7 +314,7 @@ export const describeTurnFailure = (payload: TurnFailure): string => {
   const nextStep = retryable ? copy.hint : (copy.hintNoRetry ?? copy.hint)
   const raw = (payload.error ?? '').replace(/^Error:\s*/, '')
 
-  return [t('userMessages.turn.notAnswered', title), detailLine(raw), nextStep].filter(Boolean).join('\n')
+  return [userMessagesEn.userMessages.turn.notAnswered(title), detailLine(raw), nextStep].filter(Boolean).join('\n')
 }
 
 /** True when the assistant slot carries nothing but the backend's "Error: …" fallback text. */
@@ -329,7 +327,7 @@ export const isBareErrorText = (text: string, error: null | string | undefined):
 // ── Withdrawn password / secret prompts ───────────────────────────────────
 
 // server-request method → catalog leaf under userMessages.promptTimeout.
-const PROMPT_TIMEOUT_KEY: Record<string, keyof Translations['userMessages']['promptTimeout']> = {
+const PROMPT_TIMEOUT_KEY: Record<string, keyof typeof userMessagesEn['userMessages']['promptTimeout']> = {
   secret: 'secret',
   sudo: 'sudo',
   'vault.code': 'vaultCode',
@@ -340,7 +338,7 @@ const PROMPT_TIMEOUT_KEY: Record<string, keyof Translations['userMessages']['pro
 export const promptTimeoutNotice = (method: string | undefined, reason: string | undefined): null | string => {
   const key = reason === 'timeout' && method ? PROMPT_TIMEOUT_KEY[method] : undefined
 
-  return key ? messages().userMessages.promptTimeout[key] : null
+  return key ? userMessagesEn.userMessages.promptTimeout[key] : null
 }
 
 // ── session.info warnings ─────────────────────────────────────────────────
@@ -355,9 +353,9 @@ export const describeCredentialWarning = (warning: string): string => {
     return warning
   }
 
-  return t('userMessages.credential.missingKey', m[1] || t('userMessages.credential.currentProvider'))
+  return userMessagesEn.userMessages.credential.missingKey(m[1] || userMessagesEn.userMessages.credential.currentProvider)
 }
 
 // ── Empty states ──────────────────────────────────────────────────────────
 
-export const noSkillsInstalled = (): string => t('userMessages.skills.noneInstalled')
+export const noSkillsInstalled = (): string => userMessagesEn.userMessages.skills.noneInstalled

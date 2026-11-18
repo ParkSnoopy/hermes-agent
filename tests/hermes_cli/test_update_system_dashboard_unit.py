@@ -31,10 +31,6 @@ UNIT = "hermes-dashboard.service"
 CGROUP = f"/system.slice/{UNIT}"
 
 
-@pytest.fixture(autouse=True)
-def _no_real_launchd_jobs():
-    with patch.object(main_dashboard, "_loaded_launchd_backend_jobs", return_value=[]):
-        yield
 
 
 def _systemd_owned_dashboard(monkeypatch, systemctl_calls: list):

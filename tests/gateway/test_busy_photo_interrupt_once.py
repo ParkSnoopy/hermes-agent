@@ -9,11 +9,12 @@ import threading
 
 import pytest
 
-from gateway.config import GatewayConfig, Platform, PlatformConfig
+from gateway.config import GatewayConfig
 from gateway.platforms.base import SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.run import GatewayRunner
 from gateway.run_turn_runner import TurnRunner
+from tests.gateway.test_authority_busy_plaintext_approval import CHAT, _human_adapter
 
 
 async def _followup_while_running(monkeypatch, event, marker, *, fail_admit=False):
@@ -24,12 +25,10 @@ async def _followup_while_running(monkeypatch, event, marker, *, fail_admit=Fals
     admit is visible to the drain. ``fail_admit`` makes that admit refuse (``admission_conflict``).
     """
     from gateway.session_authority import initialize_session_authority
-    from plugins.platforms.discord.adapter import DiscordAdapter
     from tests.waiting import async_wait_until
 
-    monkeypatch.setenv("DISCORD_ALLOWED_USERS", "42")
     runner = GatewayRunner(GatewayConfig())
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token="fixture-token", typing_indicator=False))
+    adapter = _human_adapter(monkeypatch)
 
     sent = []
 
@@ -39,15 +38,12 @@ async def _followup_while_running(monkeypatch, event, marker, *, fail_admit=Fals
 
     monkeypatch.setattr(adapter, "send", send)
 
-    async def transcribed(self, event, adapter, source, text, *, log_context, metadata=None):
-        return "heard this", []
 
-    monkeypatch.setattr(GatewayRunner, "_transcribe_and_echo_pending_voice", transcribed)
     adapter.gateway_runner = runner
-    runner.adapters = {Platform.DISCORD: adapter}
+    runner.adapters = {adapter.platform: adapter}
     await initialize_session_authority(runner, profile_id="default", instance_id="owner")
     runner._wire_adapter_handlers(adapter)
-    source = adapter.build_source(chat_id="42", chat_type="dm", user_id="42")
+    source = adapter.build_source(chat_id=CHAT, chat_type="dm", user_id=CHAT)
     event.source = source
     seen = []
     release = threading.Event()
@@ -113,19 +109,12 @@ def _photo(tmp_path):
                         media_urls=[str(photo)], media_types=["image/jpeg"]), "photo.jpg", "caption"
 
 
-def _voice(tmp_path):
-    voice = tmp_path / "note.ogg"
-    voice.write_bytes(b"OggS" + b"\x00" * 32)
-    return MessageEvent(text="", message_type=MessageType.VOICE, message_id="V",
-                        media_urls=[str(voice)], media_types=["audio/ogg"]), "note.ogg", "heard this"
-
-
 def _text(tmp_path):
     return MessageEvent(text="later", message_id="T"), "later", "later"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("make", [_photo, _voice, _text], ids=["photo", "voice", "text"])
+@pytest.mark.parametrize("make", [_photo, _text], ids=["photo", "text"])
 async def test_send_during_a_running_turn_is_admitted_once(monkeypatch, tmp_path, make):
     event, marker, interrupt_text = make(tmp_path)
     followups, interrupt, _ = await _followup_while_running(monkeypatch, event, marker)

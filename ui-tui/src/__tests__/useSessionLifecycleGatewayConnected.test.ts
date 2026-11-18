@@ -27,8 +27,6 @@ function mountLifecycle(answer: (method: string) => unknown) {
       setLastUserMsg: vi.fn(),
       setSessionStartedAt: vi.fn(),
       setStickyPrompt: vi.fn(),
-      setVoiceProcessing: vi.fn(),
-      setVoiceRecording: vi.fn(),
       sys: vi.fn()
     })
 

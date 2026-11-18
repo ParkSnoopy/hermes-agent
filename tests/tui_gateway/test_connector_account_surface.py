@@ -1,6 +1,4 @@
-"""Account-owned connector RPCs come only from the desktop Connectors page, so their gateway requests
-name the ``desktop`` surface even on a backend started without ``HERMES_DESKTOP`` (a URL, SSH-less or
-cloud backend the app attached to)."""
+"""Account-owned connector RPCs work without reporting the client's surface."""
 
 import pytest
 
@@ -24,7 +22,7 @@ def _dispatch(method, params):
     return server.handle_request({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 
 
-def test_account_reads_and_connects_name_the_desktop(remote_backend, monkeypatch):
+def test_account_reads_and_connects_keep_a_surface_free_user_agent(remote_backend, monkeypatch):
     from tools.connectors.gateway.errors import GatewayUnavailable
 
     agents = []
@@ -48,5 +46,5 @@ def test_account_reads_and_connects_name_the_desktop(remote_backend, monkeypatch
     assert _dispatch("connectors.tools", {"slug": "gmail", "refresh": False})["error"]["code"] == 4041
     connected = _dispatch("connectors.connect", {"owner": {"type": "account"}, "connectors": ["gmail"]})
     assert "result" in connected, connected
-    assert user_agent().split(" (")[1].startswith("cli;")  # nothing leaks out of the request
-    assert [agent.split(" (")[1].split(";")[0] for agent in agents] == ["desktop", "desktop"]
+    assert agents == [user_agent(), user_agent()]
+    assert all(agent.startswith("hermes-agent/") and " (" not in agent for agent in agents)

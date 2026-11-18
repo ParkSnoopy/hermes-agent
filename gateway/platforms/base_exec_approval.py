@@ -6,9 +6,7 @@ the same three things: what Hermes wants to run, why it was flagged, and that si
 the command does NOT run once ``approvals.timeout`` elapses. Keeping the text here means one
 edit changes every platform; adapters only wrap these strings in their own markup.
 
-The ``EA_*`` / ``APPROVAL_TIMED_OUT_NOTICE`` module constants are the English source of truth
-(catalog keys ``gateway.exec_approval.*``); anything that renders the prompt calls the sibling
-accessors (``ea_header_text()`` …) so the active ``display.language`` is honoured at render time.
+The ``EA_*`` / ``APPROVAL_TIMED_OUT_NOTICE`` module constants and accessors provide English copy.
 
 No imports from ``gateway.platforms.base`` or ``gateway.run`` — both import this module.
 """
@@ -18,7 +16,6 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from agent.i18n import t
 
 # Bare strings; adapters add their own bold/HTML around them.
 EA_HEADER_TEXT = "Hermes wants to run a command that needs your OK"
@@ -31,38 +28,38 @@ APPROVAL_TIMED_OUT_NOTICE = (
 
 
 def ea_header_text() -> str:
-    """Localized ``EA_HEADER_TEXT``."""
-    return t("gateway.exec_approval.header")
+    """Return the approval header."""
+    return 'Hermes wants to run a command that needs your OK'
 
 
 def ea_reason_label_text() -> str:
-    """Localized ``EA_REASON_LABEL_TEXT``."""
-    return t("gateway.exec_approval.reason_label")
+    """Return the approval reason label."""
+    return 'Why it was flagged'
 
 
 def ea_smart_deny_line_text() -> str:
-    """Localized smart-deny sentence (bare; adapters add their own line breaks/markup)."""
-    return t("gateway.exec_approval.smart_deny_line")
+    """Smart-deny sentence (bare; adapters add their own line breaks/markup)."""
+    return 'Smart DENY: owner override applies to this one operation only.'
 
 
 def ea_default_reason_text() -> str:
-    """Localized default "why it was flagged" reason when the approval carries none."""
-    return t("gateway.exec_approval.default_reason")
+    """Default "why it was flagged" reason when the approval carries none."""
+    return 'dangerous command'
 
 
 def ea_action_labels() -> dict[str, str]:
-    """Localized ``choice -> button label`` for the four approval tiers."""
+    """``choice -> button label`` for the four approval tiers."""
     return {
-        "once": t("gateway.exec_approval.action_once"),
-        "session": t("gateway.exec_approval.action_session"),
-        "always": t("gateway.exec_approval.action_always"),
-        "deny": t("gateway.exec_approval.action_deny"),
+        "once": 'Allow Once',
+        "session": 'Allow Session',
+        "always": 'Always Allow',
+        "deny": 'Deny',
     }
 
 
 def approval_timed_out_notice(window: str) -> str:
-    """Localized ``APPROVAL_TIMED_OUT_NOTICE`` for an already-formatted ``window``."""
-    return t("gateway.exec_approval.timed_out_notice", window=window)
+    """Approval timeout notice for an already-formatted ``window``."""
+    return (f'⌛ Approval timed out after {window} — the command was NOT run. Ask me to try again if you still want it, or raise approvals.timeout in config.yaml.')
 
 
 def approval_timeout_seconds() -> int:
@@ -80,7 +77,7 @@ def format_approval_window(seconds: int) -> str:
 
 def format_approval_deadline_line(timeout_s: int) -> str:
     """The last line of every approval prompt: doing nothing is a safe no."""
-    return t("gateway.exec_approval.deadline", window=format_approval_window(timeout_s))
+    return (f"If you don't answer within {format_approval_window(timeout_s)} it will NOT run.")
 
 
 def format_approval_timed_out_notice(timeout_s: int) -> str:
@@ -132,7 +129,7 @@ def render_exec_approval(adapter: Any, command: str, description: str, smart_den
     if adapter._EA_REASON_BUDGET:
         description = adapter._ea_fit(str(description or ""), adapter._EA_REASON_BUDGET)
     key = "truncated_full_above" if full_command_shown else "truncated_deny_only"
-    cut_notice = "\n\n" + adapter._ea_escape(t(f"gateway.exec_approval.{key}", total=len(command)))
+    cut_notice = "\n\n" + adapter._ea_escape({'header': 'Hermes wants to run a command that needs your OK', 'reason_label': 'Why it was flagged', 'default_reason': 'dangerous command', 'smart_deny_line': 'Smart DENY: owner override applies to this one operation only.', 'smart_deny_heading': '⚠️ **Smart DENY — owner override for one operation:**', 'timed_out_notice': '⌛ Approval timed out after {window} — the command was NOT run. Ask me to try again if you still want it, or raise approvals.timeout in config.yaml.', 'timed_out_card_body': '{notice}\n```\n{command}\n```', 'action_once': 'Allow Once', 'action_session': 'Allow Session', 'action_always': 'Always Allow', 'action_deny': 'Deny', 'deadline': "If you don't answer within {window} it will NOT run.", 'not_requester': 'Only {requester} can answer this approval.', 'not_requester_admins_only': 'Only an admin or a listed approver can answer this approval.', 'text_choice_once': 'Reply `{prefix}approve` to run it once', 'text_choice_session': '`{prefix}approve session` to allow this pattern for the rest of this session', 'text_choice_always': '`{prefix}approve always` to allow it permanently', 'text_choice_deny': '`{prefix}deny` to cancel', 'text_choice_joiner': ', ', 'text_choice_last': ', or {choice}.\n', 'text_body': '{heading}\n```\n{command}\n```\n{reason_label}: {reason}\n\n', 'truncated_full_above': 'Preview shortened: the full command ({total} characters) is in the message above.', 'truncated_deny_only': 'Preview shortened ({total} characters) and the full command could not be shown here, so only Deny is offered. Review it in the CLI or Desktop app.', 'text_prompt_deny_only': 'The full approval prompt is too long for this platform, so only Deny is offered. Review it in the CLI or Desktop app.'}[key].format(total=len(command)))
     capped = bool(adapter._EA_CARD_CAP)
     if capped:  # the reason gives way first: the deadline line and the cut notice always stay on the card
         room = adapter._exec_approval_cmd_budget("", smart_denied) - adapter.message_len_fn(cut_notice)

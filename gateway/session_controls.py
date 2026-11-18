@@ -157,8 +157,6 @@ class AuthorityConnection:
         self.actor = SessionActor(principal_subject(identity),
                                identity.get('profile_id', authority.profile_id),
                                capabilities, uuid.uuid4().hex)
-        from gateway.session_local_migration import bind_native_transport
-        bind_native_transport(authority, self.actor, identity)
         self.native_owner = identity.get('native_bootstrap') is True
         self.subscriptions = {}
         # session_id -> (epoch, sequence) the last reconnect replay answered; spent by the next resume.
@@ -230,9 +228,7 @@ class AuthorityConnection:
                     'bot_relay.settle': self.bot_settle, 'bot_relay.cancel': self.bot_cancel,
                     'bot_relay.roster.sync': self.bot_roster, 'bot_relay.outbox.drain': self.bot_outbox,
                     'bot_relay.reply': self.bot_reply, 'a2a.forward': self.a2a_forward,
-                    'kanban.run': self.kanban_run,
-                    'cron.submit': self.cron_submit, 'cron.status': self.cron_status,
-                    'cron.cancel': self.cron_cancel, 'cron.recover': self.cron_recover,
+
                     'worker.register': self.worker_register, 'worker.adopt': self.worker_adopt,
                     'worker.persist': self.worker_persist,
                     'setup.status': self.setup_status, 'setup.runtime_check': self.setup_runtime_check,
@@ -281,8 +277,7 @@ class AuthorityConnection:
         handlers.update(connection_handlers(self))
         from gateway.session_control_actions import control
         handlers['session.control'] = partial(control, self)
-        from gateway.session_onboarding import handlers as onboarding_handlers
-        handlers.update(onboarding_handlers(self))
+
         from gateway.session_stored_reads import handlers as stored_read_handlers
         handlers.update(stored_read_handlers(self))
         return handlers
@@ -391,25 +386,6 @@ class AuthorityConnection:
         from gateway.session_a2a import forward
         return await forward(self, params)
 
-    async def kanban_run(self, ref, params):
-        from gateway.session_kanban import run_task
-        return await run_task(self, params)
-
-    async def cron_recover(self, ref, params):
-        from gateway.session_cron import rpc
-        return await rpc(self, 'recover', params)
-
-    async def cron_submit(self, ref, params):
-        from gateway.session_cron import rpc
-        return await rpc(self, 'submit', params)
-
-    async def cron_status(self, ref, params):
-        from gateway.session_cron import rpc
-        return await rpc(self, 'status', params)
-
-    async def cron_cancel(self, ref, params):
-        from gateway.session_cron import rpc
-        return await rpc(self, 'cancel', params)
 
     async def bot_roster(self, ref, params):
         from gateway.session_bot import relay_operation
@@ -651,17 +627,15 @@ class AuthorityConnection:
                 resolved_id = self.authority.db.resolve_session_id(ref.session_id)
                 if resolved_id is not None:
                     ref = SessionRef(ref.profile_id, resolved_id)
-            from gateway.session_local_migration import adopts_client_history, resolve_local_target
+            from gateway.session_local_route import resolve_local_target
             from gateway.session_policy_refresh import refresh_settled
-            from hermes_state_local_migration import LEGACY_LOCAL_SOURCES
             # Another viewer's refresh mid-cleanup has committed a policy it has not published yet.
             await refresh_settled(self.authority, ref.session_id)
             row = self.authority.db.get_session(ref.session_id)
             # Canonical LOCAL compression/reset segments keep the receipt on their logical
             # owner, not on the physical transcript ID the history picker / Desktop supplies
             # after list_sessions projects the tip (#139306).
-            if row and (row['source'] in LEGACY_LOCAL_SOURCES | {Platform.LOCAL.value}
-                        or adopts_client_history(self.authority, self.actor, row)):
+            if row and row['source'] == Platform.LOCAL.value:
                 ref = resolve_local_target(self.authority, self.actor,
                     self.authority.db.get_compression_tip(ref.session_id) or ref.session_id)
             elif row:
@@ -794,71 +768,18 @@ class AuthorityConnection:
         return {**replay, 'open_requests': open_requests(stream, ref.session_id)}
 
     async def submit(self, ref, params):
-        if self._voice_stop_replay(ref, params) or await self._typed_voice_stop(ref, params):
-            self._record_voice_stop(ref, params)
-            return {'voice_stopped': True}
         # The interactive WS is the one surface a restart's after-turn wait admits (#139041).
         receipt = await self.authority.submit(self.actor, self.submission(ref, params),
                                               queue_while_restarting=self._operator is True)
         return asdict(receipt)
 
-    def _voice_stop_key(self, ref, params):
-        request_id = params.get('submission_id') or params.get('input_id')
-        if not isinstance(request_id, str) or not request_id:
-            return None
-        return (self.actor.subject, ref.profile_id, ref.session_id, request_id)
-
-    def _voice_stop_replay(self, ref, params):
-        """A retry of a stop this owner already consumed (its reply was lost; Ink offers Alt+K on the
-        same submission id). Voice is off by then, so the phrase check alone would admit ``stop`` as a
-        turn: the request identity answers it again, as an admission's replay would."""
-        key = self._voice_stop_key(ref, params)
-        if key is None or key not in getattr(self.authority, '_consumed_voice_stops', {}):
-            return False
-        if ref.session_id not in self.subscriptions:
-            return False  # submission() refuses it as permission_denied
-        self.authority.authorize(self.actor, ref, 'session:submit')
-        return True
-
-    def _record_voice_stop(self, ref, params):
-        from collections import OrderedDict
-        key = self._voice_stop_key(ref, params)
-        if key is None:
-            return
-        consumed = self.authority.__dict__.setdefault('_consumed_voice_stops', OrderedDict())
-        consumed[key] = True
-        consumed.move_to_end(key)
-        while len(consumed) > 256:
-            consumed.popitem(last=False)
-
-    async def _typed_voice_stop(self, ref, params):
-        """TUI-26: a bare stop phrase typed while the session's voice chat is on ends the chat
-        (the sidecar's ``methods_prompt._consume_typed_stop_phrase``, its typed twin of the spoken
-        stop) and is never admitted. Only a submitter attached to the session may end it, and only
-        on a LOCAL session: a messaging lane's own ``/voice`` mode belongs to that chat, so a
-        viewer's typed text there is admitted untouched."""
-        text = params.get('text')
-        if not isinstance(text, str):
-            return False
-        if ref.session_id not in self.subscriptions:
-            return False  # submission() refuses it as permission_denied
-        self.authority.authorize(self.actor, ref, 'session:submit')
-        live = self.authority.sessions.get(ref.session_id)
-        source = getattr(live, 'source', None)
-        if source is None or source.platform != Platform.LOCAL:
-            return False
-        from gateway.session_config import local_voice_enabled
-        if not local_voice_enabled(ref.session_id):
-            return False
-        from tui_gateway import server
-        return await asyncio.to_thread(server._consume_typed_stop_phrase, text, ref.session_id, emit=False)
 
     def submission(self, ref, params):
         """The admission a ``prompt.submit``-shaped request asks for (``prompt.replace_queued`` too)."""
         if ref.session_id not in self.subscriptions:
             raise RuntimeStoreError('permission_denied')
         forbidden = set(params) - {'session_id', 'text', 'submission_id', 'input_id', 'queued', 'attachments', 'finite', 'unattended',
-                                   'surface', 'voice_context', 'interrupted', 'voice_turn', 'display_kind', 'title_preview',
+                                   'surface', 'display_kind', 'title_preview',
                                    'turn_author', 'api_text', 'model_override', 'clarify_batch'}
         if forbidden:
             raise RuntimeStoreError('invalid_params')
@@ -996,7 +917,5 @@ class AuthorityConnection:
             from gateway.session_viewer_close import arm_detached_orphan_close
             for session_id in self.handed_back:
                 await arm_detached_orphan_close(self.authority, session_id)
-        from gateway.session_local_migration import unbind_native_transport
-        unbind_native_transport(self.authority, self.actor)
         self.subscriptions.clear()
         self.authority.events.pop(self.actor.transport_id, None)

@@ -450,17 +450,16 @@ def _transform_sudo_command(
     command: str | None,
     sudo_nopasswd_check: Callable[[], bool] | None = None,
 ) -> tuple[str | None, str | None]:
-    """Rewrite command-position ``sudo`` executables to ``sudo -S -p ''`` when a password is available (shared by every
-    execution environment). Returns ``(command, sudo_stdin)``: ``sudo_stdin`` is one password
+    """Rewrite command-position ``sudo`` executables to ``sudo -S -p ''`` when a password is available.
+    Returns ``(command, sudo_stdin)``: ``sudo_stdin`` is one password
     line per sudo invocation that the caller must PREPEND to the process stdin (sudo -S consumes
     exactly one line and passes the rest through, so it's safe alongside the caller's own
-    stdin_data). Backends transport that merged stream according to their execution API
-    (pipe, SDK stdin, or staged file). With no password available the command is
+    stdin_data). The local shell receives that merged stream. With no password available the command is
     returned unchanged and ``sudo_stdin`` is None, so it fails gracefully with "sudo: a password
     is required". Password sources, in order: configured SUDO_PASSWORD, the session cache, then
     an interactive prompt (45s timeout, cached on success) when a UI is reachable.
-    ``sudo_nopasswd_check`` (supplied by ``BaseEnvironment``) runs ``sudo -n true`` inside the
-    selected backend; a True result skips the prompt and the ``-S`` rewrite entirely."""
+    ``sudo_nopasswd_check`` (supplied by ``BaseEnvironment``) runs ``sudo -n true`` locally;
+    a True result skips the prompt and the ``-S`` rewrite entirely."""
     from tools.terminal_tool import _get_sudo_password_callback
     if command is None:
         return None, None
@@ -486,7 +485,7 @@ def _transform_sudo_command(
     ) and not _no_sudo_user()
     if not has_configured_password and not sudo_password and should_prompt_for_sudo:
         # sudoers NOPASSWD must not be forced through the prompt or the -S pipe. The probe is
-        # a round trip on the selected backend (an ssh exec for SSH), so it only runs when a
+        # local subprocess, so it only runs when a
         # prompt would otherwise fire: headless callers end up at ``(command, None)`` either
         # way. Re-probed every call so an expired sudo timestamp cannot silently block.
         if sudo_nopasswd_check is not None and sudo_nopasswd_check():

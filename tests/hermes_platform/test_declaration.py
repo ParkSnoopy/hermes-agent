@@ -1,14 +1,12 @@
 """Declaration parser, availability, and skill-gate contracts.
 
 Fixtures are dicts passed to ``parse_declaration`` (never YAML files); fixture paths satisfy the
-OS rule they test under (`C:/x/y.exe` for win32, `/x` elsewhere).
+Linux path rules.
 """
 
 from __future__ import annotations
 
-import plistlib
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -19,15 +17,7 @@ from hermes_platform.resolver.availability import Availability, availability, ve
 WHERE = "test-plugin/plugin.yaml"
 
 
-def _bundle(tmp_path: Path, version: str) -> Path:
-    app = tmp_path / "Applications" / "Thing.app"
-    (app / "Contents").mkdir(parents=True, exist_ok=True)
-    with open(app / "Contents" / "Info.plist", "wb") as fh:
-        plistlib.dump({"CFBundleShortVersionString": version}, fh)
-    return app
-
-
-def test_app_block_parses_into_one_appdef_per_os():
+def test_foreign_blocks_are_inert_metadata():
     decl = parse_declaration("thing-mcp", {
         "darwin": {"presence": "bundle", "location": "/Applications/Thing.app", "version": {"kind": "plist"}},
         "win32": {
@@ -37,11 +27,8 @@ def test_app_block_parses_into_one_appdef_per_os():
             "liveness": {"kind": "server_json", "path": "%LOCALAPPDATA%/Thing/server.json", "endpoint_path": "/rpc"},
         },
     }, {"app": True, "min_version": "2.3.0"}, where=WHERE)
-    assert decl.app is not None and set(decl.app.per_os) == {"darwin", "win32"}
-    mac, win = decl.app_for("darwin"), decl.app_for("win32")
-    assert mac is not None and win is not None
-    assert mac.presence == "bundle" and mac.version_kind == "plist" and mac.liveness_kind == "none"
-    assert win.version_arg == "Thing" and win.endpoint_path == "/rpc" and win.liveness_pid_key == "pid"
+    assert decl.app is not None and not decl.app.per_os
+    assert decl.app_for("darwin") is None and decl.app_for("win32") is None
     assert decl.requires_app is True and decl.min_version == "2.3.0"
 
 
@@ -49,33 +36,24 @@ def test_app_block_parses_into_one_appdef_per_os():
     (None, {"app": True}, "no 'app' block"),
     (None, {"min_version": "1.0\n"}, "dotted numeric"),
     ({"linux": {"presence": "executable", "location": "/x/y", "version": {"kind": "plist"}}}, None,
-     "only valid under app.darwin"),
-    ({"win32": {"presence": "executable", "location": "C:/x/y.exe", "version": {"kind": "uninstall_registry"}}}, None,
-     "display_name_prefix"),
+     "version.kind must be one of"),
     ({"freebsd": {"presence": "executable", "location": "/x"}}, None, "unknown OS keys"),
-    ({"win32": {"presence": "executable", "location": "C:/x/y.exe"}}, {"min_version": "1.0"},
+    ({"linux": {"presence": "executable", "location": "/x/y"}}, {"min_version": "1.0"},
      "needs requires.app"),
-    ({"win32": {"presence": "executable", "location": "C:/x/y.exe"}}, {"app": True, "min_version": "latest"},
+    ({"linux": {"presence": "executable", "location": "/x/y"}}, {"app": True, "min_version": "latest"},
      "dotted numeric"),
-    ({"win32": {"presence": "executable", "location": "C:/x/y.exe"}}, {"app": True, "min_version": "1.0"},
-     "needs a version source"),
-    ({"darwin": {"presence": "bundle", "location": "../Up/Thing.app"}}, None, "must be absolute"),
-    ({"darwin": {"presence": "bundle", "location": "Relative/Thing.app"}}, None, "must be absolute"),
-    ({"darwin": {"presence": "bundle", "location": "https://example.test/Thing.app"}}, None, "must be absolute"),
-    ({"win32": {"presence": "executable", "location": "Thing/thing.exe"}}, None, "must be absolute"),
+    ({"linux": {"presence": "executable", "location": "../Up/thing"}}, None, "must be absolute"),
+    ({"linux": {"presence": "executable", "location": "Relative/thing"}}, None, "must be absolute"),
+    ({"linux": {"presence": "executable", "location": "https://example.test/thing"}}, None, "must be absolute"),
     (None, {"gpu": "amd"}, "requires.gpu must be one of"),
-    ({"darwin": {"presence": "bundle", "location": "/Applications/Thing */**/Thing.app"}}, None, "must be absolute"),
+    ({"linux": {"presence": "executable", "location": "/opt/Thing */**/thing"}}, None, "must be absolute"),
     ({"linux": {"presence": "executable", "location": []}}, None, "location is required"),
     ({"linux": {"presence": "executable", "location": [{"kind": "registry", "name": "thing"}]}}, None,
      "must be a path or a mapping with kind one of"),
-    ({"linux": {"presence": "executable", "location": [{"kind": "app_bundle", "name": "Thing.app"}]}}, None,
-     "only valid under app.darwin"),
-    ({"darwin": {"presence": "bundle", "location": [{"kind": "command", "name": "thing"}]}}, None,
-     "needs app.darwin.presence executable"),
+
     ({"linux": {"presence": "executable", "location": [{"kind": "snap", "name": "../thing"}]}}, None,
      "location\\[0\\].name must be a bare name"),
-    ({"win32": {"presence": "executable", "location": [{"kind": "uninstall_registry", "display_name_prefix": "Thing"}]}},
-     None, "location\\[0\\].file must be a relative path"),
+
     ({"linux": {"presence": "executable", "location": "/usr/bin/thing"}}, {"app": True, "min_version": "1.0"},
      "needs a version source under app.linux"),
 ])
@@ -103,13 +81,13 @@ def test_requires_gpu_gates_on_the_host_gpu_class(monkeypatch, gpu_class, state)
 
     monkeypatch.setattr(facts, "gpu_class", lambda: gpu_class)
     decl = parse_declaration("thing-mcp", None, {"gpu": "nvidia"}, where=WHERE)
-    result = availability(decl, os_family="win32")
+    result = availability(decl, os_family="linux")
     assert result.state == state and result.offerable == (state == "no_requirements")
 
     monkeypatch.setattr(facts, "gpu_class", lambda: pytest.fail("the OS gate must not read the GPU"))
     both = parse_declaration("thing-mcp", {"win32": {"presence": "executable", "location": "C:/x/y.exe"}},
                              {"app": True, "gpu": "nvidia"}, where=WHERE)
-    assert availability(both, os_family="darwin").state == "unsupported_os"
+    assert availability(both, os_family="linux").state == "unsupported_os"
 
 
 def test_availability_unsupported_os_when_no_block_for_host():
@@ -119,72 +97,41 @@ def test_availability_unsupported_os_when_no_block_for_host():
         {"app": True},
         where=WHERE,
     )
-    assert availability(decl, os_family="darwin").state == "unsupported_os"
+    assert availability(decl, os_family="linux").state == "unsupported_os"
 
 
-@pytest.mark.platforms("macos")
-def test_availability_missing_then_present_then_version_gate(tmp_path):
-    location = tmp_path / "Applications" / "Thing.app"
-    decl = parse_declaration(
-        "thing-mcp",
-        {"darwin": {"presence": "bundle", "location": str(location), "version": {"kind": "plist"}}},
-        {"app": True, "min_version": "2.3.0"},
-        where=WHERE,
-    )
-    missing = availability(decl, os_family="darwin")
-    assert missing.state == "missing_app" and str(tmp_path) in (missing.path or "")
-    _bundle(tmp_path, "2.2.9")
-    old = availability(decl, os_family="darwin")
-    assert old.state == "version_too_old" and old.version == "2.2.9" and old.min_version == "2.3.0"
-    _bundle(tmp_path, "2.3.0")
-    ok = availability(decl, os_family="darwin")
-    assert ok.state == "available" and ok.version == "2.3.0" and ok.offerable
-    (location / "Contents" / "Info.plist").write_bytes(b"invalid plist")
-    assert availability(decl, os_family="darwin").state == "version_too_old"
+def test_availability_missing_then_present_on_linux(tmp_path):
+    location = tmp_path / "thing"
+    decl = parse_declaration("thing-mcp", {"linux": {"presence": "executable", "location": str(location)}},
+                             {"app": True}, where=WHERE)
+    assert availability(decl, os_family="linux").state == "missing_app"
+    location.write_text("fixture", encoding="utf-8")
+    assert availability(decl, os_family="linux").state == "available"
 
 
 def test_location_list_parses_each_kind_in_order():
     decl = parse_declaration("thing-mcp", {
-        "win32": {"presence": "executable", "location": [
-            {"kind": "uninstall_registry", "display_name_prefix": "Thing", "file": "bin/thing.exe"},
-            "%ProgramFiles%/Thing */thing.exe",
-        ]},
+
         "linux": {"presence": "executable", "location": [
             {"kind": "command", "name": "thing"}, {"kind": "flatpak", "app_id": "org.thing.Thing"},
         ]},
     }, None, where=WHERE)
-    win, linux = decl.app_for("win32"), decl.app_for("linux")
-    assert win is not None and linux is not None
-    assert win.locations == (AppLocation("uninstall_registry", "Thing", "bin/thing.exe"),
-                             AppLocation("path", "%ProgramFiles%/Thing */thing.exe"))
+    linux = decl.app_for("linux")
+    assert linux is not None
     assert linux.locations == (AppLocation("command", "thing"), AppLocation("flatpak", "org.thing.Thing"))
 
 
-def test_min_version_lets_a_linux_block_go_without_a_version_source():
+def test_min_version_lets_a_linux_block_go_without_a_version_source(tmp_path):
     decl = parse_declaration("thing-mcp", {
         "darwin": {"presence": "bundle", "location": "/Applications/Thing.app", "version": {"kind": "plist"}},
-        "linux": {"presence": "executable", "location": [{"kind": "command", "name": "thing"}]},
+        "linux": {"presence": "executable", "location": str(tmp_path / "thing")},
     }, {"app": True, "min_version": "2.0"}, where=WHERE)
     linux = decl.app_for("linux")
     assert decl.min_version == "2.0" and linux is not None and linux.version_kind == "none"
+    assert availability(decl, os_family="linux").state == "missing_app"
+    (tmp_path / "thing").write_text("fixture", encoding="utf-8")
+    assert availability(decl, os_family="linux").state == "available"
 
-
-@pytest.mark.platforms("macos")
-def test_min_version_picks_a_newer_copy_found_after_an_old_one(tmp_path, monkeypatch):
-    monkeypatch.setenv("THINGROOT", str(tmp_path))
-    _bundle(tmp_path / "old", "1.0")
-    _bundle(tmp_path / "new", "2.4")
-    decl = parse_declaration("thing-mcp", {"darwin": {
-        "presence": "bundle",
-        "location": ["$THINGROOT/old/Applications/Thing.app", "$THINGROOT/new/Applications/Thing.app"],
-        "version": {"kind": "plist"},
-    }}, {"app": True, "min_version": "2.0"}, where=WHERE)
-    ok = availability(decl, os_family="darwin")
-    assert ok.state == "available" and ok.version == "2.4" and str(tmp_path / "new") in (ok.path or "")
-    too_old = parse_declaration("thing-mcp", {"darwin": {
-        "presence": "bundle", "location": "$THINGROOT/old/Applications/Thing.app", "version": {"kind": "plist"},
-    }}, {"app": True, "min_version": "2.0"}, where=WHERE)
-    assert availability(too_old, os_family="darwin").version == "1.0"
 
 
 def test_availability_is_not_a_boolean():

@@ -192,21 +192,20 @@ def test_subagent_worktree_add_is_safe(malicious_repo, tmp_path):
     assert _fired(marker) == []
 
 
-def test_index_reading_probes_and_kanban_gc_git_are_safe(malicious_repo, tmp_path, monkeypatch):
+def test_index_reading_probes_and_worktree_gc_git_are_safe(malicious_repo, tmp_path, monkeypatch):
     """``status`` / ``ls-files`` / ``worktree add`` read the index, which runs ``core.fsmonitor``;
     ``worktree add`` also runs the repository's hooks, and ``branch -D`` its reference-transaction
-    hook. Recovery hint, completion probe, kanban worktree, worktree-gc ``status``, the reclaimers'
-    dirty probe (kanban teardown), and the three unattended branch deletions: the reclaim sweep,
+    hook. Recovery hint, completion probe, shared worktree creation, worktree-gc ``status``, the
+    reclaimers' dirty probe, and the three unattended branch deletions: the reclaim sweep,
     the orphaned-branch pass and the cleanup after a failed ``worktree add``. The reclaim sweep's
     ``ls-remote`` and the shallow-repo ``fetch --unshallow`` must not run a repo ``core.sshCommand``."""
-    from hermes_cli import kanban_db_workspace as kw
     from hermes_cli import worktree_gc, worktree_ops
     from tools.async_delegation_recovery_hints import git_state_hint
     from tui_gateway import server
     repo, marker = malicious_repo
     assert git_state_hint(str(repo)) is not None
     assert "README" in list(server._git_repo_files(str(repo)))
-    kw._ensure_git_worktree(repo, tmp_path / "wt2", "safe2")
+    assert worktree_ops._worktree_add(str(repo), tmp_path / "wt2", "safe2", "HEAD", "HEAD")
     assert (tmp_path / "wt2" / "README").exists()
     assert worktree_gc._git(["status", "--porcelain"], cwd=str(repo)).returncode == 0
     dirty = worktree_ops._worktree_is_dirty(str(tmp_path / "wt2"), str(repo))
@@ -215,7 +214,7 @@ def test_index_reading_probes_and_kanban_gc_git_are_safe(malicious_repo, tmp_pat
 
     subprocess.run(["git", "-C", str(repo), "-c", "core.hooksPath=/dev/null", "branch", "pr-1"], check=True,
                    env=_CLEAN_GIT_ENV)
-    kw._ensure_git_worktree(repo, tmp_path / "wt3", "safe3")
+    assert worktree_ops._worktree_add(str(repo), tmp_path / "wt3", "safe3", "HEAD", "HEAD")
     worktree_ops._reap_prune_verdicts(str(repo), [(tmp_path / "wt2", 0.0, False, "reap", None)], 0.0)
     worktree_ops._prune_orphaned_branches(str(repo))
     worktree_ops._cleanup_failed_worktree_add(str(repo), tmp_path / "wt3", "safe3")
@@ -302,7 +301,7 @@ def _include_flood(repo: Path, marker: str) -> str:
     pytest.param("README filter=evil\n", lambda r, m: _evil_filter(m) + '[filter "evil"\n', True,
                  id="broken_config"),
 ])
-def test_repo_named_filters_never_run_from_kanban_gc_or_hints(tmp_path, attrs, config, refused):
+def test_repo_named_filters_never_run_from_worktrees_gc_or_hints(tmp_path, monkeypatch, attrs, config, refused):
     """A filter driver is named by ``.gitattributes``, so the fixed env pins cannot reach it:
     ``worktree add`` runs its smudge command and ``status`` its clean command. Subsection names are
     case-sensitive, so ``[filter "Evil"]`` must be neutralized next to a benign ``[filter "evil"]``.
@@ -310,22 +309,26 @@ def test_repo_named_filters_never_run_from_kanban_gc_or_hints(tmp_path, attrs, c
     ``gitdir:`` the ``.git/worktrees/<name>`` dir of ``worktree add``), so its filters are neutralized
     too. Discovery that cannot be trusted refuses the git call: an include nested in an include
     target, a huge filter inventory (argv/env E2BIG), or a config git cannot parse."""
-    from hermes_cli import kanban_db_workspace as kw
-    from hermes_cli import worktree_gc
+    from hermes_cli import worktree_gc, worktree_ops
     from tools.async_delegation_recovery_hints import git_state_hint
+    from tools.subagent_worktree import create_subagent_worktree
     marker = (tmp_path / "FILTER").as_posix()
     repo = _make_filter_repo(tmp_path, attrs, config, marker)
 
     if refused:
-        res = kw._git(repo, "worktree", "add", "-b", "safe", str(tmp_path / "wt"), "HEAD", timeout=30)
+        res = worktree_gc._git(["worktree", "add", "-b", "safe", str(tmp_path / "wt"), "HEAD"], cwd=str(repo))
         assert (res.returncode, res.stderr) == (1, FILTER_DISCOVERY_FAILED)
+        monkeypatch.setattr(worktree_ops, "_cprint", lambda *_args: None)
+        assert worktree_ops._worktree_add(str(repo), tmp_path / "wt", "safe", "HEAD", "HEAD") is None
+        assert create_subagent_worktree(str(repo), "filters") is None
+        assert not (tmp_path / "wt").exists()
         assert sorted(p.name for p in tmp_path.glob("FILTER.*")) == []
         return
 
     # git prints repo-local origins relative to the top level, so discovery from a subdirectory must agree.
     (repo / "sub").mkdir()
     assert noninteractive_repo_git_env(repo / "sub") == noninteractive_repo_git_env(repo)
-    kw._ensure_git_worktree(repo, tmp_path / "wt", "safe")
+    assert worktree_ops._worktree_add(str(repo), tmp_path / "wt", "safe", "HEAD", "HEAD")
     assert (tmp_path / "wt" / "README").read_text() == "hi\n"
     (repo / "README").write_text("hi\n")  # same size, new mtime: status must re-hash it
     os.utime(repo / "README", (time.time() + 60, time.time() + 60))
@@ -333,13 +336,11 @@ def test_repo_named_filters_never_run_from_kanban_gc_or_hints(tmp_path, attrs, c
     assert git_state_hint(str(repo)) is not None
     # The automatic session-start snapshot (status) and a delegated subagent's worktree (checkout).
     from agent.coding_context import build_coding_workspace_block
-    from tools.subagent_worktree import create_subagent_worktree
     assert "- Status:" in build_coding_workspace_block(repo)
     sub = create_subagent_worktree(str(repo), "filters")
     assert sub is not None and (Path(sub["path"]) / "README").read_text() == "hi\n"
-    # The subagent's automatic finalization and kanban teardown re-hash a touched file (status);
+    # The subagent's automatic finalization and worktree dirty probe re-hash a touched file (status);
     # hermes -w checks out a worktree of its own.
-    from hermes_cli import worktree_ops
     from tools.subagent_worktree import finalize_subagent_worktree
     for tree in (Path(sub["path"]), tmp_path / "wt"):
         os.utime(tree / "README", (time.time() + 120, time.time() + 120))

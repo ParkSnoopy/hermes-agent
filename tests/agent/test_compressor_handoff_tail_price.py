@@ -54,8 +54,6 @@ def test_leading_handoff_does_not_collapse_the_window_to_itself():
     with patch.object(cc, "_generate_summary", return_value="NEW SUMMARY BODY"):
         result = cc.compress(messages, current_tokens=60_000)
 
-    telemetry = cc._last_compression_telemetry or {}
-    assert telemetry.get("failure_class") is None
     assert cc._last_compression_made_progress is True
     assert len(result) < len(messages)
     assert sum(1 for m in result if cc._is_context_summary_message(m)) == 1

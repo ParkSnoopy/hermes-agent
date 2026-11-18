@@ -112,7 +112,7 @@ def _branch_live(rid, params: dict, session: dict, *, omit_messages: bool = Fals
             title = params.get("name", "") or _branch_title(db, old_key)
             home = session.get("profile_home")
             _persist_branch(db, new_key, old_key, title, history, source=source,
-                            cwd=None if _is_remote_launch_cwd(session) else _session_cwd(session),
+                            cwd=_session_cwd(session),
                             profile_name=profile_name_for_home(home) or _current_profile_name(),
                             model=_session_default_route(session)[0], copy_fields=_BRANCH_COPY_FIELDS,
                             title_source="user" if params.get("name") else "derived",

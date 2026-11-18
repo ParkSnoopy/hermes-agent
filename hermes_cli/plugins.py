@@ -159,37 +159,9 @@ VALID_HOOKS: set[str] = {
     # provider, model, language, prompt, source. Return None or a dict mutating prompt/language/
     # model (registration order, last-writer-wins; file_path is read-only).
     "pre_transcription",
-    # Kanban task observers (hermes_cli.kanban_db), fired AFTER the DB commit so a slow plugin never
-    # holds the SQLite write lock; returns ignored. claimed fires in the DISPATCHER right before
-    # spawn; completed/blocked fire in the WORKER (or whichever process drove it). Kwargs: task_id,
-    # board, assignee, run_id, profile_name; completed adds summary, blocked adds reason.
-    "kanban_task_claimed", "kanban_task_completed", "kanban_task_blocked",
-    # Kanban worker/mutation/tick observers; returns ignored; fire sites short-circuit on
-    # has_hook(). Kwargs: task_id, profile_name, board, assignee, run_id plus, per hook:
-    # worker_spawned (DISPATCHER, after PID persisted, inside the dispatch lock — stay fast):
-    #   worker_pid, workspace_path (privacy: project layout/usernames).
-    # worker_exited (tick-derived on dead-PID reclaim): worker_pid, exit_kind ("clean_exit" |
-    #   "rate_limited" | "nonzero_exit" | "signaled" | "unknown"), exit_code, outcome, retry_status.
-    # worker_stale_claim (TTL-expired claim reclaimed; live-PID extensions do NOT fire):
-    #   worker_pid, heartbeat_stale, retry_status.
-    # task_updated (committed task-row write outside claim/complete/block, in whichever process
-    #   committed it): changed_fields — field NAMES only, never values.
-    # dispatch_tick (once per dispatch_once, strictly AFTER the dispatch lock is released): board,
-    #   profile_name, dry_run, outcome ("ok"|"skipped_locked"|"idle"), result: DispatchResult
-    #   (privacy: task ids, assignees, workspace paths).
-    "on_kanban_worker_spawned", "on_kanban_worker_exited", "on_kanban_worker_stale_claim",
-    "on_kanban_task_updated", "on_kanban_dispatch_tick",
     # gateway_platform_event: normalized envelopes only, never raw SDK objects or adapter handles.
     # Kwargs: platform, event_type, payload (event_type-local; see hooks.md). New event types land
     # only together with real fire-sites.
-    # on_kanban_dispatch_tick fires once per dispatcher tick in dispatch_once, strictly AFTER the board's
-    # single-writer dispatch lock has been released (the #56066 original fired inside the lock — the #64231
-    # disposition mandates the post-lock re-port), so a slow subscriber can never extend the writer critical
-    # section. Kwargs: board: str | None, profile_name: str, dry_run: bool, outcome: "ok" | "skipped_locked"
-    # | "idle", result: hermes_cli.kanban_db.DispatchResult (spawned, reclaimed, promoted,
-    # reconciled_orphans, crashed, stale, timed_out, auto_blocked, rate_limited, auto_assigned_default,
-    # respawn_guarded, skipped_per_profile_capped, skipped_unassigned, skipped_nonspawnable,
-    # skipped_locked). Privacy: result carries task ids, assignees, and workspace paths.
     # Gateway platform-boundary observer hooks (#64176). Observer-only; each callback isolated by
     # invoke_hook. This surface grants no adapter handles or platform actions. Fired today: Telegram
     # "reaction" + "message_edited"; Discord "message_edited", "message_deleted", "thread_created",
@@ -299,7 +271,7 @@ class PluginManager(PluginLoaderMixin, PluginDispatchMixin, PluginLedgerMixin):
         self._system_prompt_sections: dict[str, PluginSystemPromptSection] = {}
         self._plugin_skills: dict[str, dict[str, Any]] = {}
         self._plugin_rpc_methods: dict[str, Callable] = {}  # "plugin.<plugin_id>.<name>" -> handler
-        self._automation_blueprints: dict[str, Any] = {}  # "<plugin>:<key>" -> AutomationBlueprint
+
         self._portable_mcp_servers: dict[str, dict[str, Any]] = {}
         self._portable_mcp_server_plugins: dict[str, str] = {}
         self._aux_tasks: dict[str, dict[str, Any]] = {}
@@ -675,9 +647,6 @@ class PluginManager(PluginLoaderMixin, PluginDispatchMixin, PluginLedgerMixin):
             } for qualified, entry in sorted(self._plugin_skills.items())
         ]
 
-    def list_automation_blueprints(self) -> list[Any]:
-        """Plugin-registered ``AutomationBlueprint``s, sorted by key."""
-        return [bp for _key, bp in sorted(self._automation_blueprints.items())]
 
     def has_portable_mcp_servers(self) -> bool:
         return bool(self._portable_mcp_servers)
@@ -858,13 +827,7 @@ def _reset_plugin_managers_for_tests() -> None:
         _published_gateway_message_injector = None
     with _published_tui_host_lock:
         _published_tui_message_injector = None
-    # Dashboard-auth providers are persistent and survive a routine unload, so the clean-slate
-    # reset must clear that process-global registry explicitly or a test's provider leaks.
-    try:
-        from hermes_cli.dashboard_auth.registry import clear_providers
-        clear_providers()
-    except Exception:
-        logger.debug("dashboard-auth registry clear failed", exc_info=True)
+
 
 
 def has_enabled_agent_plugin_mcp(raw_config: Mapping[str, Any]) -> bool:

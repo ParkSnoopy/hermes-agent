@@ -104,28 +104,26 @@ def test_profile_process_writes_receipts_to_the_root_home(tmp_path, monkeypatch)
     assert update_receipt._receipt_dir() == root / "logs/update_receipts"
 
 
-def test_failed_web_build_does_not_skip_the_tui(tmp_path, monkeypatch, capsys):
+def test_failed_feature_dependencies_do_not_skip_the_tui(tmp_path, monkeypatch, capsys):
     from hermes_cli import source_build
 
     built = []
-    monkeypatch.setattr("hermes_cli.main_install_repair._install_configured_features_missing_deps", lambda root: None)
+    def broken_dependencies(root):
+        raise subprocess.CalledProcessError(1, ["uv", "sync"])
+
+    monkeypatch.setattr("hermes_cli.main_install_repair._install_configured_features_missing_deps", broken_dependencies)
     monkeypatch.setattr("hermes_cli.update_stage.publish_stage", lambda text: None)
-    monkeypatch.setattr("hermes_cli.memory_provider_migration.migrate_all_homes", lambda: None)
-    monkeypatch.setattr(source_build, "source_frontends", lambda root: ("web", "ui-tui"))
+    monkeypatch.setattr(source_build, "source_frontends", lambda root: ("ui-tui",))
     monkeypatch.setattr(source_build, "source_build_env", lambda **kw: {"PATH": ""})
     monkeypatch.setattr(source_build, "prepare_source_dependencies", lambda *a, **kw: None)
     monkeypatch.setattr(source_build, "source_product_current", lambda *a: False)
     monkeypatch.setattr(source_build, "build_source_tui", lambda root, env: built.append("tui"))
 
-    def broken_web(root, env):
-        raise subprocess.CalledProcessError(1, ["npm", "run", "build"])
-
-    monkeypatch.setattr(source_build, "build_source_web", broken_web)
     with pytest.raises(source_build.ProductBuildError) as failure:
-        source_build.build_update_products(tmp_path, desktop=False)
+        source_build.build_update_products(tmp_path)
     assert built == ["tui"]
-    assert [name for name, _ in failure.value.failures] == ["web UI build"]
-    assert "npm run build exited 1" in str(failure.value)
+    assert [name for name, _ in failure.value.failures] == ["feature dependencies"]
+    assert "uv sync exited 1" in str(failure.value)
 
 
 def test_failed_config_migration_is_owed_and_later_maintenance_runs(tmp_path, monkeypatch, capsys):
@@ -133,13 +131,14 @@ def test_failed_config_migration_is_owed_and_later_maintenance_runs(tmp_path, mo
 
     calls = []
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    from hermes_cli import update_windows_acl
-    monkeypatch.setattr(update_windows_acl, "repair_windows_home_acl", lambda: calls.append("repair_windows_home_acl"))
+
     for name in ("_verify_and_restore_state_dbs_post_update", "_invalidate_live_plugin_catalog_caches",
                  "_print_bundled_skills_sync_report", "_sync_profiles_after_update"):
         monkeypatch.setattr(maint, name, lambda name=name: calls.append(name))
     monkeypatch.setattr("hermes_cli.gitlock.fetch_full_commit_graph", lambda *a, **kw: False)
     monkeypatch.setattr("hermes_cli.model_catalog.seed_cache_from_checkout", lambda root: False)
+    monkeypatch.setattr(maint, "_report_catalog_plugin_updates", lambda: None)
+    monkeypatch.setattr(maint, "_update_complete_message", lambda *_: "✓ Update complete!")
 
     def broken_graph_refresh(root):
         calls.append(("commit_graph", root))
@@ -159,7 +158,7 @@ def test_failed_config_migration_is_owed_and_later_maintenance_runs(tmp_path, mo
         assume_yes=True, gateway_mode=False, pre_update_snapshot_id=None,
         had_desktop_app_before_update=False, pre_update_version=None, followups=owed) is True
     assert [step for step, _ in owed] == ["config_migration"]
-    assert calls[0] == "repair_windows_home_acl"
+    assert calls[0] == "_verify_and_restore_state_dbs_post_update"
     assert ("commit_graph", update_cmd._m().PROJECT_ROOT) in calls
     assert calls[-2:] == ["verdict", "notices"]
     assert "⚠ Update follow-up 'config_migration'" in capsys.readouterr().out

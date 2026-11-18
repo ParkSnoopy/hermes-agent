@@ -65,7 +65,6 @@ function escHarness(messages: unknown[] = rows) {
       isBlocked: false,
       isDouble: false,
       isEsc: true,
-      isVoiceKey: false,
       live: { busy: false, sid: 'owner' } as any,
       ...over
     })
@@ -198,7 +197,6 @@ function slashHarness(messages: unknown[] = rows) {
     local: { getHistoryItems: () => [], getLastUserMsg: () => '', maybeWarn: vi.fn() },
     session: { newSession: vi.fn(), resumeById: vi.fn() },
     composer,
-    voice: {}
   }
 
   return { composer, request: gw.request, send, slash: createSlashHandler(ctx as any), sys }

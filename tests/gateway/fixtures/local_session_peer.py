@@ -1,50 +1,80 @@
 """Owned loopback fixture: no native credentials or alternative agent runtime."""
 import asyncio
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import shlex
 import sys
 import threading
-import time
 import traceback
 
-from authority_controls_peer import ModelPeer
+class ModelPeer(BaseHTTPRequestHandler):
+    """Loopback model for the approval and clarification execution fixtures."""
+
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'{"data": []}')
+
+    def do_POST(self):
+        request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        messages = request.get('messages', [])
+        asking = bool(messages) and not any(m['role'] == 'tool' for m in messages)
+        kind = self.server.kind
+        self.server.requests.append(messages)
+        message = {'role': 'assistant', 'content': kind.upper() + '_FINISHED'}
+        if asking:
+            arguments = ({'command': self.server.command} if kind == 'approval' else
+                         {'questions': [{'question': 'Pick a color', 'choices': ['blue', 'green']}]})
+            message = {'role': 'assistant', 'content': None, 'tool_calls': [{
+                'id': 'owned-' + kind, 'type': 'function', 'function': {
+                    'name': 'terminal' if kind == 'approval' else 'clarify',
+                    'arguments': json.dumps(arguments)}}]}
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream' if request.get('stream') else 'application/json')
+        self.end_headers()
+        if request.get('stream'):
+            if asking:
+                message['tool_calls'][0]['index'] = 0
+            for delta, finish in [(message, None), ({}, 'tool_calls' if asking else 'stop')]:
+                frame = {'id': 'local', 'object': 'chat.completion.chunk', 'created': 1,
+                         'model': 'local-control', 'choices': [{'index': 0, 'delta': delta, 'finish_reason': finish}]}
+                self.wfile.write(('data: ' + json.dumps(frame) + '\n\n').encode())
+            self.wfile.write(b'data: [DONE]\n\n')
+        else:
+            self.wfile.write(json.dumps({'id': 'local', 'object': 'chat.completion', 'created': 1,
+                'model': 'local-control', 'choices': [{'index': 0, 'message': message,
+                'finish_reason': 'tool_calls' if asking else 'stop'}],
+                'usage': {'prompt_tokens': 10, 'completion_tokens': 5, 'total_tokens': 15}}).encode())
+        self.wfile.flush()
 
 
 async def probe(peer, target, kind):
-    import websockets
     from gateway.run import GatewayRunner
     from gateway.session_authority import initialize_session_authority
     from gateway.session_contract import SessionRef
-    from gateway.run_api import start_gateway_api, stop_gateway_api
-    from hermes_cli import web_server
+    from gateway.session_controls import AuthorityConnection
+    from tests.gateway.fixtures.execution_frames_capture import Peer
     from run_agent import AIAgent
     from tools.approval import resolve_gateway_approval
+    from tests.waiting import async_wait_until
 
     runner = GatewayRunner()
     authority = await initialize_session_authority(runner, profile_id='fixture', instance_id='local')
-    api = await start_gateway_api(runner)
-    port = api.socket.getsockname()[1]
-    web_server.app.state.auth_required = True
-    from hermes_cli.dashboard_auth.ws_tickets import mint_ticket
     sid = None
     sockets = []
 
     async def connect():
-        ticket = mint_ticket(user_id='fixture-creator', provider='local-fixture')
-        ws = await websockets.connect(f'ws://127.0.0.1:{port}/api/ws?ticket={ticket}')
+        ws = AuthorityConnection(authority, Peer(), {'user_id': 'fixture-creator'}, operator=True)
         sockets.append(ws)
         return ws
 
     async def rpc(ws, method, **params):
-        await ws.send(json.dumps({'jsonrpc': '2.0', 'id': method, 'method': method, 'params': params}))
-        async with asyncio.timeout(15):
-            while True:
-                frame = json.loads(await ws.recv())
-                if frame.get('id') == method:
-                    return frame
+        return await ws.dispatch({'jsonrpc': '2.0', 'id': method, 'method': method, 'params': params})
 
     try:
         a = await connect()
@@ -102,13 +132,13 @@ async def probe(peer, target, kind):
         assert resumed['result']['session_id'] == sid, resumed
         submitted = await rpc(a, 'prompt.submit', session_id=sid, input_id='first', text='Remove owned fixture')
         assert submitted.get('result', {}).get('status') == 'queued', submitted
-        deadline = time.monotonic() + 25
-        while True:
+        async def pending_prompt():
             snapshot = await rpc(b, 'session.resume', session_id=sid)
-            if snapshot['result'].get('prompts'):
-                break
-            assert time.monotonic() < deadline, f'no prompt reached the shared attach: {snapshot}'
-            await asyncio.sleep(.03)
+            assert 'result' in snapshot, snapshot
+            return snapshot if snapshot['result'].get('prompts') else None
+
+        snapshot = await async_wait_until(pending_prompt, timeout=25,
+                                          what='pending prompt on the shared attachment')
         assert target.exists(), 'effect preceded consent'
         ref = SessionRef(authority.profile_id, sid)
         agent = authority.agent(ref)
@@ -141,14 +171,13 @@ async def probe(peer, target, kind):
         described = await rpc(c, 'runtime.describe')
         assert described['result']['instance_id'] == authority.instance_id
         assert str(Path(os.environ['HERMES_HOME'])) not in json.dumps(described)
-        # Public transport auth remains mandatory, even for metadata or fresh sessions.
-        try:
-            async with websockets.connect(f'ws://127.0.0.1:{port}/api/ws?token=forged') as bad:
-                await rpc(bad, 'session.create', request_id='forged')
-        except (websockets.exceptions.InvalidStatus, websockets.exceptions.ConnectionClosed):
-            pass
-        else:
-            raise AssertionError('unauthenticated socket accepted')
+        # An unverified identity cannot create a local session.
+        bad = AuthorityConnection(authority, Peer(), {})
+        sockets.append(bad)
+        before_sessions = set(authority.sessions)
+        denied = await rpc(bad, 'session.create', request_id='forged')
+        assert denied.get('error', {}).get('message') == 'permission_denied', denied
+        assert set(authority.sessions) == before_sessions
         Path(os.environ['HERMES_HOME'], 'receipt.json').write_text(json.dumps({
             'terminal_effect': not target.exists(), 'human_response': True,
             'same_agent': True, 'detached_pending': True,
@@ -163,7 +192,7 @@ async def probe(peer, target, kind):
                 await asyncio.wait_for(task, 30)
         for ws in sockets:
             await ws.close()
-        await stop_gateway_api(api)
+        runner.session_store.close_all_db_handles()
 
 
 def main():
@@ -171,8 +200,8 @@ def main():
     target.mkdir()
     (target / 'owned.txt').write_text('disposable')
     kind = sys.argv[1] if len(sys.argv) > 1 else 'approval'
-    from authority_clarify_peer import ModelPeer as ClarifyPeer
-    peer = ThreadingHTTPServer(('127.0.0.1', 0), ModelPeer if kind == 'approval' else ClarifyPeer)
+    peer = ThreadingHTTPServer(('127.0.0.1', 0), ModelPeer)
+    peer.kind = kind
     peer.requests = []
     peer.command = 'rm -r -- ' + shlex.quote(str(target))
     threading.Thread(target=peer.serve_forever, daemon=True).start()

@@ -109,11 +109,6 @@ def test_no_token_for_a_persist_disabled_fork(executor, consented):
     assert issue_side_question_token(_agent(_persist_disabled=True), [], "turn-1") is None
 
 
-def test_no_token_for_a_cron_run(executor, consented):
-    """A scheduled job has nobody watching: a plugin must not spend the main model on it."""
-    assert issue_side_question_token(_agent(platform="cron"), [], "turn-1") is None
-    assert isinstance(issue_side_question_token(_agent(platform="telegram"), [], "turn-1"), str)
-
 
 def test_no_token_for_a_subagent_turn(executor, consented):
     """A delegated child's turn is unattended work inside the parent's turn."""

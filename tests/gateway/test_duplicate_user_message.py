@@ -29,6 +29,12 @@ from gateway.session import SessionEntry, SessionSource
 from gateway.session_transcript import TranscriptReadError
 
 
+@pytest.fixture(autouse=True)
+def _register_transport(monkeypatch):
+    from tests.gateway.test_platform_reconnect import register_test_platform
+    register_test_platform(monkeypatch)
+
+
 def _bootstrap(monkeypatch, tmp_path):
     """Minimal GatewayRunner setup shared by all tests in this module."""
     fake_dotenv = types.ModuleType("dotenv")
@@ -46,7 +52,6 @@ def _bootstrap(monkeypatch, tmp_path):
     runner._set_session_env = lambda _context: None
     runner._handle_active_session_busy_message = AsyncMock(return_value=False)
     runner._session_db = MagicMock()
-    runner._recover_telegram_topic_thread_id = lambda _source: None
     runner._cache_session_source = lambda _key, _source: None
     runner._is_session_run_current = lambda _key, _gen: True
     runner._begin_session_run_generation = lambda _key: 1
@@ -58,11 +63,11 @@ def _bootstrap(monkeypatch, tmp_path):
 
     runner.session_store = MagicMock()
     runner.session_store.get_or_create_session.return_value = SessionEntry(
-        session_key="agent:main:telegram:group:-1001:12345",
+        session_key="agent:main:test-chat:group:-1001:12345",
         session_id="sess-dedup",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform("test-chat"),
         chat_type="group",
     )
     runner.session_store.load_transcript.return_value = []
@@ -89,7 +94,7 @@ def _event():
     return MessageEvent(
         text="hello world",
         source=SessionSource(
-            platform=Platform.TELEGRAM,
+            platform=Platform("test-chat"),
             chat_id="-1001",
             chat_type="group",
             user_id="12345",
@@ -100,7 +105,7 @@ def _event():
 
 def _source():
     return SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform("test-chat"),
         chat_id="-1001",
         chat_type="group",
         user_id="12345",
@@ -149,7 +154,7 @@ async def test_agent_failed_early_skip_db_when_agent_has_session_db(
     )
 
     response = await runner._handle_message_with_agent(
-        _event(), _source(), "agent:main:telegram:group:-1001:12345", 1
+        _event(), _source(), "agent:main:test-chat:group:-1001:12345", 1
     )
 
     _assert_user_call_has_skip_db(
@@ -201,7 +206,7 @@ async def test_boundary_keyed_on_durable_tail_when_user_row_is_deduped(
         }
     )
 
-    await runner._handle_message_with_agent(_event(), _source(), "agent:main:telegram:group:-1001:12345", 1)
+    await runner._handle_message_with_agent(_event(), _source(), "agent:main:test-chat:group:-1001:12345", 1)
 
     rows = [
         call.args[1] for call in runner.session_store.append_to_transcript.call_args_list
@@ -241,7 +246,7 @@ async def test_failed_turn_with_tool_activity_does_not_recommend_blind_retry(
     )
 
     response = await runner._handle_message_with_agent(
-        _event(), _source(), "agent:main:telegram:group:-1001:12345", 1
+        _event(), _source(), "agent:main:test-chat:group:-1001:12345", 1
     )
 
     assistant_rows = [
@@ -280,7 +285,7 @@ async def test_not_new_messages_skip_db_when_agent_has_session_db(
     )
 
     await runner._handle_message_with_agent(
-        _event(), _source(), "agent:main:telegram:group:-1001:12345", 1
+        _event(), _source(), "agent:main:test-chat:group:-1001:12345", 1
     )
 
     _assert_user_call_has_skip_db(
@@ -297,7 +302,7 @@ async def test_transcript_read_failure_stops_turn_before_agent_or_append(
     runner._run_agent = AsyncMock()
 
     response = await runner._handle_message_with_agent(
-        _event(), _source(), "agent:main:telegram:group:-1001:12345", 1
+        _event(), _source(), "agent:main:test-chat:group:-1001:12345", 1
     )
 
     assert "history is temporarily unavailable" in response

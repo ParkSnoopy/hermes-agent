@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent.i18n import t
+
 
 __all__ = [
     "EXECUTORS",
@@ -72,7 +72,7 @@ def _exec_profile(ctx: CommandContext) -> CommandReply:
         label = format_profile_label(profile_name, display)
     except Exception:
         pass
-    return CommandReply(t("gateway.profile.plain", profile=label, home=home_display),
+    return CommandReply((f'Profile: {label}\nHome: {home_display}'),
                         data={"profile": profile_name, "home": home_display})
 
 
@@ -87,18 +87,18 @@ def _exec_bundles(ctx: CommandContext) -> CommandReply:
     try:
         from agent.skill_bundles import _bundles_dir, list_bundles
     except Exception as exc:  # pragma: no cover - env-specific
-        return CommandReply(t("gateway.bundles.unavailable", error=exc), data={"error": str(exc)})
+        return CommandReply((f'Bundles subsystem unavailable: {exc}'), data={"error": str(exc)})
     bundles = list_bundles()
     bundles_dir = str(_bundles_dir())
     if not bundles:
-        return CommandReply(t("gateway.bundles.none_plain", dir=bundles_dir), data={"bundles": [], "dir": bundles_dir})
-    lines = [t("gateway.bundles.header_plain", count=len(bundles))]
+        return CommandReply((f'No skill bundles installed.\nCreate one with: hermes bundles create <name> --skill <s1> --skill <s2>\nDirectory: {bundles_dir}'), data={"bundles": [], "dir": bundles_dir})
+    lines = [(f'Skill Bundles ({len(bundles)} installed):')]
     for info in bundles:
         skills = info.get("skills", [])
-        desc = info.get("description") or t("gateway.bundles.default_desc", count=len(skills))
-        lines.append(t("gateway.bundles.item_plain", slug=info["slug"], desc=desc, count=len(skills)))
+        desc = info.get("description") or (f'Load {len(skills)} skills')
+        lines.append(('/{slug} — {desc} ({count} skills)').format(slug=info["slug"], desc=desc, count=len(skills)))
         lines.extend(f"    · {s}" for s in skills)
-    lines.append(t("gateway.bundles.invoke_hint_plain"))
+    lines.append('Invoke a bundle with /<slug> to load all its skills.')
     return CommandReply("\n".join(lines), data={"bundles": bundles, "dir": bundles_dir})
 
 
@@ -117,16 +117,16 @@ def _exec_help(ctx: CommandContext) -> CommandReply:
     # ``allowed_commands`` (gateway, non-admin caller): only the commands the slash-access
     # policy lets this user run; skill commands are hidden too since the gate refuses them.
     allowed = ctx.options.get("allowed_commands")
-    lines = [t("gateway.help.header"), *gateway_help_lines(allowed)]
+    lines = ['📖 **Hermes Commands**\n', *gateway_help_lines(allowed)]
     skill_cmds = _skill_commands() if allowed is None else {}
     try:
         if skill_cmds:
-            lines.append(t("gateway.help.skill_header", count=len(skill_cmds)))
+            lines.append(f'\n⚡ **Skill Commands** ({len(skill_cmds)} active):')
             sorted_cmds = sorted(skill_cmds)  # first 10, then point to /commands for the rest
             lines.extend(f"`{cmd}` — {skill_cmds[cmd]['description']}"
                          for cmd in sorted_cmds[:10])
             if len(sorted_cmds) > 10:
-                lines.append(t("gateway.help.more_use_commands", count=len(sorted_cmds) - 10))
+                lines.append(f'\n... and {len(sorted_cmds) - 10} more. Use `/commands` for the full paginated list.')
     except Exception:
         pass
     return CommandReply("\n".join(lines), format="markdown")
@@ -141,16 +141,16 @@ def _exec_commands(ctx: CommandContext) -> CommandReply:
     try:
         requested_page = int((ctx.args or "").strip() or 1)
     except ValueError:
-        return CommandReply(t("gateway.commands.usage"), format="markdown")
+        return CommandReply('Usage: `/commands [page]`', format="markdown")
 
     allowed = ctx.options.get("allowed_commands")
     entries = list(gateway_help_lines(allowed))
     skill_cmds = _skill_commands() if allowed is None else {}
     try:
         if skill_cmds:
-            entries.extend(["", t("gateway.commands.skill_header")])
+            entries.extend(["", '⚡ **Skill Commands**:'])
             for cmd in sorted(skill_cmds):
-                desc = skill_cmds[cmd].get("description", "").strip() or t("gateway.commands.default_desc")
+                desc = skill_cmds[cmd].get("description", "").strip() or 'Skill command'
                 entries.append(f"`{cmd}` — {desc}")
         # Skills kept off the menu because a built-in owns the name (agent.skill_commands guard).
         from agent.skill_commands import skill_command_collision_note
@@ -161,7 +161,7 @@ def _exec_commands(ctx: CommandContext) -> CommandReply:
         pass
 
     if not entries:
-        return CommandReply(t("gateway.commands.none"), format="markdown")
+        return CommandReply('No commands available.', format="markdown")
 
     try:
         page_size = max(1, int(ctx.options.get("page_size", 20)))
@@ -170,14 +170,14 @@ def _exec_commands(ctx: CommandContext) -> CommandReply:
     total_pages = max(1, (len(entries) + page_size - 1) // page_size)
     page = max(1, min(requested_page, total_pages))
     start = (page - 1) * page_size
-    lines = [t("gateway.commands.header", total=len(entries), page=page, total_pages=total_pages),
+    lines = [(f'📚 **Commands** ({len(entries)} total, page {page}/{total_pages})'),
              "", *entries[start:start + page_size]]
     if total_pages > 1:
-        nav_parts = ([t("gateway.commands.nav_prev", page=page - 1)] if page > 1 else []) + (
-            [t("gateway.commands.nav_next", page=page + 1)] if page < total_pages else [])
+        nav_parts = ([(f'`/commands {page - 1}` ← prev')] if page > 1 else []) + (
+            [(f'next → `/commands {page + 1}`')] if page < total_pages else [])
         lines.extend(["", " | ".join(nav_parts)])
     if page != requested_page:
-        lines.append(t("gateway.commands.out_of_range", requested=requested_page, page=page))
+        lines.append(f'_(Requested page {requested_page} was out of range, showing page {page}.)_')
     return CommandReply("\n".join(lines), format="markdown")
 
 

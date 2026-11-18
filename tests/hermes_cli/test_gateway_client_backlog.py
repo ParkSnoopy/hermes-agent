@@ -3,7 +3,7 @@
 The frames a socket already buffered (a CLI resumed from Ctrl-Z) are read in one burst that never
 yields to the loop, so the 4,096-frame client queue filled before its consumer had a turn: the
 reader reported the turn's outcome as unknown, and the next prompt failed while the socket closed.
-A Kanban worker, subscribed by ``kanban.run`` but reading only receipts, filled it the same way.
+A client awaiting RPC replies can also accumulate events without draining them.
 """
 import asyncio
 import json
@@ -74,9 +74,8 @@ async def test_a_consumer_that_stops_draining_is_still_failed_with_the_queue_bou
     assert [frame["params"]["payload"]["text"] for frame in queued[:-1]] == [str(i) for i in range(4196)]
 
 
-class CardOwner:
-    """A Kanban card's owner as the worker's socket sees it: ``kanban.run`` subscribes the socket,
-    the card's turn streams ``events`` frames, and the next receipt poll finds it terminal."""
+class SessionOwner:
+    """A session streams events between two RPC replies."""
 
     state = State.OPEN  # GatewayClient.rpc reads the socket state before it sends
 
@@ -86,7 +85,7 @@ class CardOwner:
 
     async def send(self, raw):
         request = json.loads(raw)
-        if request["method"] == "kanban.run":
+        if request["method"] == "session.send":
             result = {"session_id": SID, "receipt": {"status": "running", "admission_id": "a1"}}
             frames = [{"jsonrpc": "2.0", "id": request["id"], "result": result}]
             frames += [json.loads(_frame("message.delta", str(i))) for i in range(self.events)]
@@ -101,19 +100,12 @@ class CardOwner:
 
 
 @pytest.mark.asyncio
-async def test_kanban_worker_settles_a_card_whose_turn_outstreams_the_client_queue(monkeypatch, tmp_path):
-    from gateway import session_kanban
-    from hermes_cli import kanban_worker_client
-
-    @asynccontextmanager
-    async def connect():
-        async with GatewayClient(CardOwner(6000)) as client:
-            yield client
-
-    monkeypatch.setattr(gateway_client, "connect_gateway", connect)
-    monkeypatch.setattr(session_kanban, "worker_result", lambda *_: {"exit_code": 0, "last_output": "card closed"})
-    monkeypatch.delenv("HERMES_TUI_GATEWAY_URL", raising=False)
-    assert await asyncio.wait_for(kanban_worker_client.run({"task_id": "t1"}, str(tmp_path / "kanban.db")), 5) == 0
+async def test_rpc_reply_survives_an_undrained_event_backlog():
+    async with GatewayClient(SessionOwner(6000)) as client:
+        result = await client.rpc("session.send", session_id=SID, text="hello")
+        assert result["session_id"] == SID
+        result = await asyncio.wait_for(client.rpc("session.status", session_id=SID), 5)
+        assert result["status"] == "terminal"
 
 
 @pytest.mark.asyncio

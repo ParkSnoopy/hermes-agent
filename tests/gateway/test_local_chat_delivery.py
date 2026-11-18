@@ -132,43 +132,4 @@ async def test_a_classic_cli_resume_with_no_heartbeat_leaves_the_tick_to_the_pol
     assert _heartbeat_admissions(authority, ref)
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize('live_adapters', [False, True], ids=['no-local-adapter-yet', 'in-gateway-ticker'])
-@pytest.mark.parametrize('viewer', [False, True], ids=['unviewed', 'viewed'])
-async def test_cron_result_for_a_local_origin_is_a_note_not_a_turn(tmp_path, monkeypatch, live_adapters, viewer):
-    from cron import scheduler_delivery as sd
-    from tests.gateway.test_session_end_delegations import _record_turns
-    from tests.gateway.test_unviewed_completion_notes import _target
-    runner, authority, ref, actor = await _local(tmp_path, monkeypatch)
-    if viewer:
-        authority.sessions[ref.session_id].subscribers['viewer'] = actor
-    job = {'id': 'j1', 'name': 'digest', 'deliver': 'origin',
-           'origin': {'platform': 'local', 'chat_id': ref.session_id}}
-    # The ticker delivers from its own thread; the owner admits on its loop.
-    error = await asyncio.to_thread(sd._deliver_result, job, 'CRON_RESULT_j1',
-                                    adapters=runner.adapters if live_adapters else None,
-                                    loop=asyncio.get_running_loop())
-    assert error is None
-    turns = _record_turns(runner)
-    await authority._drain(ref)
-    assert turns == [], 'the finished result must not cost a model turn'
-    [row] = _admissions(authority, ref, 'CRON_RESULT_j1')
-    assert row['outcome'] == 'completed'
-    [note] = [m for m in authority.db.get_messages(_target(runner, authority, ref))
-              if 'CRON_RESULT_j1' in str(m.get('content'))]
-    assert note['role'] == 'user' and note['display_metadata']['completion_admission'] == row['admission_id']
-    assert 'summarize for the chat' not in note['content'], 'no model framing on a note'
 
-
-@pytest.mark.asyncio
-async def test_cron_result_for_a_local_origin_without_its_owner_is_an_error(tmp_path, monkeypatch):
-    from cron import scheduler_delivery as sd
-    from gateway.session_cron import unbind_owner
-    runner, authority, ref, _ = await _local(tmp_path, monkeypatch)
-    unbind_owner(authority)  # a standalone `hermes cron run`: no gateway in this process
-    job = {'id': 'j1', 'name': 'digest', 'deliver': 'origin',
-           'origin': {'platform': 'local', 'chat_id': ref.session_id}}
-    error = await asyncio.to_thread(sd._deliver_result, job, 'CRON_RESULT_j1', adapters=runner.adapters,
-                                    loop=asyncio.get_running_loop())
-    assert error and 'local' in error
-    assert not _admissions(authority, ref, 'CRON_RESULT_j1')

@@ -1,8 +1,7 @@
 """Bake the payload's bytecode cache at staging time.
 
 A sealed payload ships no __pycache__: the runtime redirects bytecode
-writes to a user-level cache (signature-breaking on macOS, read-only
-mount on AppImage/MSIX), so every fresh install pays a cold-compile
+writes to a user-level cache on read-only payloads, so every fresh install pays a cold-compile
 stall on first launch. Baking turns that into a warm read:
 
 * compileall runs with the payload's OWN staged interpreter (a pyc
@@ -12,20 +11,9 @@ stall on first launch. Baking turns that into a warm read:
   source validation and never rewritten, so staging-repack mtimes
   cannot invalidate it and a stale source cannot trigger a rewrite
   into the sealed tree;
-* the baked pycs are chmodded owner-writable (0o644) BEFORE packaging:
-  Squirrel.Mac's ShipIt clears the quarantine attribute off every file
-  in the .app and aborts the whole update with EACCES on any read-only
-  one (#138659), and on Windows a read-only pyc stopped the next
-  prepare's rmtree (#137717). A read-only bit never blocked a rewrite
-  anyway: CPython replaces a pyc through its writable __pycache__ dir.
-  What keeps default imports (all the launcher does) off these pycs is
-  unchecked-hash plus the asserted coverage below;
-* the runtime's sys.pycache_prefix redirect is dropped when the baked
-  marker is present (the prefix relocates READS too — see
-  scripts/build/launcher_wrapper.py), so imports read the source-
-  adjacent baked pycs, which is Python's default multi-root lookup:
-  payload modules read theirs; plugin/user modules keep caching beside
-  their own sources under HERMES_HOME.
+* the baked pycs are chmodded owner-writable (0o644) before packaging;
+* a runtime cache-prefix redirect also relocates reads, so launchers must
+  account for that when using these source-adjacent baked pycs.
 
 Coverage is the performance contract: every parseable module under
 the baked roots must have a pyc. Unparseable fixtures (deliberately
@@ -44,13 +32,11 @@ def _import_roots(root: Path) -> list[Path]:
     for source_root in roots + [root / "venv", root / "pm-runtime"]:
         if not source_root.is_dir():
             raise FileNotFoundError(f"missing import root: {source_root}")
-    sites = sorted((root / "venv").glob("lib/python*/site-packages")) + \
-        sorted((root / "venv").glob("Lib/site-packages"))
+    sites = sorted((root / "venv").glob("lib/python*/site-packages"))
     if len(sites) != 1:
         raise ValueError(f"expected exactly one staged venv site-packages, found {len(sites)}")
     roots.append(sites[0])
-    pm_sites = sorted((root / "pm-runtime").glob("lib/python*/site-packages")) + \
-        sorted((root / "pm-runtime").glob("Lib/site-packages"))
+    pm_sites = sorted((root / "pm-runtime").glob("lib/python*/site-packages"))
     if len(pm_sites) != 1:
         raise ValueError(f"expected exactly one PM runtime site-packages, found {len(pm_sites)}")
     roots.append(pm_sites[0])
@@ -99,14 +85,7 @@ def bake_bytecode(root: Path, python: Path) -> dict:
                              f"({sample}…): a fresh install would cold-compile them "
                              "every launch")
         total += sum(1 for _ in source_root.rglob("__pycache__/*.pyc"))
-    # Pycs get owner write BEFORE packaging: Squirrel.Mac's ShipIt clears
-    # the quarantine attribute from every file in the .app and aborts the
-    # whole update with EACCES on any file lacking it (#138659) — a
-    # read-only pyc wedges every macOS update at the swap step. Default
-    # imports still leave these pycs alone: unchecked-hash never
-    # revalidates against the source and asserted coverage leaves no cache
-    # miss to write. `--check-hash-based-pycs always` or `-O` can still
-    # write here, as they could when the pycs were read-only.
+    # Preserve owner-writable caches for subsequent payload preparation.
     for source_root in _import_roots(root):
         for cache in source_root.rglob("__pycache__"):
             for pyc in cache.iterdir():

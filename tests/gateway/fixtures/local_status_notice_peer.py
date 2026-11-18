@@ -1,4 +1,4 @@
-"""Real owner, real AIAgent turn, authenticated local WS viewer: agent status and notices."""
+"""Real owner, real AIAgent turn, native local viewer: status and notices."""
 import asyncio
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -35,12 +35,10 @@ class Peer(BaseHTTPRequestHandler):
 
 
 async def probe():
-    import websockets
     from gateway.run import GatewayRunner
     from gateway.session_authority import initialize_session_authority
-    from gateway.run_api import start_gateway_api, stop_gateway_api
-    from hermes_cli import web_server
-    from hermes_cli.dashboard_auth.ws_tickets import mint_ticket
+    from gateway.session_controls import AuthorityConnection
+    from tests.gateway.fixtures.execution_frames_capture import Peer as CapturePeer
     import run_agent
     from agent.credits_tracker import AgentNotice
 
@@ -55,29 +53,33 @@ async def probe():
     run_agent.AIAgent.run_conversation = run_conversation
 
     runner = GatewayRunner()
-    await initialize_session_authority(runner, profile_id='fixture', instance_id='local')
-    api = await start_gateway_api(runner)
-    port = api.socket.getsockname()[1]
-    web_server.app.state.auth_required = True
-    ticket = mint_ticket(user_id='fixture-creator', provider='local-fixture')
-    ws = await websockets.connect(f'ws://127.0.0.1:{port}/api/ws?ticket={ticket}')
+    authority = await initialize_session_authority(runner, profile_id='fixture', instance_id='local')
+    peer = CapturePeer()
+    ws = AuthorityConnection(authority, CapturePeer(), {'user_id': 'fixture-creator'}, operator=True)
+    viewer = AuthorityConnection(authority, peer, {'user_id': 'fixture-creator',
+                                                   'capabilities': ['session:read']})
     frames = []
 
     async def rpc(method, **params):
-        await ws.send(json.dumps({'jsonrpc': '2.0', 'id': method, 'method': method, 'params': params}))
-        async with asyncio.timeout(15):
-            while True:
-                frame = json.loads(await ws.recv())
-                frames.append(frame)
-                if frame.get('id') == method:
-                    return frame
+        return await ws.dispatch({'jsonrpc': '2.0', 'id': method, 'method': method, 'params': params})
     try:
         sid = (await rpc('session.create', request_id='fresh', source='cli'))['result']['session_id']
-        await rpc('session.resume', session_id=sid)
-        await rpc('prompt.submit', session_id=sid, input_id='first', text='hi')
+        await ws.close()
+        attached = await viewer.dispatch({'id': 'resume', 'method': 'session.resume',
+                                          'params': {'session_id': sid}})
+        assert attached['result']['session_id'] == sid, attached
+        refused = await viewer.dispatch({'id': 'submit', 'method': 'prompt.submit',
+                                         'params': {'session_id': sid, 'input_id': 'denied', 'text': 'no'}})
+        assert refused.get('error', {}).get('message') == 'permission_denied', refused
+        assert not authority.db.get_messages(sid)
+        ws = AuthorityConnection(authority, CapturePeer(), {'user_id': 'fixture-creator'}, operator=True)
+        assert 'result' in await rpc('session.resume', session_id=sid)
+        submitted = await rpc('prompt.submit', session_id=sid, input_id='first', text='hi')
+        assert submitted.get('result', {}).get('status') == 'queued', submitted
         async with asyncio.timeout(30):
             while not any(f.get('params', {}).get('type') == 'message.complete' for f in frames):
-                frames.append(json.loads(await ws.recv()))
+                frames.append(await asyncio.to_thread(peer.frames.get, True, 25))
+        await asyncio.wait_for(authority.sessions[sid].task, 30)
         events = [f['params'] for f in frames if f.get('method') == 'event']
         # The classic `hermes chat` view renders what reached it on stderr.
         import contextlib
@@ -91,8 +93,10 @@ async def probe():
             'events': [[p['type'], p.get('payload')] for p in events if p['type'] in (
                 'status.update', 'notification.show', 'notification.clear')], 'cli_stderr': printed.getvalue()}))
     finally:
+        run_agent.AIAgent.run_conversation = original
         await ws.close()
-        await stop_gateway_api(api)
+        await viewer.close()
+        runner.session_store.close_all_db_handles()
 
 
 def main():
@@ -109,6 +113,7 @@ def main():
         asyncio.run(probe())
     finally:
         peer.shutdown()
+        peer.server_close()
 
 
 if __name__ == '__main__':

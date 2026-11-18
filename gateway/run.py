@@ -28,10 +28,9 @@ from collections import OrderedDict
 from contextvars import Context, copy_context
 from pathlib import Path
 from datetime import datetime
-from typing import Callable, Dict, Optional, Any, List, Tuple, cast
+from typing import Callable, Dict, Optional, Any, List, Tuple
 
 from agent.async_utils import safe_schedule_threadsafe
-from agent.i18n import t
 from agent.conversation_compression import (
     COMPACTION_DONE_STATUS, COMPACTION_HEARTBEAT_STATUS, COMPACTION_STATUS, COMPRESSION_RETRY_CONTEXT_REDUCED_STATUS_TEMPLATE,
     COMPRESSION_REFUSED_WOULD_GROW_WARNING, COMPRESSION_RETRY_MESSAGES_STATUS_TEMPLATE, COMPRESSION_RETRY_TOKENS_STATUS_TEMPLATE,
@@ -44,8 +43,8 @@ from agent.interrupt_compat import request_hard_interrupt
 from agent.message_metadata import ABSORBED_MESSAGE_UIDS, MESSAGE_UID, copy_identity_fields, is_compaction_scaffolding, replay_metadata_fields
 from agent.turn_context import compression_made_progress
 from agent.session_activity import ActivityProvenance, AwakeIdleMeter
-from hermes_cli.config import _is_ssh_remote_tilde_cwd, cfg_get, config_exists
-from gateway.run_common import _csv_or_list_to_set
+from hermes_cli.config import cfg_get, config_exists
+
 from hermes_cli.fallback_config import pre_agent_fallback_notice
 from gateway.turn_executor import _UnboundedThreadExecutor
 
@@ -53,15 +52,7 @@ from gateway.turn_executor import _UnboundedThreadExecutor
 _AGENT_CACHE_MAX_SIZE = 128
 _AGENT_CACHE_IDLE_TTL_SECS = 3600.0  # evict agents idle for >1h
 _PLATFORM_CONNECT_TIMEOUT_SECS_DEFAULT = 30.0
-# Telegram connect proves a real getUpdates round trip; must cover polling-start deadlines + readiness.
-_TELEGRAM_CONNECT_TIMEOUT_SECS_DEFAULT = 180.0
-# The initial Telegram connect gates `running` for EVERY platform, so it must not spend the full 180s.
-# Cold-start cap for Telegram (#85993): the initial connect awaited before the gateway reaches `running`
-# must not spend the full 180s budget — an unreachable Telegram would hold EVERY platform's serving state
-# hostage for the whole window. The initial attempt gets one bounded try; on timeout the platform is queued
-# for the reconnect watcher, which retries with the full 180s budget (is_reconnect=True preserves the
-# offline update queue, #46621).
-_TELEGRAM_INITIAL_CONNECT_TIMEOUT_SECS_DEFAULT = 45.0
+
 _ADAPTER_DISCONNECT_TIMEOUT_SECS_DEFAULT = 5.0
 # Size of the separate pool for best-effort session HOUSEKEEPING; why it is separate: _run_housekeeping_in_executor.
 _HOUSEKEEPING_MAX_WORKERS = 4
@@ -72,10 +63,10 @@ _USER_BOUNDARY_END_REASONS = ("session_reset", "user_exit", "session_switch", "n
 # Bounds one stall-notify send so a wedged transport can't block the watcher; on timeout the next tick retries.
 _STALL_NOTIFY_SEND_TIMEOUT_SECONDS = 15.0
 _GATEWAY_PROXY_SSE_BUFFER_MAX_CHARS = 16 * 1024 * 1024
-_TELEGRAM_COMMAND_MENTION_RE = re.compile(r"(?<![\w:/])/([A-Za-z0-9][A-Za-z0-9_-]*)")
+
 _GATEWAY_HYGIENE_PLATFORM = "gateway_hygiene"
 
-_TELEGRAM_NOISY_STATUS_RE = re.compile(
+_GATEWAY_NOISY_STATUS_RE = re.compile(
     r"("  # transient/auxiliary status that should stay in logs, not gateway chats
     r"auxiliary\s+.+\s+failed"
     r"|compression\s+summary\s+failed"
@@ -202,10 +193,10 @@ def _hygiene_compression_timeout_message(
     """Describe the host timeout that actually ended hygiene compression. Chat users cannot edit
     model config, so the copy names /compress, /new and `hermes doctor`, never a config key or the
     raw second counts (those stay in the gateway log)."""
-    lead = t("gateway.compress.hygiene_timeout")
+    lead = '⚠️ Shortening the conversation history took too long, so I skipped it and kept everything as-is. Run /compress to try again or /new to start fresh.'
     if total_exhausted:
         return lead
-    return lead + t("gateway.compress.hygiene_timeout_doctor_hint")
+    return lead + ' If this keeps happening, run `hermes doctor` on the host.'
 
 
 def _cached_agent_for_hygiene(gateway, session_key: str):
@@ -319,9 +310,9 @@ def _record_hygiene_cooldown(
 
 # ROUTINE compression progress statuses, derived from the SAME template constants the emit sites format.
 # Used ONLY by the opt-in ``compression.progress_notices`` gate below (#52995) to decide which of the noisy
-# statuses matched by _TELEGRAM_NOISY_STATUS_RE are compression progress (deliverable when the user opted
+# statuses matched by _GATEWAY_NOISY_STATUS_RE are compression progress (deliverable when the user opted
 # in) versus unrelated aux/retry chatter (always suppressed on chat surfaces). Failure notices and manual
-# /compress feedback never match _TELEGRAM_NOISY_STATUS_RE in the first place, so they are unaffected by
+# /compress feedback never match _GATEWAY_NOISY_STATUS_RE in the first place, so they are unaffected by
 # this gate.
 _COMPRESSION_PROGRESS_STATUS_RE = re.compile(
     "|".join(
@@ -590,20 +581,19 @@ def _format_exec_approval_fallback(
     answer a command the user could read in full (#62359)."""
     from gateway.platforms.base_exec_approval import (
         approval_timeout_seconds, ea_header_text, ea_reason_label_text, format_approval_deadline_line)
-    heading = (t("gateway.exec_approval.smart_deny_heading") if smart_denied
+    heading = ('⚠️ **Smart DENY — owner override for one operation:**' if smart_denied
                else f"⚠️ **{ea_header_text()}**")
 
-    choices = [t("gateway.exec_approval.text_choice_once", prefix=command_prefix)]
+    choices = [(f'Reply `{command_prefix}approve` to run it once')]
     if not smart_denied and allow_session:
-        choices.append(t("gateway.exec_approval.text_choice_session", prefix=command_prefix))
+        choices.append(f'`{command_prefix}approve session` to allow this pattern for the rest of this session')
         if allow_permanent:
-            choices.append(t("gateway.exec_approval.text_choice_always", prefix=command_prefix))
-    choices.append(t("gateway.exec_approval.text_choice_deny", prefix=command_prefix))
+            choices.append(f'`{command_prefix}approve always` to allow it permanently')
+    choices.append(f'`{command_prefix}deny` to cancel')
     return (
-        t("gateway.exec_approval.text_body", heading=heading, command=command,  # whole: send() splits it
-          reason_label=ea_reason_label_text(), reason=description)
-        + t("gateway.exec_approval.text_choice_joiner").join(choices[:-1])
-        + t("gateway.exec_approval.text_choice_last", choice=choices[-1])
+        (f'{heading}\n```\n{command}\n```\n{ea_reason_label_text()}: {description}\n\n')
+        + ', '.join(choices[:-1])
+        + (f', or {choices[-1]}.\n')
         + format_approval_deadline_line(approval_timeout_seconds()))
 
 # Ordered: rate-limit beats auth beats policy beats connection; first match wins. Rate-limit goes
@@ -617,21 +607,20 @@ def _format_exec_approval_fallback(
 # been answered by it), a REFUSED/unroutable connect is the endpoint-down case #86570 wrote the
 # wording for, and a cause-free SDK ``APIConnectionError: Connection error.`` supports neither
 # diagnosis, so the catch-all names the failure without asserting a cause.
-# ``(pattern, catalog key)`` — the reply text is resolved with ``t()`` at reply time so the active
-# ``display.language`` applies; ``gateway.errors.*`` in ``locales/en.yaml`` holds the wording.
+# ``(pattern, reply text)``; the first matching pattern determines the safe reply.
 _PROVIDER_ERROR_REPLIES = (
-    (_GATEWAY_RATE_LIMIT_RE, "gateway.errors.rate_limited"),
-    (_GATEWAY_AUTH_ERROR_RE, "gateway.errors.auth_failed"),
-    (_GATEWAY_PROVIDER_POLICY_RE, "gateway.errors.bad_request"),
-    (_GATEWAY_CONNECTION_INTERRUPTED_RE, "gateway.errors.connection_interrupted"),
-    (_GATEWAY_ENDPOINT_UNREACHABLE_RE, "gateway.errors.unreachable"),
-    (_GATEWAY_CONNECTION_ERROR_RE, "gateway.errors.connection_unknown"))
+    (_GATEWAY_RATE_LIMIT_RE, '⏱️ The AI model service is rate-limiting requests. Wait a moment, then use /retry.'),
+    (_GATEWAY_AUTH_ERROR_RE, '⚠️ Sign-in to the AI model service failed. Use /login to sign in again, or ask whoever runs this bot to run `hermes doctor` on the host.'),
+    (_GATEWAY_PROVIDER_POLICY_RE, '⚠️ The AI model service rejected this request. Try rephrasing your message, or use /model to switch models.'),
+    (_GATEWAY_CONNECTION_INTERRUPTED_RE, '⚠️ The connection to the AI model service was interrupted mid-request — usually transient. Use /retry to try again; if it keeps happening, run `hermes doctor` on the host.'),
+    (_GATEWAY_ENDPOINT_UNREACHABLE_RE, "⚠️ The AI model service isn't reachable right now — the configured model endpoint is not running or is unreachable. Wait a moment and use /retry; if it persists, run `hermes doctor` on the host."),
+    (_GATEWAY_CONNECTION_ERROR_RE, '⚠️ Hermes could not reach the AI model service (no further detail from the SDK). Use /retry to try again; if it persists, run `hermes doctor` on the host.'))
 
 
 def _context_overflow_reply() -> str:
     """Shared by the failed-turn normalizer and ``run_turn._hmwa_agent_error_reply``; canonical
     commands (/compress, /new) — the /compact and /reset aliases are absent from /help."""
-    return t("gateway.errors.context_overflow")
+    return '⚠️ This conversation has grown too long for me to read all at once. Use /compress to shorten the history, or /new to start a fresh conversation.'
 
 
 def _rate_limit_reply(text: str) -> str:
@@ -641,16 +630,16 @@ def _rate_limit_reply(text: str) -> str:
     from agent.retry_utils import format_reset_window, reset_delay_from_message
     seconds = reset_delay_from_message(text) or 0
     if seconds < 120:
-        return t("gateway.errors.rate_limited")
-    return t("gateway.errors.usage_limit_resets", window=format_reset_window(seconds))
+        return '⏱️ The AI model service is rate-limiting requests. Wait a moment, then use /retry.'
+    return (f"⏱️ The AI model service's usage limit is reached; it resets in {format_reset_window(seconds)}. Use /retry after that, or /model to switch models.")
 
 
 def _gateway_provider_error_reply(text: str) -> str:
     """Map raw provider/API errors to a short user-safe Telegram reply."""
     for pattern, reply_key in _PROVIDER_ERROR_REPLIES:
         if pattern.search(text):
-            return _rate_limit_reply(text) if pattern is _GATEWAY_RATE_LIMIT_RE else t(reply_key)
-    return t("gateway.errors.provider_kept_failing")
+            return _rate_limit_reply(text) if pattern is _GATEWAY_RATE_LIMIT_RE else reply_key
+    return '⚠️ The AI model service kept failing. Use /retry to try again, or /model to switch models. Details are in the gateway log (`hermes logs`).'
 
 
 # Provider/API failure envelope preambles (not ordinary assistant prose), anchored at line start.
@@ -729,7 +718,7 @@ def _prepare_gateway_status_message(platform: Any, event_type: str, message: str
 
     text = _redact_gateway_user_facing_secrets(text)
     # Opt-in `compression.progress_notices` lets ROUTINE (template-derived) progress through; other noise stays.
-    if _TELEGRAM_NOISY_STATUS_RE.search(text) and not (
+    if _GATEWAY_NOISY_STATUS_RE.search(text) and not (
         _gateway_compression_progress_notices_enabled() and _COMPRESSION_PROGRESS_STATUS_RE.search(text)
     ):
         return None
@@ -788,7 +777,7 @@ def _approval_send_outcome(future, timeout: float) -> str:
     #   * `ambiguous: True` (lost ack, mid-write drop) was flattened into a
     #     DEFINITE failure, which re-sends a card that may well have posted.
     # I fixed the text-marker path and tested only the text-marker path.
-    from gateway.relay.egress import declined_send
+    from gateway.delivery_refusal import declined_send
 
     _raw = getattr(result, "raw_response", None)
     if isinstance(_raw, dict) and _raw.get("ambiguous"):
@@ -811,27 +800,6 @@ def _approval_send_outcome(future, timeout: float) -> str:
     return "failed"
 
 
-def _resolve_progress_thread_id(
-    platform: Any, source_thread_id: Any, event_message_id: Any, *, reply_in_thread: bool = True
-) -> Optional[str]:
-    """Return thread/root ID that progress/status bubbles should target.
-
-    ``reply_in_thread=False`` (Slack): no synthetic-thread fallback, else the final flat reply inherits a thread.
-    A source.thread_id equal to the event's message id is the adapter's synthetic session key: no thread.
-
-    See #18859.
-    """
-    platform_key = str(getattr(platform, "value", platform) or "").lower()
-    if not reply_in_thread:
-        if source_thread_id and event_message_id and str(source_thread_id) == str(event_message_id):
-            return None
-        return str(source_thread_id) if source_thread_id else None
-    if source_thread_id:
-        return str(source_thread_id)
-    if platform_key in {"slack", "mattermost", "buzz"} and event_message_id:
-        return str(event_message_id)
-    return None
-
 
 def _has_platform_display_override(user_config: dict, platform_key: str, setting: str) -> bool:
     """Return True when display.platforms.<platform> explicitly sets setting."""
@@ -850,7 +818,7 @@ def _resolve_gateway_display_bool(
     platform: Any = None, require_platform_override_for: set[Any] | None = None) -> bool:
     """Resolve a boolean display setting with optional platform-only opt-in.
 
-    Scratch-text is too noisy for threaded surfaces (Mattermost): they need an explicit per-platform override.
+    Surfaces may require an explicit per-platform override for scratch-text display.
     """
     current_platform = _gateway_platform_value(platform or platform_key)
     platform_only = {_gateway_platform_value(c) for c in (require_platform_override_for or set())}
@@ -870,20 +838,6 @@ def _resolve_gateway_display_bool(
         return bool(default)
     return bool(value)
 
-
-def _telegramize_command_mentions(text: str, platform: Any) -> str:
-    """Rewrite slash-command mentions to Telegram-valid names (lowercase/digits/underscore); no-op elsewhere."""
-    platform_value = getattr(platform, "value", platform)
-    if platform_value != "telegram":
-        return text
-
-    from hermes_cli.commands_platforms import _sanitize_telegram_name
-
-    def _replace(match: re.Match[str]) -> str:
-        sanitized = _sanitize_telegram_name(match.group(1))
-        return f"/{sanitized}" if sanitized else match.group(0)
-
-    return _TELEGRAM_COMMAND_MENTION_RE.sub(_replace, text)
 
 
 # Auto-continue interrupted turns only while fresh, else stale tool-tail/resume_pending markers revive an old
@@ -990,14 +944,6 @@ def _warm_turn_machinery_sync() -> int:
         logger.debug("model-context warm-up failed (non-fatal)", exc_info=True)
     return len(tool_defs)
 
-
-def _as_thread_info(info: Any) -> Optional[tuple[str, str]]:
-    """*info* as a (thread_id, initial_name) pair, or None if it isn't one.
-
-    The pair crosses the relay connector boundary, so its shape is the connector's word, not ours."""
-    if isinstance(info, tuple) and len(info) == 2 and all(isinstance(x, str) for x in info):
-        return cast(tuple[str, str], info)
-    return None
 
 
 def _float_env(name: str, default: float) -> float:
@@ -1179,39 +1125,6 @@ def _uses_telegram_observed_group_context(channel_prompt: Optional[str]) -> bool
     return bool(channel_prompt and _TELEGRAM_OBSERVED_CONTEXT_PROMPT_MARKER in channel_prompt)
 
 
-def _slack_ignored_channels_from_gateway_config(config: Any, adapter: Any = None) -> set[str]:
-    """Return Slack channels that the generic gateway must never dispatch.
-
-    Duplicates the adapter's drop as a fail-safe so bypasses can't reach auth, pairing or sessions.
-    ``adapter`` is the source's routed adapter: under multiplex ``config`` is the DEFAULT profile's
-    GatewayConfig, so a secondary Slack bot's list lives only in its adapter's ``extra``."""
-    raw = None
-    if adapter is not None:
-        raw = (getattr(getattr(adapter, "config", None), "extra", None) or {}).get("ignored_channels")
-    platform_cfg = getattr(config, "platforms", {}).get(Platform.SLACK)
-    if raw is None and platform_cfg is not None and adapter is None:
-        raw = getattr(platform_cfg, "extra", {}).get("ignored_channels")
-    if raw is None:
-        # Top-level ``slack.ignored_channels`` arrives via the plugin's YAML→env bridge, not PlatformConfig.extra
-        # (#46925); scoped read so a secondary never inherits the default profile's list (first-writer env).
-        from gateway.platforms._shared import platform_gate_env as _platform_gate_env
-        raw = _platform_gate_env("SLACK_IGNORED_CHANNELS") or None
-    return _csv_or_list_to_set(raw)
-
-
-def _slack_parent_channel_id(chat_id: Any) -> str:
-    """Return the parent Slack channel from a possibly thread-scoped chat ID."""
-    return str(chat_id).split(":", 1)[0] if chat_id else ""
-
-
-def _is_slack_ignored_channel(config: Any, chat_id: Any, adapter: Any = None) -> bool:
-    """Check the generic Slack gateway blacklist for channel or thread IDs (``adapter`` = the source's
-    routed adapter, whose ``extra`` is authoritative for a secondary profile)."""
-    channel_id = _slack_parent_channel_id(chat_id)
-    ignored = _slack_ignored_channels_from_gateway_config(config, adapter)
-    return bool(channel_id and ("*" in ignored or channel_id in ignored))
-
-
 def _message_timestamps_enabled(user_config: Optional[dict]) -> bool:
     """True when gateway.message_timestamps.enabled is opted in (default OFF: changes what the model sees)."""
     if not isinstance(user_config, dict):
@@ -1381,7 +1294,7 @@ def _last_transcript_timestamp(history: Optional[list[dict[str, Any]]]) -> Any:
 
 
 # Tool output may hold literal MEDIA: examples (docs, logs); only deliberate media producers may auto-append.
-_AUTO_APPEND_MEDIA_TOOL_NAMES = {"text_to_speech", "text_to_speech_tool", "image_generate"}
+_AUTO_APPEND_MEDIA_TOOL_NAMES = {"image_generate"}
 
 # Replay-history canonicalization lives in agent/replay_cleanup.py so every resume
 # surface and the send path share one implementation.
@@ -1529,17 +1442,6 @@ def _collect_history_media_paths(agent_history: list[dict[str, Any]]) -> set:
                         break
     return paths
 
-def _home_target_env_var(platform_name: str) -> str:
-    """Home-target env var: the plugin's ``cron_deliver_env_var``, then
-    ``<PLATFORM>_HOME_CHANNEL``."""
-    from cron.scheduler_delivery import _resolve_home_env_var
-    return _resolve_home_env_var(platform_name) or f"{platform_name.upper()}_HOME_CHANNEL"
-
-
-def _home_thread_env_var(platform_name: str) -> str:
-    """Return the optional thread/topic env var for a platform home target."""
-    return f"{_home_target_env_var(platform_name)}_THREAD_ID"
-
 
 def _restart_notification_pending() -> bool:
     """Return True when a /restart completion marker is waiting to be delivered."""
@@ -1644,50 +1546,6 @@ def _multiplex_profile_homes(config: object) -> list[tuple[str, Path]]:
     from hermes_cli.profiles import profiles_to_serve
     return list(profiles_to_serve(multiplex=True))
 
-
-def _cron_tick_profile_homes(config: object) -> list[tuple[str, Path]]:
-    """Profile homes the in-process ticker visits: the served set PLUS the process-active
-    profile: ``profiles_to_serve`` lists default + every live named profile, but a ``--profile
-    <name>`` gateway's own profile may sit outside ``profiles/`` (custom HERMES_HOME). One host
-    process ticks all of them regardless of ``gateway.multiplex_profiles``. Adapter startup
-    already skips ``active``."""
-    from hermes_cli.profiles import get_active_profile_name, get_profile_dir
-
-    homes = _multiplex_profile_homes(config)
-    active = get_active_profile_name() or "default"  # launch profile, pre-identity (ticker boot)
-    if any(name == active for name, _home in homes):
-        return homes
-    try:
-        return homes + [(active, get_profile_dir(active))]
-    except Exception:
-        return homes
-
-
-def _cron_profile_gate(name: str, home: Path) -> bool:
-    """Tick ``home`` this cycle unless ANOTHER gateway process owns it.
-
-    Same stand-down the serve/Desktop ticker applies (``hermes_cli/web_server.py``): a host that
-    has not finished converging onto the one host gateway (``hermes gateway migrate --multiplex``)
-    may still run profile B's own gateway, and without this both it and this process race B's
-    ``cron/.tick.lock``. The lock stops a simultaneous double-run but not the race: when this
-    process wins, B's delivery leaves through ``SharedRouteAdapters``/fail-closed instead of B's
-    live adapters.
-
-    The liveness answer is compared against our OWN pid, never used bare: this process holds the
-    launch home's ``gateway.pid`` and publishes every served profile in ``served_profiles``, so a
-    bare ``_check_gateway_running`` reports "running" for every home we serve — standing us down
-    from all of them and stopping cron host-wide.
-    """
-    from gateway.status import get_running_pid, resolve_gateway_liveness
-
-    try:
-        liveness = resolve_gateway_liveness(
-            profile_dir=Path(home), use_cache=False,
-            pid_probe=lambda path: get_running_pid(path, cleanup_stale=False))
-    except Exception as exc:
-        logger.debug("Cron profile gate probe failed for %s (ticking it): %s", name, exc)
-        return True
-    return not (liveness.running and liveness.pid is not None and liveness.pid != os.getpid())
 
 
 def _enable_multiplex_log_routing(config: object) -> bool:
@@ -1900,37 +1758,16 @@ async def _discover_gateway_mcp_tools(config: object) -> None:
 
 
 def _platform_has_bot_credential(platform: "Platform", platform_config: "PlatformConfig") -> bool:
-    """Return True when a token-authenticated platform has a usable bot credential; platforms not using
-    ``PlatformConfig.token`` (Signal session paths, port-binding HTTP adapters) always return True."""
-    from gateway.config import PLATFORM_TOKEN_ENV_NAMES, Platform
-    if platform is Platform.WHATSAPP:
-        from hermes_constants import get_hermes_dir
-        session = Path(platform_config.extra.get(
-            "session_path", get_hermes_dir("platforms/whatsapp/session", "whatsapp/session")))
-        return (session / "creds.json").exists()
-    if platform not in PLATFORM_TOKEN_ENV_NAMES:
-        return True
-    for attr in ("token", "api_key"):  # some adapters accept api_key as the primary credential
-        value = getattr(platform_config, attr, None) or ""
-        if isinstance(value, str) and value.strip():
-            return True
-    # Matrix also authenticates by password; a token-only check would evict a reconnectable config from
-    # the retry queue. Read ONLY extra (build_config() copies env there): env fallback = every config OK.
-    # Those credentials land in ``extra`` rather than ``.token``, so a token-only check reads a perfectly
-    # reconnectable password-auth config as credential-less and evicts it from the retry queue on the first
-    # transient failure — after which it stays down until the gateway is restarted by hand. Mirror the
-    # adapter's own gate: homeserver + user_id + password. Read ONLY from extra, never os.getenv:
-    # build_config() already copies all three env vars onto extra, and importing this module loads
-    # ~/.hermes/.env, so an env fallback would report "has credential" for every Matrix config on the box —
-    # including the empty-primary multiplex case (#64674) this check exists to evict.
-    if platform is not Platform.MATRIX:
-        return False
-    extra = getattr(platform_config, "extra", None) or {}
-    return all(str(extra.get(key) or "").strip() for key in ("homeserver", "user_id", "password"))
+    """Use loaded readiness metadata; deferred discovery belongs to the off-loop connect path."""
+    from gateway.config import GatewayConfig
+    from gateway.platform_registry import platform_registry
+
+    entry = next((entry for entry in platform_registry.loaded_entries() if entry.name == platform.value), None)
+    # An unregistered plugin may still load on a later reconnect attempt.
+    return entry is None or bool(GatewayConfig()._is_platform_connected(
+        platform, platform_config, registry_entry=entry))
 
 
-_DOCKER_VOLUME_SPEC_RE = re.compile(r"^(?P<host>.+):(?P<container>/[^:]+?)(?::(?P<options>[^:]+))?$")
-_DOCKER_MEDIA_OUTPUT_CONTAINER_PATHS = {"/output", "/outputs"}
 
 # Internal bridge, not a config source: seed from the canonical default after dotenv so an ambient
 # process/.env value can never control lease safety.
@@ -1946,7 +1783,8 @@ _AGENT_ENV_BRIDGE = {
     "gateway_notify_interval": "HERMES_AGENT_NOTIFY_INTERVAL",
     "session_stall_timeout": "HERMES_SESSION_STALL_TIMEOUT",
     "restart_drain_timeout": "HERMES_RESTART_DRAIN_TIMEOUT",
-    "cron_drain_timeout": "HERMES_CRON_DRAIN_TIMEOUT",
+    "api_drain_timeout": "HERMES_API_DRAIN_TIMEOUT",
+
     "gateway_auto_continue_freshness": "HERMES_AUTO_CONTINUE_FRESHNESS",
     "gateway_startup_restore_drain_timeout": "HERMES_STARTUP_RESTORE_DRAIN_TIMEOUT",
     "gateway_startup_warmup_timeout": "HERMES_STARTUP_WARMUP_TIMEOUT"}
@@ -1981,42 +1819,10 @@ def _bridge_max_turns_to_env(agent_cfg: Any) -> None:
 
 def _bridge_terminal_config_to_env(_terminal_cfg: dict) -> None:
     """Bridge nested ``terminal.*`` config to TERMINAL_* env vars (config.yaml overrides .env here)."""
-    _terminal_backend = str(
-        _terminal_cfg.get("backend") or os.environ.get("TERMINAL_ENV") or "").strip().lower()
     _terminal_env_map = {
-        "backend": "TERMINAL_ENV",
-        "degraded_mode": "TERMINAL_DEGRADED_MODE",
-        "cwd": "TERMINAL_CWD",
-        "timeout": "TERMINAL_TIMEOUT",
-        "home_mode": "TERMINAL_HOME_MODE",
-        "lifetime_seconds": "TERMINAL_LIFETIME_SECONDS",
-        "docker_image": "TERMINAL_DOCKER_IMAGE",
-        "docker_forward_env": "TERMINAL_DOCKER_FORWARD_ENV",
-        "modal_image": "TERMINAL_MODAL_IMAGE",
-        "daytona_image": "TERMINAL_DAYTONA_IMAGE",
-        "vercel_runtime": "TERMINAL_VERCEL_RUNTIME",
-        "vercel_image": "TERMINAL_VERCEL_IMAGE",
-        "ssh_host": "TERMINAL_SSH_HOST",
-        "ssh_user": "TERMINAL_SSH_USER",
-        "ssh_port": "TERMINAL_SSH_PORT",
-        "ssh_key": "TERMINAL_SSH_KEY",
-        "container_cpu": "TERMINAL_CONTAINER_CPU",
-        "container_memory": "TERMINAL_CONTAINER_MEMORY",
-        "container_disk": "TERMINAL_CONTAINER_DISK",
-        "container_persistent": "TERMINAL_CONTAINER_PERSISTENT",
-        "docker_volumes": "TERMINAL_DOCKER_VOLUMES",
-        "docker_env": "TERMINAL_DOCKER_ENV",
-        "docker_extra_args": "TERMINAL_DOCKER_EXTRA_ARGS",
-        "docker_shm_size": "TERMINAL_DOCKER_SHM_SIZE",
-        "docker_mount_cwd_to_workspace": "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE",
-        "docker_network": "TERMINAL_DOCKER_NETWORK",
-        "docker_run_as_host_user": "TERMINAL_DOCKER_RUN_AS_HOST_USER",
-        "docker_snap_compat": "TERMINAL_DOCKER_SNAP_COMPAT",
-        "docker_persist_across_processes": "TERMINAL_DOCKER_PERSIST_ACROSS_PROCESSES",
-        "docker_shared_container_key": "TERMINAL_DOCKER_SHARED_CONTAINER_KEY",
-        "docker_orphan_reaper": "TERMINAL_DOCKER_ORPHAN_REAPER",
-        "sandbox_dir": "TERMINAL_SANDBOX_DIR",
-        "persistent_shell": "TERMINAL_PERSISTENT_SHELL"}
+        "backend": "TERMINAL_ENV", "cwd": "TERMINAL_CWD", "timeout": "TERMINAL_TIMEOUT",
+        "home_mode": "TERMINAL_HOME_MODE", "lifetime_seconds": "TERMINAL_LIFETIME_SECONDS",
+        "local_persistent": "TERMINAL_LOCAL_PERSISTENT"}
     for _cfg_key, _env_var in _terminal_env_map.items():
         if _cfg_key not in _terminal_cfg:
             continue
@@ -2025,9 +1831,7 @@ def _bridge_terminal_config_to_env(_terminal_cfg: dict) -> None:
             # Placeholders (".", "auto", "cwd") resolve to Path.home() later; only explicit paths bridge.
             if str(_val) in {".", "auto", "cwd"}:
                 continue
-            # Expand "~" for local/container cwd so Popen never gets a literal "~/" (kernel rejects it);
-            # SSH cwd is interpreted by the remote shell: keep "~". Predicate shared w/ terminal_tool.
-            if isinstance(_val, str) and not _is_ssh_remote_tilde_cwd(_terminal_backend, _val.strip()):
+            if isinstance(_val, str):
                 _val = os.path.expanduser(_val)
         os.environ[_env_var] = json.dumps(_val) if isinstance(_val, (list, dict)) else str(_val)
 
@@ -2162,22 +1966,16 @@ from gateway.config import (
 from gateway.session import (
     AsyncSessionStore, SessionStore, SessionSource, SessionContext, build_session_key,
     profile_from_session_key_namespace)
-# Telegram topic routing (#22773, regression fixed #52060): a
-# ``telegram:<positive_chat_id>:<numeric_thread_id>`` cron target is ambiguous — a forum-style topic in a
-# private chat and a genuine Bot API channel Direct-Messages topic share the same shape and need OPPOSITE
-# routing. Disambiguate at delivery time via ``_is_channel_dm_topic`` (see its docstring for the full
-# rationale); ``thread_id`` goes in ``route_metadata`` so the anchorless cron send bypasses the
-# DeliveryRouter's private-chat reply-anchor requirement. Compute the routed metadata ONCE so both the text
-# send (via DeliveryRouter) and the media send agree.
+
 from gateway.delivery import DeliveryRouter
 from gateway.turn_lease import SessionTurnLeaseRegistry
 from gateway.session_state import SessionState, legacy_dict_property
 from gateway.authz_mixin import GatewayAuthorizationMixin
-from gateway.kanban_watchers import GatewayKanbanWatchersMixin
+
 from gateway.slash_commands import GatewaySlashCommandsMixin
-from gateway.run_voice import GatewayVoiceMixin
+
 from gateway.run_adapters import GatewayAdapterLifecycleMixin
-from gateway.run_topics import GatewayTopicThreadsMixin
+
 from gateway.run_turn import GatewayTurnMixin, is_context_overflow_failure_result
 from gateway.run_shutdown import GatewayShutdownMixin, _resolve_gateway_exit_verdict
 from gateway.run_busy import GatewayBusySessionMixin
@@ -2197,7 +1995,8 @@ from gateway.platforms.base import (
 )
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.restart import (
-    DEFAULT_GATEWAY_CRON_DRAIN_TIMEOUT,
+    DEFAULT_GATEWAY_API_DRAIN_TIMEOUT,
+
     DEFAULT_GATEWAY_RESTART_AFTER_TURN_TIMEOUT,
     DEFAULT_GATEWAY_RESTART_DRAIN_TIMEOUT,
     DEFAULT_GATEWAY_SIGNAL_INTERRUPT_GRACE_TIMEOUT)
@@ -2486,13 +2285,6 @@ def _event_media_is_audio(event, index: int) -> bool:
     return _event_media_kind_is(event, index, "audio/", frozenset({MessageType.VOICE, MessageType.AUDIO}))
 
 
-def _event_media_is_stt_input(event, index: int) -> bool:
-    """True when an audio attachment should enter the automatic STT pipeline."""
-    message_type = getattr(event, "message_type", None)
-    if message_type in {MessageType.AUDIO, MessageType.DOCUMENT}:
-        return False
-    return message_type == MessageType.VOICE or _event_media_type_at(event, index).startswith("audio/")
-
 
 def _event_media_is_video(event, index: int) -> bool:
     return _event_media_kind_is(event, index, "video/", frozenset({MessageType.VIDEO}))
@@ -2694,8 +2486,7 @@ def _abandon_timed_out_gateway_turn(
             request_hard_interrupt(agent, _INTERRUPT_REASON_TIMEOUT, tool_reason=_INTERRUPT_TOOL_REASON_TIMEOUT)
         except Exception:
             logger.debug("Timed-out agent interrupt failed", exc_info=True)
-        from hermes_cli.observability.shared_metrics_process import record_watchdog_turn_abort
-        record_watchdog_turn_abort(agent)
+
 
     try:
         _reap_gateway_turn_processes(
@@ -2816,7 +2607,7 @@ def _check_unavailable_skill(command_name: str) -> str | None:
                     continue
                 # disabled is keyed by the declared frontmatter name (what skills.disabled stores).
                 if slug == normalized and declared_name in disabled:
-                    return t("gateway.skills.disabled", name=command_name)
+                    return (f'The **{command_name}** skill is installed but disabled.\nEnable it with: `hermes skills config`')
 
         # Check optional skills (shipped with repo but not installed)
         from hermes_constants import get_optional_skills_dir
@@ -2832,7 +2623,7 @@ def _check_unavailable_skill(command_name: str) -> str | None:
                 # Install path: official/<category>/<name>
                 rel = skill_md.parent.relative_to(optional_dir)
                 install_path = f"official/{'/'.join(rel.parts)}"
-                return t("gateway.skills.not_installed", name=command_name, install_name=install_path)
+                return (f'The **{command_name}** skill is available but not installed.\nInstall it with: `hermes skills install {install_path}`')
     except Exception:
         pass
     return None
@@ -2841,12 +2632,6 @@ def _check_unavailable_skill(command_name: str) -> str | None:
 def _platform_config_key(platform: Platform) -> str:
     """Map a Platform enum to its config.yaml key (LOCAL→"cli", rest→enum value)."""
     return "cli" if platform == Platform.LOCAL else platform.value
-
-
-def _teams_pipeline_plugin_enabled() -> bool:
-    """Return True when the standalone Teams pipeline plugin is enabled."""
-    enabled = cfg_get(_load_gateway_config(), "plugins", "enabled", default=[])
-    return isinstance(enabled, list) and ("teams_pipeline" in enabled or "teams-pipeline" in enabled)
 
 
 def _gateway_config_home() -> Path:
@@ -2967,7 +2752,7 @@ def _format_concise_process_notification(
     session_id: str, command: str, exit_code, output: str, duration_seconds=None) -> str:
     """One-line completion message for ``concise`` display mode; failure appends a short output tail."""
     ok = exit_code in {0, None}
-    parts = [t("gateway.background.task_finished") if ok else t("gateway.background.task_failed")]
+    parts = ['✅ Background task finished' if ok else '❌ Background task failed']
     short_cmd = _shorten_command_for_display(command)
     if short_cmd:
         parts.append(f"— `{short_cmd}`")
@@ -2981,7 +2766,7 @@ def _format_concise_process_notification(
         else:
             details.append(f"{secs}s")
     if not ok:
-        details.append(t("gateway.background.exit_code", code=exit_code))
+        details.append(f'exit {exit_code}')
     if details:
         parts.append(f"({', '.join(details)})")
     text = " ".join(parts)
@@ -2991,9 +2776,9 @@ def _format_concise_process_notification(
         if len(tail) > 500:
             tail = tail[-500:]
         if tail:
-            text += t("gateway.background.last_output", tail=tail)
+            text += (f'. Last output:\n```\n{tail}\n```')
     if not ok:
-        text += t("gateway.background.rerun_hint")
+        text += '\nAsk me to rerun it or show the full log.'
     return text
 
 
@@ -3077,19 +2862,19 @@ def _normalize_empty_agent_response(
         return response
     if agent_result.get("failed"):
         # ``error`` can be an EXPLICIT None (bypasses dict.get default) -> would render "failed: None".
-        error_detail = agent_result.get("error") or t("gateway.shared.unknown_error")
+        error_detail = agent_result.get("error") or 'unknown error'
         error_str = str(error_detail).lower()
         # Persistence failures: suggesting /reset would destroy context without fixing storage.
         failure_reason = str(agent_result.get("failure_reason") or "")
         if failure_reason.startswith("session_persistence_failed") or "session storage" in error_str:
             if failure_reason.endswith(":disk") or "disk" in error_str:
-                return t("gateway.errors.session_storage_unavailable_disk")
-            return t("gateway.errors.session_storage_unavailable")
+                return '⚠️ Session storage was temporarily unavailable, so this turn was stopped to protect your conversation history. Please check available disk space, then send your message again.'
+            return '⚠️ Session storage was temporarily unavailable, so this turn was stopped to protect your conversation history. Your message should already be saved — please send it again in a moment.'
         if is_overflow:
             return _context_overflow_reply()
         # Raw exception text (class names, JSON bodies, URLs) stays in the gateway log.
         logger.warning("Agent turn failed; reply sanitized for chat. Detail: %s", str(error_detail)[:500])
-        return t("gateway.errors.generic_failed")
+        return "⚠️ Something went wrong and I couldn't finish this reply. Use /retry to try again, or /new to start a fresh conversation. Technical details are in the gateway log (`hermes logs`)."
 
     api_calls = int(agent_result.get("api_calls", 0) or 0)
     if agent_result.get("interrupted"):
@@ -3106,7 +2891,7 @@ def _normalize_empty_agent_response(
         # (response=0 chars) and the user sees no reply at all. Surface a short retry hint so the message
         # isn't lost in silence. (#31884)
         if api_calls == 0:
-            return t("gateway.errors.interrupted_before_start")
+            return '⚠️ Your message was interrupted before processing started (likely by a recent /stop). Please send it again.'
         return response
     if api_calls > 0:
         # Hidden-reasoning-only retry exhaustion: the loop's sentinel text ("Codex response remained
@@ -3118,7 +2903,7 @@ def _normalize_empty_agent_response(
         if agent_result.get("partial"):
             # ``error`` mirrors the loop's own final text (curated, e.g. "Response truncated due to
             # output length limit") and is kept; a raw provider envelope goes to the log instead.
-            err = str(agent_result.get("error") or t("gateway.errors.processing_incomplete"))
+            err = str(agent_result.get("error") or 'processing incomplete')
             # A loop site code (truncated, context_overflow, ...) already wrote the full
             # what-happened / what-to-do sentence: deliver it verbatim. Wrapping it would cut it
             # mid-sentence at 200 chars and append a second, conflicting set of instructions.
@@ -3131,12 +2916,12 @@ def _normalize_empty_agent_response(
                 reason = ""
             else:
                 reason = f": {err[:200]}"
-            return t("gateway.errors.stopped_before_finishing", reason=reason)
-        return t("gateway.errors.no_response")
+            return (f'⚠️ I had to stop before finishing{reason}. Use /retry to try again, or /compress if this conversation has grown very long.')
+        return '⚠️ Processing completed but no response was generated. This may be a transient error — try sending your message again.'
 
     # api_calls == 0, not failed/interrupted: agent never ran (post-/stop race); don't drop silently.
     if api_calls == 0 and not agent_result.get("partial"):
-        return t("gateway.errors.previous_turn_cleanup")
+        return "⚠️ Your message wasn't processed (the previous turn was still being cleaned up). Please send it again."
 
     return response
 
@@ -3280,42 +3065,12 @@ def _command_origin_for_source(source: Any) -> Optional[dict]:
     return None
 
 
-def _builtin_adapter_import(module: str, adapter_name: str, requirement: str):
-    """Lazy-import ``(adapter_cls, requirements_ok)`` from ``gateway.platforms.<module>``."""
-    import importlib
-    mod = importlib.import_module(f"gateway.platforms.{module}")
-    return getattr(mod, adapter_name), getattr(mod, requirement)
-
-
-# platform -> (module, adapter class, requirements probe, warning on probe failure).
-_BUILTIN_ADAPTERS: dict[Platform, tuple[str, str, str, str]] = {
-    Platform.API_SERVER: ("api_server", "APIServerAdapter", "check_api_server_requirements",
-                          "API Server: aiohttp not installed"),
-    Platform.WEBHOOK: ("webhook", "WebhookAdapter", "check_webhook_requirements",
-                       "Webhook: aiohttp not installed"),
-    Platform.MSGRAPH_WEBHOOK: ("msgraph_webhook", "MSGraphWebhookAdapter", "check_msgraph_webhook_requirements",
-                               "MSGraph webhook: aiohttp not installed")}
-
-
-def _instantiate_builtin_adapter(platform: Platform, config: Any) -> Optional[BasePlatformAdapter]:
-    """Instantiate a core (non-plugin) adapter, or None when its requirements are unmet/unknown."""
-    spec = _BUILTIN_ADAPTERS.get(platform)
-    if spec is None:
-        return None
-    module, adapter_name, requirement, warning = spec
-    adapter_cls, requirements_ok = _builtin_adapter_import(module, adapter_name, requirement)
-    if not (requirements_ok() if callable(requirements_ok) else requirements_ok):
-        logger.warning(warning)
-        return None
-    return adapter_cls(config)
-
-
 from gateway.run_runtime_init import GatewayRuntimeInitMixin
 
 
 class GatewayRunner(
-    GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, GatewaySlashCommandsMixin,
-    GatewayVoiceMixin, GatewayAdapterLifecycleMixin, GatewayTopicThreadsMixin, GatewayTurnMixin,
+    GatewayAuthorizationMixin, GatewaySlashCommandsMixin,
+    GatewayAdapterLifecycleMixin, GatewayTurnMixin,
     GatewayShutdownMixin, GatewayBusySessionMixin, GatewayConfigLoadersMixin, GatewayStartupMixin,
     GatewaySessionWatchersMixin, GatewayNotificationsMixin, GatewayInboundMixin, GatewayGoalsMixin,
     GatewayAgentCacheMixin, GatewayRuntimeInitMixin, GatewayProfileReconcileMixin, GatewayPluginRewireMixin):
@@ -3333,7 +3088,8 @@ class GatewayRunner(
     _busy_text_mode: str = "interrupt"
     _restart_drain_timeout: float = DEFAULT_GATEWAY_RESTART_DRAIN_TIMEOUT
     _restart_after_turn_timeout: float = DEFAULT_GATEWAY_RESTART_AFTER_TURN_TIMEOUT
-    _cron_drain_timeout: float = DEFAULT_GATEWAY_CRON_DRAIN_TIMEOUT
+    _api_drain_timeout: float = DEFAULT_GATEWAY_API_DRAIN_TIMEOUT
+
     _signal_interrupt_grace_timeout: float = DEFAULT_GATEWAY_SIGNAL_INTERRUPT_GRACE_TIMEOUT
     _exit_code: Optional[int] = None
     _draining: bool = False
@@ -3432,7 +3188,6 @@ class GatewayRunner(
         # Each SERVED profile's gateway config, as loaded once by ``_load_secondary_profile_config``.
         # ``self.config`` is only the launch profile's: anything host-wide (restart notices) needs these.
         self._profile_configs: dict[str, Any] = {}
-        self._warn_if_docker_media_delivery_is_risky()
         _gateway_runner_ref = _weakref.ref(self)
 
         self._init_runtime_settings()
@@ -3537,60 +3292,8 @@ class GatewayRunner(
 
         self._session_db_handle_cache.close_all(_close)
 
-    def _wire_teams_pipeline_runtime(self) -> None:
-        """Bind the Teams meeting pipeline runtime to Graph webhook ingress (no-op if adapter/plugin off)."""
-        if Platform.MSGRAPH_WEBHOOK not in self.adapters:
-            return
-        if not _teams_pipeline_plugin_enabled():
-            logger.debug("Teams pipeline plugin is disabled; skipping runtime wiring")
-            return
-        try:
-            from plugins.teams_pipeline.runtime import bind_gateway_runtime
-        except Exception as exc:
-            logger.warning("Teams pipeline runtime import failed: %s", exc)
-            return
-        try:
-            bound = bind_gateway_runtime(self)
-        except Exception as exc:
-            logger.warning("Teams pipeline runtime wiring failed: %s", exc)
-            return
-        if bound:
-            logger.info("Teams pipeline runtime bound to msgraph webhook ingress")
-        elif self._teams_pipeline_runtime_error:
-            logger.warning(
-                "Teams pipeline runtime unavailable: %s", self._teams_pipeline_runtime_error)
 
-    def _warn_if_docker_media_delivery_is_risky(self) -> None:
-        """Warn when Docker-backed gateways lack an explicit export mount: MEDIA delivery runs in the
-        gateway process, so model-emitted paths like `/output/report.txt` must be host-readable."""
-        if os.getenv("TERMINAL_ENV", "").strip().lower() != "docker":
-            return
-        connected = self.config.get_connected_platforms()
-        messaging_platforms = [p for p in connected if p not in {Platform.LOCAL, Platform.API_SERVER, Platform.WEBHOOK}]
-        if not messaging_platforms:
-            return
 
-        raw_volumes = os.getenv("TERMINAL_DOCKER_VOLUMES", "").strip()
-        volumes: list[str] = []
-        if raw_volumes:
-            try:
-                parsed = json.loads(raw_volumes)
-                if isinstance(parsed, list):
-                    volumes = [str(v) for v in parsed if isinstance(v, str)]
-            except Exception:
-                logger.debug("Could not parse TERMINAL_DOCKER_VOLUMES for gateway media warning", exc_info=True)
-
-        for spec in volumes:
-            match = _DOCKER_VOLUME_SPEC_RE.match(spec)
-            if match and match.group("container") in _DOCKER_MEDIA_OUTPUT_CONTAINER_PATHS:
-                return
-        logger.warning(
-            "Docker backend is enabled for the messaging gateway but no explicit host-visible "
-            "output mount (for example '/home/user/.hermes/cache/documents:/output') is configured. "
-            "This is fine if the model already emits host-visible paths, but MEDIA file delivery can fail "
-            "for container-local paths like '/workspace/...' or '/output/...'.")
-
-    _VOICE_MODE_PATH = _hermes_home / "gateway_voice_mode.json"
 
     should_exit_cleanly = property(lambda self: self._exit_cleanly)
     should_exit_with_failure = property(lambda self: self._exit_with_failure)
@@ -3629,28 +3332,9 @@ class GatewayRunner(
             thread_sessions_per_user=getattr(config, "thread_sessions_per_user", False),
             profile=_profile)
 
-    # Telegram General topic in forum-enabled private chats: clients omit message_thread_id or send "1"; both = root.
-    _TELEGRAM_GENERAL_TOPIC_IDS = frozenset({"", "1"})
-    _TELEGRAM_LOBBY_REMINDER_COOLDOWN_S = 30.0
 
-    def _normalize_source_for_session_key(self, source: SessionSource) -> SessionSource:
-        """Apply Telegram DM topic recovery to a source for session-key purposes. Always derive override
-        storage keys from the result: ``_handle_message_with_agent`` rewrites ``thread_id`` before
-        deriving the session key, so keys from the raw ``event.source`` are never read next turn.
 
-        ``_handle_message_with_agent`` rewrites ``source.thread_id`` via
-        ``_recover_telegram_topic_thread_id`` *before* deriving the session key for a normal message turn (a
-        lobby/stripped reply gets pinned to the user's last-active topic). Session-scoped command handlers
-        like ``/model`` and ``/reasoning`` derive their override key from the raw inbound ``event.source``,
-        which skips that recovery — so the override is stored under a different key than the next message
-        turn reads, and the override is silently dropped on Telegram forum topics and after compression
-        session splits (#30479).
-        """
-        try:
-            recovered = self._recover_telegram_topic_thread_id(source)
-        except Exception:
-            return source
-        return source if recovered is None else dataclasses.replace(source, thread_id=recovered)
+
 
     def _resolve_session_key_or_none(self, source, session_key: Optional[str]) -> Optional[str]:
         """``session_key`` if given, else the key for ``source`` (None when it cannot be derived)."""
@@ -3668,8 +3352,8 @@ class GatewayRunner(
         return "restart" if self._restart_requested else "shutdown"
 
     def _status_action_gerund(self) -> str:
-        """Localized "restarting" / "shutting down" for the busy/drain notices shown in chat."""
-        return t("gateway.busy.action_restarting") if self._restart_requested else t("gateway.busy.action_shutting_down")
+        """"Restarting" / "shutting down" for the busy/drain notices shown in chat."""
+        return 'restarting' if self._restart_requested else 'shutting down'
 
     def _update_runtime_status(self, gateway_state: Optional[str] = None, exit_reason: Optional[str] = None) -> None:
         if getattr(self, "_startup_cleanup_only", False):
@@ -3727,16 +3411,16 @@ class GatewayRunner(
     _RECONNECT_WATCHER_SLOW_RETRY_SECS = 300
     # Slow-tier respawns while work is queued; if 30 min of 5-min retries can't keep it up, fail loudly.
     _MAX_SLOW_WATCHER_RESPAWNS = 6
-    _TELEGRAM_CAPABILITY_HINT_COOLDOWN_S = 300.0
+
     _APPROVAL_TIMEOUT_SECONDS = 300  # 5 minutes
     _MAX_INTERRUPT_DEPTH = 3  # Cap recursive interrupt handling
     # Command-specific mid-run reject texts (busy_policy == "reject" with a busy_handler naming an
     # entry here); all other rejected commands get the generic text in _dispatch_busy_slash_command.
-    # Values are catalog keys; ``run_busy._dispatch_busy_slash_command`` resolves them with ``t()``.
+    # Values are replies used by ``run_busy._dispatch_busy_slash_command``.
     _BUSY_REJECT_TEXT: dict[str, str] = {
-        "model": "gateway.busy.reject_model",
-        "codex-runtime": "gateway.busy.reject_codex_runtime",
-        "moa": "gateway.busy.reject_moa"}
+        "model": 'Agent is running — wait or /stop first, then switch models.',
+        "codex-runtime": 'Agent is running — wait or /stop first, then change runtime.',
+        "moa": 'Agent is running — wait or /stop first, then run /moa.'}
 
     def _active_profile_name(self) -> str:
         """Return the profile name this gateway represents."""
@@ -3845,31 +3529,10 @@ class GatewayRunner(
             getattr(source, "platform", None), getattr(source, "chat_id", None),
             getattr(source, "thread_id", None), chat_type=getattr(source, "chat_type", None),
             reply_to_message_id=reply_to_message_id or getattr(source, "message_id", None))
-        if getattr(source, "platform", None) == Platform.SLACK:
-            # Per-turn egress identity: Slack chat.startStream needs recipient_user_id/team_id; the relay
-            # adapter's _with_scope fallback reads per-chat caches a CONCURRENT turn overwrites.
-            # Slack's chat.startStream requires recipient_user_id (+ recipient_team_id) when streaming to a
-            # channel, and the relay connector fills those from metadata.user_id / metadata.scope_id. The
-            # relay adapter's _with_scope fallback resolves BOTH from per-chat caches keyed only by chat_id
-            # — mutable state that a CONCURRENT turn overwrites: two users with overlapping turns in one
-            # channel would open U1's stream with U2 as the recipient. Stamp the authentic per-turn values
-            # from THIS turn's source here, where they are still turn-scoped; _with_scope only fills keys
-            # that are absent, so the cache degrades to what it should be — a restart/synthetic-send
-            # fallback. See #210.
-            team_id = getattr(source, "scope_id", None)
-            user_id = getattr(source, "user_id", None)
-            if team_id or user_id:
-                metadata = dict(metadata or {})
-                if team_id:
-                    metadata["slack_team_id"] = str(team_id)
-                    metadata.setdefault("scope_id", str(team_id))
-                if user_id:
-                    metadata.setdefault("user_id", str(user_id))
+
         from gateway.session_context import source_route_metadata
         metadata = source_route_metadata(source, metadata)
-        # Routed profile for shared state.db namespaces: under profile_routes the transport adapter's
-        # stamp is not the profile that wrote the binding (Telegram prune path needs it).
-        # See #76423.
+        # Keep synthetic sends in the source's routed profile namespace.
         profile = str(getattr(source, "profile", None) or "").strip()
         if profile and metadata is not None:
             metadata = dict(metadata)
@@ -3883,52 +3546,13 @@ class GatewayRunner(
         """Build thread metadata for synthetic sends that only have routing state."""
         if thread_id is None:
             return None
-        metadata: dict[str, Any] = {"thread_id": thread_id}
-        if self._is_telegram_dm_topic_target(
-            platform, chat_id, thread_id, chat_type=chat_type, adapter=adapter):
-            metadata["telegram_dm_topic_reply_fallback"] = True
-            # DM topic lanes need direct_messages_topic_id so synthetic sends reach the topic without a reply anchor.
-            tid = str(thread_id)
-            if tid and tid not in {"", "1"}:
-                metadata["direct_messages_topic_id"] = tid
-            if reply_to_message_id is not None:
-                metadata["telegram_reply_to_message_id"] = str(reply_to_message_id)
-        if platform == Platform.SLACK and reply_to_message_id is not None:
-            # Slack's reply_in_thread=false path uses message_id to tell real threads from synthetic keys.
-            metadata["message_id"] = str(reply_to_message_id)
-        return metadata
-
-    @staticmethod
-    def _is_telegram_dm_topic_target(
-        platform: Optional[Platform], chat_id: Optional[str], thread_id: Optional[str], *,
-        chat_type: Optional[str] = None, adapter: Optional[Any] = None) -> bool:
-        """Return True when a target is a Telegram private DM topic lane."""
-        if platform != Platform.TELEGRAM or thread_id is None:
-            return False
-        if chat_type == "dm":
-            return True
-        # Resolve the lookup on the CLASS, not the instance: getattr() on a MagicMock auto-creates callable
-        # children, so an instance lookup would report a DM topic for every test double. Only a dict counts.
-        if adapter is not None and chat_id:
-            get_dm_topic_info = getattr(type(adapter), "_get_dm_topic_info", None)
-            if callable(get_dm_topic_info):
-                try:
-                    topic_info = get_dm_topic_info(adapter, str(chat_id), str(thread_id))
-                except Exception:
-                    logger.debug("Failed to inspect Telegram DM topic metadata", exc_info=True)
-                else:
-                    return isinstance(topic_info, dict)
-        return False
+        return {"thread_id": thread_id}
 
     _reply_anchor_for_event = staticmethod(_reply_anchor_for_event)
 
     # Built-in platforms where ``/update`` is allowed (programmatic interfaces must not trigger updates).
     # Plugin-migrated platforms declare ``allow_update_command=True`` on their ``PlatformEntry`` instead.
-    _UPDATE_ALLOWED_PLATFORMS = frozenset({
-        Platform.TELEGRAM, Platform.SLACK, Platform.WHATSAPP, Platform.SIGNAL, Platform.MATRIX,
-        Platform.EMAIL, Platform.SMS, Platform.DINGTALK,
-        Platform.FEISHU, Platform.WECOM, Platform.WECOM_CALLBACK, Platform.WEIXIN, Platform.BLUEBUBBLES, Platform.QQBOT, Platform.LOCAL,
-    })
+    _UPDATE_ALLOWED_PLATFORMS = frozenset({Platform.LOCAL})
 
     def _set_session_env(self, context: SessionContext) -> list:
         """Set session context variables (contextvars, not os.environ, so concurrent messages can't
@@ -3960,7 +3584,7 @@ class GatewayRunner(
             session_id=context.session_id or "",
             message_id=str(source.message_id) if source.message_id else "",
             profile=getattr(source, "profile", "") or "",
-            async_delivery=_async_delivery, cron_session="", session_history_delivery=_history_delivery)
+            async_delivery=_async_delivery, session_history_delivery=_history_delivery)
 
     def _clear_session_env(self, tokens: list) -> None:
         """Restore session context variables to their pre-handler values."""
@@ -4222,7 +3846,7 @@ class GatewayRunner(
         log_queue: Any = None
         interim_assistant_messages_enabled: Any = None
         _thinking_enabled: Any = None
-        _native_slack_task_cards: Any = None
+
         needs_progress_queue: Any = None
         _generic_status_phrase: Any = None
 
@@ -4311,15 +3935,6 @@ def _housekeeping_paste_sweep() -> None:
     deleted, remaining = _sweep_expired_pastes()
     if deleted:
         logger.info("Paste sweep: deleted %d expired paste(s), %d pending", deleted, remaining)
-
-
-def _housekeeping_misfire_catch_up(cron_provider, adapters, loop) -> None:
-    """External cron providers only: fire jobs whose time passed with no external fire delivered (dead
-    loopback hop). No-op for the built-in ticker; enforces misfire_grace_minutes; CAS claim de-dupes."""
-    from cron.scheduler_provider import fire_overdue_jobs
-    caught_up = fire_overdue_jobs(cron_provider, adapters=adapters, loop=loop)
-    if caught_up:
-        logger.info("Misfire catch-up: fired %d overdue job(s)", caught_up)
 
 
 def _housekeeping_curator() -> None:
@@ -4427,39 +4042,11 @@ def _housekeeping_checkpoint_prune() -> None:
     auto_prune_from_config()
 
 
-def _drain_restart_safe_cron_deliveries(adapters, loop, runner=None) -> None:
-    """Drain each profile's worker queue through its matching live adapters. A credential-less satellite
-    profile (no bot of its own) drains through the primary's adapters routed by its own profile routes."""
-    from cron import scheduler as cron_scheduler
-    from cron import scheduler_preflight as sched_preflight
-
-    if runner is None:
-        if adapters is not None:
-            cron_scheduler.drain_delivery_queue(adapters, loop)
-        return
-    for profile_name, profile_home in _handoff_watch_scopes(runner):
-        profile_adapters = (adapters if profile_name is None
-                            else getattr(runner, "_profile_adapters", {}).get(profile_name))
-        if profile_adapters is None:
-            continue
-        with _profile_runtime_scope(profile_home or get_hermes_home()):
-            owned = (getattr(runner, "_profile_bot_platforms", None) or {}).get(profile_name)
-            if (profile_name is not None and adapters
-                    and not sched_preflight.has_credential_platform(profile_adapters, owned)):
-                routes = sched_preflight._primary_profile_routes_for_current_home()
-                if routes:
-                    profile_adapters = sched_preflight.SharedRouteAdapters(adapters, routes)
-            cron_scheduler.drain_delivery_queue(profile_adapters, loop)
-
-
 def _start_gateway_housekeeping(
-    stop_event: threading.Event, adapters=None, loop=None, interval: int = 60, cron_provider=None, runner=None,
-    cron_thread=None,
+    stop_event: threading.Event, adapters=None, loop=None, interval: int = 60, runner=None,
 ):
-    """Background thread for gateway-only periodic chores (NOT cron). Separate from the cron trigger
-    so chores run under any ``CronScheduler`` provider (external scale-to-zero has no 60s loop).
+    """Background thread for gateway-only periodic chores.
     Cadences are ticks of ``interval``; inner gates own the real cadence."""
-    from gateway.run_delivery_queue_watch import DRAIN_LABEL, DeliveryQueueWatch, wait_for_next_tick
     from gateway.run_profile_reconcile import _mcp_config_reconciler, profile_scoped_chore
     from gateway.run_housekeeping_disk import housekeeping_media_caches, maybe_post_auto_prune_prompt
     chores: list[tuple[int, str, Any]] = [
@@ -4468,22 +4055,12 @@ def _start_gateway_housekeeping(
         # PID alive — the thread (or a chore blocked on the loop) wedged (#113372). Runs first so a
         # wedged chore stops the NEXT stamp instead of a slow one delaying this tick's.
         (1, "Runtime heartbeat", _write_runtime_status_quiet)]
-    if adapters is not None or runner is not None:
-        # Restart-safe cron workers run outside the gateway cgroup and queue their final send for
-        # whichever gateway is live; drained here (not the scheduler tick) so external providers get it too.
-        chores.append((1, DRAIN_LABEL, lambda: _drain_restart_safe_cron_deliveries(adapters, loop, runner)))
     chores += [
         (5, "Channel directory refresh", lambda: adapters and _housekeeping_channel_directory(adapters, loop)),
         (60, "Media cache cleanup", housekeeping_media_caches),
         (60, "Paste sweep", _housekeeping_paste_sweep)]
     # Low disk + auto-prune undecided: ask on the home channel (two syscalls; snoozed per post).
     chores.append((1, "Auto-prune low-disk prompt", lambda: maybe_post_auto_prune_prompt(runner, loop)))
-    if cron_provider is not None:
-        chores.append((5, "Misfire catch-up sweep", lambda: _housekeeping_misfire_catch_up(cron_provider, adapters, loop)))
-    if cron_thread is not None:
-        # The ticker's own guards keep its loop alive; this is the outer layer for a thread that has
-        # already ended (#111010). Runs every tick so the outage is bounded by one housekeeping interval.
-        chores.append((1, "Cron ticker supervisor", cron_thread.restart_if_dead))
     chores += [
         # Per served profile: each profile has its own skills tree, curator state, Nous login
         # and state.db.
@@ -4503,16 +4080,6 @@ def _start_gateway_housekeeping(
         # Last: a real prune can hold this thread for a while; every other chore of the tick runs first.
         (1, "Checkpoint prune tick", _housekeeping_checkpoint_prune)]
 
-    # Between ticks the queue file is watched so a worker's send goes out when it is queued,
-    # not up to ``interval`` later (#117307); the tick's drain above remains the fallback.
-    queue_watch = None
-    if adapters is not None or runner is not None:
-        def served_homes() -> list:
-            return [home for _name, home in _handoff_watch_scopes(runner)] if runner is not None else [None]
-
-        queue_watch = DeliveryQueueWatch(
-            served_homes, lambda: _drain_restart_safe_cron_deliveries(adapters, loop, runner))
-
     logger.info("Gateway housekeeping started (interval=%ds)", interval)
     tick_count = 0
     while not stop_event.is_set():
@@ -4520,30 +4087,9 @@ def _start_gateway_housekeeping(
         for every, label, fn in chores:
             if tick_count % every == 0:
                 _housekeeping_chore(label, fn)
-        wait_for_next_tick(stop_event, interval, queue_watch, _housekeeping_chore)
+        stop_event.wait(interval)
     logger.info("Gateway housekeeping stopped")
 
-
-def _start_cron_ticker(stop_event: threading.Event, adapters=None, loop=None, interval: int = 60):
-    """DEPRECATED shim — runs ONLY the built-in in-process cron tick loop; the trigger now lives behind
-    the ``CronScheduler`` provider and housekeeping in ``_start_gateway_housekeeping``."""
-    from cron.scheduler_provider import InProcessCronScheduler
-    InProcessCronScheduler().start(stop_event, adapters=adapters, loop=loop, interval=interval)
-
-
-def _stop_cron_provider(provider) -> None:
-    """Stop a cron provider without letting it choose the gateway exit code."""
-    try:
-        provider.stop()
-    except SystemExit as exc:
-        logger.warning(
-            "Cron provider stop() attempted to exit the gateway with code %s; ignoring", exc.code)
-    except Exception as exc:
-        logger.debug("Cron provider stop() error: %s", exc)
-
-
-# Cron thread blocks on future.result(timeout=60) (cron/scheduler.py::_deliver_result) + margin.
-_CRON_SHUTDOWN_DRAIN_TIMEOUT = 65.0
 
 # Housekeeping's channel-directory refresh blocks on fut.result(timeout=30); cover that + margin.
 _HOUSEKEEPING_SHUTDOWN_DRAIN_TIMEOUT = 35.0
@@ -4552,8 +4098,7 @@ _HOUSEKEEPING_SHUTDOWN_DRAIN_TIMEOUT = 35.0
 async def _await_thread_exit(
     thread: Optional[threading.Thread], timeout: float, poll: float = 0.1) -> bool:
     """Wait for a daemon thread to exit WITHOUT blocking the event loop; True if it exited in time.
-    A synchronous ``join()`` freezes the loop — fatal for the cron ticker, whose in-flight delivery is a
-    coroutine on *this* loop: it could never run, so the join timed out and the message dropped.
+    A synchronous ``join()`` freezes the loop and can block work needed by the thread being joined.
 
     See #58818.
     """
@@ -4618,18 +4163,6 @@ async def _shutdown_mcp_servers_nonblocking(timeout: float = 5.0, config: Any = 
             "MCP shutdown did not finish within %.1fs; continuing gateway "
             "teardown (background thread will be reaped at process exit)", timeout)
     return done
-
-
-def _shutdown_gateway_health_export(runner: Any) -> None:
-    """Idempotently drain and detach Gateway Health OTLP export."""
-    runtime = getattr(runner, "_gateway_health_export_runtime", None)
-    if runtime is None:
-        return
-    runner._gateway_health_export_runtime = None
-    try:
-        runtime.shutdown()
-    except Exception:
-        logger.debug("gateway health OTLP export shutdown failed", exc_info=True)
 
 
 def _gateway_stderr_formatter() -> logging.Formatter:
@@ -5003,7 +4536,7 @@ def _refresh_host_gateway_record(runner) -> None:
 # module, and the lifecycle tests patch/drive these phases as ``gateway.run`` attributes.
 from gateway.run_bootstrap import (
     _start_gateway_make_shutdown_signal_handler, _start_gateway_replace_existing_instance,
-    _start_gateway_shutdown_tail, _start_gateway_start_cron_and_housekeeping,
+    _start_gateway_shutdown_tail, _start_gateway_housekeeping_thread,
 )
 
 
@@ -5132,7 +4665,7 @@ def main():
     # wedged non-daemon worker can't block Py_FinalizeEx's join. SystemExit caught so EVERY path exits.
     try:
         # start_gateway() performs the full graceful teardown (adapters disconnected, sessions saved +
-        # flushed, SQLite closed, cron/MCP stopped, PID file + runtime lock released) before it returns OR
+        # flushed, SQLite closed, MCP stopped, PID file + runtime lock released) before it returns OR
         # raises SystemExit with an explicit code. Force-exit afterwards so a wedged non-daemon worker
         # thread (e.g. a ThreadPoolExecutor tool/LLM call blocked with no timeout) cannot block interpreter
         # finalization (Py_FinalizeEx joins all non-daemon threads, incl. concurrent.futures' _python_exit)
@@ -5150,9 +4683,9 @@ def main():
 
 
 def _exit_after_graceful_shutdown(exit_code: int) -> None:
-    """Flush stdio, release the PID file + lock, stamp the clean exit, flush opt-in metrics, hard-exit.
+    """Flush stdio, release the PID file + lock, stamp the clean exit, hard-exit.
     ``os._exit`` (not ``sys.exit``): SystemExit runs ``Py_FinalizeEx``, which joins every non-daemon
-    thread — exactly the hang a wedged worker causes. It bypasses ``atexit``, so the metrics flush,
+    thread — exactly the hang a wedged worker causes. It bypasses ``atexit``, so the
     PID/lock release, CPU profile and bounded log drain (``QueueListener`` thread) are done here explicitly.
     The atexit ``remove_pid_file`` / ``release_gateway_runtime_lock`` (``start_gateway``) never run either:
     ``_stop_impl`` releases both on full shutdown, but the EARLY exits (clean-fatal-config #51228,
@@ -5170,14 +4703,10 @@ def _exit_after_graceful_shutdown(exit_code: int) -> None:
     def _mark_exited() -> None:
         # Single funnel every graceful exit passes through, so the next boot's unclean-death detector
         # fires only for genuine SIGKILL/OOM/VM deaths. Ownership-guarded against an old --replace life.
-        from hermes_cli.observability.shared_metrics_process import stamp_exit
-        stamp_exit("clean")  # the exit-metrics marker too: os._exit skips its atexit stamp (never raises)
+
         from gateway.lifecycle_ledger import mark_exited
         mark_exited(exit_code, reason="graceful_shutdown")
 
-    def _flush_metrics() -> None:  # after the clean stamp: a supervisor kill mid-flush is no unclean death
-        from hermes_cli.observability.shared_metrics_process import flush_before_hard_exit
-        flush_before_hard_exit()  # the runtimes' atexit flush: open sessions + queued opt-in rows (bounded)
 
     def _write_cpu_profile() -> None:  # --cpu-profile's atexit writer never runs past os._exit; no-op when off
         from hermes_cli.cpu_profile import write_cpu_profile
@@ -5189,7 +4718,7 @@ def _exit_after_graceful_shutdown(exit_code: int) -> None:
         from hermes_logging import drain_log_queue
         drain_log_queue(timeout=1.0)
 
-    for _step in (_release_locks, _mark_exited, _flush_metrics, _write_cpu_profile, _drain_logs):
+    for _step in (_release_locks, _mark_exited, _write_cpu_profile, _drain_logs):
         _best_effort(_step)
     os._exit(exit_code)
 

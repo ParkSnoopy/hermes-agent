@@ -5,7 +5,7 @@ import logging
 import os
 from typing import Optional
 
-from agent.i18n import t
+
 from gateway.media_repair import repair_explicit_computer_use_media_paths
 from gateway.platforms.base import BasePlatformAdapter
 from gateway.session import SessionSource
@@ -54,7 +54,7 @@ class GatewayBackgroundMixin:
             user_config = _load_gateway_config()
             model, runtime_kwargs = self._resolve_session_agent_runtime(source=source, user_config=user_config)
             if not runtime_kwargs.get("api_key"):
-                await adapter.send(source.chat_id, t("gateway.background.no_credentials"), metadata=_thread_metadata)
+                await adapter.send(source.chat_id, "❌ The background task couldn't start because no AI model sign-in is configured. Use /login, or run `hermes setup` on the host.", metadata=_thread_metadata)
                 return
 
             platform_key = _platform_config_key(source.platform)
@@ -122,13 +122,13 @@ class GatewayBackgroundMixin:
 
             response = result.get("final_response", "") if result else ""
             if not response and result and result.get("error"):
-                response = t("gateway.shared.error_prefix", error=result["error"])
+                response = ('Error: {error}').format(error=result["error"])
             # Fresh conversation, so history_offset=0: every message in the run belongs to this turn.
             if response:
                 response = repair_explicit_computer_use_media_paths(response, result.get("messages", []))
 
             preview = prompt[:60] + ("..." if len(prompt) > 60 else "")
-            header = t("gateway.background.complete_header", preview=preview)
+            header = (f'✅ Background task complete\nPrompt: "{preview}"\n\n')
             images, media_files, text_content = [], [], ""
             if response:
                 media_files, response = adapter.extract_media(response)
@@ -138,7 +138,7 @@ class GatewayBackgroundMixin:
                 await adapter.send(chat_id=source.chat_id, content=header + text_content, metadata=_thread_metadata)
             elif not images and not media_files:
                 await adapter.send(
-                    chat_id=source.chat_id, content=header + t("gateway.background.no_response"), metadata=_thread_metadata,
+                    chat_id=source.chat_id, content=header + '(No response generated)', metadata=_thread_metadata,
                 )
             for image_url, alt_text in (images or []):
                 with suppress(Exception):
@@ -173,6 +173,6 @@ class GatewayBackgroundMixin:
                 if automatic_notices_allowed(source):
                     await adapter.emit_warning(
                         source.chat_id,
-                        t("gateway.background.failed", preview=_bg_prompt_preview(prompt)),
+                        (f'❌ Your background task "{_bg_prompt_preview(prompt)}" failed before finishing. Send /bg again to retry, or /agents to see what is still running.'),
                         metadata=_thread_metadata, logical_platform=source.platform,
                     )

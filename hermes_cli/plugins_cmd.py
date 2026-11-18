@@ -81,31 +81,16 @@ def _resolve_git_executable() -> Optional[str]:
 
 
 class PluginOperationError(Exception):
-    """Recoverable plugin install/update failure (CLI exits; HTTP maps to 4xx).
-
-    ``failure_class`` names the raise site for the extension-install metric (a closed name from
-    ``shared_metrics_contract.EXTENSION_PLUGIN_FAILURE_CLASSES``); untagged sites read ``other``.
-    """
-
-    failure_class = "other"
-
-    def __init__(self, *args, failure_class: Optional[str] = None):
-        super().__init__(*args)
-        if failure_class is not None:
-            self.failure_class = failure_class
+    """Recoverable plugin install/update failure (CLI exits; HTTP maps to 4xx)."""
 
 
 class PluginSourceMoved(PluginOperationError):
     """The source is no longer at the commit the install dialog reviewed. Clients answer it by reading
     the source again (``plugins.manage`` error ``data.reason == "source_moved"``), never by resending."""
 
-    failure_class = "clone_failed"
-
 
 class PluginScanBlocked(PluginOperationError):
     """Plugin failed the security scan and was not installed."""
-
-    failure_class = "scan_blocked"
 
     def __init__(self, message: str, scan_result=None):
         super().__init__(message)
@@ -343,14 +328,11 @@ def _resolve_subdir_within(clone_root: Path, subdir: str) -> Path:
     clone_root = clone_root.resolve()
     candidate = (clone_root / subdir).resolve()
     if candidate != clone_root and clone_root not in candidate.parents:
-        raise PluginOperationError(f"Plugin subdirectory '{subdir}' escapes the repository.",
-                                   failure_class="invalid_source")
+        raise PluginOperationError(f"Plugin subdirectory '{subdir}' escapes the repository.")
     if not candidate.exists():
-        raise PluginOperationError(f"Plugin subdirectory '{subdir}' does not exist in the repository.",
-                                   failure_class="invalid_source")
+        raise PluginOperationError(f"Plugin subdirectory '{subdir}' does not exist in the repository.")
     if not candidate.is_dir():
-        raise PluginOperationError(f"Plugin subdirectory '{subdir}' is not a directory.",
-                                   failure_class="invalid_source")
+        raise PluginOperationError(f"Plugin subdirectory '{subdir}' is not a directory.")
     return candidate
 
 
@@ -369,7 +351,7 @@ def _native_manifest_file(plugin_dir: Path) -> Optional[Path]:
     try:
         return native_manifest_file(plugin_dir)
     except ValueError as exc:
-        raise PluginOperationError(str(exc), failure_class="manifest_invalid") from exc
+        raise PluginOperationError(str(exc)) from exc
 
 
 def _has_portable_manifest(plugin_dir: Path) -> bool:
@@ -532,24 +514,6 @@ def _admit_and_save_plugin_sets(
 
 
 
-_BASIC_AUTH_PLUGIN_KEYS = frozenset({"basic", "dashboard_auth/basic"})
-
-
-def ensure_basic_auth_plugin_enabled_in_config(cfg: dict) -> bool:
-    """Drop the bundled basic dashboard-auth plugin from ``plugins.disabled`` in *cfg*.
-
-    ``hermes setup`` / ``hermes plugins disable basic`` can park it there while
-    ``dashboard.basic_auth`` is configured, and password auth then silently fails.
-    Returns True when modified.
-    """
-    plugins_cfg = cfg.get("plugins")
-    disabled = plugins_cfg.get("disabled") if isinstance(plugins_cfg, dict) else None
-    if not isinstance(disabled, list) or not (set(disabled) & _BASIC_AUTH_PLUGIN_KEYS):
-        return False
-    plugins_cfg["disabled"] = sorted(set(disabled) - _BASIC_AUTH_PLUGIN_KEYS)
-    return True
-
-
 def _discard_key_and_leaf(names: set, key: str) -> None:
     """Drop *key* and its bare leaf (``web/exa`` -> ``exa``) from *names*, so a
     stale legacy bare-name entry can't keep vetoing the canonical key."""
@@ -562,8 +526,7 @@ def _plugin_aliases(key: str, entries: Optional[list] = None) -> set:
     The loader matches BOTH the canonical key (``web/firecrawl``) and the manifest name
     (``web-firecrawl``), so a stale entry under any form vetoes an enable ("explicit disable wins").
     Pass *entries* to reuse one :func:`_discover_all_plugins` scan across several keys."""
-    from hermes_cli.left_core_migration import legacy_plugin_keys
-    names = {key, key.split("/")[-1], *legacy_plugin_keys(key)}
+    names = {key, key.split("/")[-1]}
     names.update(e[0] for e in (_discover_all_plugins() if entries is None else entries) if e[5] == key)
     return names
 
@@ -704,9 +667,7 @@ def _find_plugin_entry(name: str) -> Optional[tuple]:
     ``web/exa``) only when unique; else the catalog name the plugin was installed under.
     Never guesses between two candidates."""
     entries = _discover_all_plugins()
-    from hermes_cli.left_core_migration import legacy_plugin_alias
-    target = legacy_plugin_alias(name) or name  # ``observability/langfuse`` -> its catalog plugin
-    exact = next((entry for entry in entries if target in (entry[0], entry[5])), None)
+    exact = next((entry for entry in entries if name in (entry[0], entry[5])), None)
     if exact is not None:
         return exact
     leaf_matches = [entry for entry in entries if name == entry[5].split("/")[-1]]

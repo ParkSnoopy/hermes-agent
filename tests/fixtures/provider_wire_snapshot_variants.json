@@ -1539,11 +1539,7 @@
     "reasoning": {
      "effort": "high",
      "enabled": true
-    },
-    "tags": [
-     "product=hermes-agent",
-     "client=hermes-client-v<VERSION>"
-    ]
+    }
    },
    "messages": [
     {
@@ -1603,12 +1599,6 @@
   },
   "model": "anthropic/claude-opus-5.5",
   "off": {
-   "extra_body": {
-    "tags": [
-     "product=hermes-agent",
-     "client=hermes-client-v<VERSION>"
-    ]
-   },
    "messages": [
     {
      "content": "You are a test agent.",
@@ -1667,12 +1657,6 @@
   },
   "provider": "nous",
   "unset": {
-   "extra_body": {
-    "tags": [
-     "product=hermes-agent",
-     "client=hermes-client-v<VERSION>"
-    ]
-   },
    "messages": [
     {
      "content": "You are a test agent.",

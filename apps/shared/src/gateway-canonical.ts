@@ -1,7 +1,7 @@
 /** `hermes-gateway-v1` request/result translation for a client written against the stdio-era
  *  method names (Ink, and clients built on `./node/gateway-client`). Browser-safe. */
 import type { CanonicalCreateParams } from './gateway-contract.generated.js'
-import { type GatewayText, gatewayText } from './gateway-text.js'
+import { gatewayTextEn } from './gateway-text.js'
 import { randomUuid } from './session-http-mutations.js'
 
 export interface SharedControl { session_id: string; execution_generation: number; prompt_id: string }
@@ -26,7 +26,6 @@ export function canonicalRequest(
   method: string,
   original: Record<string, unknown>,
   contract?: CreationContract,
-  text: GatewayText = gatewayText,
   identity: LaunchIdentity = {}
 ) {
   const params = { ...original }
@@ -40,7 +39,7 @@ export function canonicalRequest(
     params.request_id ??= randomUuid()
 
     if (!contract?.sources.includes(source)) {
-      throw new Error(neutral ? text('canonical.launch.noSourcePolicy', source) : text('canonical.launch.noTuiPolicy'))
+      throw new Error(neutral ? gatewayTextEn.canonical.launch.noSourcePolicy(source) : gatewayTextEn.canonical.launch.noTuiPolicy)
     }
 
     // The shell's environment is context, not a launch option: a gateway predating it runs the session
@@ -55,8 +54,8 @@ export function canonicalRequest(
     const unsupported = Object.keys(params).filter(key => !contract.parameters.includes(key))
 
     if (unsupported.length) {
-      throw new Error(text(neutral ? 'canonical.launch.unsupportedSessionOptions' : 'canonical.launch.unsupportedOptions',
-        unsupported.join(', ')))
+      const message = neutral ? gatewayTextEn.canonical.launch.unsupportedSessionOptions : gatewayTextEn.canonical.launch.unsupportedOptions
+      throw new Error(message(unsupported.join(', ')))
     }
   }
 

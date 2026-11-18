@@ -145,51 +145,10 @@ def _at_root_items() -> list[dict]:
     return items
 
 
-def _backend_dir_entries(search_dir: str, session_key: str | None) -> list[tuple[str, bool]]:
-    """``(name, is_dir)`` entries of one directory inside the active non-local terminal backend.
-
-    Runs in the session's own backend (``task_id`` = session key), so relative paths and ``~`` resolve
-    where the agent's commands do. Completion is advisory: an unreachable backend yields nothing —
-    falling back to the gateway host would show a plausible but wrong tree (#112963).
-    """
-    import json
-    import shlex
-
-    script = (
-        'd=$1; case $d in "~") d=$HOME;; "~/"*) d=$HOME${d#?};; esac; [ -d "$d" ] || exit 0; '
-        'for p in "$d"/* "$d"/.[!.]* "$d"/..?*; do [ -e "$p" ] || [ -L "$p" ] || continue; '
-        'if [ -d "$p" ]; then printf "%s/\\n" "${p##*/}"; else printf "%s\\n" "${p##*/}"; fi; done'
-    )
-    try:
-        from hermes_cli.observability.shared_metrics_loop import unmetered_backend_calls
-        from tools.terminal_tool import terminal_tool
-        # Pre-confirm this internal read-only listing: its fixed `sh -c` script shape is
-        # guard-flagged as "shell command via -c/-lc flag", so under smart approvals every
-        # completion would fire an auxiliary-LLM call (the main model when no auxiliary is
-        # configured), and Desktop's ws reconnect loop turns that into model traffic from an
-        # idle machine (#115478). The script is a constant and the search dir is quoted, so
-        # nothing here needs an approval verdict.
-        with unmetered_backend_calls():  # Hermes' own listing, not the user's backend work
-            result = json.loads(terminal_tool(
-                f"sh -c {shlex.quote(script)} sh {shlex.quote(search_dir)}", task_id=session_key, timeout=3,
-                force=True))
-    except Exception:
-        return []
-    if result.get("error") or result.get("exit_code") not in (0, None):
-        return []
-    entries = [(line.rstrip("/"), line.endswith("/")) for line in str(result.get("output") or "").splitlines()]
-    return sorted((name, is_dir) for name, is_dir in entries if name and "/" not in name)
-
-
-def _dir_listing_items(root: str, word: str, path_part: str, prefix_tag: str, is_context: bool,
-                       session_key: str | None = None, local: bool | None = None) -> list[dict]:
+def _dir_listing_items(root: str, word: str, path_part: str, prefix_tag: str, is_context: bool) -> list[dict]:
     """Prefix-match entries of the directory ``path_part`` points at (max 30)."""
-    import posixpath
-    local = _effective_terminal_backend() == "local" if local is None else local
-    # A non-local backend expands ``~`` itself (the gateway host's home is the wrong one) and its listing
-    # script speaks POSIX: from a Windows gateway host, os.path would hand it ``~\\src`` and list nothing.
-    pth = os.path if local else posixpath
-    expanded = (_normalize_completion_path(path_part) if local else path_part) if path_part else "."
+    pth = os.path
+    expanded = _normalize_completion_path(path_part) if path_part else "."
     if expanded == "." or not expanded or expanded.endswith("/"):
         search_dir, match = (expanded or "."), ""
     else:
@@ -198,12 +157,9 @@ def _dir_listing_items(root: str, word: str, path_part: str, prefix_tag: str, is
         search_dir = pth.join(root, search_dir)
     search_dir = pth.normpath(search_dir)
     items: list[dict] = []
-    if local:
-        if not os.path.isdir(search_dir):
-            return items
-        entries = [(entry, os.path.isdir(os.path.join(search_dir, entry))) for entry in sorted(os.listdir(search_dir))]
-    else:
-        entries = _backend_dir_entries(search_dir, session_key)
+    if not os.path.isdir(search_dir):
+        return items
+    entries = [(entry, os.path.isdir(os.path.join(search_dir, entry))) for entry in sorted(os.listdir(search_dir))]
     for entry, is_dir in entries:
         if match and not entry.lower().startswith(match.lower()):
             continue
@@ -217,7 +173,7 @@ def _dir_listing_items(root: str, word: str, path_part: str, prefix_tag: str, is
         if is_context:
             text = f"@{prefix_tag or ('folder' if is_dir else 'file')}:{rel}{suffix}"
         elif word.startswith("~"):
-            text = "~/" + pth.relpath(full, os.path.expanduser("~") if local else "~") + suffix
+            text = "~/" + pth.relpath(full, os.path.expanduser("~")) + suffix
         else:
             text = ("./" if word.startswith("./") else "") + rel + suffix
         items.append(_item(text, "dir" if is_dir else "", entry + suffix))
@@ -232,20 +188,11 @@ def _(rid, params: dict) -> dict:
     word = params.get("word", "")
     if not word:
         return _ok(rid, {"items": []})
-    session = _sessions.get(params.get("session_id", ""))
-    local = _effective_terminal_backend() == "local"
-    # A non-local backend's cwd lives inside the target; the host cannot validate it, so take the composer's
-    # session cwd (Desktop sends it) or the session's terminal cwd as-is (".": the backend's own cwd). The TUI
-    # echoes session.info's cwd back; for a sandbox session nobody gave a workspace that is the host launch dir.
-    client_cwd = params.get("cwd")
-    if session and client_cwd == session.get("cwd") and _is_remote_launch_cwd(session):
-        client_cwd = None
-    root = _completion_cwd(params) if local else (client_cwd or _terminal_task_cwd(session) or ".")
-    session_key = session.get("session_key") if session else None
-    return _ok(rid, {"items": _path_completion_items(word, root, session_key, local)})
+    root = _completion_cwd(params)
+    return _ok(rid, {"items": _path_completion_items(word, root)})
 
 
-def _path_completion_items(word: str, root: str, session_key: str | None, local: bool) -> list[dict]:
+def _path_completion_items(word: str, root: str) -> list[dict]:
     """``complete.path``'s items for ``word`` resolved against ``root``; the shared gateway serves the
     same listing against a local session's own folder (``gateway/session_complete_path.py``)."""
     is_context = word.startswith("@")
@@ -264,16 +211,15 @@ def _path_completion_items(word: str, root: str, session_key: str | None, local:
         prefix_tag, path_part = "", query
     # `@/foo` usually means "foo, from here": absolute only when that prefix exists,
     # else resolve relative to cwd (`@/Desktop` must not dead-end; `@/usr/local` still resolves).
-    # Host probes (this one and the fuzzy repo walk) say nothing about a non-local backend's tree.
     if (
         is_context and path_part.startswith("/") and not path_part.startswith("//")
-        and local and not _abs_completion_prefix_exists(path_part)):
+        and not _abs_completion_prefix_exists(path_part)):
         path_part = path_part.lstrip("/")
     bare_word = is_context and path_part and "/" not in path_part
-    if local and bare_word and len(path_part.strip()) >= 2 and prefix_tag != "folder":
+    if bare_word and len(path_part.strip()) >= 2 and prefix_tag != "folder":
         items = _fuzzy_basename_items(root, path_part, prefix_tag)
     else:
-        items = _dir_listing_items(root, word, path_part, prefix_tag, is_context, session_key, local)
+        items = _dir_listing_items(root, word, path_part, prefix_tag, is_context)
     # Bare-word `@name` may be an agent mention: profiles rank ABOVE file hits.
     if bare_word and not prefix_tag:
         with contextlib.suppress(Exception):
@@ -310,10 +256,11 @@ def _model_skew_err(rid) -> dict | None:
     if not skew:
         return None
     boot_rev, disk_rev = skew
-    from agent.i18n import t
-
-    return _err(rid, 5098, t("gateway.model.error_prefix", error=t(
-        "gateway.model.err_skew", boot_rev=boot_rev, disk_rev=disk_rev)))
+    return _err(rid, 5098, (
+        f"Error: This gateway is running code from {boot_rev} but the checkout on disk is now {disk_rev}. "
+        "Switching models would risk a stale-module crash — restart the gateway to load the new code: "
+        "hermes gateway restart"
+    ))
 
 
 @method("model.options")
@@ -355,15 +302,11 @@ def _(rid, params: dict) -> dict:
     # Save the key to ~/.hermes/.env via the unified credential lifecycle so any stale config.yaml mirror of
     # the previous key (model.api_key, custom_providers[*].api_key) is rotated in the same action (#62269).
     env_var = pconfig.api_key_env_vars[0]
-    from hermes_cli.config import load_env
     from hermes_cli.credential_lifecycle import save_provider_env_credential  # also rotates stale config.yaml mirrors
-    previous = load_env().get(env_var)
     # Under the profile scope the save publishes into the addressed profile's secret scope (and the
     # shared os.environ only for the launch profile), so the refreshed inventory below sees it.
     save_provider_env_credential(env_var, api_key)
-    if api_key != previous:  # a same-key re-save connects nothing new
-        from hermes_cli.observability.shared_metrics_setup import record_provider_setup_done
-        record_provider_setup_done(_resolve_session_platform(), slug, background=True)
+
     # The launch profile's boot record may still say "nothing configured"; the gated picker's own chat
     # waits on setup.status, so the fresh key must move the record (+ setup.ready). reconcile_record
     # leaves it alone when the bound home is another profile's.

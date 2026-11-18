@@ -60,15 +60,15 @@ async def test_what_the_old_conversation_schedules_for_here_names_the_app_not_th
     kanban subscription or send_message origin it creates never names the chat."""
     from gateway.session import build_session_context
     from gateway.session_context import get_session_env
-    from tools.cronjob_job_args import _origin_from_env
+
     runner, _adapter, authority, _source, _sent, _ran, _gates, _lane, ref_a = await _moved_on(monkeypatch)
     live = authority.sessions[ref_a.session_id]
     entry = runner.session_store.get_or_create_session(live.source)
     with runner._session_env_scope(build_session_context(live.source, runner.config, entry)):
         env = {name: get_session_env(f'HERMES_SESSION_{name}') for name in ('PLATFORM', 'CHAT_ID', 'KEY')}
-        origin = _origin_from_env()
+
     assert env == {'PLATFORM': 'local', 'CHAT_ID': ref_a.session_id, 'KEY': live.route}
-    assert origin is None or origin['platform'] == 'local', origin
+
 
 
 @pytest.mark.asyncio
@@ -108,8 +108,7 @@ async def test_a_stop_from_either_side_reaches_the_apps_turn_after_the_chat_resu
     before = len(sent)
     await adapter.handle_message(MessageEvent(text='/stop', source=source, message_id='stop'))
     await async_wait_until(lambda: len(sent) > before, what='the /stop reply')
-    from agent.i18n import t
-    assert sent[before:] != [t('gateway.stop.no_active')] and stops
+    assert sent[before:] != ['No active task to stop.'] and stops
     gates['slow app turn'].set()
 
 
@@ -225,22 +224,6 @@ async def test_the_old_conversations_finished_process_withdraws_its_waiting_hear
     assert [(row['status'], row['outcome']) for row in ticks] == [('terminal', 'cancelled')]
     gates['slow app turn'].set()
 
-
-@pytest.mark.asyncio
-async def test_a_reminder_the_app_set_on_the_old_conversation_fires_into_it(monkeypatch):
-    """A reminder created from the app on A names A (``platform: local``): its fire is written into A,
-    never refused for a local session A never was, and never sent to the chat."""
-    from pathlib import Path
-    from gateway.session_cron import deliver_to_local_chat
-    _runner, _adapter, authority, _source, sent, _ran, _gates, _lane, ref_a = await _moved_on(monkeypatch)
-    chat_before = len(sent)
-    home = Path(authority.db.db_path).parent
-
-    assert await asyncio.to_thread(deliver_to_local_chat, home, ref_a.session_id, 'reminder from A') is None
-    await async_wait_until(lambda: any('reminder from A' in str(message.get('content'))
-                                       for message in authority.db.get_messages(ref_a.session_id)),
-                           timeout=10, what='the reminder note in A')
-    assert sent[chat_before:] == []
 
 
 @pytest.mark.asyncio

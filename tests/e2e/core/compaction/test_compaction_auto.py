@@ -9,8 +9,8 @@ are asserted:
   a session left over the trigger surfaces a warning; a provider-side overflow ends the turn with an
   explicit error or recovers, within a bounded number of retries (never a silent loop);
 * safety    -- no user message is lost from state.db, tool_call/tool_result pairs stay matched in the
-  live rows AND in every request, the system prompt stays the session's, and the in-flight ask (for a
-  cron run: the job prompt) reaches the model after every summary;
+  live rows AND in every request, the system prompt stays the session's, and the in-flight ask
+  reaches the model after every summary;
 * persisted == sent -- state.db at request time is exactly the request's history prefix (+ only the
   in-flight turn), the live rows equal the host's in-memory history after each turn, and a fresh agent
   resumed from state.db continues with the same history.
@@ -48,12 +48,11 @@ def test_good_summarizer_compacts_and_keeps_every_invariant(make_scenario, tmp_p
         assert warned(sc), "session left over the trigger with no warning"
 
 
-@pytest.mark.parametrize("platform", ("cron", "cli"))
-def test_job_prompt_survives_mid_turn_compaction(make_scenario, tmp_path, platform):
+def test_job_prompt_survives_mid_turn_compaction(make_scenario, tmp_path):
     """One job prompt, many tool rounds: compaction fires mid-turn (repeatedly). The job prompt must
     still reach the model after every summary, every tool result the turn produced must stay paired,
     and the run must actually finish its script (#100818: the run "succeeded" but delivered nothing)."""
-    sc = make_scenario("good", platform=platform)
+    sc = make_scenario("good", platform="cli")
     spec = job_turn(SEEDS[0], tmp_path / "work", rounds=14)
     rec = sc.run_turn(spec)
     assert sc.committed_compactions() > 0, "the job run never compacted mid-turn"

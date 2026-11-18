@@ -17,6 +17,16 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _audio_playback_guard():
+    """This suite never invokes audio; avoid importing the retired voice module."""
+
+
+@pytest.fixture(autouse=True)
+def _moa_caches_isolated():
+    """No MoA state is used by these isolated tests."""
+
+
+@pytest.fixture(autouse=True)
 def _isolate_home(tmp_path, monkeypatch):
     hermes_home = tmp_path / ".hermes"
     hermes_home.mkdir()
@@ -82,6 +92,32 @@ def test_server_ensure_token_generates_and_persists(tmp_path):
     data = json.loads(p.read_text(encoding="utf-8"))
     assert data["token"] == t1
     assert "generated_at" in data
+
+
+def test_node_refuses_retired_voice_and_keeps_authenticated_dispatch(tmp_path, monkeypatch):
+    from plugins.google_meet import process_manager as pm
+    from plugins.google_meet.node import protocol
+    from plugins.google_meet.node.client import NodeClient
+    from plugins.google_meet.node.server import NodeServer
+
+    server = NodeServer(token_path=tmp_path / "token.json")
+    token = server.ensure_token()
+    calls = []
+    monkeypatch.setattr(pm, "start", lambda **kw: calls.append(kw) or {"ok": True})
+    payload = {"url": "https://meet.google.com/abc-defg-hij", "mode": "realtime"}
+    reply = asyncio.run(server._handle_request(protocol.make_request("start_bot", token, payload)))
+    assert reply["type"] == "error" and not calls
+    retired = {"type": "say", "id": "1", "token": token, "payload": {"text": "hello"}}
+    assert asyncio.run(server._handle_request(retired))["type"] == "error"
+    payload["mode"] = "transcribe"
+    assert asyncio.run(server._handle_request(protocol.make_request("start_bot", "wrong", payload)))["type"] == "error"
+    assert not calls
+    assert asyncio.run(server._handle_request(protocol.make_request("start_bot", token, payload)))["payload"]["ok"]
+    assert calls == [payload]
+    client = NodeClient("ws://example.invalid", token)
+    monkeypatch.setattr(client, "_rpc", lambda *args: pytest.fail("unexpected network dispatch"))
+    with pytest.raises(ValueError):
+        client.start_bot(payload["url"], mode="realtime")
 
 
 def _run(coro):

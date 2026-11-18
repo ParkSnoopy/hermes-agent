@@ -13,7 +13,6 @@ from unittest.mock import patch
 
 import pytest
 
-from cron.scheduler_delivery import BOT_CHAT_PLATFORM, cron_delivery_targets
 from hermes_cli.config import ensure_hermes_home
 from hermes_cli.profiles import (
     backfill_profile_envs,
@@ -55,6 +54,19 @@ def _delete(name: str) -> None:
 
 
 class TestDeletedProfileTombstone:
+    def test_tombstoned_shell_cannot_be_resolved(self, profile_env):
+        from hermes_constants import mark_named_profile_deleted
+
+        profile_dir = profile_env / ".hermes" / "profiles" / "worker"
+        profile_dir.mkdir(parents=True)
+        (profile_dir / "config.yaml").write_text("model: test\n", encoding="utf-8")
+        mark_named_profile_deleted(profile_dir)
+        assert not profile_exists("worker")
+        assert "worker" not in list_profile_names()
+        with pytest.raises(FileNotFoundError):
+            resolve_profile_env("worker")
+        assert (profile_dir / "config.yaml").read_text(encoding="utf-8") == "model: test\n"
+
     def test_delete_then_logging_setup_does_not_recreate_home(self, profile_env, monkeypatch):
         profile_dir = create_profile("worker", no_alias=True, no_skills=True)
         with patch("hermes_cli.profiles._cleanup_gateway_service"), patch(
@@ -124,11 +136,8 @@ class TestDeletedProfileTombstone:
         assert "worker" not in _named_homes(profile_env)
         served = [name for name, _ in profiles_to_serve(True)]
         assert "worker" not in served
-        # The name-only hot path (cron Bot Chat targets, kanban profile hints)
-        # honors the same tombstone: a recreated shell must not resurface as a
-        # `bot-chat:worker` delivery target.
+        # Name-only profile consumers honor the same tombstone.
         assert "worker" not in list_profile_names()
-        assert f"{BOT_CHAT_PLATFORM}:worker" not in [t["id"] for t in cron_delivery_targets()]
 
     def test_tombstoned_home_is_not_bootstrapped(self, profile_env, monkeypatch):
         profile_dir = create_profile("worker", no_alias=True, no_skills=True)

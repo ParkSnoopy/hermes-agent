@@ -50,7 +50,7 @@ class ProfileGateway:
     name: str
     home: Path
     pid: Optional[int] = None
-    # EVERY installed unit: [("systemd", system), ("launchd", False)]. A profile can carry a user AND a
+    # EVERY installed unit: [("systemd", system)]. A profile can carry a user AND a
     # system unit at once; recording only the first found left the other live beside the multiplexer.
     services: list[tuple[str, bool]] = field(default_factory=list)
     run_as_user: Optional[str] = None  # User= recorded by a system-scope systemd unit
@@ -93,7 +93,7 @@ def _service_label(service: tuple[str, bool]) -> str:
         return f"systemd ({'system' if system else 'user'})"
     if kind == "s6":
         return "s6 slot"
-    return "Windows scheduled task" if kind == "windows" else kind
+    return kind
 
 
 def _remove_verb(service: tuple[str, bool]) -> str:
@@ -296,7 +296,7 @@ def _gateway_identity(home: Path, pid: Optional[int], services: list[tuple[str, 
 
 
 def _installed_services(home: Path) -> list[tuple[str, bool]]:
-    """Every installed service for ``home``'s gateway (units / plist / scheduled task), user scope first.
+    """Every installed service for ``home``'s gateway, user scope first.
 
     Under s6 the footprint is the SLOT: the root slot always (it is what a restart goes through),
     a named profile's slot only while it is UP — a registered-down slot is what the container's
@@ -315,25 +315,7 @@ def _installed_services(home: Path) -> list[tuple[str, bool]]:
     with _home_env(home):
         if gw.supports_systemd_services():
             found.extend(("systemd", system) for system in (False, True) if gw.get_systemd_unit_path(system=system).exists())
-        if gw.is_macos() and gw.get_launchd_plist_path().exists():
-            found.append(("launchd", False))
-        if gw.is_windows() and _windows_task_installed():
-            found.append(("windows", False))
     return found
-
-
-def _windows_task_installed() -> bool:
-    """Is a per-profile Windows gateway installed for the ACTIVE ``HERMES_HOME``?
-
-    ``get_task_name()`` is home-suffixed, so this answers per profile exactly the way the systemd
-    unit path does. Either half counts: ``hermes gateway install`` falls back to a Startup-folder
-    entry when it cannot register a scheduled task, and a migration that removed only the task
-    would leave the fallback launching a second gateway at the next logon.
-    """
-    from hermes_cli import gateway_windows as gww
-    with contextlib.suppress(Exception):
-        return bool(gww.is_task_registered() or gww.is_startup_entry_installed())
-    return False
 
 
 def _systemd_service_user(home: Path, services: list[tuple[str, bool]]) -> Optional[str]:
@@ -352,30 +334,24 @@ def _service_op(kind: str, system: bool, verb: str, home: Path, *, run_as_user: 
     from hermes_cli import gateway as gw
     with _home_env(home):
         if verb == "install":
-            if kind == "launchd":
-                gw.launchd_install()
-            elif kind == "windows":
-                # Non-interactive: the migration already asked; prompting here would hang a
-                # supervised/`--yes` run on a console that has no operator.
-                from hermes_cli import gateway_windows as gww
-                gww.install(start_now=True, start_on_login=True)
-            else:
-                gw.systemd_install(system=system, run_as_user=run_as_user, non_interactive=True)
+            if kind != "systemd":
+                raise ValueError(f"unsupported service manager: {kind}")
+            gw.systemd_install(system=system, run_as_user=run_as_user, non_interactive=True)
             return
         if verb == "enable":
             # Boot enablement only: the migration's uninstall of every secondary destroys their
             # boot enablement (systemd: disable + default.target.wants unlink), so the survivor's is
             # load-bearing for the whole host — and `restart` on a disabled unit succeeds, so a
             # reboot came up with no gateway while the migration reported success (#124922).
-            # launchd (RunAtLoad plist) and the Windows logon task are their own enablement and the
-            # migration never removes the survivor's.
             if kind != "systemd":
-                return
+                raise ValueError(f"unsupported service manager: {kind}")
             enabled = gw._run_systemctl(["enable", gw.get_service_name()], system=system, check=False, timeout=30)
             if getattr(enabled, "returncode", 0) != 0:
                 raise RuntimeError(f"could not enable {gw.get_service_name()} at boot (systemctl enable "
                                    f"exited {enabled.returncode}); a reboot would come up with no gateway")
             return
+        if kind != "systemd":
+            raise ValueError(f"unsupported service manager: {kind}")
         gw._service_call(kind, verb, system)
 
 
@@ -1209,8 +1185,7 @@ def rollback_migration(default_home: Optional[Path] = None) -> bool:
 def _host_supports_migration() -> Optional[str]:
     """Reason the host cannot be converged by this command, else None.
 
-    Windows IS handled (per-profile Scheduled Tasks and the Startup-folder fallback are removed
-    like any other unit). s6 IS handled too, in-process: a named profile's slot that is UP is
+    s6 is handled in-process: a named profile's slot that is UP is
     parked (``s6-svc -d`` + ``down`` file) and its autostart intent folded into the root slot the
     same way the container's boot does it (``hermes_cli.gateway_multiplex_s6``). What cannot be
     done from here is register a slot the boot never created — that is the one refusal left.

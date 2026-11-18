@@ -438,7 +438,7 @@ class TestBuildCallKwargsMaxTokens:
 
 
 class TestNousTagsScoping:
-    def test_tags_injected_when_provider_is_nous(self):
+    def test_tags_not_injected_when_provider_is_nous(self):
         import agent.auxiliary_client as aux
 
         kwargs = aux._build_call_kwargs(
@@ -447,7 +447,7 @@ class TestNousTagsScoping:
             messages=[{"role": "user", "content": "hi"}],
         )
 
-        assert kwargs["extra_body"]["tags"] == aux._nous_portal_tags()
+        assert "tags" not in kwargs.get("extra_body", {})
 
     def test_tags_not_injected_for_non_nous_provider_when_main_is_nous(self):
         import agent.auxiliary_client as aux
@@ -2804,7 +2804,7 @@ class TestAuxiliaryAuthRefreshRetry:
 
         mock_refresh_oauth.assert_called_once_with("refresh-token", use_json=False)
         mock_write.assert_called_once_with(
-            "fresh-token", "refresh-token-2", 9999999999999, spent_refresh_token="refresh-token")
+            "fresh-token", "refresh-token-2", 9999999999999)
         stale_client.close.assert_not_called()
 
     def test_refresh_provider_credentials_remints_vertex_token_and_evicts_cache(self):

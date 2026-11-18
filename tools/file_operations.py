@@ -216,7 +216,7 @@ class ShellFileOperations(LintMixin, SearchMixin, FileOperations):
 
     def __init__(self, terminal_env, cwd: str | None = None):
         self.env = terminal_env
-        # Never os.getcwd(): that is the HOST path, absent inside container backends.
+        # The task's workspace is not necessarily the process working directory.
         self.cwd = cwd or getattr(terminal_env, 'cwd', None) or \
                    getattr(getattr(terminal_env, 'config', None), 'cwd', None) or "/"
         # Ordinary executables: bool cache (hits AND misses). rg is special — it has
@@ -239,19 +239,12 @@ class ShellFileOperations(LintMixin, SearchMixin, FileOperations):
         result = self.env.execute(command, cwd=effective_cwd, **kwargs)
         exit_code = result.get("returncode", 0)
         output = result.get("output", "")
-        # The command wrapper's own ``builtin cd -- <cwd> || exit 126`` failed: the
-        # working directory does not exist on this backend (typically ``terminal.cwd``
-        # is a host path and the backend is a container). Name that, or the raw
-        # ``cd:`` line reads like a sandbox/mount fault at the requested path.
+        # Report a failed command wrapper's working-directory change explicitly.
         cwd_error = ""
         if exit_code == 126 and "cd: " in output:
-            from tools.terminal_tool_config import _is_container_backend
-            env_type = getattr(self.env, "env_type", None)
-            hint = ("; for container backends use a path inside the container, e.g. /workspace"
-                    if env_type and _is_container_backend(env_type) else "")
             cwd_error = output = (
                 f"working directory {effective_cwd!r} does not exist on the active terminal "
-                f"backend (check terminal.cwd or the session cwd{hint}). {output.strip()}")
+                f"backend (check terminal.cwd or the session cwd). {output.strip()}")
         # A stdin write failure with a clean child exit is still a failure: the
         # child never received the input.
         if result.get("stdin_error") and exit_code == 0:
@@ -502,16 +495,9 @@ class ShellFileOperations(LintMixin, SearchMixin, FileOperations):
             for i, line in enumerate(content.split('\n'), start=start_line))
 
     def _expand_path(self, path: str) -> str:
-        """Expand ``~`` / ``~user`` via the backend's shell (its HOME, not the
-        host's). A host path under the configured workspace mount is rewritten
-        to that container path first, so a Windows drive path is readable
-        inside Docker. Must run BEFORE shell escaping — ~ doesn't expand in quotes."""
-        from tools.terminal_tool_config import translate_mounted_host_path
-        host_root = getattr(self.env, "host_cwd", None)
-        container_root = getattr(self.env, "host_cwd_mount", None) or "/workspace"
-        translated = translate_mounted_host_path(path, host_root or "", container_root)
-        if translated:
-            return translated
+        """Expand ``~`` / ``~user`` using the local shell's HOME.
+
+        Run before shell escaping: quoted tildes do not expand."""
         if not path or not path.startswith('~'):
             return path
         result = self._exec("echo $HOME")
@@ -707,13 +693,9 @@ class ShellFileOperations(LintMixin, SearchMixin, FileOperations):
     def _python_interpreter_cmd(self) -> str:
         """Return a shell-safe Python interpreter for the terminal backend.
 
-        On the local backend ``sys.executable`` is always a working
-        interpreter — and on Windows it dodges the Microsoft Store
-        ``python``/``python3`` alias stub (exit 49, "Python was not
-        found") that otherwise breaks inline ``-c`` snippets. Remote
-        backends (docker/ssh/...) don't have the agent's interpreter, so
-        they fall back to ``python3`` on their own PATH (the ``python``
-        fallback is handled at the call site).
+        Use the agent's interpreter for host-filesystem operations. On
+        Windows this avoids the Microsoft Store ``python``/``python3``
+        alias stub that otherwise breaks inline ``-c`` snippets.
         """
         if self._lsp_local_only():
             return self._escape_shell_arg(sys.executable)

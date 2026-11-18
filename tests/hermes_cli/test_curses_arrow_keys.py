@@ -133,7 +133,7 @@ def test_raw_ctrl_c_cancels():
 ])
 def test_ctrl_d_leaves_a_menu_like_esc(keys):
     """Ctrl+D is EOF: before raw mode it already aborts a menu, so once raw mode is on it must too.
-    It used to decode to nothing, and a menu (the shared-metrics offer) redrew on every press."""
+    It used to decode to nothing, so menus redrew on every press."""
     assert read_menu_key(FakeStdscr(keys)) == NAV_CANCEL
 
 

@@ -59,22 +59,21 @@ def _read_config(home: Path) -> dict:
 
 
 def _merged_platform_block(home: Path, name: str) -> Optional[dict]:
-    """Platform *name*'s block as the gateway loader merges it for *home*: legacy ``gateway.json`` base
-    layer, then config.yaml's ``gateway.platforms`` / ``platforms`` / ``gateway.<name>`` blocks and a top-level
+    """Platform *name*'s block as the gateway loader merges it for *home*: config.yaml's
+    ``gateway.platforms`` / ``platforms`` / ``gateway.<name>`` blocks and a top-level
     ``<name>:`` block in the loader's order (managed overlay and ``${VAR}`` applied). ``None`` when no layer names it."""
     from gateway import config_loader
-    gw_data = config_loader.load_legacy_gateway_json(home)
-    gw_data = gw_data if isinstance(gw_data, dict) else {}
+
     try:
         from hermes_cli import managed_scope
         yaml_cfg = config_loader.read_yaml_layers(home)
         managed = managed_scope.apply_managed_overlay({})
-    except Exception:  # malformed config.yaml: the gateway falls back to gateway.json alone too
+    except Exception:  # missing or malformed config.yaml
         logger.debug("left-core: unreadable config for %s", home, exc_info=True)
         yaml_cfg, managed = {}, {}
     yaml_cfg = yaml_cfg if isinstance(yaml_cfg, dict) else {}
     platforms = config_loader.merge_platform_sections(
-        yaml_cfg, yaml_cfg.get("gateway"), gw_data, also=frozenset({name}))
+        yaml_cfg, yaml_cfg.get("gateway"), {}, also=frozenset({name}))
     authored = config_loader.snapshot_authored_extra(config_loader.merge_platform_sections(
         yaml_cfg, yaml_cfg.get("gateway"), {}, also=frozenset({name})))
     # Reconcile cross-shape pins before the root bridge, even before this platform is registered.
@@ -84,7 +83,7 @@ def _merged_platform_block(home: Path, name: str) -> Optional[dict]:
     block = platforms.get(name)
     root = yaml_cfg.get(name)
     if isinstance(root, dict):  # a top-level ``<name>:`` block, bridged as bridge_platform_shared_keys does: its
-        from gateway.config import PlatformConfig  # adapter keys beat gateway.json's extra, not config.yaml's nested one
+        from gateway.config import PlatformConfig
         block = dict(block) if isinstance(block, dict) else {}
         block["extra"] = {**(block.get("extra") or {}), **PlatformConfig.from_dict({**root, "home_channel": None}).extra,
                           **authored.get(name, {})}  # a home_channel names a plugin's Platform
@@ -272,42 +271,6 @@ def langfuse_in_use(home: Path, *, process_env: bool = False) -> bool:
     return _bundled_plugin_selected(home, "langfuse")
 
 
-def singularity_in_use(home: Path, *, process_env: bool = False) -> bool:
-    """What made core run its Singularity backend for *home*: ``terminal.backend`` (or the legacy
-    ``terminal.env_type``) set to ``singularity`` in its config (managed overlay applied, as the bridge
-    reads it), else ``TERMINAL_ENV=singularity`` from its dotenv layers as ``load_hermes_dotenv`` resolves
-    them (the home's ``.env``, then the administrator-managed ``.env`` with override, ``${VAR}``
-    references expanded: :func:`~hermes_cli.env_loader.resolve_home_dotenv`). config.yaml wins over
-    both, as in the bridge. *process_env* (startup) also counts a ``TERMINAL_ENV`` the process received
-    from its environment (systemd unit, Docker, shell export), for the launch home only: ``TERMINAL_*``
-    is process-global (``get_secret`` never scopes it), so for any other served home it is the launch
-    profile's backend, not this one's."""
-    from gateway import config_loader
-    try:
-        terminal = config_loader.read_yaml_layers(home).get("terminal")
-    except Exception:  # malformed config.yaml: the bridge reads nothing from it either
-        logger.debug("left-core: unreadable config for %s", home, exc_info=True)
-        terminal = None
-    terminal = terminal if isinstance(terminal, dict) else {}
-    configured = str(terminal.get("backend") or terminal.get("env_type") or "").strip()
-    if not configured:
-        from hermes_cli.env_loader import resolve_home_dotenv
-        configured = resolve_home_dotenv(home).get("TERMINAL_ENV", "").strip()
-    if not configured and process_env:
-        from hermes_constants import get_routing_process_hermes_home, hermes_home_key
-        if hermes_home_key(home) == hermes_home_key(get_routing_process_hermes_home()):
-            configured = os.environ.get("TERMINAL_ENV", "").strip()
-    return configured.lower() == "singularity"
-
-
-def agent_imports_in_use(home: Path, *, process_env: bool = False) -> bool:
-    """*home* registered a ``hermes import-agent`` source for ``--sync`` (its ``import-sync.json``,
-    which scheduled syncs read). A one-shot import leaves no other trace, and installing the plugin
-    for every home would add a command nobody asked for; the old spelling names the install."""
-    return (home / "import-sync.json").is_file()
-
-
-
 def _home_env(home: Path, name: str, *, process_env: bool) -> str:
     """*name* as *home*'s dotenv layers resolve it (:func:`~hermes_cli.env_loader.resolve_home_dotenv`), else
     from the secret scope bound for *home* (a multiplexed secondary's external secret sources live only there),
@@ -351,9 +314,7 @@ def _route_slots(home: Path) -> list[dict]:
     overlay (``read_yaml_layers``): ``model``, the fallback chain (``get_fallback_chain``: legacy
     ``fallback_model`` merged), each ``auxiliary.<task>``, ``delegation`` and its fallback chain, every
     delegation backend route (:func:`_delegation_backend_routes`) and its chain, every MoA preset's reference
-    models and aggregator (``normalize_moa_config``), the cron-wide ``cron.model_provider``, each cron job's pin
-    and the user's own ``providers:`` / ``custom_providers:`` endpoints (``get_compatible_custom_providers``)."""
-    from cron.scheduler_preflight import cron_default_provider
+    models and aggregator (``normalize_moa_config``), and the user's own ``providers:`` / ``custom_providers:`` endpoints (``get_compatible_custom_providers``)."""
     from gateway import config_loader
     from hermes_cli.config_providers import get_compatible_custom_providers
     from hermes_cli.fallback_config import get_fallback_chain
@@ -372,18 +333,13 @@ def _route_slots(home: Path) -> list[dict]:
         return [slot, *get_fallback_chain({"fallback_providers": slot.get("fallback_providers")})]
     delegation = block(cfg.get("delegation"))
     slots = [block(cfg.get("model")), *get_fallback_chain(cfg), *map(block, block(cfg.get("auxiliary")).values()),
-             *with_chain(delegation), {"provider": cron_default_provider(cfg)}]
+             *with_chain(delegation)]
     for preset in normalize_moa_config(cfg.get("moa"))["presets"].values():
         slots += [*map(block, preset.get("reference_models") or []), block(preset.get("aggregator"))]
     for route in _delegation_backend_routes(delegation):
         slots += with_chain(route)
     slots += [{"base_url": entry.get("base_url")} for entry in get_compatible_custom_providers(cfg)]
-    import json
-    try:
-        jobs = json.loads((home / "cron" / "jobs.json").read_text(encoding="utf-8-sig")).get("jobs")
-    except (OSError, ValueError, AttributeError):  # no (readable) job store: no pins
-        jobs = None
-    return slots + ([block(job) for job in jobs] if isinstance(jobs, list) else [])
+    return slots
 
 
 def _provider_choices(home: Path) -> set[str]:
@@ -523,14 +479,10 @@ class LeftCoreFeature:
     # Top-level command the plugin registers in place of core's ``hermes auth <cli>`` login
     # (``hermes <cli> login|status|logout``); :func:`moved_command_hint` points the old spelling at it.
     cli: str = ""
-    # Top-level command the plugin registers: core's own command kept under its name (``hermes
-    # import-agent``), or in place of core's nested ``old_command`` (``hermes mcp serve`` -> ``hermes
-    # mcp-serve``); :func:`moved_command_hint` points the old spelling at it.
+    # Top-level command replacing a nested core command (``hermes mcp serve`` ->
+    # ``hermes mcp-serve``); :func:`moved_command_hint` points the old spelling at it.
     command: str = ""
     old_command: str = ""
-    # Other top-level commands core shipped that the same plugin now registers (``hermes claw``, the
-    # OpenClaw migration's spelling before ``hermes import-agent openclaw``); hinted like *command*.
-    old_cli: tuple[str, ...] = ()
     # Key of the bundled plugin core shipped (``observability/langfuse``). It stays an alias of the
     # catalog plugin in ``plugins.enabled`` / ``plugins.disabled`` (the loader's gate, an
     # administrator's pinned list) and for every `hermes plugins <verb>` (:func:`legacy_plugin_alias`).
@@ -538,8 +490,6 @@ class LeftCoreFeature:
     # Other names that bundled plugin was listed under (its manifest ``name:``, ``yuanbao-platform``): the
     # same alias as *plugin_key*, so core's old disable keeps holding for the catalog plugin.
     plugin_names: tuple[str, ...] = ()
-    # ``terminal.backend`` value the plugin registers: unknown-backend errors name the install command.
-    terminal_backend: str = ""
     # Config schema version that shipped without the feature, for a row whose conversion changes what a
     # home runs (``replaces_toolsets``): only a home from before it ran the core feature, so the row fires
     # only while the home's config is below it or when that version's config step found the feature in
@@ -570,13 +520,6 @@ class LeftCoreFeature:
 
 
 LEFT_CORE: tuple[LeftCoreFeature, ...] = (
-    LeftCoreFeature(
-        plugin="homeassistant", label="Home Assistant", in_use=homeassistant_in_use,
-        unchanged="HASS_TOKEN/HASS_URL, platforms.homeassistant and the ha_* tool names are unchanged",
-        secret_env=("HASS_TOKEN",), private_env=("HASS_URL",),
-        toolsets=("homeassistant",), off_platforms=("acp", "webhook"), platform="homeassistant",
-        enable_env=("HASS_TOKEN",), channel_env_prefixes=("HASS_",),
-    ),
     LeftCoreFeature(
         plugin="spotify", label="Spotify", in_use=spotify_in_use,
         unchanged="your Spotify login, the spotify toolset and the spotify_* tools are unchanged; "
@@ -610,17 +553,6 @@ LEFT_CORE: tuple[LeftCoreFeature, ...] = (
         toolsets=("camofox",), off_platforms=("webhook",), replaces_toolsets=("browser",), left_at=52,
     ),
     LeftCoreFeature(
-        plugin="singularity", label="Singularity/Apptainer terminal backend", in_use=singularity_in_use,
-        unchanged="terminal.backend: singularity, terminal.singularity_image (TERMINAL_SINGULARITY_IMAGE) "
-                  "and the container_* limits are unchanged",
-        terminal_backend="singularity",
-    ),
-    LeftCoreFeature(
-        plugin="agent-importers", label="`hermes import-agent`", in_use=agent_imports_in_use,
-        unchanged="`hermes import-agent`, its flags and your import-sync.json sync sources are unchanged",
-        command="import-agent", old_cli=("claw",),
-    ),
-    LeftCoreFeature(
         # Core kept COPILOT_GITHUB_TOKEN and the two base-URL overrides out of children as provider env
         # (Tier 2: credentialed CLIs still get them); GH_TOKEN/GITHUB_TOKEN stay on core's static lists.
         plugin="github-copilot", label="GitHub Copilot", in_use=copilot_in_use,
@@ -632,20 +564,6 @@ LEFT_CORE: tuple[LeftCoreFeature, ...] = (
                      "COPILOT_ACP_BASE_URL"),
         launch_env=("HERMES_COPILOT_ACP_COMMAND", "HERMES_COPILOT_ACP_ARGS", "COPILOT_CLI_PATH"),
         notice=copilot_relogin_notice,
-    ),
-    LeftCoreFeature(
-        # YUANBAO_APP_KEY (the legacy App ID name) stays on local_env_policy's own short list, as core had it.
-        plugin="yuanbao", label="Yuanbao", in_use=yuanbao_in_use, plugin_key="platforms/yuanbao",
-        plugin_names=("yuanbao-platform",),
-        unchanged="YUANBAO_* settings, platforms.yuanbao, YUANBAO_HOME_CHANNEL and the yb_* tool names are unchanged",
-        secret_env=("YUANBAO_APP_SECRET",),
-        private_env=("YUANBAO_APP_ID", "YUANBAO_BOT_ID", "YUANBAO_WS_URL", "YUANBAO_API_DOMAIN", "YUANBAO_ROUTE_ENV",
-                     "YUANBAO_DM_POLICY", "YUANBAO_DM_ALLOW_FROM", "YUANBAO_GROUP_POLICY", "YUANBAO_GROUP_ALLOW_FROM",
-                     "YUANBAO_ALLOWED_USERS", "YUANBAO_ALLOW_ALL_USERS", "YUANBAO_HOME_CHANNEL",
-                     "YUANBAO_HOME_CHANNEL_NAME"),
-        toolsets=("yuanbao",), off_platforms=_YUANBAO_OFF_PLATFORMS,
-        legacy_toolsets=("hermes-yuanbao", "hermes-gateway"),
-        platform="yuanbao", enable_env=("YUANBAO_APP_ID", "YUANBAO_APP_SECRET"), notice=_yuanbao_notice,
     ),
 )
 
@@ -659,13 +577,6 @@ def platform_install_hint(platform: str) -> str:
     """For an unknown platform name that left core: the sentence that names its install command for
     the active home, else ``""``. Appended to "unknown platform" errors (``send_message``)."""
     feature = next((f for f in LEFT_CORE if f.platform and f.platform == platform), None)
-    return f". {_install_sentence(feature)}" if feature else ""
-
-
-def terminal_backend_install_hint(backend: str) -> str:
-    """For a ``terminal.backend`` value that left core: the sentence that names its install command for
-    the active home, else ``""``. Appended to "unknown terminal backend" errors."""
-    feature = next((f for f in LEFT_CORE if f.terminal_backend and f.terminal_backend == backend), None)
     return f". {_install_sentence(feature)}" if feature else ""
 
 
@@ -796,7 +707,7 @@ def legacy_plugin_keys(plugin: str) -> set[str]:
 def moved_command_hint(prog: str, value: str, action: str = "") -> str:
     """For a command a left-core plugin took over: ``hermes auth [<action>] <cli>`` (core's old login
     spelling), core's old nested spelling (``hermes mcp serve``), or the plugin's own ``hermes <cli>`` /
-    ``hermes <command>`` / ``hermes <old_cli>`` while the plugin is not loaded, the line saying where it
+    ``hermes <command>`` while the plugin is not loaded, the line saying where it
     went and how to get it for the active home, else ``""``."""
     from hermes_constants import get_hermes_home
     home = Path(get_hermes_home())
@@ -809,7 +720,7 @@ def moved_command_hint(prog: str, value: str, action: str = "") -> str:
     if prog == "hermes auth":
         feature = next((f for f in LEFT_CORE if f.cli and f.cli == value), None)
     elif prog == "hermes":
-        feature = next((f for f in LEFT_CORE if value and value in (f.cli, f.command, *f.old_cli)), None)
+        feature = next((f for f in LEFT_CORE if value and value in (f.cli, f.command)), None)
     else:
         feature = None
     if feature is None:
@@ -823,7 +734,7 @@ def moved_command_hint(prog: str, value: str, action: str = "") -> str:
         old = " ".join(p for p in ("hermes auth", action, value) if p)
         return (f"{feature.label} moved out of core into the '{feature.plugin}' plugin: `{old}` is now "
                 f"`hermes {value} {action or 'login'}`.{get}")
-    label = f"`hermes {value}`" if value in feature.old_cli else feature.label
+    label = feature.label
     return f"{label} moved out of core into the '{feature.plugin}' plugin, which is not loaded.{get}"
 
 
@@ -1328,11 +1239,10 @@ def recover_at_startup(*, say: Optional[Callable[[str], None]] = None, gateway_s
 def recover_for_command(name: Optional[str]) -> None:
     """``hermes <name>`` names a command a left-core plugin registers, and the active home uses that
     feature but lacks the plugin: run :func:`recover_at_startup` now, before plugin commands are
-    discovered, so the command it installs runs in this same invocation. A home nothing migrated yet
-    (a Docker image swap runs no ``hermes update``) whose only Hermes process is a scheduled
-    ``hermes import-agent --sync`` never starts an agent or a gateway to do it."""
+    discovered, so the command it installs runs in this same invocation. This also covers
+    installations that have not run ``hermes update`` since the feature moved to a plugin."""
     from hermes_constants import get_hermes_home
     home = Path(get_hermes_home())
-    if any(name and name in (f.cli, f.command, *f.old_cli) and not plugin_present(f.plugin, home)
+    if any(name and name in (f.cli, f.command) and not plugin_present(f.plugin, home)
            and feature_in_use(f, home) for f in LEFT_CORE):
         recover_at_startup(say=lambda message: print(message, file=sys.stderr))

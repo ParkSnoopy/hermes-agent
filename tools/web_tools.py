@@ -470,7 +470,7 @@ def _provider_is_ready(provider) -> bool:
 
 
 # Credential probes that back other tools but serve no registered web backend: ``xai`` is
-# probed via has_xai_credentials() for TTS/media only, so it must not light this gate. A
+# probed via has_xai_credentials() for other media, so it must not light this gate. A
 # stored ``web.backend: xai`` still counts since _get_backend returns a configured
 # selection as-is and dispatch surfaces the honest "unknown provider" error.
 _WEB_CHECK_SKIP = frozenset({"xai"})

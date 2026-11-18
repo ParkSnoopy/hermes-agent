@@ -56,7 +56,7 @@ async def shell_exec(connection, ref, params):
 
 def _run(command, cwd):
     from agent.redact import redact_sensitive_text
-    from hermes_cli._subprocess_compat import windows_hide_flags
+
     from tools.environments.local import build_subprocess_env
     # shell=True keeps the user-facing !cmd grammar (pipes, redirects); the child never inherits
     # credentials the long-lived owner holds, nor a launch profile's .env residue in a routed one.
@@ -66,7 +66,7 @@ def _run(command, cwd):
     try:
         result = subprocess.run(command, cwd=cwd, shell=True, env=env, capture_output=True,
                                 text=True, encoding='utf-8', errors='replace', timeout=TIMEOUT_SECONDS,
-                                stdin=subprocess.DEVNULL, creationflags=windows_hide_flags(), check=False)
+                                stdin=subprocess.DEVNULL, check=False)
     except subprocess.TimeoutExpired:
         raise RuntimeStoreError('command_timeout') from None
     except OSError:

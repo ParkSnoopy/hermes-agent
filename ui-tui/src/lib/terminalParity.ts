@@ -1,4 +1,4 @@
-import { t } from '../i18n/runtime.js'
+import { libTextEn } from '../copy/libText.js'
 
 import {
   detectVSCodeLikeTerminal,
@@ -50,7 +50,7 @@ export async function terminalParityHints(
     hints.push({
       key: 'ide-setup',
       tone: 'info',
-      message: t('libText.terminalParity.ideSetup', ctx.vscodeLike)
+      message: libTextEn.libText.terminalParity.ideSetup(ctx.vscodeLike)
     })
   }
 
@@ -58,7 +58,7 @@ export async function terminalParityHints(
     hints.push({
       key: 'apple-terminal',
       tone: 'warn',
-      message: t('libText.terminalParity.appleTerminal')
+      message: libTextEn.libText.terminalParity.appleTerminal
     })
   }
 
@@ -66,7 +66,7 @@ export async function terminalParityHints(
     hints.push({
       key: 'tmux',
       tone: 'warn',
-      message: t('libText.terminalParity.tmux')
+      message: libTextEn.libText.terminalParity.tmux
     })
   }
 
@@ -74,7 +74,7 @@ export async function terminalParityHints(
     hints.push({
       key: 'remote',
       tone: 'warn',
-      message: t('libText.terminalParity.remote')
+      message: libTextEn.libText.terminalParity.remote
     })
   }
 

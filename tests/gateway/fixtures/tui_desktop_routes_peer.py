@@ -1,4 +1,4 @@
-"""Authenticated TCP fixture for the Ink/Desktop verbs the owner serves itself; no inference."""
+"""In-process authority fixture for session commands and controls; no inference."""
 import asyncio
 import json
 import os
@@ -25,40 +25,32 @@ quick_commands:
 async def probe(mode):
     from gateway.run import GatewayRunner
     from gateway.session_authority import initialize_session_authority
-    from gateway.run_api import start_gateway_api, stop_gateway_api
     from gateway.session_controls import AuthorityConnection
-    from hermes_cli import web_server
-    from hermes_cli.dashboard_auth.ws_tickets import mint_ticket
-    from tests.gateway.fixtures.local_recovery_probe import rpc
-    from websockets.asyncio.client import connect
+    from tests.gateway.fixtures.execution_frames_capture import Peer
 
     home = Path(os.environ['HERMES_HOME'])
     marker = home / 'quick-exec-ran'
     (home / 'config.yaml').write_text(_CONFIG.format(marker=marker), encoding='utf-8')
     runner = GatewayRunner()
     authority = await initialize_session_authority(runner, profile_id=str(home), instance_id='routes')
-    api = await start_gateway_api(runner)
-    web_server.app.state.auth_required = True
-
-    ticket = mint_ticket(user_id='owner', provider='fixture')
-    # The same operator with a read-only grant: control, submit and exec verbs must refuse it.
-    reader = AuthorityConnection(authority, object(), {'user_id': 'owner', 'provider': 'fixture',
+    owner = AuthorityConnection(authority, Peer(), {'user_id': 'owner'}, operator=True)
+    # An operator with a restricted grant must still lack control/submit capabilities.
+    reader = AuthorityConnection(authority, Peer(), {'user_id': 'owner', 'provider': 'fixture',
                                                        'capabilities': ['session:read']}, operator=True)
     try:
-        async with connect(api.api_origin.replace('http:', 'ws:') + '/api/ws?ticket=' + ticket) as ws:
-            # The session's own folder, distinct from the gateway process's cwd.
-            work = home / 'session-work'
-            work.mkdir(exist_ok=True)
-            created = await rpc(ws, 'session.create', request_id='routes-owner', source='gui', toolsets=[],
-                                cwd=str(work))
-            assert 'result' in created, created
-            sid = created['result']['session_id']
-            receipt = {'mode': mode, 'authenticated_ws': True}
-            await MODES[mode](authority, ws, reader, sid, marker, receipt)
-            (home / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
+        work = home / 'session-work'
+        work.mkdir(exist_ok=True)
+        created = await rpc(owner, 'session.create', request_id='routes-owner', source='tui', toolsets=[],
+                            cwd=str(work))
+        assert 'result' in created, created
+        sid = created['result']['session_id']
+        receipt = {'mode': mode, 'in_process': True}
+        await MODES[mode](authority, owner, reader, sid, marker, receipt)
+        (home / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
     finally:
         await reader.close()
-        await stop_gateway_api(api)
+        await owner.close()
+        runner.session_store.close_all_db_handles()
 
 
 def _error(reply):
@@ -69,8 +61,11 @@ async def _call(reader, method, **params):
     return await reader.dispatch({'id': method, 'method': method, 'params': params})
 
 
+async def rpc(connection, method, **params):
+    return await _call(connection, method, **params)
+
+
 async def _react(authority, ws, reader, sid, marker, receipt):
-    from tests.gateway.fixtures.local_recovery_probe import rpc
     from gateway.session_ancillary import physical_target
     from gateway.session_contract import SessionRef
     target = physical_target(authority, SessionRef(authority.profile_id, sid))
@@ -96,7 +91,6 @@ async def _react(authority, ws, reader, sid, marker, receipt):
 
 
 async def _control(authority, ws, reader, sid, marker, receipt):
-    from tests.gateway.fixtures.local_recovery_probe import rpc
 
     async def control(action, **args):
         params = {'action': action, **({'args': args} if args else {})}
@@ -150,7 +144,6 @@ async def _control(authority, ws, reader, sid, marker, receipt):
 
 
 async def _commands(authority, ws, reader, sid, marker, receipt):
-    from tests.gateway.fixtures.local_recovery_probe import rpc
     from hermes_cli.plugins import _ensure_plugins_discovered
     calls = []
 
@@ -194,7 +187,6 @@ async def _commands(authority, ws, reader, sid, marker, receipt):
 
 async def _control_refusals(authority, ws, reader, sid, marker, receipt):
     """RT-8: a criterion button that cannot act is a refusal the card shows, never a success envelope."""
-    from tests.gateway.fixtures.local_recovery_probe import rpc
 
     async def control(action, **args):
         return await rpc(ws, 'session.control', session_id=sid, action=action, args=args)
@@ -217,7 +209,6 @@ async def _control_refusals(authority, ws, reader, sid, marker, receipt):
 async def _connection_card(authority, ws, reader, sid, marker, receipt):
     """RT-2: the manage_connections card's calls reach the session's own open operation, with the legacy handlers' policy and error shape."""
     from pathlib import Path
-    from tests.gateway.fixtures.local_recovery_probe import rpc
     from gateway.run import _profile_runtime_scope
     from tools.connectors import live, run
     from tools.connectors.contract import Actor, TargetState
@@ -225,7 +216,7 @@ async def _connection_card(authority, ws, reader, sid, marker, receipt):
     from tools.connectors.gateway.errors import GatewayAuthError
     from tools.connectors.operation import ConnectionOperation, Target
 
-    created = await rpc(ws, 'session.create', request_id='routes-card', source='gui', toolsets=['connections'],
+    created = await rpc(ws, 'session.create', request_id='routes-card', source='tui', toolsets=['connections'],
                         cwd=str(Path(authority.profile_id) / 'session-work'))
     sid = created['result']['session_id']
     owner = {'type': 'session', 'session_id': sid}
@@ -272,7 +263,7 @@ async def _connection_card(authority, ws, reader, sid, marker, receipt):
     assert gated['error']['code'] == 4031 and gated['error']['data']['reason'] == 'CONNECTORS_UNAVAILABLE', gated
     connectors.connectors_available = lambda *a, **k: True
     # A session whose tools leave out manage_connections cannot re-run a target, even with connectors on.
-    toolless = (await rpc(ws, 'session.create', request_id='routes-toolless', source='gui', toolsets=[],
+    toolless = (await rpc(ws, 'session.create', request_id='routes-toolless', source='tui', toolsets=[],
                           cwd=str(Path(authority.profile_id) / 'session-work')))['result']['session_id']
     with _profile_runtime_scope(Path(authority.profile_id)):
         foreign = ConnectionOperation([Target('linear', 'mcp', 'install')], session_key=authority.sessions[toolless].route)

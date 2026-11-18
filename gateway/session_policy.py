@@ -83,12 +83,12 @@ _TURN_PROFILE: ContextVar = ContextVar('follow_profile_read', default=None)  # (
 # Creation label -> agent surface. ``tool`` (third-party integrations, ``hermes chat --source tool``) and
 # ``oneshot`` (finite ``chat -q`` / ``-z`` runs) run as the CLI but keep their own stored label, so human
 # pickers hide them (INTERNAL_LISTING_SOURCES).
-SURFACES = {'cli': 'cli', 'tui': 'tui', 'gui': 'desktop', 'acp': 'acp', 'tool': 'cli', 'oneshot': 'cli'}
+SURFACES = {'cli': 'cli', 'tui': 'tui', 'acp': 'acp', 'tool': 'cli', 'oneshot': 'cli'}
 # ``tool`` and ``oneshot`` stay stored under their own labels so pickers can hide them.
 # Creation labels of the owner's own chats: the only LOCAL routes that carry OpenAI Daybreak (agent.daybreak),
 # the approved account's own access (no third-party or downstream use). Not ``tool`` (third-party
 # integrations), ``acp`` (editor clients), or the ``bot_room`` / ``a2a`` policies hosted rooms and peers stage.
-DAYBREAK_LABELS = frozenset({'cli', 'tui', 'gui', 'oneshot'})
+DAYBREAK_LABELS = frozenset({'cli', 'tui', 'oneshot'})
 # Every other creation label is rewritten to ``source='local'`` on peer refresh.
 _KEEP_STORED_LABEL = frozenset({'tool', 'oneshot'})
 STORED_AS_LOCAL = frozenset(SURFACES) - _KEEP_STORED_LABEL
@@ -142,7 +142,7 @@ class LocalSessionPolicy:
     credential_ref: str | None = None
     config_secret_ref: str | None = None
     editor_mcp_json: str | None = None
-    kanban_json: str | None = None
+    kanban_json: str | None = None  # Legacy field preserves existing local policy credential hashes.
     # Troubleshooting isolation is derived by the owner at creation and frozen with the
     # route; safe_mode always implies ignore_user_config (normalized once in build_policy).
     safe_mode: bool = False
@@ -500,11 +500,8 @@ def build_policy(params, config, *, private_secrets=None, profile_terminal=True,
 
 
 def terminal_uses_host_cwd(terminal):
-    """Whether the terminal works in the session's host cwd: the local backend, or docker mounting it at
-    ``/workspace``. ssh, modal and the other sandboxes resolve their own cwd."""
-    backend = str(terminal.get('TERMINAL_ENV') or 'local').strip().lower()
-    mounts = str(terminal.get('TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
-    return backend == 'local' or (backend == 'docker' and mounts)
+    """Whether the selected terminal environment is local."""
+    return str(terminal.get('TERMINAL_ENV') or 'local').strip().lower() == 'local'
 
 
 def _profile_workspace_cwd(home):
@@ -679,8 +676,6 @@ def _resolve_toolsets(params, config, source, safe_mode, coding_posture=False, b
                 # Picking a disabled server must not match nothing and fall through to every enabled one.
                 why = 'is disabled in config' if isinstance(configured[server], dict) else 'has no usable config entry'
                 _refuse('toolsets', f'MCP server {server!r} {why}')
-        if 'desktop_ui' in explicit and source != 'gui':
-            _refuse('toolsets', f'desktop_ui is only available on the Desktop, not on {source}')
         config.setdefault('platform_toolsets', {})['acp' if source == 'acp' else 'cli'] = explicit
     posture = None
     if explicit is None and coding_posture:
@@ -693,16 +688,7 @@ def _resolve_toolsets(params, config, source, safe_mode, coding_posture=False, b
         effective = {t for name in enabled for t in resolve_toolset(name)}
         if not requested <= effective:
             _refuse('toolsets', f"not available on this surface: {', '.join(sorted(requested - effective))}")
-    if explicit is None and source in {'tui', 'gui'}:
-        # Same surface toolsets as the native TUI factory, without its env inference.
-        # The fold-in lands after _get_platform_tools subtracted agent.disabled_toolsets, so
-        # subtract again or `disabled_toolsets: [project]` is a no-op here (#54433).
-        # desktop_ui is the client's own control surface, not a model toolset.
-        from agent.skill_utils import parse_config_string_list
-        from toolsets import CLIENT_SURFACE_TOOLSETS
-        disabled = set(parse_config_string_list((config.get('agent') or {}).get('disabled_toolsets')))
-        surface = set(CLIENT_SURFACE_TOOLSETS) if source == 'gui' else {'project'}
-        enabled |= surface - (disabled - {'desktop_ui'})
+
     if safe_mode:
         # Plugin toolsets are user customizations; the safe worker never imports them.
         from hermes_cli.tools_config import _get_plugin_toolset_keys
@@ -810,8 +796,7 @@ def register_worker_hooks(policy):
     refuses inside both registrars)."""
     if policy.ignore_user_config:
         return
-    kanban = json.loads(policy.kanban_json or 'null') or {}
-    accept = json.loads(policy.request_json).get('accept_hooks') is True or kanban.get('accept_hooks') is True
+    accept = json.loads(policy.request_json).get('accept_hooks') is True
     from agent.outbound_webhooks import register_from_config as register_outbound_webhooks
     from agent.shell_hooks import register_from_config
     config = policy.config()
@@ -994,7 +979,7 @@ def restore_policy(data):
     try:
         policy = LocalSessionPolicy(**data)
         from gateway.session_a2a import is_forward_policy
-        surfaces = {**SURFACES, 'cron': 'cron', 'kanban': 'cli', 'bot_room': 'bot_room'}
+        surfaces = {**SURFACES, 'cron': 'cron', 'bot_room': 'bot_room'}
         if ((not is_forward_policy(policy) and
              (policy.source not in surfaces or policy.platform != surfaces[policy.source]))
                 or not isinstance(policy.cwd, str) or not Path(policy.cwd).is_absolute()
@@ -1032,10 +1017,8 @@ def _valid_client_env(value, kind: type = str):
 
 
 def policy_turn_toolsets(authority, policy, config, session_id):
-    """A local turn's toolsets: the policy's current set, plus ``onboarding`` for an onboarding chat
-    (``agent.onboarding_session.onboarding_chat_toolsets``)."""
-    from agent.onboarding_session import onboarding_chat_toolsets
-    return onboarding_chat_toolsets(list(policy.current_toolsets(config)), getattr(authority, 'db', None), session_id)
+    """A local turn's toolsets from its current policy."""
+    return list(policy.current_toolsets(config))
 
 
 def local_desktop_turn(runner, source, scope):
@@ -1087,9 +1070,8 @@ def workspace_unavailable_result(policy) -> dict:
     """A failed, never-run turn for a session whose frozen working directory is gone. Nothing ran
     and an unchanged resend fails the same way, so the reply names the folder and the way out
     instead of the generic "something went wrong" apology."""
-    from agent.i18n import t
     from agent.turn_failure_copy import stamp_failure
-    text = t("gateway.errors.workspace_unavailable", path=policy.cwd)
+    text = (f"⚠️ This chat's working folder no longer exists ({policy.cwd}), so your message was not run. Recreate the folder, or move the chat to another one (`/worktree new` in the CLI, Move to project in the desktop app), then send your message again.")
     return stamp_failure({"final_response": text, "messages": [], "api_calls": 0, "tools": [],
                           "failed": True, "completed": False, "error": text},
                          "workspace_unavailable", False)
@@ -1155,58 +1137,6 @@ def policy_scope(policy, *, authority=None):
         reset_terminal_scope(terminal_token)
         cwd_token.var.reset(cwd_token)
         _TURN_PROFILE.reset(profile_token)
-
-
-def bind_turn_workspace(policy, task_id):
-    """Make the session's frozen workspace its terminal cwd override for this turn's tools (#140665).
-
-    The client's cwd (or ``--in DIR``) is frozen into the policy at admission, but the terminal tool
-    mounts ``resolve_task_overrides(task_id)['cwd']`` into a per-session Docker container. Before the
-    one-gateway runtime each ``hermes chat`` was its own process with its own ``TERMINAL_CWD``; now the
-    turn runs here, so register it under the turn's own task id (inside the turn's routed scope, which
-    qualifies the key). Docker mounting the host cwd only: the local backend already runs in the
-    policy's ``TERMINAL_CWD``, and ssh and the other sandboxes keep their own cwd. Re-registered only
-    when the workspace changed, so an agent's ``cd`` inside the session survives later turns.
-    """
-    if policy is None or not task_id:
-        return
-    terminal = json.loads(policy.terminal_json)
-    if str(terminal.get('TERMINAL_ENV') or '').strip().lower() != 'docker' or not terminal_uses_host_cwd(terminal):
-        # The session moved off a host-cwd Docker mount (e.g. to SSH with its own terminal.cwd): the
-        # binding an earlier turn registered would otherwise win in _plan_execution on the new backend.
-        unbind_turn_workspace(task_id)
-        return
-    from tools.terminal_tool import register_task_env_overrides, resolve_task_overrides, workspace_key_for
-    current = resolve_task_overrides(task_id)
-    if current.get('cwd') == policy.cwd and current.get('cwd_source') == 'session':
-        return
-    register_task_env_overrides(task_id, {**current, 'cwd': policy.cwd, 'cwd_source': 'session',
-                                          'workspace_key': workspace_key_for(policy.cwd)})
-
-
-def unbind_turn_workspace(task_id):
-    """Drop the workspace override :func:`bind_turn_workspace` registered for *task_id*, and the cwd
-    record it seeded. Only its own entry (tagged ``workspace_key``): an ACP/TUI workspace or an RL
-    image override registered by someone else under the same id stays."""
-    if not task_id:
-        return
-    from tools.terminal_tool import _qualify_task_key, _task_env_overrides, clear_session_cwd, get_session_cwd
-    key = _qualify_task_key(task_id)
-    current = _task_env_overrides.get(key) or {}
-    if 'workspace_key' not in current:
-        return
-    _task_env_overrides.pop(key, None)
-    if get_session_cwd(task_id) == current.get('cwd'):
-        clear_session_cwd(task_id)
-
-
-def release_session_workspaces(authority, session_ids):
-    """Session teardown: drop each session's workspace binding under its owning profile's scope (the
-    key the turn bound it under), so the override table does not grow with every closed session."""
-    from gateway.session_authorities import owner_scope
-    with owner_scope(authority):
-        for sid in session_ids:
-            unbind_turn_workspace(sid)
 
 
 @contextmanager

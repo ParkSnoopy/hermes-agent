@@ -14,7 +14,7 @@ import subprocess
 
 import pytest
 
-from agent.i18n import t
+
 
 import cli as cli_mod
 from hermes_cli.cli_commands_mixin import CLICommandsMixin
@@ -76,12 +76,12 @@ def test_status_outside_repo(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli_mod, "_active_worktree", None)
     out = _run(_Stub(), "/worktree")
-    assert t("cli.commands.worktree.not_in_repo_note") in out
+    assert '(not inside a git repository)' in out
 
 def test_new_outside_repo(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     out = _run(_Stub(), "/worktree new")
-    assert t("cli.commands.worktree.new_requires_repo") in out
+    assert '❌ /worktree new requires being inside a git repository.' in out
 
 @requires_git
 def test_list_shows_worktrees(repo):
@@ -92,7 +92,7 @@ def test_list_shows_worktrees(repo):
 def test_new_named_creates_and_retargets(repo):
     out = _run(_Stub(), "/worktree new fix-login")
     wt = repo / ".worktrees" / "fix-login"
-    assert t("cli.commands.worktree.ready", path=wt) in out
+    assert (f'✅ Worktree ready: {wt}') in out
     assert wt.is_dir()
     assert os.environ["TERMINAL_CWD"] == str(wt)
     assert os.path.realpath(os.getcwd()) == os.path.realpath(str(wt))
@@ -114,7 +114,7 @@ def test_new_named_collision_refused(repo):
 @requires_git
 def test_new_unnamed_uses_random_hermes_prefix(repo):
     out = _run(_Stub(), "/worktree new")
-    assert t("cli.commands.worktree.ready", path=cli_mod._active_worktree["path"]) in out
+    assert ('✅ Worktree ready: {path}').format(path=cli_mod._active_worktree["path"]) in out
     name = os.path.basename(cli_mod._active_worktree["path"])
     assert name.startswith("hermes-")
 
@@ -154,7 +154,7 @@ def test_new_moves_the_gateway_sessions_workspace_into_the_tree(repo):
     (params,) = [p for method, p in client.calls if method == "session.mutate"]
     assert (params["operation"], params["payload"], params["session_id"]) == ("workspace", {"cwd": str(wt)}, "local-s")
     assert params["expected_generation"] == 0
-    assert t("cli.commands.worktree.tools_in_worktree") in out
+    assert 'Terminal and file tools now operate in the worktree.' in out
 
 
 @requires_git
@@ -174,7 +174,7 @@ def test_new_refused_by_the_gateway_never_claims_the_tools_moved(repo):
         out = _run(stub, "/worktree new busy")
     finally:
         conn.close()
-    assert "session_busy" in out and t("cli.commands.worktree.tools_in_worktree") not in out
+    assert "session_busy" in out and 'Terminal and file tools now operate in the worktree.' not in out
     assert os.path.realpath(os.getcwd()) == os.path.realpath(str(repo))
     assert "TERMINAL_CWD" not in os.environ and cli_mod._active_worktree is None
     assert not (repo / ".worktrees" / "busy").exists()  # not left on disk, unlisted, until quit
@@ -197,8 +197,8 @@ def test_new_whose_shell_cannot_follow_says_the_session_moved(repo, monkeypatch)
     finally:
         conn.close()
     wt = repo / ".worktrees" / "stuck"
-    assert t("cli.session.cwd_enter_failed", path=str(wt), error="denied") in out
-    assert t("cli.commands.worktree.tools_in_worktree") in out and cli_mod._active_worktree["path"] == str(wt)
+    assert ("⚠ Could not enter session's working directory {path}: {error}").format(path=str(wt), error="denied") in out
+    assert 'Terminal and file tools now operate in the worktree.' in out and cli_mod._active_worktree["path"] == str(wt)
     assert "TERMINAL_CWD" not in os.environ
 
 

@@ -31,7 +31,7 @@ _STOP_HINTS = {
     "tui": "press Esc to stop",
     "desktop": "press Esc to stop",
     "api_server": "cancel the request to stop",
-    "cron": "",
+
 }
 _DEFAULT_STOP_HINT = "send /stop to cancel"
 

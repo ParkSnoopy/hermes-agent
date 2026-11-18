@@ -7,17 +7,10 @@ A reported ``0`` is a real available value, not a missing field.
 
 from __future__ import annotations
 
-import ctypes
-
 import hermes_cli.local_runtime.hardware as hw
 
 GIB = 1 << 30
 
-
-def _as_linux(monkeypatch) -> None:
-    """Reach the Linux branch on every host without editing the Windows probe."""
-    monkeypatch.delattr(ctypes, "windll", raising=False)
-    monkeypatch.setattr(hw.sys, "platform", "linux")
 
 
 def test_memavailable_is_used_when_present():
@@ -55,7 +48,6 @@ def test_unusable_meminfo_is_not_a_reading():
 
 
 def test_ram_bytes_uses_injected_meminfo_including_zero(monkeypatch):
-    _as_linux(monkeypatch)
     monkeypatch.setattr(
         hw,
         "_linux_meminfo_text",
@@ -75,7 +67,6 @@ def test_ram_bytes_uses_injected_meminfo_including_zero(monkeypatch):
 
 
 def test_ram_bytes_falls_back_when_memavailable_is_absent(monkeypatch):
-    _as_linux(monkeypatch)
     monkeypatch.setattr(
         hw,
         "_linux_meminfo_text",
@@ -91,7 +82,6 @@ def test_ram_bytes_falls_back_when_memavailable_is_absent(monkeypatch):
 
 
 def test_ram_bytes_falls_back_to_getconf_when_meminfo_unusable(monkeypatch):
-    _as_linux(monkeypatch)
     monkeypatch.setattr(hw, "_linux_meminfo_text", lambda: None)
     values = {
         "PAGE_SIZE": "4096\n",

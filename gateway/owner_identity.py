@@ -45,10 +45,9 @@ _BUNDLED_LOGINS = frozenset({'basic', 'nous', 'self-hosted', 'session-token', 's
 
 
 def _login_provider(provider: str) -> bool:
-    if provider in _BUNDLED_LOGINS:
-        return True
-    from hermes_cli.dashboard_auth.registry import list_session_providers
-    return any(p.name == provider for p in list_session_providers())
+    # Historical built-in stamps remain readable; removed plugins cannot extend
+    # owner equivalence at runtime.
+    return provider in _BUNDLED_LOGINS
 
 
 def _owner_login(provider: str, user: str) -> bool:

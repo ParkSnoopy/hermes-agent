@@ -565,10 +565,7 @@ def test_rotated_compress_keeps_atomically_published_foreign_tail(tmp_path, monk
         raise AssertionError("published child must not be rewritten")
     store.rewrite_transcript = _destructive_rewrite
 
-    runner = SimpleNamespace(
-        async_session_store=AsyncSessionStore(store),
-        _sync_telegram_topic_binding=MagicMock(),
-    )
+    runner = SimpleNamespace(async_session_store=AsyncSessionStore(store))
     agent = SimpleNamespace(session_id=child)
     try:
         asyncio.run(GatewaySessionCommandsMixin._persist_manual_compression(

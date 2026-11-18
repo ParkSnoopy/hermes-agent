@@ -34,7 +34,7 @@ def resolve_titled_session(authority, actor, name, *, missing_ok=False):
         if moved is not None:
             authority.authorize(actor, moved, 'session:read')
             return moved
-        from gateway.session_local_migration import resolve_local_target
+        from gateway.session_local_route import resolve_local_target
         ref = resolve_local_target(authority, actor, tip['id'])
     except RuntimeStoreError as exc:
         if exc.reason == 'permission_denied':
@@ -53,7 +53,7 @@ def resolve_latest_session(authority, actor, family, workspace=None):
     families = {'cli': sorted(CLI_FAMILY_SOURCES), 'tui': ['tui']}
     if family not in families or (workspace is not None and (not isinstance(workspace, str) or not workspace)):
         raise RuntimeStoreError('invalid_params')
-    from gateway.session_local_migration import resolve_local_target
+    from gateway.session_local_route import resolve_local_target
     # The owner's own rows are stored ``local``, with the family in ``created_source``.
     sources = [*families[family], 'local']
     for scope in ([workspace] if workspace else []) + [None]:

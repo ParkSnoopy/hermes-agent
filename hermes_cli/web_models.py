@@ -19,9 +19,7 @@ class EnvVarUpdate(BaseModel):
     # Bearer for the OPENAI_BASE_URL connectivity probe (auth-gated /v1/models otherwise looks
     # "reachable but empty"); ignored by plain PUT /api/env.
     api_key: str = ""
-    # Sent by the Desktop's provider-connection forms: a key a tool panel also asks for (Gemini,
-    # xAI...) then still counts as a provider setup in shared metrics.
-    provider_setup: bool = False
+
 
 class EnvVarDelete(BaseModel):
     key: str
@@ -58,34 +56,6 @@ class CustomEndpointUpdate(BaseModel):
     models: Optional[list[str]] = None
     model_details: Optional[list[CustomEndpointModelDetail]] = None
 
-class MessagingPlatformUpdate(BaseModel):
-    enabled: Optional[bool] = None
-    env: dict[str, str] = {}
-    clear_env: list[str] = []
-    # Explicit body profile beats the switcher's query param (same as other scoped writes).
-    profile: Optional[str] = None
-
-class TelegramOnboardingStart(BaseModel):
-    bot_name: Optional[str] = None
-
-class TelegramOnboardingApply(BaseModel):
-    allowed_user_ids: list[str]
-    profile: Optional[str] = None
-
-class WhatsAppOnboardingStart(BaseModel):
-    mode: Optional[str] = "bot"
-    allowed_users: Optional[str] = ""
-    profile: Optional[str] = None
-    reset_session: bool = False
-
-class WhatsAppOnboardingApply(BaseModel):
-    mode: Optional[str] = None
-    allowed_users: Optional[str] = None
-    profile: Optional[str] = None
-
-class AudioTranscriptionRequest(BaseModel):
-    data_url: str
-    mime_type: Optional[str] = None
 
 class ManagedFileUpload(BaseModel):
     path: str
@@ -241,27 +211,9 @@ class DebugShareRequest(BaseModel):
     redact: bool = True
     lines: int = 200  # recent log lines in the summary tail (full logs are separate)
 
-class TTSSpeakRequest(BaseModel):
-    text: str
 
-class VoiceLiveSessionRequest(BaseModel):
-    """POST /api/audio/voice-live/session: the renderer's WebRTC SDP offer plus optional prior
-    text turns (``{"type":"message","role":..,"content":[..]}``) to seed the live voice model."""
-    sdp: str
-    history: Optional[list[dict[str, Any]]] = None
 
-class TTSLeaseRequest(BaseModel):
-    """POST /api/audio/tts-lease: ``lease`` names the toggle/surface holding the lease
-    (``desktop:read-aloud``, ``desktop:conversation``); ``active`` True acquires + warms, False releases."""
-    lease: str
-    active: bool = True
 
-class STTLeaseRequest(BaseModel):
-    """POST /api/audio/stt-lease: ``lease`` names the voice-input session holding the lease
-    (``desktop:voice-input:<renderer>``); ``active`` True acquires + pre-loads the local
-    STT model, False releases. Unlike TTS, release never unloads (shared engine)."""
-    lease: str
-    active: bool = True
 
 class OAuthSubmitBody(BaseModel):
     session_id: str
@@ -322,39 +274,6 @@ class SessionPrune(BaseModel):
     include_archived: bool = False
     dry_run: bool = False
 
-class CronJobCreate(BaseModel):
-    paused: StrictBool = False
-    paused_reason: Optional[str] = None
-    prompt: str = ""
-    schedule: str
-    name: str = ""
-    deliver: str = "local"
-    # Finite repeat count (runs N times then completes); None = unlimited. Accepts the
-    # same user-facing strings the CLI accepts ('forever'/'once'/'3'). Normalization and
-    # validation happen in cron.jobs.create_job via normalize_repeat_value — the shared
-    # chokepoint with the CLI and update paths — so an unparseable value 400s there.
-    repeat: Optional[int | str] = None
-    skills: Optional[list[str]] = None
-    model: Optional[str] = None
-    provider: Optional[str] = None
-    base_url: Optional[str] = None
-    script: Optional[str] = None
-    context_from: Optional[Any] = None
-    enabled_toolsets: Optional[list[str]] = None
-    workdir: Optional[str] = None
-    no_agent: bool = False
-    # Validated in cron.jobs.create_job (unknown IANA zone / out-of-range grace -> 400).
-    timezone: Optional[str] = None
-    grace_minutes: Optional[int | str] = None
-    # Missed-run policy: true runs one catch-up, false skips; omitted follows the default.
-    catch_up: Optional[StrictBool] = None
-
-class CronJobUpdate(BaseModel):
-    updates: dict
-
-class AutomationBlueprintInstantiate(BaseModel):
-    blueprint: str  # blueprint key, e.g. "morning-brief"
-    values: dict[str, Any] = {}  # filled slot values from the form
 
 class MCPServerCreate(BaseModel):
     name: str

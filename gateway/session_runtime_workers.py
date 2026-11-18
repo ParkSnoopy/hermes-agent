@@ -168,8 +168,6 @@ def stop_authority_work(authority):
     for _, holder in [*physical_workers(authority), *side_agents(authority)]:
         if holder and holder[0] is not None:
             request_hard_interrupt(holder[0], 'Profile runtime is stopping')
-    for cancel in getattr(authority, '_cron_cancellations', {}).values():
-        cancel.set()
 
 
 async def join_authority_work(authority, timeout):

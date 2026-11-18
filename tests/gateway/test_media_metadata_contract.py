@@ -13,7 +13,6 @@ adapter that imports cleanly so the next slip is caught at test time.
 
 from __future__ import annotations
 
-import importlib
 import inspect
 
 import pytest
@@ -28,18 +27,12 @@ def _accepts_metadata(method) -> bool:
     return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
-# (module, class) for the two adapters this fix targeted. These must import
-# in CI, so assert directly rather than skipping.
-@pytest.mark.parametrize(
-    "module_name, class_name",
-    [
-        ("plugins.platforms.whatsapp.adapter", "WhatsAppAdapter"),
-        ("plugins.platforms.email.adapter", "EmailAdapter"),
-    ],
-)
-def test_send_image_accepts_metadata(module_name, class_name):
-    cls = getattr(importlib.import_module(module_name), class_name)
-    assert _accepts_metadata(cls.send_image), (
-        f"{class_name}.send_image must accept 'metadata' (or **kwargs) — "
+@pytest.mark.parametrize("method", ["send_image", "send_image_file", "send_animation"])
+def test_send_image_accepts_metadata(method):
+    from gateway.platforms.base import BasePlatformAdapter
+
+    cls = BasePlatformAdapter
+    assert _accepts_metadata(getattr(cls, method)), (
+        f"{cls.__name__}.{method} must accept 'metadata' (or **kwargs) — "
         f"send_multiple_images passes it on every send"
     )

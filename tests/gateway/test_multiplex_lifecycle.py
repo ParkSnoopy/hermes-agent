@@ -54,13 +54,10 @@ def test_cron_tick_homes_include_active_named_host(tmp_path, monkeypatch):
 
     cfg = GatewayConfig(multiplex_profiles=True)
     adapter_names = [name for name, _home in gateway_run._multiplex_profile_homes(cfg)]
-    cron_homes = gateway_run._cron_tick_profile_homes(cfg)
-    cron_names = [name for name, _home in cron_homes]
-    cron_by_name = dict(cron_homes)
+
 
     assert adapter_names == ["default", "host", "worker"]
-    assert cron_names == ["default", "host", "worker"]
-    assert cron_by_name["host"] == default_home / "profiles" / "host"
+
 
 
 class TestNamedProfileMultiplexerGuard:

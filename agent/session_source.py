@@ -12,8 +12,7 @@ from gateway.session_context import get_session_env
 # one-shot child spawned from such a session inherits HERMES_SESSION_SOURCE (the terminal tool bridges the
 # session env into child processes) but is NOT that conversation: labelling it ``tui``/``desktop`` lists it
 # in the TUI/WebUI pickers as a resumable chat and lets ``hermes -c`` in the TUI continue it (#112550).
-# Automation sources (tool, a2a, ...) are inherited on purpose; a Kanban worker's descendants drop its
-# gateway-only ``kanban`` label (delegation_context.scrub_kanban_env).
+# Automation sources (tool, a2a, ...) are inherited on purpose.
 UI_TRANSPORT_SOURCES = frozenset({"tui", "desktop"})
 
 # Finite non-interactive CLI runs (``hermes chat -q``/``--oneshot``, ``hermes -z``) get their own source so human

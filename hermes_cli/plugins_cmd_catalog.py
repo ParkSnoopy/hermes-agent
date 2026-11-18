@@ -49,7 +49,7 @@ def raise_if_removed(*candidates: str) -> None:
                 detail += f" (removed {removed.date})"
             raise PluginOperationError(
                 f"Plugin '{removed.name}' was removed from the Hermes plugin catalog and is blocked from "
-                f"installation: {detail}", failure_class="removed_from_catalog")
+                f"installation: {detail}")
 
 
 def resolve_catalog_name(identifier: str, console) -> PluginCatalogEntry:
@@ -289,7 +289,7 @@ def _refuse_unsupported_catalog_platform(entry: PluginCatalogEntry) -> None:
     if current not in normalized_platforms(entry.platforms):
         raise PluginOperationError(
             f"Plugin '{entry.name}' is unavailable on {current}; supported platforms: "
-            f"{', '.join(entry.platforms)}.", failure_class="incompatible",
+            f"{', '.join(entry.platforms)}.",
         )
 
 
@@ -312,8 +312,7 @@ def refuse_incompatible_catalog_entry(entry: PluginCatalogEntry) -> None:
     _refuse_unsupported_catalog_platform(entry)
     reason = catalog_hermes_error(entry)
     if reason:
-        raise PluginOperationError(f"{reason} Update Hermes (`{recommended_update_command()}`) and install again.",
-                                   failure_class="incompatible")
+        raise PluginOperationError(f"{reason} Update Hermes (`{recommended_update_command()}`) and install again.")
 
 
 def install_catalog_entry(entry: PluginCatalogEntry, *, force: bool, ref: Optional[str] = None,
@@ -675,7 +674,7 @@ def repin_catalog_plugin(
         raise PluginOperationError(
             f"Update of {catalog_name} to {entry.sha[:8]} not applied: {held} {catalog_name} stays at "
             f"{str(sidecar.get('sha') or '')[:8] or 'its installed version'}; the update is available after "
-            f"you update Hermes (`{recommended_update_command()}`).", failure_class="incompatible")
+            f"you update Hermes (`{recommended_update_command()}`).")
 
     local, modified = _local_changes(target)
     old_sha8 = str(sidecar.get("sha") or "old")[:8]

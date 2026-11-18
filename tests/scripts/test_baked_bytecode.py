@@ -30,9 +30,6 @@ def test_bake_produces_owner_writable_unchecked_hash_pycs(tmp_path):
     # hash-based (bit0) and unchecked (bit1 clear). Timestamp pycs would be 0;
     # checked-hash would be 3.
     assert pyc.read_bytes()[4:8] == b"\x01\x00\x00\x00"
-    # owner write before packaging: Squirrel.Mac's ShipIt clears the
-    # quarantine attribute of every bundled file and aborts the whole
-    # macOS update with EACCES on any read-only one (#138659)
     assert pyc.stat().st_mode & 0o200
     assert result["modules"] >= 3
 
@@ -66,47 +63,3 @@ def test_bake_rejects_missing_import_root(tmp_path):
     (tmp_path / "venv").mkdir()
     with pytest.raises(FileNotFoundError):
         bake_bytecode(tmp_path, Path(sys.executable))
-
-
-def _load_wrapper():
-    """Import the wrapper with placeholders substituted, like the build does."""
-    from scripts.build.launchers import render_wrapper
-
-    text = render_wrapper("stubmod.entry:main", "../hermes-agent", "../venv/Lib/site-packages")
-    namespace: dict = {"__name__": "launcher_wrapper_under_test"}
-    wrapper = Path("scripts/build/launcher_wrapper.py")
-    exec(compile(text, str(wrapper), "exec"), namespace)
-    return namespace
-
-
-def test_launcher_skips_user_cache_redirect_when_marker_present(tmp_path):
-    ns = _load_wrapper()
-    payload = _make_payload(tmp_path)
-    (payload / MARKER).write_text("unchecked-hash\n")
-    here = payload / "bin"
-    here.mkdir()
-    environ = {"HOME": str(tmp_path / "userhome")}
-    original = sys.pycache_prefix
-    try:
-        ns["configure"](str(here), environ=environ)
-        # Baked payload: no prefix redirect — imports read the baked
-        # source-adjacent dirs (Python's default lookup), and the prefix
-        # would relocate those READS away from the payload.
-        assert "PYTHONPYCACHEPREFIX" not in environ
-    finally:
-        sys.pycache_prefix = original
-
-
-def test_launcher_keeps_user_cache_redirect_without_marker(tmp_path):
-    ns = _load_wrapper()
-    payload = _make_payload(tmp_path)
-    here = payload / "bin"
-    here.mkdir()
-    environ = {"HOME": str(tmp_path / "userhome")}
-    original = sys.pycache_prefix
-    try:
-        ns["configure"](str(here), environ=environ)
-        assert environ["PYTHONPYCACHEPREFIX"] == str(
-            tmp_path / "userhome" / ".cache" / "hermes-pycache")
-    finally:
-        sys.pycache_prefix = original

@@ -528,7 +528,7 @@ _SESSION_STATE: dict[str, Any] = {
 
 # Streaming delivery state.
 _STREAM_STATE: dict[str, Any] = {
-    "_stream_callback": None,  # streaming TTS; set early so _vprint can reference it
+    "_stream_callback": None,  # per-turn text sink; set early so _vprint can reference it
     "_stream_needs_break": False,  # one "\n\n" before the next real text delta after tools
     # Stateful scrubbers: <memory-context> / thinking spans split across deltas defeat
     # per-delta regexes (both tags must be in one string).
@@ -545,7 +545,7 @@ _STREAM_STATE: dict[str, Any] = {
     "_stream_writer_dropped": 0,
     # Set once a strict endpoint 400/422s on ``stream_options``; later streams on that route omit it (#9705).
     "_stream_options_unsupported": False,
-    # API-facing user message override when it differs from the persisted transcript (voice).
+    # API-facing user message override when it differs from the persisted transcript.
     "_persist_user_message_idx": None,
     "_persist_user_message_override": None,
     "_persist_user_message_timestamp": None,
@@ -737,7 +737,7 @@ def _explicit_client_kwargs(agent, api_key, base_url, _provider_timeout) -> dict
                                         api_key=api_key if isinstance(api_key, str) else ""):
         client_kwargs["default_headers"] = _route_headers
     elif "default_headers" not in client_kwargs:
-        # Static profile.default_headers (Vercel AI Gateway attribution, Kimi UA on non-kimi.com endpoints).
+        # Static profile.default_headers (e.g. required provider protocol headers).
         with suppress(Exception):
             from providers import get_provider_profile as _gpf
             _ph = _gpf(agent.provider)
@@ -1019,14 +1019,7 @@ def _load_tools(agent, enabled_toolsets, disabled_toolsets):
     agent.tools = agent_tool_surface(agent, model_tools.get_tool_definitions(
         enabled_toolsets=enabled_toolsets, disabled_toolsets=disabled_toolsets, quiet_mode=agent.quiet_mode) or [])
     agent.valid_tool_names = {tool["function"]["name"] for tool in agent.tools} if agent.tools else set()
-    # Kanban guidance is session-static for the dispatcher-owned worker only. Profiles may
-    # expose kanban_show interactively, and children/cron runs inherit the env var, without
-    # owning a task.
-    from agent.delegation_context import owned_kanban_task
-    from agent.prompt_builder import KANBAN_GUIDANCE
-    agent._kanban_worker_guidance = (
-        KANBAN_GUIDANCE if owned_kanban_task() and "kanban_show" in agent.valid_tool_names else ""
-    )
+
     if agent.quiet_mode:
         return
     if agent.tools:
@@ -1035,8 +1028,8 @@ def _load_tools(agent, enabled_toolsets, disabled_toolsets):
             print(f"   ✅ Enabled toolsets: {', '.join(enabled_toolsets)}")
         if disabled_toolsets:
             print(f"   ❌ Disabled toolsets: {', '.join(disabled_toolsets)}")
-        import model_tools
-        requirements = model_tools.check_toolset_requirements()
+        from tools.registry import registry
+        requirements = registry.check_toolset_requirements()
         missing_reqs = [name for name, available in requirements.items() if not available]
         if missing_reqs:
             agent._safe_print(f"⚠️  Some tools may not work due to missing requirements: {missing_reqs}", diagnostic=True)
@@ -1955,7 +1948,7 @@ def _warn_nonagentic_hermes_model(agent):
             _user_msg = (
                 "⚠ Nous Research Hermes 3 & 4 models are NOT agentic — they "
                 "lack reliable tool-calling for agent workflows (delegation, "
-                "cron, proactive tools). Consider an agentic model instead "
+                "proactive tools). Consider an agentic model instead "
                 "(Claude, GPT, Gemini, Qwen-Coder, etc.)."
             )
             agent._emit_warning(_user_msg)
@@ -2067,11 +2060,7 @@ def init_agent(
     session_id: str | None = None, tool_progress_callback: Callable[..., Any] | None = None,
     tool_start_callback: Callable[..., Any] | None = None, tool_complete_callback: Callable[..., Any] | None = None,
     thinking_callback: Callable[..., Any] | None = None, reasoning_callback: Callable[..., Any] | None = None,
-    clarify_callback: Callable[..., Any] | None = None, read_terminal_callback: Callable[..., Any] | None = None,
-    read_preview_callback: Callable[..., Any] | None = None, drive_preview_callback: Callable[..., Any] | None = None,
-    read_window_below_callback: Callable[..., Any] | None = None, connection_callback: Callable[..., Any] | None = None,
-    tour_callback: Callable[..., Any] | None = None, theme_callback: Callable[..., Any] | None = None,
-    setup_beat_callback: Callable[..., Any] | None = None,
+    clarify_callback: Callable[..., Any] | None = None, connection_callback: Callable[..., Any] | None = None,
     step_callback: Callable[..., Any] | None = None,
     stream_delta_callback: Callable[..., Any] | None = None, interim_assistant_callback: Callable[..., Any] | None = None,
     tool_gen_callback: Callable[..., Any] | None = None, status_callback: Callable[..., Any] | None = None,

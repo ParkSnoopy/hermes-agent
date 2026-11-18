@@ -1,0 +1,22 @@
+▶ not activated — using HERMES_PYTHON: /home/admin/host/tmp/hermes-agent-fix-workspace/source/.retirement-test/cross-owner-python
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 3 test files (~19 tests) under ['tests/hermes_cli/test_gateway_connections_watch.py', 'tests/pm/test_workspace_build_inputs.py', 'tests/gateway/test_base_topic_sessions.py']; running with -j 1
+[ 21.1% |     4/~19 | ✓5 | ✗0] ✓ tests/hermes_cli/test_gateway_connections_watch.py (5✓, 0.8s)
+[ 36.8% |     7/~19 | ✓8 | ✗0] ✓ tests/gateway/test_base_topic_sessions.py (3✓, 0.7s)
+[100.0% |    19/~19 | ✓9 | ✗0] ✓ tests/pm/test_workspace_build_inputs.py (1✓, 0.4s)
+
+=== Summary: 3 files, 9 tests passed, 0 failed (100% complete) in 2.0s (1 workers) ===
+  Durations cached to test_durations.json (3 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   3
+  Total subprocess CPU-wall: 2.0s  (runner wall: 2.0s, parallelism: 1x)
+  P50: 0.73s  P90: 0.79s  P95: 0.79s  P99: 0.79s  Max: 0.79s
+  <1s: 3 files (100%)  <2s: 3 files (100%)
+  Top 10 slowest:
+      0.79s  tests/hermes_cli/test_gateway_connections_watch.py
+      0.73s  tests/gateway/test_base_topic_sessions.py
+      0.44s  tests/pm/test_workspace_build_inputs.py

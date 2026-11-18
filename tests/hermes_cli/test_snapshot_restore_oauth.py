@@ -115,12 +115,12 @@ def test_auth_refusal_is_not_hidden_by_another_restored_file(tmp_path, monkeypat
     # The /snapshot restore caller must not report an existing snapshot as missing.
     from types import SimpleNamespace
 
-    from hermes_cli.cli_commands_mixin import CLICommandsMixin, _t
+    from hermes_cli.cli_commands_mixin import CLICommandsMixin
 
     capsys.readouterr()
     CLICommandsMixin._snapshot_restore(SimpleNamespace(), ["/snapshot", "restore", snap_id])
     out = capsys.readouterr().out
-    assert out.strip() == _t("snapshot.restore_incomplete", snapshot_id=snap_id)
+    assert out.strip() == f"Snapshot {snap_id} was not fully restored; some files were refused (see logs)"
     assert live_path.read_bytes() == before
 
     # A manifest-listed auth.json missing from the snapshot dir also fails closed.

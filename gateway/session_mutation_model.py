@@ -183,12 +183,11 @@ def _reset_payload(authority, old, current):
     session runs (and, when following, keeps following) its profile again; history is kept. Returns a
     ``noop`` report when the session already runs that model. A safe-mode session never read the
     profile, so it has no configured default to return to."""
-    from agent.i18n import t
     model, provider = ('', '') if old.ignore_user_config else configured_default(authority)
     if not model:
-        raise RuntimeStoreError('invalid_params', field='payload.model', detail=t('cli.model.reset_no_default'))
+        raise RuntimeStoreError('invalid_params', field='payload.model', detail='No model.default in config.yaml — nothing to reset to.')
     if model == current.model and provider in ('', current.provider):
-        return {'status': 'noop', 'model': model, 'note': t('cli.model.reset_none', model=model)}
+        return {'status': 'noop', 'model': model, 'note': (f'Already on the configured default ({model}) — nothing to reset.')}
     return {'model': model, **({'provider': provider} if provider else {})}
 
 

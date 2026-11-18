@@ -7,7 +7,7 @@ import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 
-import { prepareElectronRuntime } from './electron-runtime.mjs'
+
 import { JOB_SIGNALS, lockCheckout } from './node-deps-lock.mjs'
 import { lockImporters } from './pnpm-lock.mjs'
 
@@ -216,7 +216,7 @@ function installedLockMatches(lockText, installedLock, selected) {
 
 // What this run installs and the key its receipt carries, read once the run holds the lock: an
 // update that changed them while this run waited is installed, not judged against older files.
-function dependencyInputs({ source, workspaces, env, nativeToolchain, electron }) {
+function dependencyInputs({ source, workspaces, env, nativeToolchain }) {
   const lockText = readFileSync(join(source, 'pnpm-lock.yaml'), 'utf8')
   const projects = Object.keys(lockImporters(lockText)).sort()
   const selected = [...new Set(workspaces.map(workspace => {
@@ -226,8 +226,7 @@ function dependencyInputs({ source, workspaces, env, nativeToolchain, electron }
     }
     return workspace
   }))].sort()
-  const prepareElectron = electron && selected.includes('apps/desktop')
-    && Boolean(JSON.parse(readFileSync(join(source, 'apps/desktop/package.json'), 'utf8')).devDependencies?.electron)
+
   const pnpm = pnpmCommand({ env })
   const version = pnpmVersion(pnpm, { source, env })
   // pnpm never checks its own version here (pmOnFail: ignore keeps the lock one YAML
@@ -254,12 +253,11 @@ function dependencyInputs({ source, workspaces, env, nativeToolchain, electron }
     inputs.update(file).update('\0').update(existsSync(join(source, file)) ? readFileSync(join(source, file)) : '<missing>').update('\0')
   }
   const nativeKey = nativeToolchain === undefined ? undefined : JSON.stringify(nativeToolchain)
-  return { lockText, projects, selected, prepareElectron, pnpm, args, key: inputs.digest('hex'), nativeKey }
+  return { lockText, projects, selected, pnpm, args, key: inputs.digest('hex'), nativeKey }
 }
 
-/** Install the full requested workspace union in one strict, locked operation.
- *  ``electron: false`` leaves Desktop's Electron binary unprepared, for builds that never run it. */
-export function prepareNodeDependencies({ source, workspaces, env = process.env, reuse = false, install = true, nativeToolchain, electron = true }) {
+/** Install the full requested workspace union in one strict, locked operation. */
+export function prepareNodeDependencies({ source, workspaces, env = process.env, reuse = false, install = true, nativeToolchain }) {
   source = resolve(source)
   if (!Array.isArray(workspaces) || workspaces.length === 0) {
     throw new Error('Select at least one workspace; implicit all-workspace installation is not allowed')
@@ -275,14 +273,13 @@ export function prepareNodeDependencies({ source, workspaces, env = process.env,
   const lock = lockCheckout(source)
   let selected
   try {
-    const inputs = dependencyInputs({ source, workspaces, env, nativeToolchain, electron })
-    const { lockText, projects, prepareElectron, pnpm, args, key, nativeKey } = inputs
+    const inputs = dependencyInputs({ source, workspaces, env, nativeToolchain })
+    const { lockText, projects, pnpm, args, key, nativeKey } = inputs
     selected = inputs.selected
     const previous = previousTrees(source, lock.check)
     previous.recover()
     if (reuse && reusable(lock, { source, receipt, installedLock, key, nativeKey })) {
       lock.check()
-      if (prepareElectron) prepareElectronRuntime({ source, install, env, run: lock.run })
       console.log(`node-deps: reusing completed install (${selected.join(', ')})`)
       lock.release()
       return { source, workspaces: selected }
@@ -298,7 +295,6 @@ export function prepareNodeDependencies({ source, workspaces, env = process.env,
         throw new Error(`pnpm did not record the locked install of ${selected.join(', ')} in ${installedLock}`)
       }
       lock.check()
-      if (prepareElectron) prepareElectronRuntime({ source, install, env, run: lock.run })
     } catch (error) {
       // A run that lost the lock leaves the trees, and the set aside, to the run that holds it.
       if (error.code === 'ENODEPSLOCK') throw error

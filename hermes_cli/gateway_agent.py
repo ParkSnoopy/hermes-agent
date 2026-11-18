@@ -26,9 +26,7 @@ logger = logging.getLogger(__name__)
 # How long a turn waits for its settlement after an interrupt (main: cli_chat_turn_mixin 10 s).
 INTERRUPT_SETTLE_SECONDS = 10.0
 _POLL = 0.1
-# ``steer()`` / ``redirect()``'s reply when the owner consumed the text as a typed voice stop (TUI-26):
-# truthy, so a caller that only asks "taken?" never re-queues it.
-VOICE_STOPPED = "voice_stopped"
+
 
 _RESULT_DEFAULTS = {
     "final_response": "", "failed": False, "partial": False, "error": None, "failure_reason": None,
@@ -149,7 +147,7 @@ class GatewayAgent:
         self._persist_user_message_idx = self._persist_user_message_override = None
         self._persist_user_message_timestamp = None
         self._pending_cli_user_message = None
-        self._voice_turn_pending = False
+
         self._auto_load_skills_result = None
         self._auto_load_skills_resolved = False
         self._session_db_created = True
@@ -603,9 +601,7 @@ class GatewayAgent:
         self.interrupt(message)
 
     def _correct(self, verb, text):
-        """-> ``True`` (accepted), ``False`` (not taken: the caller queues the text), or
-        ``"voice_stopped"`` (TUI-26: the owner took a bare stop phrase as the end of this LOCAL
-        session's voice chat; the text is consumed and reaches no turn, so it is never re-queued)."""
+        """Return whether the correction was accepted instead of being queued locally."""
         generation = self._generation
         if generation is None:
             return False
@@ -614,10 +610,7 @@ class GatewayAgent:
                                           execution_generation=generation)
         except GatewayClientError:
             return False
-        if (result or {}).get("voice_stopped") is True:
-            from agent.i18n import t
-            self._emit_print(t("cli.voice.stop_phrase_typed"))
-            return VOICE_STOPPED
+
         return (result or {}).get("status") in {"queued", "redirected"}
 
     def _compress_context(self, messages, system_message=None, *, approx_tokens=None, focus_topic=None,
@@ -687,8 +680,7 @@ class GatewayAgent:
             params["api_text"] = user_message
         if turn_author:
             params["turn_author"] = turn_author
-        if self._voice_turn_pending:
-            params["voice_turn"] = True
+
         staged = self._pending_cli_user_message
         if isinstance(staged, dict) and staged.get("display_kind"):
             params["display_kind"] = staged["display_kind"]
@@ -794,8 +786,7 @@ class GatewayAgent:
                 if str(exc) == NOT_SENT:
                     return self._unadmitted(history, user_message, str(exc))
                 return self._failed(history, user_message, str(exc), failure_reason="gateway_connection")
-            if (receipt or {}).get("voice_stopped") is True:
-                return self._voice_stopped(history)
+
         self._epoch = getattr(self.connection, "epoch", None)
         turn.admission = self._admission = (receipt or {}).get("admission_id")
         if receipt and receipt.get("execution_generation") is not None:
@@ -1264,14 +1255,6 @@ class GatewayAgent:
             return staged
         return {"role": "user", "content": user_message}
 
-    def _voice_stopped(self, history):
-        """TUI-26: the owner took a bare stop phrase typed into this LOCAL session's voice chat (turned
-        on by another viewer) as the end of that chat and admitted nothing, so no ``message.complete``
-        will come. The turn ends at once with main's typed-stop notice; the history is unchanged."""
-        from agent.i18n import t
-        self._give_back_turn_route()  # nothing was admitted: a ``/model --once`` pick is still owed
-        self._emit_print(t("cli.voice.stop_phrase_typed"))
-        return {**_RESULT_DEFAULTS, "messages": list(history), "voice_stopped": True, "session_id": self.session_id}
 
     def _unadmitted(self, history, user_message, error):
         """A turn the owner never saw (a pre-submit notice, or a submit that was never sent): the CLI

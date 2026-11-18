@@ -38,7 +38,6 @@ def main_mod(monkeypatch):
 
     monkeypatch.setattr(mod, "_has_any_provider_configured", lambda: True)
     monkeypatch.setattr(mod, "_sync_bundled_skills_for_startup", lambda: False)
-    monkeypatch.setattr(mod, "_pin_kanban_board_env", lambda: None)
     return mod
 
 
@@ -264,10 +263,8 @@ def test_in_dir_replaces_inherited_terminal_cwd(main_mod, monkeypatch, tmp_path)
 
 
 def test_in_dir_leaves_unset_terminal_cwd_unset(main_mod, monkeypatch, tmp_path):
-    """Without an inherited value the backends already derive from the process
-    cwd (local exports os.getcwd() at cli import, docker mounts it, the TUI
-    child inherits the chdir). Pre-seeding a host path here would leak it into
-    ssh/container backends that must keep their own default."""
+    """Without an inherited value local execution derives from the process cwd,
+    and a TUI child inherits the changed directory without an extra override."""
     import os
 
     target = tmp_path / "target"

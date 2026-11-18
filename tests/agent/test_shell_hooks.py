@@ -115,6 +115,30 @@ class TestMatcher:
 
 @pytest.mark.platforms("linux")
 class TestCallbackSubprocess:
+    def test_spawn_uses_linux_process_group_and_routed_environment(self, monkeypatch):
+        from tools.environments import local
+
+        seen = {}
+        class Child:
+            returncode = 0
+
+            def communicate(self, input, timeout):
+                seen["input"] = input
+                return "ok", ""
+
+        def spawn(argv, **kwargs):
+            seen.update(argv=argv, **kwargs)
+            return Child()
+
+        monkeypatch.setattr(local, "build_subprocess_env", lambda **_: {"HOME": "/profile"})
+        monkeypatch.setattr(shell_hooks.subprocess, "Popen", spawn)
+        result = shell_hooks._spawn(shell_hooks.ShellHookSpec(event="pre_tool_call", command="hook --check"), "{}")
+        assert result["stdout"] == "ok"
+        assert seen["argv"] == ["hook", "--check"]
+        assert seen["process_group"] == 0
+        assert seen["env"] == {"HOME": "/profile"}
+        assert seen["input"] == "{}"
+
 
 
     def test_block_aggregation_through_plugin_manager(self, tmp_path, monkeypatch):
@@ -705,92 +729,3 @@ class TestRoutedProfileEnv:
         assert seen["home"] == str(routed)
         assert seen["key"] == ""
         assert "profile" in payload
-
-
-# ── bare script paths on native Windows ─────────────────────────────────
-# Real subprocesses, no mocked spawn: the failure being guarded is CreateProcess rejecting a text
-# file, which only exists on the host it happens on. Marked per the root AGENTS.md rule against
-# faking ``sys.platform``.
-
-
-@pytest.mark.platforms("windows")
-def test_bare_script_hook_path_executes_on_windows(tmp_path):
-    """A hook whose command is a bare script path — the shape every example in
-    ``website/docs/user-guide/features/hooks.md`` uses — must run. POSIX gets there through the
-    kernel's shebang handling; CreateProcess has no equivalent, so the same config failed on
-    Windows while working everywhere else. A path that is not a file must still be reported as
-    missing rather than laundered through an interpreter."""
-    script = _write_script(tmp_path, "hook.sh", '#!/usr/bin/env bash\necho "ran" >&2\nexit 7\n')
-
-    def spec(command):
-        return shell_hooks.ShellHookSpec(event="pre_tool_call", command=command)
-
-    result = shell_hooks._spawn(spec(str(script)), "{}")
-    assert result["error"] is None, result["error"]
-    assert result["returncode"] == 7, "the script's own exit code must reach a fail_closed gate"
-    assert "ran" in result["stderr"]
-
-    missing = shell_hooks._spawn(spec(str(tmp_path / "gone.sh")), "{}")
-    assert missing["error"] == "command not found"
-
-
-@pytest.mark.platforms("windows")
-def test_unroutable_script_hook_names_the_remediation(tmp_path):
-    """A suffix we deliberately do not route still fails, but the diagnostic has to say what to do:
-    the raw WinError text is localized, so a non-English Windows install could not act on it."""
-    script = _write_script(tmp_path, "hook.zsh", "#!/bin/zsh\necho hi\n")
-    spec = shell_hooks.ShellHookSpec(event="pre_tool_call", command=str(script))
-
-    result = shell_hooks._spawn(spec, "{}")
-
-    assert result["returncode"] is None
-    assert "interpreter" in result["error"] and "bash" in result["error"]
-
-
-@pytest.mark.platforms("posix")
-def test_real_tool_hooks_receive_only_the_owning_workers_identity(tmp_path, monkeypatch):
-    import shlex
-    import sys
-    from contextlib import nullcontext
-    from types import SimpleNamespace
-    from agent.delegation_context import delegated_child_context, non_dispatcher_owned_context
-    from agent.agent_runtime_helpers import _pre_tool_block_message
-    from agent.inline_tool_executors import emit_terminal_post_tool_call
-    from hermes_cli import plugins
-
-    home = tmp_path / "home"
-    monkeypatch.setenv("HERMES_HOME", str(home))
-    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_owner")
-    monkeypatch.delenv("HERMES_DELEGATED_CHILD_CONTEXT", raising=False)
-    monkeypatch.setattr(plugins, "_plugin_manager", plugins.PluginManager())
-    capture = tmp_path / "captured.json"
-    script = tmp_path / "gate.py"
-    script.write_text(
-        "import json, os, sys\nfrom pathlib import Path\n"
-        "payload=json.load(sys.stdin)\n"
-        "payload['worker_env']=os.environ.get('HERMES_KANBAN_TASK')\n"
-        f"Path({str(capture)!r}).write_text(json.dumps(payload))\n"
-        "print(json.dumps({'action':'block', 'message':'verified gate fired'}))\n"
-    )
-    command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
-    shell_hooks.register_from_config({"hooks": {
-        event: [{"matcher": "kanban_complete", "command": command}]
-        for event in ("pre_tool_call", "post_tool_call")
-    }}, accept_hooks=True)
-    agent = SimpleNamespace(session_id="session-id")
-    for scope, expected in ((nullcontext, "t_owner"), (delegated_child_context, ""),
-                            (non_dispatcher_owned_context, ""), (nullcontext, "t_owner")):
-        with scope():
-            message, _ = _pre_tool_block_message(agent, "kanban_complete", {}, "turn-id", "call-id", [])
-            assert message == "verified gate fired"
-            payload = json.loads(capture.read_text())
-            assert payload["extra"]["kanban_task_id"] == expected
-            assert payload["extra"]["task_id"] == "turn-id"
-            assert payload["session_id"] == "session-id"
-            assert payload["worker_env"] is None
-            capture.unlink()
-            emit_terminal_post_tool_call(agent, function_name="kanban_complete", function_args={},
-                                         result="{}", effective_task_id="turn-id", tool_call_id="call-id")
-            payload = json.loads(capture.read_text())
-            assert payload["hook_event_name"] == "post_tool_call"
-            assert payload["extra"]["kanban_task_id"] == expected

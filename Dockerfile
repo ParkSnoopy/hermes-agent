@@ -67,7 +67,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/tools
 # ran as PID 1. See #15012. Phase 2 of the s6-overlay supervision plan
 # replaces tini with s6-overlay's /init (PID 1 = s6-svscan), which reaps
 # zombies non-blockingly on SIGCHLD and additionally supervises the main
-# hermes process, the dashboard, and per-profile gateways.
+# hermes process and per-profile gateways.
 # The second package list is the shared libraries the pinned Chromium links
 # against. `npx playwright install --with-deps` used to apt-install them as
 # a side effect; pm stages the pinned browser instead (below), so the libs
@@ -78,7 +78,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/tools
 # user cannot apt-get it later (no root, and the root fs resets on restart).
 RUN apt-get -o Acquire::Retries=3 update && \
     apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
-    ca-certificates curl iputils-ping python3 python-is-python3 gcc g++ make cmake python3-dev python3-venv libffi-dev libolm-dev libatomic1 procps git openssh-client docker-cli xz-utils tmux \
+    ca-certificates curl iputils-ping python3 python-is-python3 gcc g++ make cmake python3-dev python3-venv libffi-dev libatomic1 procps git openssh-client docker-cli xz-utils tmux \
     libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 libdbus-1-3 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 && \
     rm -rf /var/lib/apt/lists/*
 
@@ -119,8 +119,8 @@ sys.exit('SQLite FTS5 trigram self-test failed') if db.execute(\"SELECT count(*)
 db.close()"
 
 # ---------- s6-overlay install ----------
-# s6-overlay provides supervision for the main hermes process, the dashboard,
-# and per-profile gateways. /init becomes PID 1 below — see ENTRYPOINT.
+# s6-overlay supervises the main hermes process and per-profile gateways.
+# /init becomes PID 1 below — see ENTRYPOINT.
 #
 # Multi-arch: BuildKit auto-populates TARGETARCH (amd64 / arm64). s6-overlay
 # uses tarball names keyed on the kernel arch string (x86_64 / aarch64), so
@@ -208,7 +208,7 @@ COPY pm/ pm/
 # from hermes_constants (stdlib-only) at install time — a sealed-stage
 # `python3 -m pm.cli install` fails with "No module named
 # 'hermes_constants'" without it on the path. Copy the module next to pm.
-COPY hermes_constants.py hermes_constants.py
+COPY hermes_constants.py hermes_user_dirs.py ./
 # PM imports the shared stdlib locking owner before deps exist.
 COPY hermes_cli/__init__.py hermes_cli/runtime_state.py hermes_cli/
 COPY scripts/bundles/payload.py scripts/bundles/payload.py
@@ -246,11 +246,10 @@ FROM runtime_base AS python_deps
 # frontend stats the readme path during dep resolution, so we `touch` an
 # empty placeholder — the real README is restored by `COPY . .` below.
 #
-# `pm.build_env --no-install-project --extra all --extra messaging --extra otlp`
+# `pm.build_env --no-install-project --extra all`
 # installs the deps reachable through the composite `[all]` extra
 # (handpicked set intended for the production image; dependency groups are not selected),
-# plus gateway messaging adapters that should work in the published image
-# without a first-boot lazy install.  We do NOT use `--all-extras`:
+# We do NOT use `--all-extras`:
 # that would pull in `[rl]` (atroposlib + tinker + torch + wandb from
 # git) and `[yc-bench]` (another git dep), neither of which belongs in
 # the published container.
@@ -259,21 +258,9 @@ FROM runtime_base AS python_deps
 # so Docker users can use these providers without requiring runtime
 # lazy-install access to PyPI (often blocked in containerized envs).
 #
-# The [otlp] extra contains the SDK/exporter imported by Hermes when Gateway
-# Health export is enabled. Collector and observability-backend dependencies
-# remain external and are not part of the Hermes production image.
+
 #
-# The Matrix gateway's deps ([matrix] extra) are baked in because
-# python-olm (transitive via mautrix[encryption]) builds from source on
-# Python/image combinations without usable wheels.  The Docker image is
-# Linux-only, so keeping the native libolm/build-toolchain packages here
-# avoids the cross-platform failures that kept [matrix] out of [all]
-# while still making Matrix work in the published container. Fixes #30399.
-#
-# Google Chat's [google-chat] extra (google-cloud-pubsub + Chat API clients)
-# is baked so hosted/immutable images can enable the adapter without writing
-# the sealed venv.
-#
+
 # [fal] is baked because the image tool's availability check imports
 # fal_client whenever a FAL backend resolves, which the Nous-managed gateway
 # always does on hosted agents. Lazy-installing it at the gateway's first boot
@@ -298,65 +285,34 @@ RUN touch ./README.md
 # pm.packages.uv_cache_dir() merges into $HERMES_HOME/cache/uv on first use.
 # Do not leave the cache at its default: HERMES_HOME is not set yet in this
 # stage, so the default is /root/.hermes/cache/uv, which nothing reads. A plugin
-# install then runs with an empty cache and builds python-olm from source.
+# install then runs with an empty cache.
 RUN python3 -m pm.build_env --source /opt/hermes --python /usr/local/bin/python3 \
     --cache /opt/hermes/uv-cache \
     --out /opt/hermes/.venv --no-install-project --sealed --record-selection \
-    --extra all --extra messaging --extra otlp --extra anthropic --extra bedrock \
-    --extra azure-identity --extra matrix --extra google-chat --extra fal --extra documents
-
-# Icons render on the runtime environment: Pillow and resvg-py are core
-# dependencies. A stage of its own so the frontend stage keeps building its
-# Node dependencies in parallel with the Python ones.
-FROM python_deps AS icons
-COPY scripts/generate_icons.py scripts/
-COPY assets/ assets/
-RUN /opt/hermes/.venv/bin/python -I scripts/generate_icons.py --source /opt/hermes --out /tmp/hermes-icons
+    --extra all --extra anthropic --extra bedrock \
+    --extra azure-identity --extra fal --extra documents
 
 # Frontend dependencies never enter the runtime layers.
 FROM runtime_base AS frontend_build
 # pnpm installs the workspaces; nothing in the runtime image runs it, so only
-# the build stages (this one and webapp_build) stage it.
+# the build stage stages it.
 RUN python3 -c 'from pathlib import Path; from pm import ensure, installed_package; ensure("pnpm", explicit=True); Path("/usr/local/bin/pnpm").symlink_to(installed_package("pnpm").binary)' && \
     pnpm --version
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-COPY web/package.json web/
 COPY ui-tui/package.json ui-tui/
 COPY ui-tui/packages/hermes-ink/ ui-tui/packages/hermes-ink/
 COPY apps/shared/ apps/shared/
 COPY scripts/build/node-deps*.mjs scripts/build/electron-runtime.mjs scripts/build/pnpm-lock.mjs scripts/build/
 # Root node_modules/typescript is a link into pnpm's virtual store, which never
 # reaches the runtime image: stage a dereferenced copy for it.
-RUN node scripts/build/node-deps.mjs --source /opt/hermes --workspace ui-tui --workspace web && \
+RUN node scripts/build/node-deps.mjs --source /opt/hermes --workspace ui-tui && \
     mkdir -p /opt/products && \
     cp -RL node_modules/typescript /opt/products/typescript
 
 COPY pyproject.toml uv.lock ./
-COPY web/ web/
 COPY ui-tui/ ui-tui/
 COPY scripts/build/*.mjs scripts/build/
-COPY scripts/generate-icons.mjs scripts/generate_icons.py scripts/
-COPY assets/ assets/
-COPY --from=icons /tmp/hermes-icons /tmp/hermes-icons
-RUN node scripts/build/tui.mjs --source /opt/hermes --out /opt/products/tui && \
-    node scripts/build/web.mjs --source /opt/hermes --icons /tmp/hermes-icons --out /opt/products/web
-
-# The Webapp (the browser-hosted Desktop) builds through its source recipe,
-# which installs Desktop's dependencies in a private workspace. A stage of its
-# own so Desktop changes leave the TUI and dashboard layers cached.
-FROM runtime_base AS webapp_build
-RUN python3 -c 'from pathlib import Path; from pm import ensure, installed_package; ensure("pnpm", explicit=True); Path("/usr/local/bin/pnpm").symlink_to(installed_package("pnpm").binary)' && \
-    pnpm --version
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-COPY apps/desktop/package.json apps/desktop/
-COPY apps/desktop/scripts/build-webapp.mjs apps/desktop/scripts/
-COPY apps/shared/package.json apps/shared/
-COPY scripts/build/*.mjs scripts/build/
-# Dependencies first, keyed only by the manifests and the recipe, so a source
-# change reuses this layer and the build below reuses its install.
-RUN node apps/desktop/scripts/build-webapp.mjs --deps-only
-COPY apps/ apps/
-RUN node apps/desktop/scripts/build-webapp.mjs
+RUN node scripts/build/tui.mjs --source /opt/hermes --out /opt/products/tui
 
 FROM python_deps AS runtime
 # Standalone TypeScript linting is a runtime feature; Vite/esbuild are not.
@@ -364,26 +320,10 @@ COPY --from=frontend_build /opt/products/typescript /opt/hermes/node_modules/typ
 RUN mkdir -p /opt/hermes/node_modules/.bin && \
     ln -s ../typescript/bin/tsc /opt/hermes/node_modules/.bin/tsc
 
-# ---------- Photon iMessage sidecar deps (baked, NS-606) ----------
-# The photon plugin's Node sidecar needs its own node_modules
-# (spectrum-ts). The install tree is immutable at runtime, so a lazy
-# `npm ci` on first connect would hit EROFS — bake the deps here instead
-# (deterministic installs, NS-559). The patch script is copied alongside
-# the manifests because package.json's postinstall runs it, which also
-# means the spectrum-ts patch is applied at build time. Layer-cached:
-# only re-runs when the sidecar manifests/patch change.
-COPY plugins/platforms/photon/sidecar/package.json \
-     plugins/platforms/photon/sidecar/package-lock.json \
-     plugins/platforms/photon/sidecar/patch-spectrum-mixed-attachments.mjs \
-     plugins/platforms/photon/sidecar/
-RUN cd plugins/platforms/photon/sidecar && \
-    npm ci --no-audit --fetch-retries=5 && \
-    npm cache clean --force
 
 # Shared product outputs are independent of application dependency assembly.
 COPY --from=frontend_build /opt/products/tui /opt/hermes/ui-tui
-COPY --from=frontend_build /opt/products/web /opt/hermes/hermes_cli/web_dist
-COPY --from=webapp_build /opt/hermes/apps/desktop/dist-webapp /opt/hermes/apps/desktop/dist-webapp
+
 # ---------- Bot Screen X socket directory ----------
 # Xvnc would create this itself (/tmp is 1777); pre-creating it keeps ownership
 # deterministic when HERMES_UID is remapped between boots.
@@ -456,8 +396,8 @@ RUN set -eu; \
     python3 -c 'import json, pathlib, tomllib; project = tomllib.loads(pathlib.Path("/opt/hermes/pyproject.toml").read_text(encoding="utf-8"))["project"]; stamp = json.loads(pathlib.Path("/opt/hermes/install-stamp.json").read_text(encoding="utf-8")); commit = stamp.get("commit"); revision = commit if commit and set(commit) != {"0"} else None; marker = pathlib.Path("/etc/hermes/image-provenance.json"); marker.write_text(json.dumps({"schema": 1, "deployment_kind": "image", "manager": "docker", "image": "nousresearch/hermes-agent", "version": project["version"], "revision": revision}, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8"); marker.chmod(0o444)'
 
 # ---------- s6-overlay service wiring ----------
-# Static services declared at build time: main-hermes, dashboard and
-# profile-gateways. Per-profile gateway services are registered
+# Static services declared at build time: main-hermes and profile-gateways.
+# Per-profile gateway services are registered
 # dynamically at runtime by the profile create/delete hooks (Phase 4);
 # they live under /run/hermes-service/ (tmpfs), supervised by the
 # hermes-owned s6-svscan of the profile-gateways service, never in the
@@ -481,7 +421,7 @@ COPY --chmod=0755 docker/cont-init.d/015-supervise-perms /etc/cont-init.d/015-su
 COPY --chmod=0755 docker/cont-init.d/02-reconcile-profiles /etc/cont-init.d/02-reconcile-profiles
 
 # ---------- Runtime ----------
-ENV HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist
+
 # Point the TUI launcher at the prebuilt bundle baked at build time (the
 # frontend_build stage's scripts/build/tui.mjs product). This makes
 # _make_tui_argv take the prebuilt-bundle fast path
@@ -492,11 +432,8 @@ ENV HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist
 # Why this is required (not just an optimization): the runtime image carries
 # no workspace node_modules (frontend dependencies stay in frontend_build; only
 # a TypeScript copy ships) and no pnpm. So the launcher's install check fails on
-# every launch, and the install it triggers (a) can never converge here and
-# (b) races itself across concurrent embedded-chat (/api/pty) connections →
-# ENOTEMPTY → the chat tab dies with a 502 / "[session ended]". Pointing at the
-# prebuilt bundle sidesteps the whole check. (A separate launcher hardening is
-# tracked independently.)
+# every launch, and the install it triggers can never converge here. Pointing
+# at the prebuilt bundle sidesteps the whole check.
 ENV HERMES_TUI_DIR=/opt/hermes/ui-tui
 ENV HERMES_HOME=/opt/data
 ENV HERMES_WRITE_SAFE_ROOT=/opt/data

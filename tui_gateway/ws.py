@@ -375,8 +375,7 @@ def _disable_nagle(ws: Any) -> None:
 
 
 def _authority_connection(ws: Any, transport: WSTransport, auth_identity: dict | None, operator: bool):
-    """The session-authority connection for this socket (route scope, else app state), or None
-    when this backend has no authority and requests go to the legacy ``server.dispatch``."""
+    """The session-authority connection for this socket (route scope, else app state)."""
     authority = (getattr(ws, 'scope', None) or {}).get('hermes.session_authority') or getattr(
         getattr(getattr(ws, 'app', None), 'state', None), 'session_authority', None)
     if authority is None:
@@ -386,28 +385,23 @@ def _authority_connection(ws: Any, transport: WSTransport, auth_identity: dict |
 
 
 async def _dispatch_request(authority_connection: Any, req: Any, req_method: Any, transport: WSTransport) -> Any:
-    """One request through the authority when attached, else the legacy dispatcher. A request from the
-    local Desktop runs as work for it (the welcome trial and onboarding key on that), and so do the
-    threads it hands off to: ``to_thread`` and the legacy pool copy this context."""
-    from hermes_cli.process_identity import serving_local_desktop
+    """Dispatch an authenticated owner's request, including its registered presentation methods."""
     from tui_gateway.server_requests import resolve_pinned_response
-    if authority_connection is not None and resolve_pinned_response(req, transport):
-        # The answer to a request a sidecar RPC sent back to THIS socket (vault.preview.fill's page
-        # scripts); the authority's own registry never holds those ids.
+    if authority_connection is None:
+        return {"jsonrpc": "2.0", "id": req.get("id") if isinstance(req, dict) else None,
+                "error": {"code": -32001, "message": "session authority required"}}
+    if resolve_pinned_response(req, transport):
+        # The answer to a presentation RPC's request pinned to THIS socket; the authority's
+        # own registry never holds those ids.
         return None
-    with serving_local_desktop(getattr(transport, "desktop_local", False)):
-        if authority_connection is None:
-            return await asyncio.to_thread(server.dispatch, req, transport)
-        resp = await authority_connection.dispatch(req)
-        actor = authority_connection.actor
-        if (_is_unknown_method(resp) and req_method in server._methods
-                and legacy_fallback_allowed(actor, req_method)):
-            # Session verbs live on the authority; everything else the sidecar still
-            # registers (pet, wake word, connectors) keeps its legacy handler. A legacy
-            # session writer keeps the authority's -32601 (ws_legacy_fallback), as does a
-            # method neither side knows, which the client's capability fallbacks key on.
-            resp = await asyncio.to_thread(dispatch_legacy, server, req, transport, actor)
-        return resp
+    resp = await authority_connection.dispatch(req)
+    actor = authority_connection.actor
+    if (_is_unknown_method(resp) and req_method in server._methods
+            and legacy_fallback_allowed(actor, req_method)):
+        # Presentation methods use the same authenticated grant and profile scope; session
+        # writes and process-global sidecar operations remain owned by the authority.
+        resp = await asyncio.to_thread(dispatch_legacy, server, req, transport, actor)
+    return resp
 
 
 def _start_backend_liveness() -> None:
@@ -738,10 +732,7 @@ async def handle_ws(ws: Any, *, auth_identity: dict | None = None, subprotocol: 
         if transport is not None:
             server.unregister_live_transport(transport)
             transport.close()
-            try:
-                await asyncio.to_thread(server._release_wake_for_transport, transport)
-            except Exception:
-                _log.exception("ws wake-word teardown failed peer=%s", peer)
+
             # The single WS-disconnect teardown path: reap sessions this transport owned (close_on_disconnect
             # sidecars) or detach the rest to the drop sentinel so later emits don't hit a closed socket; detached
             # ones go to the grace-windowed orphan reaper (a quick resume cancels it). Offloaded: worker.close()

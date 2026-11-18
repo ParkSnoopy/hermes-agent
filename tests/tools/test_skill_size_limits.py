@@ -82,7 +82,7 @@ class TestEditSkillSizeLimit:
         big = _make_skill_content(MAX_SKILL_CONTENT_CHARS + 100)
         # Fix the name in frontmatter
         big = big.replace("name: test-skill", "name: grow-me")
-        result = json.loads(skill_manage(action="edit", name="grow-me", content=big))
+        result = json.loads(skill_manage(action="patch", name="grow-me", content=big))
         assert result["success"] is False
 
 

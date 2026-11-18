@@ -10,7 +10,7 @@ from pathlib import Path
 import shlex
 import socket
 import stat
-import sys
+
 from typing import Literal
 import time
 
@@ -104,28 +104,18 @@ def _open_mode(path: Path, mode: int, expected: int) -> DiscoveryError:
 
 
 def socket_peer_uid(sock: socket.socket) -> int | None:
-    """Kernel-reported uid of the process on the other end of a connected AF_UNIX socket
-    (SO_PEERCRED on Linux, getpeereid on macOS); None where neither exists."""
+    """Kernel-reported uid of the connected AF_UNIX peer, if available."""
     if hasattr(socket, "SO_PEERCRED"):
         import struct
         return struct.unpack("3i", sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[1]
-    if sys.platform != "darwin":
-        return None
-    import ctypes
-    uid, gid = ctypes.c_uint(), ctypes.c_uint()
-    getpeereid = ctypes.CDLL(None, use_errno=True).getpeereid
-    getpeereid.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(ctypes.c_uint)]
-    getpeereid.restype = ctypes.c_int
-    if getpeereid(sock.fileno(), ctypes.byref(uid), ctypes.byref(gid)) != 0:
-        raise OSError(ctypes.get_errno(), "getpeereid failed")
-    return uid.value
+    return None
 
 
 def connect_private(home: Path, timeout: float) -> socket.socket:
     """Connected control socket for *home* whose listener runs as this user (caller closes it).
     The path is validated by lstat first, but connect() follows a symlink swapped in afterwards,
     so the listening process itself is authenticated. Platforms without a peer-credential API
-    (neither SO_PEERCRED nor getpeereid) fall back to the path checks alone."""
+    without SO_PEERCRED fall back to the path checks alone."""
     path = _socket_path(home)
     peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
@@ -173,10 +163,6 @@ def _socket_path(home: Path) -> Path:
 
 def query_identify(home: Path, *, timeout: float) -> dict:
     """Unlike diagnostic queries, retain timeout/access/protocol failures."""
-    if os.name == "nt":
-        from gateway.runtime_bootstrap_windows import query_runtime_control
-        return _identify_response(query_runtime_control(
-            home, b'{"protocol":1,"verb":"identify","id":1}\n', timeout))
     deadline = time.monotonic() + timeout
     request = b'{"protocol":1,"verb":"identify","id":1}\n'
     with connect_private(home, timeout) as client:
@@ -235,8 +221,7 @@ def missing_owner_state(home: Path) -> Literal["starting", "absent", "inaccessib
     from gateway.status import _is_gateway_runtime_lock_active_strict
     lock = home / "gateway.lock"
     try:
-        if os.name != "nt":
-            _private_lock(lock)
+        _private_lock(lock)
         return "starting" if _is_gateway_runtime_lock_active_strict(lock) else "absent"
     except FileNotFoundError:
         return "absent"

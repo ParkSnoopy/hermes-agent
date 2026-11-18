@@ -31,6 +31,13 @@ class TestIssue5211OpenCodeGoDotPreservation:
 # ── Anthropic dot-to-hyphen conversion (regression) ────────────────────
 
 
+class TestAnthropicNormalization:
+    def test_native_provider_strips_vendor_prefix_and_normalizes_model(self):
+        assert normalize_model_for_provider(
+            "anthropic/claude-opus-4.6", "anthropic",
+        ) == "claude-opus-4-6"
+
+
 # ── OpenCode Zen regression ────────────────────────────────────────────
 
 

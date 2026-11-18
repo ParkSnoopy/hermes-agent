@@ -21,7 +21,7 @@ from hermes_cli.local_runtime.context_policy import (
 from hermes_cli.local_runtime.estimator import (
     HardwareBudget, LayerKind, ModelProfile, PhysicsRefusal, as_loaded)
 from hermes_cli.local_runtime.gguf import model_id_from_stem
-from hermes_platform.host.products import is_nvidia_n1x_pci_id
+
 
 logger = logging.getLogger(__name__)
 
@@ -214,45 +214,9 @@ _HOST_BANDWIDTH_GB_S = 80.0         # spilled weights stream over host DRAM
 # compress floor, which marks unusable, not unpleasant.
 PLEASANT_FLOOR_TOK_S = 20.0
 
-# Shipped short-context reference rates, not benchmarks run during recommendation.
-# Windows N1X / b10964 CUDA: MTP2 measured 21.76–21.96 tok/s over four 512-token
-# prose probes; a four-slot smoke measured 21.89. At 32K input the reference was
-# 18.82 tok/s: this is a baseline estimate, not a context-independent guarantee.
-# Unmatched hardware, backend, quant or draft depth retains the bandwidth estimate.
-_MEASURED_DECODE_TOK_S = {
-    ("win32", "cuda", "NVIDIA RTX Spark N1X",
-     "qwen3.8-27b", "UD-Q4_K_M", 2): 21.9,
-}
-
-
-# Defaults the maker of a recognized product chose for it, keyed like the measured rates. The
-# derived rule still decides when the chosen entry is ineligible or cannot run resident, and every
-# other entry that fits stays available. The RTX Spark ships the 27B: Flash Next fits 128 GB, but
-# Windows backs GPU memory with commit outside the carve-out, so it loads only with the carve-out
-# lowered.
-_PRODUCT_DEFAULTS = {
-    ("win32", "cuda", "NVIDIA RTX Spark N1X"): "qwen3.8-27b",
-}
-
-
-def _hardware_key(budget: HardwareBudget, backend: str) -> tuple[str, str, str]:
-    """(platform, backend, reference GPU name) for the shipped tables; the name is empty when the
-    GPU is not recognized."""
-    # Drivers may append a parenthesized description to the stable device name.
-    gpu_name = budget.gpu_name.partition(" (")[0]
-    # Resolve PCI identity to the existing reference key; names only backfill missing IDs.
-    if budget.gpu_pci_id is not None:
-        gpu_name = "NVIDIA RTX Spark N1X" if is_nvidia_n1x_pci_id(budget.gpu_pci_id) else ""
-    effective_backend = "cuda" if backend == "auto" and gpu_name else backend
-    return (budget.platform, effective_backend, gpu_name)
-
-
 def predicted_decode_tok_s(entry: CatalogEntry, variant: QuantVariant, budget: HardwareBudget, *,
-                           spilled: bool = False, backend: str = "auto") -> float:
-    """Shipped measured baseline where matched, otherwise the memory-bound estimate."""
-    key = (*_hardware_key(budget, backend), entry.id, variant.quant, entry.mtp_draft_depth)
-    if budget.uma and entry.mtp and not spilled and (measured := _MEASURED_DECODE_TOK_S.get(key)) is not None:
-        return measured
+                           spilled: bool = False) -> float:
+    """Memory-bound estimate for resident discrete, unified, or spilled weights."""
     bandwidth = (_HOST_BANDWIDTH_GB_S if spilled
                  else _UMA_BANDWIDTH_GB_S if budget.uma
                  else _DISCRETE_BANDWIDTH_GB_S)
@@ -261,13 +225,13 @@ def predicted_decode_tok_s(entry: CatalogEntry, variant: QuantVariant, budget: H
 
 
 def recommended_entry(budget: HardwareBudget,
-                      entries: tuple[CatalogEntry, ...] | None = None, *, backend: str = "auto"
+                      entries: tuple[CatalogEntry, ...] | None = None
                       ) -> tuple[CatalogEntry, str] | None:
     """The catalog's default pick for THIS machine, with its reason key.
 
     Callers pass pre-filtered entries when some are ineligible for reasons the catalog can't know
     (engine too old). Entries marked ``recommend: false`` are never picked. Reasons:
-    product-default (the product's maker chose this entry and it runs resident);
+
     best-quality-resident (quality won among resident entries clearing the pleasant floor);
     speed-gated-quality (same, but the floor eliminated a HIGHER quality candidate).
     Returns None when no eligible entry runs resident at the pleasant floor; slower and spilled
@@ -279,13 +243,10 @@ def recommended_entry(budget: HardwareBudget,
         return None
 
     def speed(t, spilled=False):
-        return predicted_decode_tok_s(t[0], t[1].variant, budget, spilled=spilled, backend=backend)
+        return predicted_decode_tok_s(t[0], t[1].variant, budget, spilled=spilled)
 
     resident = [(e, c) for e, c in fitting if c.zero_spill]
-    product_default = _PRODUCT_DEFAULTS.get(_hardware_key(budget, backend))
-    for entry, _ in resident:
-        if entry.id == product_default:
-            return (entry, "product-default")
+
     pleasant = [t for t in resident if speed(t) >= PLEASANT_FLOOR_TOK_S]
     if pleasant:
         pick = max(pleasant, key=lambda t: (t[0].quality, -t[1].variant.size_bytes))[0]

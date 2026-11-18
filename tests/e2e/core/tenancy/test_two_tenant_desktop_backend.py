@@ -2,19 +2,19 @@
 
 Class: multiplex / tenancy isolation (issue_classes.md C7). Users hit it as "a secondary profile's
 chat showed/stored the default profile's model", "a key or setting I saved for profile B landed in
-profile A's .env / config.yaml", "the Desktop cron ticker ran B's job with A's env", "creating a
+profile A's .env / config.yaml", "creating a
 profile restarted my backend" (#85669, #101719, #105396, #107422, #107692, #111151).
 
-Harness: the real app backend, ``hermes serve --port 0`` with ``HERMES_DESKTOP=1`` (which also runs
-the in-process cron ticker for every served profile), driven over the same ``/api/ws`` JSON-RPC
+Harness: the real app backend, ``hermes serve --port 0`` with ``HERMES_DESKTOP=1``, driven over
+the same ``/api/ws`` JSON-RPC
 socket the Desktop uses: ``session.create {profile}``, ``prompt.submit``, ``config.set``,
 ``model.save_key``, ``profiles.create``, ``session.resume``. Each profile owns its own loopback
 provider and distinct canaries (see ``_helpers.Tenant``); every turn runs ``env | sort; pwd`` in
 the terminal tool so the provider receives a snapshot taken inside the tool subprocess.
 
-Phases (same invariant after each): interleaved turns + a cron tick in every profile ->
+Phases (same invariant after each): interleaved turns ->
 session-bound and profile-bound settings writes via RPC -> profile create/delete next to the live
-backend (PID must not change) -> restart + resume + a second cron tick. Invariant: providers see only
+backend (PID must not change) -> restart + resume + more turns. Invariant: providers see only
 their own tenant's key/model/canaries, tool subprocesses see only their own cwd/env, each write
 changes only its own profile's files, no file in any profile home carries another tenant's canary,
 and no RPC reply/event for a session carries another tenant's canary.
@@ -87,32 +87,16 @@ def _rpc_leaks(b: H.ServeBackend, owners: dict[str, str], tenants: dict[str, H.T
 
 
 def _start(root: Path, tenants: dict[str, H.Tenant], backends: list[H.ServeBackend]) -> H.ServeBackend:
-    for t in tenants.values():
-        H.seed_due_cron_job(t, root / "home")  # due now: the backend's first cron tick fires it
     b = H.ServeBackend(root / "home", root / "serve.log")
     backends.append(b)
     return b
 
 
-def _await_cron(tenants: dict[str, H.Tenant], fires: int, log: Path | None = None) -> None:
-    try:
-        H.poll(lambda: all(H.cron_requests(t) >= 2 * fires for t in tenants.values()), 150,
-               f"cron fire #{fires} in every profile")
-    except AssertionError as exc:
-        # The backend's own log and each tenant's job state are the only evidence of WHICH
-        # profile's tick did not fire (or fired and never reached its provider).
-        def text(path: Path) -> str:
-            return path.read_text(encoding="utf-8", errors="replace") if path.exists() else "<missing>"
-        state = {n: (H.cron_requests(t), text(t.home / "cron" / "jobs.json")[-1200:]) for n, t in tenants.items()}
-        tail = text(log)[-12000:] if log is not None else ""
-        raise AssertionError(f"{exc}\nper-profile (cron requests, jobs.json tail): {state}\n"
-                             f"--- serve.log tail ---\n{tail}") from None
-
 
 def test_desktop_backend_never_crosses_tenants(fleet, request: pytest.FixtureRequest) -> None:
     root, tenants, backends = fleet
 
-    # Phase 1: one backend, three profile sessions, interleaved turns, one cron fire per profile.
+    # Phase 1: one backend, three profile sessions, interleaved turns.
     b = _start(root, tenants, backends)
     pid = b.proc.pid
     sids: dict[str, str] = {}
@@ -125,8 +109,7 @@ def test_desktop_backend_never_crosses_tenants(fleet, request: pytest.FixtureReq
     owners = {sid: name for name, sid in sids.items()}
     for name in ("alpha", "default", "beta", "alpha", "beta"):
         b.turn(sids[name], f"turn for {name}")
-    _await_cron(tenants, 1, root / "serve.log")
-    H.check_isolation(tenants, min_snapshots=2, extra=_rpc_leaks(b, owners, tenants))
+    H.check_isolation(tenants, min_snapshots=1, extra=_rpc_leaks(b, owners, tenants))
 
     # Phase 2: settings writes via RPC touch only the addressed profile.
     for name, t in tenants.items():
@@ -148,7 +131,7 @@ def test_desktop_backend_never_crosses_tenants(fleet, request: pytest.FixtureReq
     _expect_only(before, _files(tenants), {"alpha/.env"}, "session-bound model.save_key write")
     for name in ("default", "beta", "alpha"):
         b.turn(sids[name], f"after settings for {name}")
-    H.check_isolation(tenants, min_snapshots=3, extra=_rpc_leaks(b, owners, tenants))
+    H.check_isolation(tenants, min_snapshots=2, extra=_rpc_leaks(b, owners, tenants))
 
     # Phase 3: profile churn next to the live backend never replaces it.
     b.ok("profiles.create", {"name": "gamma"})
@@ -156,9 +139,9 @@ def test_desktop_backend_never_crosses_tenants(fleet, request: pytest.FixtureReq
     assert deleted.returncode == 0, deleted.stderr[-2000:]
     assert b.proc.pid == pid and b.proc.poll() is None, "profile create/delete replaced the backend"
     b.turn(sids["alpha"], "after profile churn")
-    H.check_isolation(tenants, min_snapshots=3, extra=_rpc_leaks(b, owners, tenants))
+    H.check_isolation(tenants, min_snapshots=2, extra=_rpc_leaks(b, owners, tenants))
 
-    # Phase 4: restart; resume each stored session in its own profile; cron ticks again.
+    # Phase 4: restart; resume each stored session in its own profile.
     b.close()
     assert not H.pid_alive(pid), "old backend still alive"
     b = _start(root, tenants, backends)
@@ -168,8 +151,7 @@ def test_desktop_backend_never_crosses_tenants(fleet, request: pytest.FixtureReq
     owners = {sid: name for name, sid in sids.items()}
     for name in ("beta", "default", "alpha"):
         b.turn(sids[name], f"after restart for {name}")
-    _await_cron(tenants, 2, root / "serve.log")
-    H.check_isolation(tenants, min_snapshots=5, extra=_rpc_leaks(b, owners, tenants))
+    H.check_isolation(tenants, min_snapshots=3, extra=_rpc_leaks(b, owners, tenants))
 
     b.close()
     log = (root / "serve.log").read_text(encoding="utf-8", errors="replace")

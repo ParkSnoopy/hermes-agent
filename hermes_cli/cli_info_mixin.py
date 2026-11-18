@@ -15,7 +15,6 @@ import threading
 import time
 from typing import Any, NamedTuple
 
-from agent.i18n import t
 from hermes_constants import is_termux as _is_termux_environment
 from rich.markup import escape as _escape
 from utils import base_url_hostname
@@ -41,19 +40,19 @@ def _tool_progress_label(mode: str) -> str:
     style = _TOOL_PROGRESS_STYLES.get(mode)
     if style is None:
         return ""
-    return f"{style}{t(f'cli.verbose.label_{mode}')}{_Colors.RESET} — {t(f'cli.verbose.detail_{mode}')}"
+    return f"{style}{dict(off='Tool progress: OFF', new='Tool progress: NEW', all='Tool progress: ALL', verbose='Tool progress: VERBOSE')[mode]}{_Colors.RESET} — {dict(off='silent mode, just the final response.', new='show each new tool (skip repeats).', all='show every tool call.', verbose='full args, results, and think blocks.')[mode]}"
 
 
 def _reload_mcp_choices() -> list[tuple[str, str, str]]:
-    """(id, label, hint) rows for the /reload-mcp confirm modal, in the active language."""
+    """(id, label, hint) rows for the /reload-mcp confirm modal."""
     return [
-        ("once", t("cli.reload_mcp.choice_once"), t("cli.reload_mcp.choice_once_hint")),
-        ("always", t("cli.reload_mcp.choice_always"), t("cli.reload_mcp.choice_always_hint")),
-        ("cancel", t("cli.reload_mcp.choice_cancel"), t("cli.reload_mcp.choice_cancel_hint"))]
+        ("once", 'Approve Once', 'reload now'),
+        ("always", 'Always Approve', 'reload now and silence this prompt permanently'),
+        ("cancel", 'Cancel', 'leave MCP tools unchanged')]
 
 
 # /help section headers: the category ids are load-bearing for gateway help and the registry, so
-# they stay identifiers and are only localized at render time.
+# they stay identifiers and are presented as labels at render time.
 _HELP_SECTION_KEYS = {
     "Session": "session",
     "Configuration": "configuration",
@@ -67,7 +66,7 @@ _HELP_SECTION_KEYS = {
 
 def _help_section_title(category: str) -> str:
     slug = _HELP_SECTION_KEYS.get(category)
-    return t(f"cli.help.section_{slug}") if slug else category
+    return {'session': 'Session', 'configuration': 'Configuration', 'tools_skills': 'Tools & Skills', 'info': 'Info', 'exit': 'Exit', 'context': 'Context', 'background_automation': 'Background & Automation'}[slug] if slug else category
 
 
 def _ascii_box(title: str, width: int) -> None:
@@ -181,12 +180,12 @@ class CLIInfoMixin:
 
                 def _refresh_banner_snapshot() -> None:
                     try:
-                        from model_tools import get_toolset_for_tool
+                        from tools.registry import registry
                         tools = get_tool_definitions(
                             enabled_toolsets=self.enabled_toolsets,
                             disabled_toolsets=self.disabled_toolsets, quiet_mode=True)
                         availability = compute_toolset_availability(self.enabled_toolsets)
-                        tmap = _toolset_map(tools, availability, get_toolset_for_tool)
+                        tmap = _toolset_map(tools, availability, registry.get_toolset_for_tool)
                         save_banner_snapshot(tools, self.enabled_toolsets, availability, tmap)
                     except Exception:
                         logger.debug("banner snapshot refresh failed", exc_info=True)
@@ -196,13 +195,13 @@ class CLIInfoMixin:
                 ).start()
             else:
                 # Cold path: compute live, then persist the snapshot for the next launch.
-                from model_tools import get_toolset_for_tool
+                from tools.registry import registry
                 tools = get_tool_definitions(enabled_toolsets=self.enabled_toolsets,
                                              disabled_toolsets=self.disabled_toolsets, quiet_mode=True)
                 availability = compute_toolset_availability(self.enabled_toolsets)
                 build_welcome_banner(tools=tools, availability=availability, **banner_kw)
                 try:
-                    tmap = _toolset_map(tools, availability, get_toolset_for_tool)
+                    tmap = _toolset_map(tools, availability, registry.get_toolset_for_tool)
                     save_banner_snapshot(tools, self.enabled_toolsets, availability, tmap)
                 except Exception:
                     logger.debug("banner snapshot save failed", exc_info=True)
@@ -225,8 +224,8 @@ class CLIInfoMixin:
         from agent.model_metadata import MINIMUM_CONTEXT_LENGTH, is_local_endpoint
         if ctx_len and ctx_len < MINIMUM_CONTEXT_LENGTH:
             self._console_print()
-            self._console_print(f"[yellow]{t('cli.banner.context_too_low', tokens=f'{ctx_len:,}')}[/]")
-            self._console_print(f"[dim]   {t('cli.banner.context_minimum', tokens=f'{MINIMUM_CONTEXT_LENGTH:,}')}[/]")
+            self._console_print(f"[yellow]{('⚠️  Context length is only {tokens} tokens — this is likely too low for agent use with tools.').format(tokens=f'{ctx_len:,}')}[/]")
+            self._console_print(f"[dim]   {('Hermes needs at least {tokens} tokens. Tool schemas + system prompt use a large fixed prefix.').format(tokens=f'{MINIMUM_CONTEXT_LENGTH:,}')}[/]")
             base_url = getattr(self, "base_url", "") or ""
             from urllib.parse import urlparse as _urlparse
             try:
@@ -234,22 +233,21 @@ class CLIInfoMixin:
             except ValueError:
                 _port = None
             if _port == 11434 or "ollama" in base_url_hostname(base_url):
-                fix = t("cli.banner.fix_ollama", tokens=str(MINIMUM_CONTEXT_LENGTH))
+                fix = (f'Ollama fix: OLLAMA_CONTEXT_LENGTH={MINIMUM_CONTEXT_LENGTH!s} ollama serve')
             elif _port == 1234:
-                fix = t("cli.banner.fix_lm_studio")
+                fix = 'LM Studio fix: Set context length in model settings → reload model'
             elif is_local_endpoint(base_url):  # llama.cpp / vLLM / any local server — not Ollama
-                fix = t("cli.banner.fix_local_server",
-                        tokens_k=str(MINIMUM_CONTEXT_LENGTH // 1000), tokens=str(MINIMUM_CONTEXT_LENGTH))
+                fix = (f'Fix: start your server with at least {MINIMUM_CONTEXT_LENGTH // 1000!s}K context (llama.cpp: -c {MINIMUM_CONTEXT_LENGTH!s}), or set model.ollama_num_ctx in config.yaml to the window it really serves')
             else:
-                fix = t("cli.banner.fix_config")
+                fix = "Fix: Set model.context_length in config.yaml, or increase your server's context setting"
             self._console_print(f"[dim]   {fix}[/]")
 
         from hermes_cli.model_switch import is_nous_hermes_non_agentic
         if is_nous_hermes_non_agentic(getattr(self, "model", "") or ""):
             self._console_print()
-            self._console_print(f"[bold yellow]{t('cli.banner.hermes_models_not_agentic')}[/]")
-            self._console_print(f"[dim]   {t('cli.banner.hermes_models_lack_tools')}[/]")
-            self._console_print(f"[dim]   {t('cli.banner.hermes_models_switch_hint')}[/]")
+            self._console_print(f"[bold yellow]{'⚠  Nous Research Hermes 3 & 4 models are NOT agentic and are not designed for use with Hermes Agent.'}[/]")
+            self._console_print(f"[dim]   {'They lack tool-calling capabilities required for agent workflows. Consider using an agentic model (Claude, GPT, Gemini, DeepSeek, etc.).'}[/]")
+            self._console_print(f"[dim]   {'Switch with: /model sonnet  or  /model gpt5'}[/]")
 
         # Project-local skills one-liner: trusted → count; untrusted-with-skills → point at
         # `hermes skills trust`. Never raises.
@@ -260,13 +258,13 @@ class CLIInfoMixin:
             if _proj_dirs:
                 _n = sum(sum(1 for _ in iter_skill_index_files(d, "SKILL.md")) for d in _proj_dirs)
                 if _n:
-                    self._console_print(f"[dim]{t('cli.banner.project_skills_loaded', count=str(_n))}[/]")
+                    self._console_print(f"[dim]{(f'◆ {_n!s} project skill(s) loaded from this repo')}[/]")
             else:
                 _untrusted = get_untrusted_project_skills_root()
                 if _untrusted is not None:
                     _root, _n = _untrusted
                     self._console_print(
-                        f"[yellow]{t('cli.banner.project_skills_untrusted', count=str(_n), root=str(_root))}[/]")
+                        f"[yellow]{(f'◆ {_n!s} project skill(s) found in {_root!s} but not loaded — run `hermes skills trust` to enable them.')}[/]")
         except Exception:
             logger.debug("project skills banner notice failed", exc_info=True)
 
@@ -305,12 +303,12 @@ class CLIInfoMixin:
         if arg.lower() in ("skills", "skill"):
             from hermes_cli import gateway_plugin_commands
             if skill_commands:
-                _cprint(f"\n  ⚡ {_BOLD}{t('cli.help.skill_commands')}{_RST} "
-                        f"({t('cli.help.n_installed', count=str(len(skill_commands)))}):")
+                _cprint(f"\n  ⚡ {_BOLD}{'Skill Commands'}{_RST} "
+                        f"({(f'{len(skill_commands)!s} installed')}):")
                 for cmd, info in sorted(skill_commands.items()):
                     _row(cmd, info['description'], 22)
             else:
-                _cprint(f"\n  {t('cli.help.no_skill_commands')}")
+                _cprint(f"\n  {'No skill commands installed.'}")
             # Skills whose name is a built-in command never get a /<name> (agent.skill_commands guard).
             for note in gateway_plugin_commands.skill_notes(self):
                 _cprint(f"    {_DIM}⚠ {note}{_RST}")
@@ -319,7 +317,7 @@ class CLIInfoMixin:
 
         query = arg.lower() if arg else ""
 
-        default_header = t("cli.help.header")
+        default_header = '(^_^)? Available Commands'
         try:
             from hermes_cli.skin_engine import get_active_help_header
             header = get_active_help_header(default_header)
@@ -343,7 +341,7 @@ class CLIInfoMixin:
                     printed_header = True
                 _row(cmd, desc)
 
-        # Rows come straight from the registry so descriptions resolve through the localized
+        # Rows come straight from the registry so descriptions resolve through the
         # ``CommandDef.describe()`` accessor (names/aliases stay identifiers).
         by_category: dict[str, list[tuple[str, str]]] = {}
         for cmd_def in COMMAND_REGISTRY:
@@ -351,10 +349,9 @@ class CLIInfoMixin:
                 continue
             desc = cmd_def.describe()
             rows = by_category.setdefault(cmd_def.category, [])
-            rows.append((f"/{cmd_def.name}", t("cli.help.usage_suffix", description=desc, command=cmd_def.name,
-                                              args=cmd_def.args_hint) if cmd_def.args_hint else desc))
+            rows.append((f"/{cmd_def.name}", (f'{desc} (usage: /{cmd_def.name} {cmd_def.args_hint})') if cmd_def.args_hint else desc))
             for alias in cmd_def.aliases:
-                rows.append((f"/{alias}", t("cli.help.alias_suffix", description=desc, command=cmd_def.name)))
+                rows.append((f"/{alias}", (f'{desc} (alias for /{cmd_def.name})')))
 
         for category, commands in by_category.items():
             if category != "Session":
@@ -378,45 +375,44 @@ class CLIInfoMixin:
                 (cmd, info) for cmd, info in sorted(skill_commands.items())
                 if query in cmd.lower() or query in (info.get("description", "").lower())]
             if matched_skills:
-                _cprint(f"\n  ⚡ {_BOLD}{t('cli.help.skill_commands')}{_RST} "
-                        f"({t('cli.help.matching_query', query=arg)}):")
+                _cprint('\n  ⚡ ' + format((_BOLD), '') + format(('Skill Commands'), '') + format((_RST), '') + ' (' + format(((f"matching '{arg}'")), '') + '):')
                 for cmd, info in matched_skills:
                     _row(cmd, info['description'], 22)
         elif skill_commands:
             _cprint(
-                f"\n  ⚡ {_BOLD}{t('cli.help.skill_commands')}{_RST}: "
-                f"{t('cli.help.n_installed', count=str(len(skill_commands)))} "
-                f"— {_DIM}/help skills{_RST} {t('cli.help.to_list_them')}")
+                f"\n  ⚡ {_BOLD}{'Skill Commands'}{_RST}: "
+                f"{(f'{len(skill_commands)!s} installed')} "
+                f"— {_DIM}/help skills{_RST} {'to list them'}")
 
         _bundles_now = get_skill_bundles()
         if _bundles_now and not query:
-            _cprint(f"\n  ▣ {_BOLD}{t('cli.help.skill_bundles')}{_RST} "
-                    f"({t('cli.help.n_installed', count=str(len(_bundles_now)))}):")
+            _cprint(f"\n  ▣ {_BOLD}{'Skill Bundles'}{_RST} "
+                    f"({(f'{len(_bundles_now)!s} installed')}):")
             for cmd, info in sorted(_bundles_now.items()):
                 skill_count = len(info.get("skills", []))
-                desc = info.get("description") or t("cli.help.load_n_skills", count=str(skill_count))
+                desc = info.get("description") or (f'Load {skill_count!s} skills')
                 ChatConsole().print(
                     f"    [bold {_accent_hex()}]{cmd:<22}[/] [dim]-[/] "
-                    f"{_escape(desc)} [dim]({t('cli.help.n_skills', count=str(skill_count))})[/]")
+                    f"{_escape(desc)} [dim]({(f'{skill_count!s} skills')})[/]")
 
         quick_commands = self.config.get("quick_commands", {})
         if quick_commands and not query:
-            _cprint(f"\n  ⚡ {_BOLD}{t('cli.help.quick_commands')}{_RST} "
-                    f"({t('cli.help.n_configured', count=str(len(quick_commands)))}):")
+            _cprint(f"\n  ⚡ {_BOLD}{'Quick Commands'}{_RST} "
+                    f"({(f'{len(quick_commands)!s} configured')}):")
             for name, qcmd in sorted(quick_commands.items()):
                 _row('/' + name, qcmd.get("description", qcmd.get("type", "")), 22)
 
         if query:
-            _cprint(f"\n  {_DIM}{t('cli.help.filtered_by', query=arg)}{_RST}\n")
+            _cprint('\n  ' + format((_DIM), '') + format(((f"Filtered by '{arg}' — run /help for the full list.")), '') + format((_RST), '') + '\n')
             return
 
-        _cprint(f"\n  {_DIM}{t('cli.help.tip_line')}{_RST}")
-        _cprint(f"  {_DIM}{t('cli.help.multiline_hint')}{_RST}")
-        _cprint(f"  {_DIM}{t('cli.help.draft_editor_hint')}{_RST}")
+        _cprint(f"\n  {_DIM}{'Tip: /help skills lists skill commands · /help <text> filters · Ctrl+P opens the command palette'}{_RST}")
+        _cprint('  ' + format((_DIM), '') + format(('Multi-line: Ctrl+J, Alt+Enter, or \\\\+Enter for a new line'), '') + format((_RST), ''))
+        _cprint(f"  {_DIM}{'Draft editor: Ctrl+G (Alt+G in VSCode/Cursor)'}{_RST}")
         if _is_termux_environment():
-            _cprint(f"  {_DIM}{t('cli.help.attach_image_hint', path=_termux_example_image_path())}{_RST}\n")
+            _cprint(f"  {_DIM}{(f'Attach image: /image {_termux_example_image_path()} or start your prompt with a local image path')}{_RST}\n")
         else:
-            _cprint(f"  {_DIM}{t('cli.help.paste_image_hint')}{_RST}\n")
+            _cprint(f"  {_DIM}{'Paste image: Alt+V (or /paste)'}{_RST}\n")
 
     def show_tools(self):
         """Display available tools with kawaii ASCII art."""
@@ -426,18 +422,19 @@ class CLIInfoMixin:
             tools, get_toolset_for_tool = remote
         else:
             from cli import get_tool_definitions
-            from model_tools import get_toolset_for_tool
+            from tools.registry import registry
             # Pre-assembly list: /tools is a discovery surface, so it must show the full catalog
             # including tools deferred behind the tool_search bridge (users verify MCP installs here).
             tools = get_tool_definitions(enabled_toolsets=self.enabled_toolsets,
                                          disabled_toolsets=self.disabled_toolsets, quiet_mode=True,
                                          skip_tool_search_assembly=True)
+            get_toolset_for_tool = registry.get_toolset_for_tool
         if not tools:
-            print(t("cli.tools.none_available"))
+            print('(;_;) No tools available')
             return
 
         print()
-        _ascii_box(t("cli.tools.header"), 78)
+        _ascii_box('(^_^)/ Available Tools', 78)
         print()
 
         toolsets: dict[str, list] = {}
@@ -456,7 +453,7 @@ class CLIInfoMixin:
                 print(f"    * {name:<20} - {desc}")
             print()
 
-        print(f"  {t('cli.tools.total', count=str(len(tools)))}")
+        print(f"  {(f'Total: {len(tools)!s} tools  ヽ(^o^)ノ')}")
         print()
 
     def show_toolsets(self):
@@ -472,10 +469,10 @@ class CLIInfoMixin:
         except Exception:
             user_name = "?"
         print()
-        print(f"  {t('cli.whoami.you_label'):<15} {t('cli.whoami.you_value')}")
-        print(f"  {t('cli.whoami.user_label'):<15} {user_name}")
-        print(f"  {t('cli.whoami.tier_label'):<15} {t('cli.whoami.tier_value')}")
-        print(f"  {t('cli.whoami.slash_commands_label'):<15} {t('cli.whoami.slash_commands_value')}")
+        print(f"  {'You:':<15} {'cli (local terminal)'}")
+        print(f"  {'User:':<15} {user_name}")
+        print(f"  {'Tier:':<15} {'unrestricted'}")
+        print(f"  {'Slash commands:':<15} {'all available'}")
         print()
 
     def _busy_inline_command(self, text: str, has_images: bool, names: tuple) -> bool:
@@ -544,9 +541,7 @@ class CLIInfoMixin:
 
         approval = check_bang_approval(command)
         if not approval.get("approved"):
-            message = approval.get("message") or t(
-                "cli.shell.command_denied",
-                reason=approval.get("description") or t("cli.shell.flagged_as_dangerous"))
+            message = approval.get("message") or ('Command denied: {reason}').format(reason=approval.get("description") or 'flagged as dangerous')
             self._console_print(f"[bold red]{_escape(str(message))}[/]")
             return True
 
@@ -555,7 +550,7 @@ class CLIInfoMixin:
             cwd=resolve_bang_cwd(getattr(self, "session_id", None)),
             writer=lambda line: self._console_print(_rich_text_from_ansi(line)))
         if exit_code:
-            self._console_print(f"[dim]{t('cli.shell.exited', code=str(exit_code))}[/]")
+            self._console_print(f"[dim]{(f'! exited {exit_code!s}')}[/]")
         return True
 
     def _show_gateway_status(self):
@@ -573,7 +568,7 @@ class CLIInfoMixin:
                 _tip_color = get_active_skin().get_color("banner_dim", "#B8860B")
             except Exception:
                 _tip_color = "#B8860B"
-            self._console_print(f"[dim {_tip_color}]{t('cli.tip_line', tip=_tip)}[/]")
+            self._console_print(f"[dim {_tip_color}]{(f'✦ Tip: {_tip}')}[/]")
         except Exception:
             pass
 
@@ -621,7 +616,7 @@ class CLIInfoMixin:
             self._usage_reset(force="--force" in args[1:])
             return
         if args:
-            print(f"  {t('cli.usage.unknown_subcommand', args=' '.join(parts[1:]))}")
+            print(f"  {('Unknown /usage subcommand: {args}. Try /usage or /usage reset [--force].').format(args=' '.join(parts[1:]))}")
             return
         self._show_usage()
 
@@ -632,12 +627,12 @@ class CLIInfoMixin:
     def _usage_reset(self, force: bool = False):
         """`/usage reset [--force]` — redeem one banked Codex reset credit."""
         if str(self._agent_or_self("provider") or "").strip().lower() != "openai-codex":
-            print(f"  {t('cli.usage.reset_wrong_provider')}")
-            print(f"  {t('cli.usage.reset_switch_hint')}")
+            print(f"  {'Banked usage resets are only available on the openai-codex provider.'}")
+            print(f"  {'Switch with `/model` or `hermes auth` first.'}")
             return
         from agent.account_usage import redeem_codex_reset_credit
 
-        print(f"  {t('cli.usage.checking_reset_credits')}")
+        print(f"  {'⏳ Checking banked reset credits...'}")
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _pool:
             try:
                 result = _pool.submit(
@@ -645,7 +640,7 @@ class CLIInfoMixin:
                     api_key=self._agent_or_self("api_key"), force=force,
                 ).result(timeout=45.0)
             except concurrent.futures.TimeoutError:
-                print(f"  {t('cli.usage.codex_timeout')}")
+                print(f"  {'❌ Timed out talking to the Codex backend — try again shortly.'}")
                 return
         print(f"  {result.message}")
 
@@ -657,7 +652,7 @@ class CLIInfoMixin:
         if (connection := connection_for(self)) is not None:
             return self._show_gateway_context_breakdown(connection)
         if not self.agent:
-            print(f"  {t('cli.shared.no_active_agent')}")
+            print(f"  {'(._.) No active agent -- send a message first.'}")
             return
 
         args = cmd_original.split(maxsplit=1)[1].strip().lower() if " " in cmd_original else ""
@@ -669,7 +664,7 @@ class CLIInfoMixin:
         try:
             payload = compute_session_context_breakdown(self.agent, self.conversation_history)
         except Exception as e:
-            print(f"  {t('cli.context.compute_failed', error=str(e))}")
+            print(f"  {(f'(._.) Could not compute context breakdown: {e!s}')}")
             return
 
         details = None
@@ -686,7 +681,7 @@ class CLIInfoMixin:
             file_lines = []
 
         print()
-        print(f"  {t('cli.context.header', model=payload.get('model') or self.model)}")
+        print(f"  {('🧠 Context Usage — {model}').format(model=payload.get('model') or self.model)}")
         print()
         for line in render_context_breakdown_lines(payload, details=details, grid=True) + ([""] + file_lines if file_lines else []):
             print(f"  {line}")
@@ -701,14 +696,14 @@ class CLIInfoMixin:
         try:
             payload = connection.call("session.context_breakdown", session_id=self.session_id)
         except GatewayClientError as e:
-            print(f"  {t('cli.context.compute_failed', error=str(e))}")
+            print(f"  {(f'(._.) Could not compute context breakdown: {e!s}')}")
             return
         if not payload.get("categories"):
-            print(f"  {t('cli.shared.no_active_agent')}")
+            print(f"  {'(._.) No active agent -- send a message first.'}")
             return
         file_lines = render_context_file_lines(payload.get("context_files") or [])
         print()
-        print(f"  {t('cli.context.header', model=payload.get('model') or self.model)}")
+        print(f"  {('🧠 Context Usage — {model}').format(model=payload.get('model') or self.model)}")
         print()
         for line in render_context_breakdown_lines(payload, grid=True) + (["", *file_lines] if file_lines else []):
             print(f"  {line}")
@@ -732,12 +727,12 @@ class CLIInfoMixin:
                 print(fallback)
 
         if not self.agent:
-            _credits_or(t("cli.shared.no_active_agent"))
+            _credits_or('(._.) No active agent -- send a message first.')
             return
         agent = self.agent
         calls = agent.session_api_calls
         if calls == 0:
-            _credits_or(t("cli.usage.no_api_calls"))
+            _credits_or('(._.) No API calls made yet in this session.')
             return
 
         rl_state = agent.get_rate_limit_state()
@@ -758,28 +753,28 @@ class CLIInfoMixin:
 
         def _label_row(key: str, value: str) -> None:
             # Labels are re-padded here (not in the catalog) so translated widths still align.
-            print(f"  {t(key):<26} {value}")
+            print(f"  {key:<26} {value}")
 
-        print(f"  {t('cli.usage.header_session')}")
+        print(f"  {'📊 Session Token Usage'}")
         print(f"  {'─' * 40}")
-        _label_row("cli.usage.label_model", str(agent.model))
-        _label_row("cli.usage.label_input_tokens", f"{input_tokens:>10,}")
-        _label_row("cli.usage.label_output_tokens", f"{output_tokens:>10,}")
+        _label_row('Model:', str(agent.model))
+        _label_row('Input tokens:', f"{input_tokens:>10,}")
+        _label_row('Output tokens:', f"{output_tokens:>10,}")
         if reasoning_tokens:
-            _label_row("cli.usage.label_reasoning_subset", f"{reasoning_tokens:>10,}")
-        _label_row("cli.usage.label_prompt_tokens_total", f"{agent.session_prompt_tokens:>10,}")
-        _label_row("cli.usage.label_completion_tokens", f"{agent.session_completion_tokens:>10,}")
-        _label_row("cli.usage.label_total_tokens", f"{agent.session_total_tokens:>10,}")
-        _label_row("cli.usage.label_api_calls", f"{calls:>10,}")
-        _label_row("cli.usage.label_session_duration", f"{elapsed:>10}")
+            _label_row('↳ Reasoning (subset):', f"{reasoning_tokens:>10,}")
+        _label_row('Prompt tokens (total):', f"{agent.session_prompt_tokens:>10,}")
+        _label_row('Completion tokens:', f"{agent.session_completion_tokens:>10,}")
+        _label_row('Total tokens:', f"{agent.session_total_tokens:>10,}")
+        _label_row('API calls:', f"{calls:>10,}")
+        _label_row('Session duration:', f"{elapsed:>10}")
         print(f"  {'─' * 40}")
         from agent.context_breakdown import context_display_source
         mark = "~" if context_display_source(compressor) != "provider_usage" else ""
         from agent.context_pin import agent_context_suffix
         pin_suffix = agent_context_suffix(agent)  # " (pinned)" / " (fallback)"
-        print(f"  {t('cli.usage.label_current_context'):<17} {mark}{last_prompt:,} / {ctx_len:,} ({mark}{pct:.0f}%){pin_suffix}")
-        print(f"  {t('cli.usage.label_messages'):<17} {len(self.conversation_history)}")
-        print(f"  {t('cli.usage.label_compressions'):<17} {compressor.compression_count}")
+        print(f"  {'Current context:':<17} {mark}{last_prompt:,} / {ctx_len:,} ({mark}{pct:.0f}%){pin_suffix}")
+        print(f"  {'Messages:':<17} {len(self.conversation_history)}")
+        print(f"  {'Compressions:':<17} {compressor.compression_count}")
 
         self._print_account_limits()
 
@@ -788,7 +783,7 @@ class CLIInfoMixin:
 
         if self.verbose:
             logging.getLogger().setLevel(logging.DEBUG)
-            for noisy in ('openai', 'openai._base_client', 'httpx', 'httpcore', 'asyncio', 'hpack', 'grpc', 'modal'):
+            for noisy in ('openai', 'openai._base_client', 'httpx', 'httpcore', 'asyncio', 'hpack', 'grpc'):
                 logging.getLogger(noisy).setLevel(logging.WARNING)
         else:
             logging.getLogger().setLevel(logging.INFO)
@@ -833,7 +828,7 @@ class CLIInfoMixin:
                 try:
                     days = int(parts[i + 1])
                 except ValueError:
-                    print(f"  {t('gateway.insights.invalid_days', value=parts[i + 1])}")
+                    print(f"  {(f'Invalid --days value: {parts[i + 1]}')}")
                     return
                 i += 2
             elif parts[i] == "--source" and i + 1 < len(parts):
@@ -900,15 +895,15 @@ class CLIInfoMixin:
 
         if not _auto:
             print()
-            print(t("cli.mcp_watch.changed_reload_skipped"))
-            print(f"   {t('cli.mcp_watch.not_applied_run')}")
+            print('🔄 MCP server config changed — reload skipped (auto-reload disabled).')
+            print(f"   {'New settings are NOT applied yet. To apply them now, run:'}")
             print("     /reload-mcp")
-            print(f"   {t('cli.mcp_watch.cache_note')}")
+            print(f"   {'⚠️  Note: /reload-mcp rebuilds the tool set and invalidates the provider prompt cache (next message re-sends full input tokens).'}")
             return
 
         # Separate thread so a hung MCP server can't block process_loop (freezing the TUI).
         print()
-        print(t("cli.mcp_watch.changed_reloading"))
+        print('🔄 MCP server config changed — reloading connections...')
         threading.Thread(target=self._reload_mcp, daemon=True).start()
 
     def _confirm_and_reload_mcp(self, cmd_original: str = "") -> None:
@@ -918,12 +913,12 @@ class CLIInfoMixin:
         (tool schemas are baked into the system prompt), hence the warning."""
         choice = _gated_confirm(
             self, "reload-mcp", "mcp_reload_confirm",
-            title=t("cli.reload_mcp.title"),
-            detail=t("cli.reload_mcp.detail"),
+            title='⚠️  /reload-mcp — Prompt cache invalidation warning',
+            detail='Reloading MCP servers rebuilds the tool set for this session and\ninvalidates the provider prompt cache. The next message will\nre-send full input tokens (can be expensive on long-context or\nhigh-reasoning models).',
             choices=_reload_mcp_choices(),
-            unchanged=t("cli.reload_mcp.unchanged"),
-            always_msg=t("cli.reload_mcp.always_msg"),
-            once_verb=t("cli.reload_mcp.once_verb"))
+            unchanged='MCP tools unchanged.',
+            always_msg='🔒 Future /reload-mcp calls will run without confirmation.',
+            once_verb='reloading')
         if choice is None:
             return
         with self._busy_command(self._slow_command_status(cmd_original)):
@@ -935,12 +930,12 @@ class CLIInfoMixin:
         "Agent updated" line then counts the tools the gateway session now loads."""
         from hermes_cli.gateway_client import GatewayClientError
         if not self._command_running:
-            print(t("cli.reload_mcp.reloading"))
+            print('🔄 Reloading MCP servers...')
         try:
             result = connection.call("reload.mcp", session_id=self.session_id, confirm=True)
             snapshot = connection.call("session.resume", session_id=self.session_id) or {}
         except GatewayClientError as e:
-            print(f"  {t('gateway.reload_mcp.failed', error=str(e))}")
+            print(f"  {(f'❌ MCP reload failed: {e!s}')}")
             return
         print(f"  {result.get('message') or ''}".rstrip())
         connection.state(self.session_id).adopt_snapshot(snapshot)
@@ -948,7 +943,7 @@ class CLIInfoMixin:
         count = info.get("tool_count")
         if not isinstance(count, int):
             count = sum(len(names or []) for names in (info.get("tools") or {}).values())
-        print(f"  {t('cli.reload_mcp.agent_updated', count=str(count))}")
+        print(f"  {(f'✅ Agent updated — {count!s} tool(s) available')}")
 
     def _reload_mcp(self):
         """Reload MCP servers: disconnect all, re-read config.yaml, reconnect, then refresh the
@@ -964,7 +959,7 @@ class CLIInfoMixin:
             with _lock:
                 old_servers = set(_servers.keys())
             if not self._command_running:
-                print(t("cli.reload_mcp.reloading"))
+                print('🔄 Reloading MCP servers...')
 
             shutdown_mcp_servers()
             reprobe_tool_availability()  # explicit reload also re-probes check_fn availability
@@ -972,20 +967,19 @@ class CLIInfoMixin:
 
             with _lock:
                 connected_servers = set(_servers.keys())
-            # English labels are model-facing (the [IMPORTANT: …] note below); the printed lines
-            # resolve their own localized key per bucket.
+            # English labels are model-facing (the [IMPORTANT: …] note below).
             diff = {
                 "Added": connected_servers - old_servers,
                 "Removed": old_servers - connected_servers,
                 "Reconnected": connected_servers & old_servers}
-            for label, key in (("Reconnected", "cli.reload_mcp.reconnected"), ("Added", "cli.reload_mcp.added"),
-                               ("Removed", "cli.reload_mcp.removed")):
+            for label, key in (("Reconnected", '♻️  Reconnected: {names}'), ("Added", '➕ Added: {names}'),
+                               ("Removed", '➖ Removed: {names}')):
                 if diff[label]:
-                    print(f"  {t(key, names=', '.join(sorted(diff[label])))}")
+                    print(f"  {(key).format(names=', '.join(sorted(diff[label])))}")
             if not connected_servers:
-                print(f"  {t('gateway.reload_mcp.none_connected')}")
+                print(f"  {'No MCP servers connected.'}")
             else:
-                print(f"  {t('cli.reload_mcp.tools_available', tools=str(len(new_tools)), servers=str(len(connected_servers)))}")
+                print(f"  {(f'🔧 {len(new_tools)!s} tool(s) available from {len(connected_servers)!s} server(s)')}")
 
             # Route through the shared helper so this path stays in lockstep with the TUI RPC /
             # gateway reload / late-binding paths (name-diff, thread-safe, additive-preserving so
@@ -1025,9 +1019,9 @@ class CLIInfoMixin:
                 except Exception:
                     pass
 
-            print(f"  {t('cli.reload_mcp.agent_updated', count=str(len(self.agent.tools if self.agent else [])))}")
+            print(f"  {(f'✅ Agent updated — {len(self.agent.tools if self.agent else [])!s} tool(s) available')}")
         except Exception as e:
-            print(f"  {t('gateway.reload_mcp.failed', error=str(e))}")
+            print(f"  {(f'❌ MCP reload failed: {e!s}')}")
 
     def _reload_skills(self) -> None:
         """Reload skills: rescan ~/.hermes/skills/ and queue a note for the next user turn.
@@ -1041,7 +1035,7 @@ class CLIInfoMixin:
         try:
             from hermes_cli.gateway_tools import process_view
             if not self._command_running:
-                print(t("cli.reload_skills.reloading"))
+                print('🔄 Reloading skills...')
             view = process_view()
             if view is not None:  # the gateway session's rescan (its plugin skills too): nothing is scanned here
                 result = (view.connection.call("skills.reload", session_id=view.session_id) or {}).get("result") or {}
@@ -1055,19 +1049,19 @@ class CLIInfoMixin:
             total = result.get("total", 0)
 
             if not added and not removed:
-                print(f"  {t('gateway.reload_skills.no_new')}")
-                print(f"  {t('cli.reload_skills.total', count=str(total))}")
+                print(f"  {'No new skills detected.'}")
+                print(f"  {(f'📚 {total!s} skill(s) available')}")
                 return
 
             if added:
-                print(f"  {t('cli.reload_skills.added_header')}")
+                print(f"  {'➕ Added Skills:'}")
                 for item in added:
                     print(f"  {_skill_line(item)}")
             if removed:
-                print(f"  {t('cli.reload_skills.removed_header')}")
+                print(f"  {'➖ Removed Skills:'}")
                 for item in removed:
                     print(f"  {_skill_line(item)}")
-            print(f"  {t('cli.reload_skills.total', count=str(total))}")
+            print(f"  {(f'📚 {total!s} skill(s) available')}")
 
             # Same shape as the system prompt's skill catalog (``    - name: description``).
             sections = ["[USER INITIATED SKILLS RELOAD:"]
@@ -1078,4 +1072,4 @@ class CLIInfoMixin:
             sections += ["", "Use skills_list to see the updated catalog.]"]
             self._pending_skills_reload_note = "\n".join(sections)
         except Exception as e:
-            print(f"  {t('gateway.reload_skills.failed', error=str(e))}")
+            print(f"  {(f'❌ Skills reload failed: {e!s}')}")

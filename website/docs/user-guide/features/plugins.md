@@ -122,7 +122,6 @@ Every `ctx.*` API below is available inside a plugin's `register(ctx)` function.
 | Register a delegation strategy (how each `delegate_task` subagent is routed) | `ctx.register_delegation_provider(provider)` — see [Delegation Provider Plugins](../../developer-guide/delegation-provider-plugin.md) |
 | Register a video-generation backend | `ctx.register_video_gen_provider(provider)` — see [Video Generation Provider Plugins](../../developer-guide/video-gen-provider-plugin.md) |
 | Register a context-compression engine | `ctx.register_context_engine(engine)` — see [Context Engine Plugins](../../developer-guide/context-engine-plugin.md) |
-| Register a terminal execution backend (cloud sandbox) | `ctx.register_terminal_environment_provider(provider)` — see [Terminal Environment Plugins](../../developer-guide/terminal-environment-plugin.md) |
 | Register a computer-use driver | `ctx.register_computer_use_provider(provider)` — selected by `computer_use.backend`; see [Computer-use backend plugins](../../developer-guide/plugins/index.md#computer-use-backend-plugins) |
 | Route human approval prompts | `ctx.register_approval_transport(name, present_fn)` — see [Approval transports](#approval-transports) |
 | Register a memory backend | Subclass `MemoryProvider` in `plugins/memory/<name>/__init__.py` — see [Memory Provider Plugins](../../developer-guide/memory-provider-plugin.md) (uses a separate discovery system) |
@@ -355,7 +354,6 @@ Plugins can register the 27 lifecycle events currently accepted by `hermes_cli.p
 | Descriptive category | Shipped hooks |
 |---|---|
 | **Directive/control** | `pre_tool_call`, `pre_llm_call`, `pre_verify`, `pre_gateway_dispatch` |
-| **Transform** | `transform_tool_result`, `transform_terminal_output`, `transform_llm_output`, `pre_transcription` |
 | **Observer** | `post_tool_call`, `post_llm_call`, `pre_api_request`, `post_api_request`, `api_request_error`, `pre_auxiliary_call`, `post_auxiliary_call`, `on_stream_start`, `on_stream_delta`, `on_stream_end`, `on_interim_message`, `on_session_start`, `on_session_end`, `on_session_finalize`, `on_session_reset`, `post_compaction`, `post_curator_run`, `on_session_delete`, `agent_loop_stopped`, `on_skill_lifecycle`, `subagent_start`, `subagent_stop`, `pre_approval_request`, `post_approval_response`, `on_human_input_request`, `on_human_input_resolved`, `pre_command`, `kanban_task_claimed`, `kanban_task_completed`, `kanban_task_blocked` |
 
 These categories describe current behavior rather than defining future naming rules. Plugin middleware remains a separate registry/surface.
@@ -391,15 +389,13 @@ The table above shows the four plugin categories, but within "General plugins" t
 | A **delegation strategy** (a profile or named model per subagent) | Backend plugin — `ctx.register_delegation_provider()`, selected by `delegation.backend` | [Delegation Provider Plugins](../../developer-guide/delegation-provider-plugin.md) |
 | A **video-generation backend** (Veo, Kling, Pixverse, Grok-Imagine, Runway, …) | Backend plugin — `ctx.register_video_gen_provider()` | [Video Generation Provider Plugins](../../developer-guide/video-gen-provider-plugin.md) |
 | A **computer-use driver** (desktop control behind the `computer_use` tool) | Single-select provider plugin — `ctx.register_computer_use_provider()`, selected by `computer_use.backend` | [Computer-use backend plugins](../../developer-guide/plugins/index.md#computer-use-backend-plugins) |
-| A **TTS backend** (any CLI — Piper, VoxCPM, Kokoro, xtts, voice-cloning scripts, …) | Config-driven (recommended) — declare under `tts.providers.<name>` with `type: command` in `config.yaml`. OR Python backend plugin — `ctx.register_tts_provider()` for Python-SDK / streaming engines that need more than a shell template. | [TTS Setup](./tts.md#custom-command-providers) · [Python plugin guide](./tts.md#python-plugin-providers) |
-| An **STT backend** (any CLI — whisper.cpp, custom whisper binary, local ASR CLI) | Config-driven (recommended) — declare under `stt.providers.<name>` with `type: command` in `config.yaml`, or set `HERMES_LOCAL_STT_COMMAND` for the legacy single-command escape hatch. OR Python backend plugin — `ctx.register_transcription_provider()` for Python-SDK engines (OpenRouter, SenseAudio, Gemini-STT, etc.). | [STT Setup](./tts.md#stt-custom-command-providers) · [Python plugin guide](./tts.md#python-plugin-providers-stt) |
 | **External tools via MCP** (filesystem, GitHub, Linear, Notion, any MCP server) | Config-driven — declare `mcp_servers.<name>` with `command:` / `url:` in `config.yaml`. Hermes auto-discovers the server's tools and registers them alongside built-ins. | [MCP](./mcp.md) |
 | **Additional skill sources** (custom GitHub repos, private skill indexes) | CLI — `hermes skills tap add <repo>` | [Skills Hub](./skills.md#skills-hub) · [Publishing a custom tap](./skills.md#publishing-a-custom-skill-tap) |
 | **Gateway event hooks** (fire on `gateway:startup`, `session:start`, `agent:end`, `command:*`) | Drop `HOOK.yaml` + `handler.py` into `~/.hermes/hooks/<name>/` | [Event Hooks](./hooks.md#gateway-event-hooks) |
 | **Shell hooks** (run a shell command on events — notifications, audit logs, desktop alerts) | Config-driven — declare under `hooks:` in `config.yaml` | [Shell Hooks](./hooks.md#shell-hooks) |
 
 :::note
-Not everything is a Python plugin. Some extension surfaces intentionally use **config-driven shell commands** (TTS, STT, shell hooks) so any CLI you already have becomes a plugin without writing Python. Others are **external servers** (MCP) the agent connects to and auto-registers tools from. And some are **drop-in directories** (gateway hooks) with their own manifest format. Pick the right surface for the integration style that fits your use case; the authoring guides in the table above each cover placeholders, discovery, and examples.
+Not everything is a Python plugin. Some extension surfaces intentionally use **config-driven shell commands** (shell hooks) so any CLI you already have becomes a plugin without writing Python. Others are **external servers** (MCP) the agent connects to and auto-registers tools from. And some are **drop-in directories** (gateway hooks) with their own manifest format. Pick the right surface for the integration style that fits your use case; the authoring guides in the table above each cover placeholders, discovery, and examples.
 :::
 
 ## NixOS declarative plugins
@@ -642,7 +638,6 @@ working but are **deprecated** in favor of the consent flow:
 | `llm.agent_id_override` | `llm.allow_agent_id_override` |
 | `llm.profile_override` | `llm.allow_profile_override` |
 | `llm.task_override` | `llm.allow_task_override` |
-| `gateway.platform_actions` | `allow_platform_actions` |
 
 A gate is open when *either* the capability is granted *or* the legacy key is
 set — existing configs keep working unchanged.
@@ -655,53 +650,6 @@ regular in-process Python: a malicious plugin can ignore every gate here.
 Granting a capability is a statement of trust in the plugin author — it is
 not a code audit, and Hermes has not reviewed the plugin's code. Only install
 plugins from sources you trust.
-:::
-
-### Platform actions
-
-`ctx.platform_actions` gives a plugin a minimal, capability-gated verb set for
-acting on connected chat platforms through the live gateway adapter registry —
-the sanctioned alternative to monkeypatching an adapter. **It is off by
-default**: every call re-checks the `gateway.platform_actions` capability
-(legacy key `plugins.entries.<id>.allow_platform_actions`), and an ungranted
-call returns a structured error instead of acting.
-
-v1 verbs (both `async`, both return a plain dict, and neither ever raises into
-hook dispatch):
-
-```python
-result = await ctx.platform_actions.add_reaction(
-    platform="telegram", chat_id="-100123", message_id="456", emoji="👍",
-)
-result = await ctx.platform_actions.set_thread_title(
-    platform="discord", chat_id="123", thread_id="456", title="New title",
-)
-if not result["ok"]:
-    print(result["error"], result.get("detail"))
-```
-
-Success is `{"ok": True, "action": <verb>}`. Failures are
-`{"ok": False, "error": <code>, "detail": <str>}` with stable error codes:
-`capability_not_granted`, `invalid_argument`, `gateway_unavailable`,
-`unknown_platform`, `adapter_not_registered`, `adapter_disconnected`,
-`unsupported_platform_action`, `action_failed`. Actions validate that the
-target adapter exists and is connected before acting; a disconnected or
-missing adapter degrades to a structured error, never an exception.
-
-Platforms supported in v1: Telegram and Discord. Telegram's `add_reaction`
-*sets* the bot's reaction (the Bot API replaces a previous bot reaction rather
-than stacking). Every action — allowed or denied — is written to the log with
-the plugin id, verb, platform, and outcome.
-
-:::warning Security note
-Platform actions are a **messaging-as-the-bot power**: a granted plugin can
-react and rename threads in any chat the gateway bot can reach, not just the
-chat that triggered the hook. Grant `gateway.platform_actions` only to plugins
-you trust, and prefer plugins that document exactly which actions they take.
-Raw platform SDK payload/handle access is deliberately **not** part of this
-surface — per the #64176 round-2 design correction it requires its own
-capability (`gateway.raw_events`) with a "no stability guarantee" label and a
-separate design, and has not shipped.
 :::
 
 ### Discovering plugins — the Hermes plugin catalog
@@ -747,8 +695,8 @@ that pins a set of plugins — like sharing a modpack. Installing a pack fans
 out to ordinary pinned installs; nothing new exists at runtime.
 
 ```yaml
-name: voice-assistant-pack
-description: STT + streaming TTS + approval relay
+name: approval-relay-pack
+description: Plugin with approval relay
 author: hyper
 version: 1.0.0
 plugins:
@@ -906,12 +854,11 @@ plugins:
 ```
 
 Plugins do not change. They receive the same `ctx` and register tools, hooks, slash commands, skills and
-provider objects (image/video generation, web search, browser, TTS/STT, memory, context engines,
+provider objects (image/video generation, web search, browser, memory, context engines,
 secret sources, `@` context references, model-provider profiles) exactly as before; Hermes registers
 matching entries on its side that call into the host, and values cross as the types the provider base
 class declares (a secret source's `fetch()` gets a `Path` and returns a `FetchResult`). Dashboard plugin APIs are served by the host too. Bundled plugins keep running in-process.
-In-process dashboard API handlers share the gateway's event loop, so they must not block it (see
-[Don't block the event loop](extending-the-dashboard.md#dont-block-the-event-loop)).
+In-process dashboard API handlers share the gateway's event loop, so they must not block it.
 
 On a gateway serving several profiles, every profile other than the one the gateway started with runs
 its own dashboard plugins (installed under its own `plugins/` folder or the root `~/.hermes/plugins/`,
@@ -932,8 +879,7 @@ What changes in `host` mode:
   flight returns a tool error and Hermes restarts the host and reloads its plugins (bounded retries).
 - **A few surfaces need in-process code** and fail that plugin with a clear reason instead of loading:
   gateway platform adapters (`register_platform`), approval transports, Telegram/platform handlers,
-  model-provider profiles that build their own SDK client (`create_client`), terminal backends (the
-  backend's commands fail with this reason; the `singularity` plugin is one), streaming and websocket
+  model-provider profiles that build their own SDK client (`create_client`), streaming and websocket
   dashboard endpoints, and plugins that monkeypatch Hermes modules. Run those with `isolation: in_process`.
 
 **Locking it for a shared deployment.** `plugins.isolation` is ordinary profile config, so whoever can
@@ -949,8 +895,8 @@ plugins:
     launcher: [...]      # pin the sandbox runner too, if you use one
 ```
 
-Run the agents' terminal on an isolated backend (Docker, SSH, ...) as well, so the agent itself cannot
-reach the operator's files.
+The terminal runs locally and is not isolated by plugin-host isolation. Use a separately isolated
+Hermes deployment if the agent must not reach the operator's files.
 
 `hermes plugins validate <dir>` and `hermes plugins show <name>` report whether a plugin runs in the host
 and, if not, why. Across the plugin catalog at the time of writing, 299 of 348 entries run in the host

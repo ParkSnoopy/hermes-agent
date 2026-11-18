@@ -13,7 +13,6 @@ from utils import env_var_enabled
 logger = logging.getLogger("tools.skills_tool")
 
 _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_REMOTE_ENV_BACKENDS = frozenset({"docker", "modal", "ssh", "daytona", "vercel_sandbox"})
 
 
 class SkillReadinessStatus(str, Enum):
@@ -22,15 +21,6 @@ class SkillReadinessStatus(str, Enum):
     UNSUPPORTED = "unsupported"
 
 
-def _is_remote_env_backend(backend: str) -> bool:
-    """Built-in remote backends plus plugin backends declaring is_remote."""
-    if backend in _REMOTE_ENV_BACKENDS or not backend or backend == "local":
-        return backend in _REMOTE_ENV_BACKENDS
-    try:
-        from agent.terminal_env_registry import provider_flag
-        return bool(provider_flag(backend, "is_remote", False))
-    except Exception:
-        return False
 
 
 def _as_dict_list(raw: Any) -> list:

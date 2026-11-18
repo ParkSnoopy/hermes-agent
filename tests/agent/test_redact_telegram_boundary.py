@@ -3,7 +3,6 @@
 Every value here is synthetic and assembled at runtime; none is a live credential.
 """
 import json
-import sys
 
 import pytest
 
@@ -88,34 +87,6 @@ def test_token_boundary_still_masks_token_and_neighbor(left, bot_prefix):
     assert neighbor not in result
 
 
-def test_cron_stdout_preserves_identity_and_masks_adjacent_token(tmp_path, monkeypatch):
-    from cron.monitor import check_monitor
-
-    home = tmp_path / "home"
-    scripts = home / "scripts"
-    scripts.mkdir(parents=True)
-    monkeypatch.setenv("HERMES_HOME", str(home))
-    monkeypatch.setattr("agent.redact._REDACT_ENABLED", True)
-    identity = "ITEM-000042:job-a12345678:q-" + "a" * 32
-    token = "123456789:" + "Ab_9-" * 7
-    script = scripts / "synthetic_monitor.py"
-    # A real child emits JSON; resolution, capture, redaction and context stay real.
-    script.write_text("import json\nprint(json.dumps(" + repr({"key": identity, "credential": token, "message": "\n" + token}) + "))\n")
-    snapshots = []
-    # Only replace persistence: no cron job store or production monitor is touched.
-    monkeypatch.setattr("cron.monitor._persist_monitor_state", lambda *args: snapshots.append(args))
-    outcome = check_monitor({"id": "synthetic-monitor", "monitor_script": script.name, "interpreter": sys.executable})
-    assert outcome.ok, outcome.error
-    assert outcome.changed
-    result = json.loads(snapshots[0][2])
-    assert result["key"] == identity
-    # The JSON key-name pass may mask "credential" first; either way the token body is gone.
-    assert token not in result["credential"]
-    assert result["message"] == "\n123456789:***"
-    assert outcome.context_block is not None
-    assert "### Current output" in outcome.context_block
-    assert identity in outcome.context_block
-    assert token not in outcome.context_block
 
 
 @pytest.mark.parametrize("mode", ["normal", "code", "terminal", "egress"])

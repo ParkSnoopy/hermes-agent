@@ -9,6 +9,7 @@ import functools
 import importlib
 import io
 import json
+import shlex
 import sys
 from contextlib import closing
 from dataclasses import dataclass
@@ -108,12 +109,8 @@ def _table_summary(summary: str, *, limit: int = 76) -> str:
 
 
 def _split_line(line: str) -> list[str]:
-    # Windows-safe splitter: plain shlex posix=True eats backslashes in paths.
-    # See #78293.
-    # See #83934.
-    from hermes_cli._subprocess_compat import split_command_line
     try:
-        return split_command_line(line)
+        return shlex.split(line)
     except ValueError as exc:
         raise ConsoleCommandError(f"Could not parse command: {exc}") from exc
 
@@ -139,12 +136,6 @@ def _format_sessions(sessions: Sequence[dict]) -> str:
         title = str(session.get("title") or session.get("preview") or "").replace("\n", " ")[:60]
         lines.append(f"{sid:<32} {source:<12} {messages:>5}  {title}")
     return "\n".join(lines)
-
-
-def _format_job(job: dict, action: str) -> str:
-    from cron.jobs import effective_job_state
-    job_id = job.get("id") or job.get("job_id") or "?"
-    return f"{action} job: {job.get('name') or '(unnamed)'} ({job_id}) [{effective_job_state(job)}]"
 
 
 def _clean_summary(text: str | None) -> str:
@@ -293,30 +284,18 @@ _CLI_FAMILIES: dict[str, tuple[_CliSurface, str]] = {
     "auth": (
         _sub("auth", "build_auth_parser", "cmd_auth"),
         "list, status, *reset, *priority, *refresh, *add, *remove, *logout"),
-    "pairing": (
-        _sub("pairing", "build_pairing_parser", "cmd_pairing"),
-        "list, *approve, *revoke, *clear-pending"),
-    "webhook": (
-        _sub("webhook", "build_webhook_parser", "cmd_webhook"),
-        "list, *subscribe, *remove, test"),
+
     "hooks": (_sub("hooks", "build_hooks_parser", "cmd_hooks"), "list, *test, *doctor, *revoke"),
-    "slack": (_sub("slack", "build_slack_parser", "cmd_slack"), "manifest"),
+
     "profile": (
         _sub("profile", "build_profile_parser", "cmd_profile"),
         "list, show, info, *create, *use, *describe, *rename, *delete, *export, *import, "
         "*install, *update"),
-    "cron": (_sub("cron", "build_cron_parser", "cmd_cron"), "*create, *edit, *remove, *tick"),
     "portal": (_CliSurface("adder", "hermes_cli.portal_cli", "add_parser"), "info, tools"),
     "project": (
         _CliSurface("builder", "hermes_cli.projects_cmd", "build_parser", "cmd_project"),
         "list, show, *create, *add-folder, *remove-folder, *rename, *set-primary, *use, "
-        "*archive, *restore, *bind-board"),
-    "kanban": (
-        _CliSurface("builder", "hermes_cli.kanban", "build_parser", "cmd_kanban"),
-        "*init, boards list, *boards create, *boards rm, *boards switch, boards current, "
-        "*boards rename, *boards set-workdir, *create, list, show, *assign, *reclaim, *reassign, "
-        "diagnose, *link, *unlink, *claim, *comment, *complete, *edit, *block, *schedule, "
-        "*unblock, *promote, *archive, stats, runs, heartbeat, assignments, context"),
+        "*archive, *restore"),
     "bundles": (_reg("bundles", "bundles_command"), "list, show, *create, *delete, *reload"),
     "checkpoints": (_reg("checkpoints"), "status, list, *prune, *clear, *clear-legacy"),
     "curator": (
@@ -330,7 +309,6 @@ _CLI_FAMILIES: dict[str, tuple[_CliSurface, str]] = {
 # (builder/adder families never did).
 _CONFIRMED_KINDS = {"extracted", "registered"}
 
-_SEND_SURFACE = _CliSurface("adder", "hermes_cli.send_cmd", "register_send_subparser")
 
 
 def _register_command_family(
@@ -360,14 +338,7 @@ _BLOCKED_PAIRS = {
     ("skills", "publish"): "`skills publish` is not available in Hermes Console.",
     ("portal", "login"): "`portal login` is interactive and is not available in Hermes Console.",
     ("portal", "open"): "`portal open` opens a browser and is not available in Hermes Console.",
-    ("kanban", "tail"): "`kanban tail` streams output and is not available in Hermes Console.",
-    ("kanban", "watch"): "`kanban watch` streams output and is not available in Hermes Console.",
-    ("kanban", "daemon"): "`kanban daemon` starts a service and is not available in Hermes Console.",
-    ("kanban", "dispatcher"): "`kanban dispatcher` starts a worker and is not available in Hermes Console.",
-    ("kanban", "swarm"): "`kanban swarm` starts agent work and is not available in Hermes Console.",
-    ("kanban", "decompose"): "`kanban decompose` starts agent work and is not available in Hermes Console.",
-    ("kanban", "specify"): "`kanban specify` starts agent work and is not available in Hermes Console.",
-    ("kanban", "gc"): "`kanban gc` is not available in Hermes Console.",
+
     ("sessions", "delete"): "`sessions delete` and `sessions prune` are not available in Hermes Console.",
     ("sessions", "prune"): "`sessions delete` and `sessions prune` are not available in Hermes Console.",
 }
@@ -432,10 +403,7 @@ class HermesConsoleEngine:
                 mutating=bool(confirmation), confirmation=confirmation)
         for root, (surface, paths) in _CLI_FAMILIES.items():
             _register_command_family(self, root, surface, paths)
-        self.register(
-            ("send",), "send --to <target> <message>", "Send a message to a configured platform.",
-            lambda _engine, args: _dispatch(_SEND_SURFACE, "send", (), args),
-            mutating=True, confirmation="Send this message?")
+
 
     def register(
         self, path: Iterable[str], usage: str, summary: str,
@@ -561,7 +529,6 @@ def _status(_engine: HermesConsoleEngine, args: list[str]) -> str:
 _doctor = _simple_command(
     "doctor", "hermes_cli.doctor", "run_doctor", lambda: (SimpleNamespace(fix=False, ack=None),))
 _config_show = _simple_command("config show", "hermes_cli.config_show", "show_config")
-_cron_status = _simple_command("cron status", "hermes_cli.cron", "cron_status")
 
 
 def _logs(_engine: HermesConsoleEngine, args: list[str]) -> str:
@@ -743,54 +710,6 @@ def _profile_status(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _dispatch(_CLI_FAMILIES["profile"][0], "profile", (), ())
 
 
-def _cron_list(_engine: HermesConsoleEngine, args: list[str]) -> str:
-    ns = _parse("cron list", args, (("--all",), dict(action="store_true")))
-    from hermes_cli.cron import cron_list
-    return _capture_output(lambda: cron_list(show_all=ns.all))
-
-
-def _cron_job_action(args: list[str], usage: str, action: str, run) -> str:
-    """Shared body for single-job cron commands: ``run(job_ref) -> job | None``."""
-    if len(args) != 1:
-        raise ConsoleCommandError(f"Usage: {usage}")
-    from cron.jobs import AmbiguousJobReference
-    try:
-        job = run(args[0])
-    except AmbiguousJobReference as exc:
-        raise ConsoleCommandError(str(exc)) from exc
-    if not job:
-        raise ConsoleCommandError(f"Job not found: {args[0]}")
-    return _format_job(job, action)
-
-
-def _cron_pause(_engine: HermesConsoleEngine, args: list[str]) -> str:
-    from cron.jobs import pause_job
-    return _cron_job_action(
-        args, "cron pause <job>", "Paused",
-        lambda ref: pause_job(ref, reason="paused from hermes console"))
-
-
-def _cron_resume(_engine: HermesConsoleEngine, args: list[str]) -> str:
-    ns = _parse("cron resume", args, "job", "--at", (("--run-now",), dict(action="store_true")))
-    if ns.at and ns.run_now:
-        raise ConsoleCommandError("Use exactly one of --at or --run-now.")
-    from cron.jobs import AmbiguousJobReference, _hermes_now, rearm_oneshot, resume_job
-    try:
-        job = (
-            rearm_oneshot(ns.job, _hermes_now().isoformat() if ns.run_now else ns.at)
-            if ns.at or ns.run_now else resume_job(ns.job))
-    except (AmbiguousJobReference, ValueError) as exc:
-        raise ConsoleCommandError(str(exc)) from exc
-    if not job:
-        raise ConsoleCommandError(f"Job not found: {ns.job}")
-    return _format_job(job, "Resumed")
-
-
-def _cron_run(_engine: HermesConsoleEngine, args: list[str]) -> str:
-    from cron.jobs import trigger_job
-    return _cron_job_action(args, "cron run <job>", "Triggered", trigger_job)
-
-
 # (path, usage, summary, handler, confirmation prompt) — a non-empty prompt marks it mutating.
 _BUILTIN_COMMANDS = (
     (("status",), "status", "Show Hermes component status.", _status, ""),
@@ -803,17 +722,9 @@ _BUILTIN_COMMANDS = (
      ""),
     (("config", "show"), "config show", "Show current configuration.", _config_show, ""),
     (("config", "path"), "config path", "Print config.yaml path.", _config_path, ""),
-    (("cron", "list"), "cron list [--all]", "List scheduled jobs.", _cron_list, ""),
-    (("cron", "status"), "cron status", "Show cron scheduler status.", _cron_status, ""),
     (("profile",), "profile", "Show active profile status.", _profile_status, ""),
     (("config", "set"), "config set <key> <value>", "Set a configuration value.", _config_set,
      "Update Hermes configuration?"),
-    (("cron", "pause"), "cron pause <job>", "Pause a scheduled job.", _cron_pause,
-     "Pause this cron job?"),
-    (("cron", "resume"), "cron resume <job>", "Resume a paused cron job.", _cron_resume,
-     "Resume this cron job?"),
-    (("cron", "run"), "cron run <job>", "Run a job on the next scheduler tick.", _cron_run,
-     "Trigger this cron job?"),
     (("config", "migrate"), "config migrate", "Update config with new options.", _config_migrate,
      "Update Hermes configuration with missing defaults?"),
     (("sessions", "export"), "sessions export <output> [--source SOURCE] [--session-id ID]",

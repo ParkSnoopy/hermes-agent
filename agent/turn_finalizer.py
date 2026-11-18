@@ -13,7 +13,7 @@ from contextlib import suppress
 from typing import Any, Callable, List, Optional, Tuple
 
 from agent.codex_responses_adapter import _summarize_user_message_for_log
-from agent.delegation_context import is_dispatcher_owned_worker_context
+
 from agent.interrupt_control import interrupted_during_api_call_reason
 from agent.turn_failure_copy import exit_reason_failure, stamp_failure
 from agent.context_compressor import _DB_PERSISTED_MARKER
@@ -43,45 +43,6 @@ def _assistant_row_missing_visible_text(msg: dict) -> bool:
         return False
     return not flatten_message_text(msg.get("content")).strip()
 
-
-def _record_kanban_budget_exhausted(
-    kanban_task: str, api_call_count: int, max_iterations: int, logger: logging.Logger
-) -> None:
-    """Record a terminal ``timed_out`` outcome for a kanban worker out of budget.
-
-    Routed via ``_record_task_failure`` (not ``kanban_block``) so it counts toward the
-    consecutive-failure circuit breaker. Idempotent via the ``_end_run`` CAS
-    (``WHERE ended_at IS NULL``), so safe from multiple exit paths.
-
-    This is a bounded fallback (#87096): the CAS invariant in ``_end_run`` (``WHERE ended_at IS NULL``)
-    guarantees idempotence — if another path already closed the run this is a no-op — so it is safe to call
-    from multiple exit paths.
-    """
-    try:
-        from hermes_cli import kanban_db as _kb
-        from hermes_cli import kanban_db_connect as _kbc
-        from hermes_cli import kanban_db_dispatch as _kbd
-        _conn = _kbc.connect()
-        try:
-            _kbd._record_task_failure(
-                _conn,
-                kanban_task,
-                error=(
-                    f"Iteration budget exhausted ({api_call_count}/{max_iterations}) — "
-                    "task could not complete within the allowed iterations"
-                ),
-                outcome="timed_out",
-                release_claim=True,
-                end_run=True,
-                event_payload_extra={"budget_used": api_call_count, "budget_max": max_iterations},
-            )
-        finally:
-            with suppress(Exception):
-                _conn.close()
-    except Exception:
-        logger.warning(
-            "Failed to record budget-exhausted failure for task %s", kanban_task, exc_info=True
-        )
 
 
 def _drop_verification_continuation_scaffolding(messages) -> None:
@@ -170,28 +131,7 @@ def _resolve_budget_fallback(
                 _turn_exit_reason = interrupted_during_api_call_reason(agent)
                 final_response = f"{INTERRUPT_WAITING_FOR_MODEL_PREFIX}{time.time() - _summary_start:.1f}s elapsed)."
 
-    # A kanban worker must record a terminal outcome whether or not a fallback path
-    # was eligible, so the dispatcher learns the worker could not complete. Only the
-    # dispatcher-owned worker owns the task: an in-process delegate_task child or cron run
-    # inherits ``HERMES_KANBAN_TASK`` via os.environ but exhausting ITS budget must not
-    # close the parent's run and release its claim (#112817).
-    _kanban_task = (
-        os.environ.get("HERMES_KANBAN_TASK")
-        if budget_exhausted and is_dispatcher_owned_worker_context() else None
-    )
-    # If running as a kanban worker, signal the dispatcher that the worker could not complete (rather than
-    # treating it as a protocol violation). This applies whether the user-facing fallback came from the
-    # summary call or an explicitly pending continuation; both exhausted the task budget and must advance
-    # the failure circuit. We route through ``_record_task_failure(outcome="timed_out")`` rather than
-    # ``kanban_block`` so this counts toward the dispatcher's consecutive-failure circuit breaker (#29747
-    # gap 2).
-    # Bounded fallback (#87096): budget was exhausted but none of the normal fallback paths were eligible
-    # (interrupted / failed / anomalous exit_reason). If running as a kanban worker we must still record a
-    # terminal outcome so the task does not remain in an ambiguous lifecycle state. The worker's run is
-    # closed via ``_record_task_failure`` (compare-and-swap receipt path) which is a no-op if another path
-    # closed it — the CAS invariant in ``_end_run`` (``WHERE ended_at IS NULL``) guarantees idempotence.
-    if _kanban_task:
-        _record_kanban_budget_exhausted(_kanban_task, api_call_count, agent.max_iterations, logger)
+
     return final_response, _turn_exit_reason, preserved_verification_fallback, interrupted
 
 
@@ -275,7 +215,7 @@ def _close_transcript_tail(agent, messages, final_response, interrupted, _recove
             _tail.pop(_DB_PERSISTED_MARKER, None)
             agent._db_flush_scan_prefix = None
 
-    # Request is complete, so replace API-local voice/model/skill guidance with the
+    # Request is complete, so replace API-local model/skill guidance with the
     # clean user input before the durable snapshot (earlier flushes still needed them).
     # Earlier turn-start flushes use the DB-only override because their messages are still needed for the
     # API request; this finalizer runs after that request is complete (#48677 / #63766).
@@ -319,9 +259,8 @@ def _micro_compact_after_turn(agent, messages, final_response, logger, task_id) 
             and not getattr(agent, "_persist_disabled", False)
         ):
             _before = len(messages)
-            # A rotating compaction earlier in this turn may have moved the agent to a child session.
             _compacted = _compressor._micro_compact(
-                messages, turn_session_id=getattr(agent, "_inflight_turn_session_id", None),
+                messages,
             )
             # Defrag rewrites the newest MICRO marker in place and pops _db_persisted;
             # the compressor flags us to invalidate the flush-scan cursor, else the
@@ -691,8 +630,7 @@ def finalize_turn(
 
     _rollback_interrupted_preflight_display(agent, interrupted)
 
-    from hermes_cli.observability.shared_metrics_harness import finish_turn
-    finish_turn(agent, _turn_exit_reason, final_response, interrupted=interrupted, failed=failed)
+
 
     _cleanup_errors: list[str] = []
     # The model has answered (or the loop gave up): a title upgrade held back because it shares a
@@ -853,11 +791,6 @@ def finalize_turn(
         result["interrupt_message"] = agent._interrupt_message
     agent.clear_interrupt()
     agent._stream_callback = None  # don't leak into future calls
-
-    # A voice turn's model route ends with the turn: memory sync and the background review
-    # below (and the next turn) run on the session's main model.
-    from agent.voice_turn_route import end_voice_turn_route
-    end_voice_turn_route(agent)
 
     # Skill trigger is checked NOW — based on how many tool iterations THIS turn used.
     _should_review_skills = (

@@ -37,6 +37,32 @@ def _build_inherited_flag_table() -> list[tuple[str, bool]]:
 _INHERITED_FLAGS_TABLE = _build_inherited_flag_table()
 
 
+def _needs_interpreter(bin_path: pathlib.Path) -> bool:
+    """Whether a Python launcher's shebang escapes the running venv."""
+    try:
+        with open(bin_path, "rb") as fh:
+            head = fh.read(256)
+    except OSError:
+        return False
+    if not head.startswith(b"#!"):
+        return False
+    shebang = head.decode("utf-8", errors="replace").splitlines()[0].strip()
+    if "python" not in shebang.lower():
+        return False
+    tokens = shebang[2:].strip().split()
+    if not tokens:
+        return True
+    interp = pathlib.Path(tokens[0])
+    if interp.name in ("env", "env.exe"):
+        rest = [t for t in tokens[1:] if not t.startswith("-")]
+        if not (rest and pathlib.Path(rest[0]).is_absolute()):
+            return True
+        interp = pathlib.Path(rest[0])
+    # Compare lexical directories: resolving venv symlinks loses the venv identity.
+    running_dir = os.path.dirname(os.path.abspath(sys.executable)).lower()
+    return str(interp.parent).lower() != running_dir
+
+
 def _extract_inherited_flags(argv: Sequence[str]) -> list[str]:
     """Pull out flags that should carry over into a self-relaunched hermes."""
     flags: list[str] = []
@@ -63,24 +89,14 @@ def resolve_hermes_bin() -> Optional[str]:
     """Hermes entry point: ``sys.argv[0]`` if a real executable, else ``which hermes``, else ``None``
     (caller falls back to ``python -m hermes_cli.main``).
 
-    Python launchers are never returned: on Windows a ``.py`` can't be exec'd directly, and on
-    POSIX the git installer runs the extensionless source launcher under the managed venv
+    Python launchers are never returned: the git installer runs the extensionless source launcher under the managed venv
     interpreter while its ``#!/usr/bin/env python3`` shebang would pick the system Python and
     lose the venv. Falling through to ``sys.executable -m hermes_cli.main`` keeps the venv.
     """
     argv0 = sys.argv[0]
-    _is_windows = sys.platform == "win32"
-
-    def _is_python_script(p: str) -> bool:
-        return p.lower().endswith((".py", ".pyc"))
-
     def _is_unsafe_python_launcher(p: str) -> bool:
-        if _is_windows:
-            return _is_python_script(p)
         # A console script pinned to the running venv (``#!<venv>/bin/python``) keeps the venv and
         # stays exec-able; a shebang that resolves elsewhere (``env python3``) loses it.
-        from hermes_cli.linux_desktop_entry import _needs_interpreter
-
         return _needs_interpreter(pathlib.Path(p))
 
     # Absolute executable (nix store, venv wrappers, …), then relative-to-CWD, then PATH.
@@ -115,33 +131,8 @@ def build_relaunch_argv(
 def relaunch(
     extra_args: Sequence[str], *, preserve_inherited: bool = True, original_argv: Optional[Sequence[str]] = None
 ) -> None:
-    """Replace the current process with a fresh hermes invocation.
-
-    POSIX: ``os.execvp`` in place (same PID, no double-fork). Windows has no real exec — its
-    ``execvp`` emulation only works for a real Win32 executable, so spawn + exit instead.
-    """
+    """Replace the current process with a fresh hermes invocation."""
     new_argv = build_relaunch_argv(extra_args, preserve_inherited=preserve_inherited, original_argv=original_argv)
-    if sys.platform == "win32":
-        import subprocess
-        try:
-            result = subprocess.run(new_argv, check=False)
-            sys.exit(result.returncode)
-        except KeyboardInterrupt:
-            sys.exit(130)
-        except OSError as exc:
-            # Raw ``[Errno 8] Exec format error`` is cryptic; usual causes are ``hermes`` not on
-            # PATH yet (install hasn't propagated User PATH into this shell) or a stale shim.
-            print(
-                f"\nHermes relaunch failed: {exc}\n"
-                f"Command: {' '.join(new_argv)}\n"
-                f"Fix: open a new terminal so PATH picks up, then re-run hermes.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-    else:
-        from hermes_cli.cpu_profile import write_cpu_profile
-        from hermes_cli.observability.shared_metrics_startup import mark_in_place_relaunch
-
-        mark_in_place_relaunch()
-        write_cpu_profile()  # exec skips atexit
-        os.execvp(new_argv[0], new_argv)
+    from hermes_cli.cpu_profile import write_cpu_profile
+    write_cpu_profile()  # exec skips atexit
+    os.execvp(new_argv[0], new_argv)

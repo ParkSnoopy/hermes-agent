@@ -1,10 +1,9 @@
 """Contracts for ``methods_profiles``, ``methods_vault``, ``methods_complete``,
-``methods_session_foreign`` and ``methods_subagents``.
+and ``methods_subagents``.
 
 Profiles are the ws twin of the dashboard's ``/api/profiles``; the vault handlers are the
 Desktop's Settings → Credential Vault door (metadata only — a secret never appears in a result);
-completions feed the composer popovers; ``session.foreign.*`` browses Claude Code / Codex
-histories on the serving backend; ``subagent.*`` is the session-scoped roster of live children.
+completions feed the composer popovers; ``subagent.*`` is the session-scoped roster of live children.
 """
 
 from __future__ import annotations
@@ -126,7 +125,7 @@ class ProfileSessionPreview(Result):
 
 
 class ProfileWorkerSession(Result):
-    """Newest kanban/tool worker row, so rosters can show a profile as working."""
+    """Newest tool worker row, so rosters can show a profile as working."""
 
     id: str
     source: str = ""
@@ -209,7 +208,6 @@ class ProfileMirrored(Result):
     env: bool = False
     auth: bool | Literal["shared"] = False
     model_inherited: bool = False
-    voice: bool = False
 
 
 class ProfilesCreateResult(Result):
@@ -352,94 +350,6 @@ method("profiles.get_asset", params=ProfilesGetAssetParams, result=ProfilesGetAs
        doc="A profile asset as a data URL.")
 
 
-# ── onboarding (methods_onboarding) ───────────────────────────────────────────────────────────
-
-
-class OnboardingStateParams(Params):
-    """``assume_fresh``: the unpackaged desktop's ``--fresh-install`` launch; the backend treats this
-    machine as one that never used Hermes. Packaged builds never send it."""
-
-    assume_fresh: bool = False
-
-
-class OnboardingRunStateResult(Result):
-    """``run``: onboarding opens on this launch (root config ``onboarding.run``, else a machine that
-    never used Hermes). ``eligible``: this is the desktop's local backend and the welcome trial or a
-    configured provider can carry the first chat.
-    ``session_id``: the stored id of the onboarding chat still in progress, so a relaunch reopens it;
-    ``run_id``: that run's id, which ``onboarding.ended`` names."""
-
-    run: bool
-    eligible: bool
-    session_id: str | None = None
-    run_id: str | None = None
-
-
-method("onboarding.state", params=OnboardingStateParams, result=OnboardingRunStateResult,
-       doc="Whether desktop first-run onboarding is due, and the chat in progress; reads the root profile's config.")
-
-
-class OnboardingSetRunParams(Params):
-    """``mark_profile_offered`` also latches ``onboarding.seen.profile_build_offered`` in the root config,
-    so the first chat after onboarding gets the plain intro instead of the profile offer."""
-
-    run: bool
-    mark_profile_offered: bool = False
-
-
-method("onboarding.set_run", params=OnboardingSetRunParams, result=OnboardingRunStateResult,
-       doc="Write onboarding.run in the root profile's config.yaml; answers the new state.")
-
-
-class OnboardingFactsSource(WireEnum):
-    local = "local"
-    remote = "remote"
-
-
-class OnboardingStartParams(Params):
-    """``rerun``: start a new onboarding chat even when one is in progress (Settings, Run onboarding
-    again; it never claims the welcome trial). ``fresh_launch``: the app's once-per-launch start; a run
-    the app was closed on does not count, so its chat is deleted and the run starts over.
-    ``facts_source``: whether the backend runs on the user's own computer. ``locale``: the desktop's UI
-    language, preferred over the backend OS locale. ``assume_fresh``: as on ``onboarding.state``. A new
-    run on a first install claims the welcome trial before its chat exists; a failed claim is error
-    5079 and leaves no guest and no chat. A claim that is blocked (another install took the trial) with
-    no trial or provider to run on is error 5080 and opens no chat."""
-
-    rerun: bool = False
-    fresh_launch: bool = False
-    assume_fresh: bool = False
-    facts_source: OnboardingFactsSource = OnboardingFactsSource.local
-    locale: str | None = None
-
-
-class OnboardingStartResult(Result):
-    """``session_id`` is the runtime id the client attaches to; ``resumed`` is true when an onboarding
-    chat already in progress was reopened instead of a new one started. ``run_id`` names the run in
-    ``onboarding.ended``."""
-
-    session_id: str
-    stored_session_id: str
-    resumed: bool
-    run_id: str
-
-
-method("onboarding.start", params=OnboardingStartParams, result=OnboardingStartResult,
-       doc="Open the onboarding chat in the default profile: create it, write its run record and play the opening.")
-
-
-class OnboardingSkipParams(SessionParams):
-    pass
-
-
-class OnboardingSkipResult(Result):
-    skipped: bool
-
-
-method("onboarding.skip", params=OnboardingSkipParams, result=OnboardingSkipResult,
-       doc="Skip setup: end the session's onboarding run and close the card that waits.")
-
-
 # ── vault (methods_vault) ─────────────────────────────────────────────────────────────────────
 
 
@@ -519,27 +429,6 @@ method("vault.unlock", params=VaultUnlockParams, result=VaultUnlockResult,
        doc="Unlock a password manager for this session with its master password.")
 
 
-class VaultPreviewFillParams(ProfileParams):
-    """``target`` is the opaque binding the renderer minted for one in-app browser tab."""
-
-    handle: str
-    target: str
-
-
-class VaultPreviewFillResult(Result):
-    """Counts and the page origin only: never a secret."""
-
-    success: bool
-    filled_fields: int | None = None
-    origin: str | None = None
-    error: str | None = None
-    error_type: str | None = None
-
-
-method("vault.preview.fill", params=VaultPreviewFillParams, result=VaultPreviewFillResult,
-       doc="Fill a saved login into the in-app browser tab the renderer pinned (never submits).")
-
-
 class VaultLockParams(ProfileParams):
     name: str | None = None
 
@@ -579,79 +468,6 @@ class VaultRemoveResult(Result):
 
 method("vault.remove", params=VaultRemoveParams, result=VaultRemoveResult,
        doc="Remove a local vault item by id.")
-
-
-# ── foreign histories (methods_session_foreign) ───────────────────────────────────────────────
-
-
-class ForeignSource(WireEnum):
-    claude = "claude"
-    codex = "codex"
-
-
-class ForeignSessionRow(Result):
-    """``hermes_cli/foreign_sessions_browser.py::list_foreign_sessions`` — ``id`` is an opaque
-    handle, never a path."""
-
-    id: str
-    source: ForeignSource
-    label: str
-    title: str = ""
-    cwd: str | None = None
-    mtime: float
-    turn_count: int = 0
-    excerpt: str = ""
-
-
-class SessionForeignListParams(ProfileParams):
-    source: ForeignSource | None = None
-    offset: int | None = None
-    limit: int | None = None
-
-
-class SessionForeignListResult(Result):
-    """``unreadable`` counts logs on this page that failed to parse."""
-
-    sessions: list[ForeignSessionRow] = Field(default_factory=list)
-    next_offset: int | None = None
-    host: str
-    unreadable: int = 0
-
-
-method("session.foreign.list", params=SessionForeignListParams, result=SessionForeignListResult,
-       doc="One page of Claude Code / Codex sessions found on the serving backend.")
-
-
-class ForeignTurn(Result):
-    role: str
-    content: str
-
-
-class SessionForeignIdParams(ProfileParams):
-    id: str | None = None
-
-
-class SessionForeignPreviewResult(Result):
-    """Bounded to the last 40 turns / 8000 chars each; ``already_imported`` is the local id."""
-
-    messages: list[ForeignTurn] = Field(default_factory=list)
-    total: int = 0
-    truncated: bool = False
-    already_imported: str | None = None
-    cwd: str | None = None
-
-
-method("session.foreign.preview", params=SessionForeignIdParams, result=SessionForeignPreviewResult,
-       doc="Preview a foreign session's tail before importing it.")
-
-
-class SessionForeignImportResult(Result):
-    session_id: str
-    already_imported: bool = False
-
-
-method("session.foreign.import", params=SessionForeignIdParams, result=SessionForeignImportResult,
-       doc="Import a foreign session into this profile's history (idempotent per origin).")
 
 
 # ── subagents (methods_subagents) ─────────────────────────────────────────────────────────────

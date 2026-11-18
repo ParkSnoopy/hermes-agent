@@ -3,24 +3,23 @@ import asyncio
 
 import pytest
 
-from gateway.config import GatewayConfig, Platform, PlatformConfig
+from gateway.config import GatewayConfig, PlatformConfig
 from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.run import GatewayRunner
 from gateway.session import SessionSource
 from gateway.wake import deliver_wake
-from hermes_cli import kanban_db as kb
-from hermes_cli import kanban_db_connect as kbc
+from tests.gateway.test_automation_compression_media import _plugin_platform
 
 
 class WakeAdapter(BasePlatformAdapter):
-    def __init__(self):
-        super().__init__(PlatformConfig(enabled=True), Platform.TELEGRAM)
+    def __init__(self, platform):
+        super().__init__(PlatformConfig(enabled=True), platform)
         self.sent = []
 
     @property
     def name(self):
-        return "telegram"
+        return self.platform.value
 
     async def connect(self, *, is_reconnect=False):
         return True
@@ -42,16 +41,9 @@ async def unused_handler(event):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("human_pending", [False, True])
-async def test_completed_board_wake_is_admitted_without_changing_human_input(tmp_path, monkeypatch, human_pending):
-    monkeypatch.setenv("HERMES_KANBAN_DB", str(tmp_path / "board.db"))
-    kb.init_db()
-    with kbc.connect() as conn:
-        tid = kb.create_task(conn, title="wake receipt", assignee="worker")
-        kb.complete_task(conn, tid, summary="completed result")
-        task = kb.get_task(conn, tid)
-    assert task is not None and task.status == "done"
-    text = f"[Kanban task completed] {task.result}"
-    adapter, runner, source, key = busy_gateway()
+async def test_background_wake_is_admitted_without_changing_human_input(monkeypatch, human_pending):
+    text = "[Background process completed] completed result"
+    adapter, runner, source, key = busy_gateway(monkeypatch)
     human = MessageEvent(text="human follow-up", message_type=MessageType.TEXT, source=source)
     if human_pending:
         adapter._pending_messages[key] = human
@@ -69,13 +61,14 @@ async def test_completed_board_wake_is_admitted_without_changing_human_input(tmp
     assert not adapter._active_sessions[key].is_set()
 
 
-def busy_gateway():
-    adapter = WakeAdapter()
+def busy_gateway(monkeypatch):
+    platform = _plugin_platform(monkeypatch)
+    adapter = WakeAdapter(platform)
     runner = object.__new__(GatewayRunner)
     runner.config = GatewayConfig()
-    runner.adapters = {Platform.TELEGRAM: adapter}
+    runner.adapters = {platform: adapter}
     runner._draining = False
-    source = SessionSource(platform=Platform.TELEGRAM, chat_id="123", chat_type="dm")
+    source = SessionSource(platform=platform, chat_id="123", chat_type="dm")
     key = adapter._event_session_key(MessageEvent(text="", message_type=MessageType.TEXT, source=source))
     adapter.set_message_handler(unused_handler)
     adapter.set_busy_session_handler(runner._handle_active_session_busy_message)
@@ -84,8 +77,8 @@ def busy_gateway():
 
 
 @pytest.mark.asyncio
-async def test_identityless_external_input_is_still_rejected():
-    adapter, runner, source, key = busy_gateway()
+async def test_identityless_external_input_is_still_rejected(monkeypatch):
+    adapter, runner, source, key = busy_gateway(monkeypatch)
     for _ in range(2):
         await adapter.handle_message(MessageEvent(text="external", message_type=MessageType.TEXT, source=source))
     assert key not in adapter._pending_messages

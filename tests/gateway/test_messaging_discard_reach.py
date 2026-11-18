@@ -1,26 +1,21 @@
-"""Messaging ``/discard`` reaches every lost turn it promises to (review #141357, GW-10).
+"""Messaging ``/discard`` reaches lost turns in resumed conversations.
 
-Slack has no native ``/discard`` (its slash cap), so the pause notice must name ``/hermes discard``;
-a conversation brought back by ``/resume`` after a restart is not in the owner's live map, and
-``/discard`` must still find its lost turn. Real runner dispatch and SQLite; transport stubbed."""
+A resumed conversation may not be in the owner's live map; ``/discard`` must
+still find its lost turn. Real runner dispatch and SQLite; transport stubbed."""
 import asyncio
 
 import pytest
 
 
-def test_slack_pause_notice_names_the_registered_umbrella_command():
+def test_pause_notice_names_discard_for_a_messaging_transport(monkeypatch):
     from types import SimpleNamespace
-    from gateway.config import Platform
     from gateway.session import SessionSource
     from gateway.session_contract import SessionRef
     from gateway.session_ingress import pause_notice
-    from hermes_cli.commands_platforms import slack_native_slashes, slack_subcommand_map
-    assert 'discard' not in [row[0].lstrip('/') for row in slack_native_slashes()]
-    assert slack_subcommand_map().get('discard')
-    for platform, expected in ((Platform.SLACK, '/hermes discard'), (Platform.TELEGRAM, 'Send /discard')):
-        live = SimpleNamespace(source=SessionSource(platform=platform, chat_id='D42'), pause_notified=False)
-        notice = pause_notice(SimpleNamespace(sessions={'s': live}), SessionRef('p', 's'), 'unknown_execution')
-        assert expected in notice, notice
+    from tests.gateway.test_platform_reconnect import register_test_platform
+    live = SimpleNamespace(source=SessionSource(platform=register_test_platform(monkeypatch), chat_id='D42'), pause_notified=False)
+    notice = pause_notice(SimpleNamespace(sessions={'s': live}), SessionRef('p', 's'), 'unknown_execution')
+    assert 'Send /discard' in notice
 
 
 @pytest.mark.asyncio
@@ -38,13 +33,15 @@ async def test_discard_after_resume_into_a_cold_conversation_resolves_its_lost_t
     from hermes_constants import get_hermes_home
     from hermes_state_runtime import claim_session_input, get_session_admission
     from tests.gateway.test_command_bypass_active_session import _StubAdapter
+    from tests.gateway.test_platform_reconnect import register_test_platform
 
+    platform = register_test_platform(monkeypatch)
     monkeypatch.setenv('HERMES_HOME', str(tmp_path))
-    monkeypatch.setenv('TELEGRAM_ALLOWED_USERS', '42')
+    monkeypatch.setenv('GATEWAY_ALLOW_ALL_USERS', 'true')
     monkeypatch.setattr('gateway.run._hermes_home', tmp_path)
     monkeypatch.setattr('hermes_state.DEFAULT_DB_PATH', tmp_path / 'state.db')  # conftest repoints it per test
     runner = GatewayRunner(GatewayConfig(multiplex_profiles=False, sessions_dir=tmp_path / 'sessions'))
-    adapter = _StubAdapter(PlatformConfig(enabled=True, token='fixture', typing_indicator=False), Platform.TELEGRAM)
+    adapter = _StubAdapter(PlatformConfig(enabled=True, token='fixture', typing_indicator=False), platform)
     sent = []
 
     async def send(chat_id, content, **kwargs):
@@ -52,7 +49,7 @@ async def test_discard_after_resume_into_a_cold_conversation_resolves_its_lost_t
         return SendResult(success=True, message_id=str(len(sent)))
     monkeypatch.setattr(adapter, 'send', send)
     adapter.gateway_runner = runner
-    runner.adapters = {Platform.TELEGRAM: adapter}
+    runner.adapters = {platform: adapter}
     runner._wire_adapter_handlers(adapter)
     register_transport_home(runner, None, tmp_path)
     source = adapter.build_source(chat_id='42', chat_type='dm', user_id='42')

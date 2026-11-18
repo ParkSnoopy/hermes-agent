@@ -1,13 +1,11 @@
 """Child-process environment for execute_code: env scrubbing, interpreter and cwd resolution.
 
-Both the per-call remote path and the local session kernel build their child
-env through ``_build_child_env`` so the security rules (secret scrubbing,
-PYTHONPATH hygiene, UTF-8 forcing, TZ) cannot drift between them.
+The local session kernel builds its child environment through ``_build_child_env``
+with secret scrubbing, PYTHONPATH hygiene, UTF-8 forcing and TZ.
 """
 
 import logging
 import os
-import platform
 import subprocess
 import sys
 from typing import Dict
@@ -15,12 +13,10 @@ from typing import Dict
 # Logger name kept as the origin module's so existing log expectations hold.
 logger = logging.getLogger("tools.code_execution_tool")
 
-_IS_WINDOWS = platform.system() == "Windows"
-
 # Scrub order: secret-substring block first; whatever is left must match a safe
-# prefix, the exact-name HERMES_ allowlist, or (Windows) an OS-essential name.
+# prefix or the exact-name HERMES_ allowlist.
 # The broad "HERMES_" prefix is deliberately NOT safe — it leaked config vars
-# without a secret substring (HERMES_BASE_URL, HERMES_KANBAN_DB, *_WEBHOOK).
+# without a secret substring (HERMES_BASE_URL, *_WEBHOOK).
 # HERMES_RPC_SOCKET / HERMES_RPC_DIR / TZ / HOME are injected after scrubbing.
 _SAFE_ENV_PREFIXES = ("PATH", "HOME", "USER", "LANG", "LC_", "TERM", "TMPDIR", "TMP", "TEMP", "SHELL",
                       "LOGNAME", "XDG_", "PYTHONPATH", "VIRTUAL_ENV", "CONDA")
@@ -35,34 +31,20 @@ def is_secret_env_name(name: str) -> bool:
     return any(s in name.upper() for s in _SECRET_SUBSTRINGS)
 
 # Non-secret runtime-location flags that repo-root modules a sandbox script
-# imports may read at import time. HERMES_DELEGATED_CHILD_CONTEXT must ride
-# along or a child that imports Hermes code loses the Kanban mutation guard
-# while still inheriting HERMES_HOME.
+# imports may read at import time. Preserve delegated-child identity across the
+# sandbox process boundary for child-specific runtime behavior.
 _HERMES_CHILD_ALLOWED = frozenset({
     "HERMES_HOME", "HERMES_PROFILE", "HERMES_CONFIG", "HERMES_ENV", "HERMES_DELEGATED_CHILD_CONTEXT",
 })
 
-# Windows-only: without these the CRT itself fails — socket.socket() raises
-# WinError 10106 (Winsock can't find mswsock.dll) and subprocess can't resolve
-# cmd.exe. Well-known OS paths, not secrets; the substring block still runs.
-_WINDOWS_ESSENTIAL_ENV_VARS = frozenset({
-    "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT", "OS",
-    "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS", "PUBLIC", "ALLUSERSPROFILE",
-    "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432",
-    "APPDATA", "LOCALAPPDATA", "USERPROFILE", "USERDOMAIN", "USERNAME",
-    "HOMEDRIVE", "HOMEPATH", "COMPUTERNAME",
-})
-
-
-def _scrub_child_env(source_env, is_passthrough=None, is_windows=None, toolchain=frozenset()):
+def _scrub_child_env(source_env, is_passthrough=None, toolchain=frozenset()):
     """Produce the scrubbed child-process env for execute_code.
 
     Rules, in order: (1) passthrough vars (skill/config-declared) resolve
     through the active profile secret scope — an absent scoped value is
     omitted; (2) secret-substring names are blocked; (3) safe prefixes pass,
     as do a local session's client ``toolchain`` names (NVM_DIR, GOPATH...);
-    (4) operational HERMES_* pass by exact name; (5) on Windows the
-    OS-essential allowlist passes by exact name.
+    (4) operational HERMES_* pass by exact name.
     """
     try:
         from tools.env_passthrough import is_env_passthrough, resolve_passthrough_value, scoped_passthrough_additions
@@ -72,8 +54,7 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None, toolchain
         scoped_passthrough_additions = lambda _present: {}
     if is_passthrough is None:
         is_passthrough = is_env_passthrough
-    if is_windows is None:
-        is_windows = _IS_WINDOWS
+
     scrubbed = {}
     # Non-secret HERMES_* vars no allowlist admits are dropped on purpose; a script importing a
     # repo module that reads one would see it silently unset — log the drop, point at the opt-in.
@@ -87,8 +68,7 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None, toolchain
         if is_secret_env_name(k):
             continue
         if (any(k.startswith(p) for p in _SAFE_ENV_PREFIXES) or k in toolchain
-                or k in _HERMES_CHILD_ALLOWED
-                or (is_windows and k.upper() in _WINDOWS_ESSENTIAL_ENV_VARS)):
+                or k in _HERMES_CHILD_ALLOWED):
             scrubbed[k] = v
         elif k.startswith("HERMES_"):
             _dropped_hermes.append(k)
@@ -103,19 +83,13 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None, toolchain
             "env_passthrough in the skill/config so it passes by explicit opt-in.",
             len(_dropped_hermes), ", ".join(sorted(_dropped_hermes)),
         )
-    # delegate_task children are marked by a ContextVar, not os.environ, and the sandbox crosses
-    # a process boundary: strip dispatcher-owned Kanban vars AFTER the scrub so an explicit
-    # passthrough cannot re-grant a delegated child the parent's board mutation capability.
+    # Carry the delegated-child marker across the sandbox process boundary.
     from agent.delegation_context import (
         DELEGATED_CHILD_ENV_MARKER, delegated_child_subprocess_env,
     )
     scoped = delegated_child_subprocess_env(source_env)
-    # Preserve location only when carrying the descendant fence, not for arbitrary
-    # non-allowlisted HERMES_* values in otherwise ordinary execution environments.
     if scoped.get(DELEGATED_CHILD_ENV_MARKER):
-        for key in (DELEGATED_CHILD_ENV_MARKER, "HERMES_KANBAN_DB", "HERMES_KANBAN_BOARD"):
-            if key in scoped:
-                scrubbed[key] = scoped[key]
+        scrubbed[DELEGATED_CHILD_ENV_MARKER] = scoped[DELEGATED_CHILD_ENV_MARKER]
     return delegated_child_subprocess_env(scrubbed)
 
 
@@ -139,9 +113,7 @@ def _build_child_env(*, rpc_endpoint: str, rpc_token: str, tmpdir: str,
     from hermes_time import get_timezone_name
 
     _tz_name = get_timezone_name()
-    # Windows CPython does not support IANA names in TZ.  Leaving TZ unset
-    # preserves the OS-configured local timezone for the child process.
-    if _tz_name and not _IS_WINDOWS:
+    if _tz_name:
         child_env["TZ"] = _tz_name
     child_env.pop("HERMES_TIMEZONE", None)
     apply_subprocess_home_env(child_env)
@@ -218,7 +190,6 @@ def _probe_python(python_path: str, code: str, *, text: bool = False):
         from agent.delegation_context import delegated_child_subprocess_env
         return subprocess.run(
             [python_path, "-c", code], timeout=5, capture_output=True, text=text,
-            creationflags=subprocess.CREATE_NO_WINDOW if _IS_WINDOWS else 0,
             stdin=subprocess.DEVNULL, env=delegated_child_subprocess_env(),
             check=False,
         )
@@ -268,7 +239,7 @@ def _resolve_child_python(mode: str) -> str:
         return sys.executable
     from agent.session_client_env import toolchain_environ
     environ = toolchain_environ()  # a local session's: its client's venv/conda, not the daemon's
-    subdir, exe_names = ("Scripts", ("python.exe", "python3.exe")) if _IS_WINDOWS else ("bin", ("python", "python3"))
+    subdir, exe_names = "bin", ("python", "python3")
     for var in ("VIRTUAL_ENV", "CONDA_PREFIX"):
         root = environ.get(var, "").strip()
         for exe in exe_names if root else ():

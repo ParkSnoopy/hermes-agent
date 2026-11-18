@@ -8,7 +8,7 @@ These tests pin the contracts that make that routing correct:
 1. ``api_mode`` is derived from the model, not hardcoded per provider.
 2. The Anthropic SDK's base URL + auth land on Portal's route with Bearer auth.
 3. Portal catalog ids are forwarded verbatim (it routes on ``vendor/model``).
-4. Portal's ``tags`` / ``session_id`` body fields survive onto the new wire.
+4. Portal's ``session_id`` routing field survives onto the new wire without attribution tags.
 5. Signed thinking blocks replay like native Anthropic (not strip-all third-party).
 6. Auxiliary clients inherit the same dual-wire split (Claude → Messages).
 """
@@ -267,10 +267,10 @@ class TestModelIdPassthrough:
 
 
 class TestPortalBodyFields:
-    """``tags`` and ``session_id`` are top-level Portal body fields.
+    """``session_id`` is a top-level Portal routing field.
 
-    They are produced by the Nous provider profile, which only the OpenAI-wire
-    transport consults — so the Anthropic branch has to merge them in itself.
+    It is produced by the Nous provider profile, which only the OpenAI-wire
+    transport consults — so the Anthropic branch has to merge it in itself.
     """
 
     def _build(self, provider="nous", session_id="sess-abc123"):
@@ -298,22 +298,14 @@ class TestPortalBodyFields:
         )
         return build_api_kwargs(agent, [{"role": "user", "content": "hi"}])
 
-    def test_portal_tags_reach_the_messages_request(self):
-        from agent.portal_tags import hermes_client_tag
-
-        tags = self._build()["extra_body"]["tags"]
-
-        assert "product=hermes-agent" in tags
-        assert hermes_client_tag() in tags
-        assert all(isinstance(tag, str) for tag in tags), (
-            "Portal skips non-string tag entries unpredictably"
-        )
+    def test_portal_attribution_tags_not_in_messages_request(self):
+        assert "tags" not in self._build().get("extra_body", {})
 
     def test_session_id_reaches_the_messages_request(self):
         extra_body = self._build(session_id="sess-abc123")["extra_body"]
 
         assert extra_body["session_id"] == "sess-abc123"
-        assert "conversation=sess-abc123" in extra_body["tags"]
+        assert "tags" not in extra_body
 
 
 

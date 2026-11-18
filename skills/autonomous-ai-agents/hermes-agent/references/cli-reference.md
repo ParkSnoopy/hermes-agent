@@ -40,7 +40,7 @@ hermes chat [flags]
 ### Configuration
 
 ```
-hermes setup [section]      Wizard (model|tts|terminal|gateway|tools|agent)
+hermes setup [section]      Wizard (model|terminal|tools|agent)
 hermes model                Interactive model/provider picker
 hermes fallback [add|remove|list]  Fallback provider chain
 hermes config [show|edit|get|set|unset|path|env-path|check|migrate]
@@ -72,26 +72,15 @@ hermes mcp-serve                      Run Hermes as an MCP server (mcp-serve plu
 ```
 Details (transport, tool discovery, catalog): `references/native-mcp.md`.
 
-### Gateway (Messaging Platforms)
-
-```
-hermes gateway run|install|start|stop|restart|status|setup
-```
-
-20+ platforms: Telegram, Discord, Slack, WhatsApp (Baileys + Business Cloud API), iMessage (Photon — `hermes photon setup`), Signal, Email, SMS, Matrix, Mattermost, Teams, LINE, SimpleX, ntfy, Google Chat, Home Assistant, DingTalk, Feishu, WeCom, Weixin, API Server, Webhooks. Open WebUI connects via the API Server adapter. Most adapters ship under `plugins/platforms/`.
-Docs: https://hermes-agent.nousresearch.com/docs/user-guide/messaging/
-
 ### Sessions
 
 ```
 hermes sessions list|browse|rename ID TITLE|delete ID|export OUT|prune|stats
 ```
 
-### Cron / Webhooks
+### Webhooks
 
 ```
-hermes cron list|create SCHED|edit ID|pause|resume|run ID|remove|status
-    Schedules: '30m', 'every 2h', '0 9 * * *', ISO timestamp
 hermes webhook subscribe NAME|list|remove NAME|test NAME
 ```
 Webhook payloads/routes: `references/webhooks.md`.
@@ -120,7 +109,6 @@ hermes desktop / gui        Native desktop app
 hermes dashboard            Web admin panel + embedded chat (--stop / --status)
 hermes proxy                OpenAI-compatible local proxy backed by an OAuth provider
 hermes portal               Quick setup / sign in via Nous Portal
-hermes kanban <verb>        Multi-agent work-queue board
 hermes project              Named multi-folder workspaces (see references/projects-and-folders.md)
 hermes skin list|use|set    Switch/tweak skins (see references/themes.md)
 hermes pets <verb>          Pet mascots (see references/petdex.md)
@@ -129,14 +117,14 @@ hermes secrets bitwarden|onepassword   External secret stores
 hermes moa                  Mixture-of-Agents slots
 hermes hooks / security / backup / import / checkpoints / console
 hermes logs [-f] [errors]   View agent/error logs
-hermes send                 One-off message through a gateway platform
-hermes pairing / plugins / insights / journey / computer-use
+
+hermes plugins / insights / journey / computer-use
 hermes acp                  ACP server (IDE integration)
 hermes completion bash|zsh|fish
 hermes update / uninstall
 ```
 
-Plugin- and provider-supplied subcommands (e.g. `hermes photon setup`) only appear once their plugin is installed/active. Importing from OpenClaw, Claude Code, Codex CLI or Cursor (`hermes import-agent <agent>`, plus the older `hermes claw migrate|cleanup`) comes from the `agent-importers` plugin; a fresh `hermes setup` that finds one of those agents offers to install it.
+Plugin- and provider-supplied subcommands (e.g. `hermes photon setup`) only appear once their plugin is installed/active.
 
 ### Where to Find Things
 

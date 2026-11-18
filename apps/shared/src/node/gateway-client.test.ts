@@ -64,6 +64,7 @@ it('dials the grant, describes the owner, creates a session and redials through 
   const gw = new GatewayClient({ connect })
   const events: string[] = []
 
+  expect(gw.isCanonical).toBe(true)
   gw.on('event', (event: { type: string }) => events.push(event.type))
   gw.start()
   gw.drain()
@@ -123,4 +124,32 @@ it('puts the source and client options on the session.create frame', async () =>
   expect(await createdFrame({ source: 'cli', client }, ['source', 'request_id', 'client'])).toEqual({ source: 'cli', client })
   FakeSocket.instances = []
   expect(await createdFrame({ source: 'cli', client }, ['source', 'request_id'])).toEqual({ source: 'cli' })
+})
+
+it('ignores a discarded describe failure and discovers the replacement owner before creating', async () => {
+  vi.stubGlobal('WebSocket', FakeSocket)
+  const connect = async () => ({ url: 'ws://gateway.test/api/ws', protocols: [], profile_id: '/p', instance_id: 'owner' })
+  const gw = new GatewayClient({ connect })
+  const events: string[] = []
+  gw.on('event', (event: { type: string }) => events.push(event.type))
+  gw.start()
+  gw.drain()
+  await vi.waitFor(() => expect(FakeSocket.instances).toHaveLength(1))
+  const first = FakeSocket.instances[0]!
+  first.open()
+  await vi.waitFor(() => expect(first.sent.some(frame => frame.method === 'runtime.describe')).toBe(true))
+
+  gw.start()
+  await vi.waitFor(() => expect(FakeSocket.instances).toHaveLength(2))
+  const second = FakeSocket.instances[1]!
+  const create = gw.request('session.create', { model: 'chosen' })
+  second.open()
+  await vi.waitFor(() => expect(second.sent.some(frame => frame.method === 'runtime.describe')).toBe(true))
+  expect(second.sent.filter(frame => frame.method === 'runtime.describe')).toHaveLength(1)
+  second.reply('runtime.describe', { session_create: { sources: ['tui'], parameters: ['source', 'request_id', 'model'] } })
+  await vi.waitFor(() => expect(second.sent.some(frame => frame.method === 'session.create')).toBe(true))
+  expect(events).not.toContain('gateway.start_timeout')
+  second.reply('session.create', { session_id: 'S2', messages: [], authority_epoch: 2 })
+  await expect(create).resolves.toMatchObject({ session_id: 'S2' })
+  gw.kill()
 })

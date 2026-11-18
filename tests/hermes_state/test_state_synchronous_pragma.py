@@ -1,22 +1,21 @@
-"""``database.synchronous`` is configurable, validated, and floored on macOS.
-
-Before this, `apply_database_pragmas()` accepted five sizing pragmas and no
-durability one, and `_enforce_macos_synchronous_full()` returned early off
-Darwin. So on Linux and Windows nothing in the process ever executed
-`PRAGMA synchronous` against state.db, and the effective level was whichever
-`SQLITE_DEFAULT_WAL_SYNCHRONOUS` the interpreter's SQLite happened to be
-compiled with -- invisible from config, unpinnable, and different between
-builds. See #90837, where three weeks of corruption forensics were carried out
-under the stated assumption of `synchronous=FULL` on Ubuntu.
-"""
+"""``database.synchronous`` is configurable and validated."""
 
 import sqlite3
 
 import pytest
 
-import hermes_state_wal
 from hermes_state import apply_database_pragmas
 from hermes_state_wal import resolve_synchronous_level
+
+
+@pytest.fixture(autouse=True)
+def _moa_caches_isolated():
+    pass
+
+
+@pytest.fixture(autouse=True)
+def _isolate_computer_use_approval_state():
+    pass
 
 
 def _wal_conn(tmp_path):
@@ -160,40 +159,5 @@ class TestAppliedFromConfig:
             assert _level(conn) == 2
             assert conn.execute("PRAGMA wal_autocheckpoint").fetchone()[0] == 250
             assert conn.execute("PRAGMA mmap_size").fetchone()[0] == 0
-        finally:
-            conn.close()
-
-
-class TestMacOSFloor:
-    """#64355 enforced FULL on Darwin. Config must not be able to undo it.
-
-    `_enforce_macos_synchronous_full()` runs inside `apply_wal_with_fallback()`,
-    which is earlier than `apply_database_pragmas()`, so without an explicit
-    floor the config value would simply win by running last.
-    """
-
-    @pytest.mark.platforms("macos")
-    def test_lowering_below_full_is_refused_on_darwin(
-        self, tmp_path, monkeypatch, caplog
-    ):
-        _config(monkeypatch, {"synchronous": "NORMAL"})
-        conn = _wal_conn(tmp_path)
-        try:
-            hermes_state_wal._enforce_macos_synchronous_full(conn)
-            assert _level(conn) == 2
-            with caplog.at_level("WARNING"):
-                apply_database_pragmas(conn, db_label="state.db")
-            assert _level(conn) == 2, "config lowered the macOS btree protection"
-        finally:
-            conn.close()
-
-    @pytest.mark.platforms("macos")
-    def test_raising_above_full_is_allowed_on_darwin(self, tmp_path, monkeypatch):
-        """The floor is a floor, not a pin -- EXTRA is strictly safer."""
-        _config(monkeypatch, {"synchronous": "EXTRA"})
-        conn = _wal_conn(tmp_path)
-        try:
-            apply_database_pragmas(conn, db_label="state.db")
-            assert _level(conn) == 3
         finally:
             conn.close()

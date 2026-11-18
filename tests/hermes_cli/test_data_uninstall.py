@@ -16,7 +16,6 @@ def layout(tmp_path, monkeypatch):
     home = user / "hermes-data"
     source = home / "workspace" / "custom-source"
     store = home / "machine" / "tool-store"
-    userdata = user / "desktop-data"
     witnesses = [source / "hermes_cli" / "__init__.py", store / "python" / "python.exe",
                  home / "installs" / "other-install" / "facts.json", home / "bin" / "hermes.cmd",
                  home / "profiles" / "sibling" / "config.yaml",
@@ -34,7 +33,6 @@ def layout(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_RUNTIME_DIR", str(store))
     monkeypatch.setattr(uninstall, "get_project_root", lambda: source)
     monkeypatch.setattr(uninstall, "get_hermes_home", lambda: home)
-    monkeypatch.setattr("hermes_cli.gui_uninstall.desktop_userdata_dir", lambda: userdata)
     return home, witnesses, data
 
 

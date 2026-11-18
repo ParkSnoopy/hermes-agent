@@ -1,14 +1,14 @@
 """Native live proof of the unified gateway runtime on the CURRENT host OS.
 
 An ordinary ``python -m gateway.run`` in a disposable HERMES_HOME with a loopback
-model must, on Linux, macOS and native Windows alike: publish discovery + tickets;
+model must publish discovery + tickets;
 attach WebSockets; admit/execute/receipt prompts; keep two clients FIFO on one
 session; survive an owner hard-kill (``gateway.status.terminate_pid``) with the
 committed queued admission executed exactly once; branch/delete with retryable
 receipts; run the safe-mode CLI turn in an out-of-process managed worker that
 opens no writable canonical SQLite; refuse a second owner while the first holds
 ``gateway.lock``; and release lock, control channel and API port on planned stop.
-No POSIX-only primitive is used (no AF_UNIX at import, no SIGKILL, no pty).
+
 """
 import asyncio
 from contextlib import closing, contextmanager
@@ -30,11 +30,7 @@ import pytest
 from websockets.asyncio.client import connect
 
 ROOT = Path(__file__).resolve().parents[2]
-# Windows children need the system environment (Winsock, temp, PATHEXT) that the
-# hermetic test process still carries; POSIX only ever uses the first three.
-_CHILD_ENV_KEYS = ('PATH', 'LANG', 'TZ', 'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'TEMP', 'TMP',
-                   'PATHEXT', 'LOCALAPPDATA', 'APPDATA', 'PROGRAMDATA', 'NUMBER_OF_PROCESSORS',
-                   'PROCESSOR_ARCHITECTURE')
+_CHILD_ENV_KEYS = ('PATH', 'LANG', 'TZ')
 
 
 class Model(BaseHTTPRequestHandler):
@@ -75,22 +71,18 @@ class Model(BaseHTTPRequestHandler):
 
 
 def control(home, verb, params=None):
-    """Bootstrap control channel: private named pipe on Windows, AF_UNIX elsewhere."""
+    """Bootstrap control channel over the private AF_UNIX socket."""
     request = json.dumps({'protocol': 1, 'id': 1, 'verb': verb, 'params': params or {}}).encode() + b'\n'
-    if os.name == 'nt':
-        from gateway.runtime_bootstrap_windows import query_runtime_control
-        raw = query_runtime_control(home, request, 2)
-    else:
-        from gateway.control_socket import resolve_client_socket_path
-        path = resolve_client_socket_path(home)
-        if path is None:
-            raise FileNotFoundError('control socket absent')
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
-            peer.settimeout(2)
-            peer.connect(str(path))
-            peer.sendall(request)
-            with peer.makefile('rb') as stream:
-                raw = stream.readline()
+    from gateway.control_socket import resolve_client_socket_path
+    path = resolve_client_socket_path(home)
+    if path is None:
+        raise FileNotFoundError('control socket absent')
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+        peer.settimeout(2)
+        peer.connect(str(path))
+        peer.sendall(request)
+        with peer.makefile('rb') as stream:
+            raw = stream.readline()
     reply = json.loads(raw.split(b'\n', 1)[0])
     assert reply.get('ok'), reply
     return reply['result']
@@ -143,7 +135,7 @@ def planned_stop(home, proc, desc):
     """The ``hermes gateway stop`` contract: marker first, then the owner drains itself.
 
     The marker names the gateway's own pid from ``identify`` (what the PID file carries), not
-    the Popen handle: a Windows uv venv ``python.exe`` is a trampoline whose pid differs."""
+    the Popen handle, which may refer to a launcher trampoline."""
     pid = desc['pid']
     marker = {'target_pid': pid, 'target_start_time': process_start_time(pid),
               'stopper_pid': os.getpid(), 'written_at': datetime.now(UTC).isoformat()}
@@ -256,7 +248,7 @@ def harness(tmp_path, peer):
     audit = tmp_path / 'audit.jsonl'
     site = tmp_path / 'audit-site'
     site.mkdir()
-    # strace is unavailable on Windows/macOS runners: every interpreter records its
+    # Every interpreter records its
     # argv (sys.orig_argv, populated before site) and every sqlite3.connect.
     (site / 'sitecustomize.py').write_text(
         "import json, os, sys\n"
@@ -481,7 +473,7 @@ def test_native_safe_mode_cli_executes_in_managed_worker(harness):
     home, env, peer, url, audit = harness['home'], harness['env'], harness['peer'], harness['url'], harness['audit']
 
     def safe_mode_cli_worker(owner, desc, harness):
-        # Popen.pid is the venv launcher on Windows; the daemon's own pid comes from identify.
+        # The daemon's own pid comes from identify, not a possible launcher.
         gateway_pid = desc['pid']
         command = [sys.executable, '-m', 'hermes_cli.main', 'chat', '--safe-mode', '--provider', 'custom',
                    '--base-url', url, '--model', 'safe-fixture', '--api-key', 'fixture', '-Q', '-q', 'SAFE_PROBE_NATIVE']
@@ -511,8 +503,7 @@ def test_native_safe_mode_cli_executes_in_managed_worker(harness):
         policy = json.loads(query(home, 'SELECT value FROM state_meta WHERE key=?', ('gateway.local_policy.v1:' + sid,))[0][0])
         assert policy['policy']['safe_mode'] is True and policy['policy']['ignore_user_config'] is True
         rows = records(audit)
-        # The gateway is an ANCESTOR, not necessarily the parent: the uv venv python.exe trampoline
-        # sits between the daemon's Popen and the real worker interpreter on Windows.
+        # The gateway is an ANCESTOR, not necessarily the direct parent.
         workers = sorted({r['pid'] for r in rows if r['kind'] == 'start'
                           and gateway_pid in [r['ppid'], *(a[0] for a in r['ancestors'] if isinstance(a, list))]
                           and r['argv'][-2:] == ['-m', 'agent.managed_worker']})

@@ -207,30 +207,6 @@ def _exercise_memory_store(tripwire: ProfileTripwire) -> None:
     assert "testprof remembers something" in mem_file.read_text()
 
 
-def _exercise_cron_store(tripwire: ProfileTripwire) -> None:
-    """cron save_jobs()/load_jobs() store resolution (#89625)."""
-    from cron.jobs import load_jobs, save_jobs
-
-    job = {
-        "id": "tripwire-job",
-        "name": "tripwire",
-        "prompt": "noop",
-        "schedule": {"kind": "interval", "minutes": 60, "display": "every 60m"},
-        "enabled": True,
-    }
-    save_jobs([job])
-    jobs_file = tripwire.profile / "cron" / "jobs.json"
-    assert jobs_file.exists(), (
-        "save_jobs() did not write the active profile's cron/jobs.json"
-    )
-    loaded = load_jobs()
-    assert any(j.get("id") == "tripwire-job" for j in loaded), (
-        "load_jobs() did not read back from the active profile's store "
-        "(#89625 shape: reading the default profile's jobs instead)"
-    )
-    # And the default profile's jobs.json content is untouched (the tree
-    # walk would also catch this; the explicit read documents the contract).
-    assert (tripwire.root / "cron" / "jobs.json").read_text() == "[]\n"
 
 
 # NOTE: the terminal env cache surface (#92156) is not exercised here: the

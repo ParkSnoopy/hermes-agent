@@ -24,7 +24,7 @@ def _runner(tmp_path, monkeypatch, *, work):
     home.mkdir()
     stops = []
 
-    def active_work_count():
+    def active_work_count(**kwargs):
         work[1] += 1
         return work[0]
 
@@ -41,7 +41,7 @@ def _runner(tmp_path, monkeypatch, *, work):
     monkeypatch.setattr(run_idle_exit, "idle_exit_seconds", lambda r: 600.0)
     for probe in ("_ledger_busy", "_cron_busy", "_store_gates_busy"):
         monkeypatch.setattr(run_idle_exit, probe, lambda *_a: None)
-    monkeypatch.setattr(run_idle_exit, "_kanban_busy", lambda: None)
+
     monkeypatch.setattr(run_idle_exit, "_served_homes", lambda r: [home])
     monkeypatch.setattr(environments_adopt, "_restart_pending", None)
     return runner, stops
@@ -86,7 +86,7 @@ async def test_pending_restart_never_drops_a_duty_nothing_would_restart(tmp_path
     """Clients come back and start a fresh gateway; a messaging adapter would just go dark."""
     work = [0, 0]
     runner, stops = _runner(tmp_path, monkeypatch, work=work)
-    runner.config.platforms[Platform.TELEGRAM] = SimpleNamespace(enabled=True)
+    runner.config.platforms[Platform.API_SERVER] = SimpleNamespace(enabled=True)
     watcher = asyncio.ensure_future(run_idle_exit.unmanaged_idle_exit_watcher(runner))
     environments_adopt.note_restart_pending("anthropic installed")
     await async_wait_until(lambda: work[1] >= 4, timeout=10, what="two restart probes")

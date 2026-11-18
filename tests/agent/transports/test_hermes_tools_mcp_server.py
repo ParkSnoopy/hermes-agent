@@ -99,7 +99,9 @@ class TestModuleSurface:
         a name only a plugin registers (the camofox plugin's browser_navigate & co.) is not core."""
         import model_tools
         from agent.transports.hermes_tools_mcp_server import EXPOSED_TOOLS
-        missing = set(EXPOSED_TOOLS) - set(model_tools.get_all_tool_names())
+        from tools.registry import registry
+        model_tools.discover_builtin_tools()
+        missing = set(EXPOSED_TOOLS) - set(registry.get_all_tool_names())
         assert not missing, f"EXPOSED_TOOLS names no core tool registers: {sorted(missing)}"
 
 

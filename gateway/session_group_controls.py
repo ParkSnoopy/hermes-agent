@@ -357,7 +357,7 @@ def _execution_control(service, method, params):
 # ``resolve_local_target`` resolves by chat_id without adopting anything (its policy-receipt arm adds
 # none: a receipt-bound chat_id that is not ``local-*`` is an adopted one). A messaging or API
 # conversation with the same title is neither.
-_LOCAL_CHAT = "(chat_id LIKE 'local-%' OR EXISTS (SELECT 1 FROM state_meta WHERE key = ? || sessions.chat_id))"
+_LOCAL_CHAT = "chat_id LIKE 'local-%'"
 # Sibling authorities whose last roster read failed: warned once per outage, then logged at debug.
 # Weak, so an unserved profile drops out with its authority and a re-served one (a new authority)
 # is warned again.
@@ -397,7 +397,6 @@ def _bot_sessions(authority, actor):
 
 
 def _read_bot_sessions(db, subject, operator):
-    from hermes_state_local_migration import LEGACY_PREFIX
     from hermes_state_sessions import INTERNAL_LISTING_SOURCES
     hidden_sources = ','.join('?' * len(INTERNAL_LISTING_SOURCES))
     owner_filter, owner_params = ('', ()) if operator else ('user_id=? AND ', (subject,))
@@ -422,7 +421,7 @@ def _read_bot_sessions(db, subject, operator):
         fields: dict = {'last_session': None, 'worker_session': None, 'canonical_session': None}
         # The named registry is not a recency window and canonical chats are hidden.
         canonical = conn.execute(f'SELECT * FROM sessions WHERE title=? AND {_LOCAL_CHAT}',
-                                 ('Bot Chat', LEGACY_PREFIX)).fetchone()
+                                 ('Bot Chat',)).fetchone()
         from gateway.owner_identity import same_owner
         if canonical and (same_owner(canonical['user_id'], subject) or operator) and not canonical['archived']:
             fields['canonical_session'] = summary(canonical)
@@ -432,7 +431,7 @@ def _read_bot_sessions(db, subject, operator):
             f"SELECT * FROM sessions WHERE {owner_filter}{_LOCAL_CHAT} AND archived=0 AND hidden=0 "
             f"AND COALESCE(source,'') NOT IN ({hidden_sources}) "
             "ORDER BY COALESCE(last_activity_at,started_at) DESC LIMIT 1",
-            (*owner_params, LEGACY_PREFIX, *INTERNAL_LISTING_SOURCES)).fetchone()
+            (*owner_params, *INTERNAL_LISTING_SOURCES)).fetchone()
         if latest and fields['canonical_session'] and latest['id'] == canonical['id']:
             fields['last_session'] = dict(fields['canonical_session'])
         elif latest:

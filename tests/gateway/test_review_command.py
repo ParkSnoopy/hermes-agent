@@ -63,6 +63,16 @@ class _Event:
     def get_command_args(self):
         return self._args
 
+
+@pytest.mark.parametrize('verb', ['refine', 'review'])
+def test_idle_cached_agent_errors_use_english(verb):
+    runner = _make_runner(None)
+    missing = _Event()
+    missing.source = None
+    assert runner._idle_cached_agent_or_error(missing, verb)[2] == f'{verb.capitalize()} unavailable (no session).'
+    runner._cached_agent_for = lambda key: None
+    assert runner._idle_cached_agent_or_error(_Event(), verb)[2] == f'Nothing to {verb} yet — send a message first.'
+
 @pytest.mark.asyncio
 async def test_review_command_dispatches_background_subagent(monkeypatch):
     import tools.delegate_tool as dt

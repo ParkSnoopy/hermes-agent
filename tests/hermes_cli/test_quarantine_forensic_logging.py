@@ -13,6 +13,8 @@ load-bearing assertion — that the raw refresh token never appears in that outp
 import hashlib
 import logging
 
+import pytest
+
 from hermes_cli.auth import AuthError, _quarantine_nous_oauth_state
 
 
@@ -58,8 +60,57 @@ def test_raw_refresh_token_never_logged(caplog):
 
     text = caplog.text
     assert _FAKE_RT not in text, "RAW refresh token leaked into log output!"
+    assert _EXPECTED_FP not in text
+    assert "refresh_token_fp" not in text
+    assert any("Nous OAuth state quarantined" in record.getMessage()
+               and record.levelno >= logging.WARNING for record in caplog.records)
+    assert "refresh_token" not in state
     # Belt-and-suspenders: the access token and agent key must not leak either.
     assert "nous_at_SECRET_access_token_material" not in text
     assert "nous_agent_key_SECRET_material" not in text
+
+
+def test_terminal_refresh_quarantines_singleton_pool_and_persists(monkeypatch):
+    from hermes_cli import auth, auth_nous
+
+    state = _make_state()
+    store = {"credential_pool": {"nous": [
+        {"source": auth.NOUS_DEVICE_CODE_SOURCE}, {"source": "manual:other"}]}}
+    writes = []
+
+    def reject(**_kwargs):
+        raise _error()
+
+    monkeypatch.setattr(auth, "_refresh_access_token", reject)
+    with pytest.raises(AuthError):
+        auth_nous._refresh_nous_or_quarantine(
+            client=None, auth_store=store, state=state, portal_base_url="https://example.test",
+            client_id="test", refresh_token=_FAKE_RT, reason="terminal_test",
+            persist=lambda: writes.append(True))
+    assert writes == [True]
+    assert "refresh_token" not in state
+    assert store["credential_pool"]["nous"] == [{"source": "manual:other"}]
+
+
+def test_proxy_terminal_failure_quarantines_pool(monkeypatch):
+    from hermes_cli.proxy.adapters import nous_portal
+
+    state = _make_state()
+    store = {"providers": {"nous": state.copy()}, "credential_pool": {"nous": [
+        {"source": "device_code"}, {"source": "manual:other"}]}}
+    saved = []
+    monkeypatch.setattr(nous_portal, "_load_auth_store", lambda: store)
+    monkeypatch.setattr(nous_portal, "_save_auth_store", lambda value: saved.append(value.copy()))
+    monkeypatch.setattr(nous_portal, "_write_shared_nous_state", lambda *_a, **_kw: None)
+
+    def reject(**_kwargs):
+        raise _error()
+
+    monkeypatch.setattr(nous_portal, "resolve_nous_runtime_credentials", reject)
+    with pytest.raises(RuntimeError, match="Failed to refresh"):
+        nous_portal.NousPortalAdapter().get_credential()
+    assert saved
+    assert "refresh_token" not in saved[0]["providers"]["nous"]
+    assert saved[0]["credential_pool"]["nous"] == [{"source": "manual:other"}]
 
 

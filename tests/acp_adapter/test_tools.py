@@ -166,6 +166,18 @@ class TestBuildToolStart:
 
 
 class TestBuildToolComplete:
+    @pytest.mark.parametrize("tool_name", ["image_generate", "vision_analyze"])
+    def test_media_completion_preserves_result_path(self, tool_name):
+        result = build_tool_complete(
+            "tc-media", tool_name,
+            '{"file_path":"/workspace/result.png","message":"ready"}',
+        )
+        assert result.status == "completed"
+        text = result.content[0].content.text
+        assert "/workspace/result.png" in text
+        assert "ready" in text
+        assert result.raw_output is None
+
     def test_build_tool_complete_for_terminal(self):
         """Completed terminal call should include output text."""
         result = build_tool_complete("tc-2", "terminal", "total 42\ndrwxr-xr-x 2 root root 4096 ...")

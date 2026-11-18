@@ -56,14 +56,8 @@ def _signature_from_schema(schema: dict | None) -> tuple[inspect.Signature, dict
 # model-written Python on the Hermes host, outside codex's sandbox and approval UI).
 EXPOSED_TOOLS: tuple[str, ...] = (
     "web_search", "web_extract",
-    "vision_analyze", "image_generate", "skill_view", "skills_list", "text_to_speech",
-    # Kanban handoff tools: stateless (read HERMES_KANBAN_TASK, write kanban.db).
-    # Without them a codex-runtime worker can't report completion and hangs.
-    "kanban_complete", "kanban_block", "kanban_schedule", "kanban_request_review",
-    "kanban_request_changes", "kanban_comment",
-    "kanban_heartbeat", "kanban_show", "kanban_list",
-    # Orchestrator-only (the kanban tool gates them on HERMES_KANBAN_TASK unset).
-    "kanban_create", "kanban_unblock", "kanban_link",
+    "vision_analyze", "image_generate", "skill_view", "skills_list",
+
 )
 
 

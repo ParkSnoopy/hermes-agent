@@ -207,15 +207,7 @@ The terminal tool integrates a dangerous-command approval system defined in `too
 
 ## Terminal/runtime environments
 
-The terminal system supports multiple backends:
-
-- local
-- docker
-- ssh
-- modal
-- daytona
-- vercel_sandbox
-- plugin backends registered through `ctx.register_terminal_environment_provider` (e.g. `singularity`)
+The terminal system executes locally as the Hermes process user.
 
 It also supports:
 

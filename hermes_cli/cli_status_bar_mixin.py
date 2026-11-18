@@ -12,7 +12,6 @@ import shutil
 import threading
 import time
 
-from agent.i18n import t
 from agent import terminal_image
 from agent.pet import render as pet_render
 from hermes_cli.banner import _format_context_length
@@ -92,10 +91,10 @@ class CLIStatusBarMixin:
                 return ""
             mode = app.vi_state.input_mode
             if mode in (InputMode.INSERT, InputMode.INSERT_MULTIPLE):
-                return t("cli.status_bar.vim_insert")
+                return 'INSERT'
             if mode == InputMode.REPLACE:
-                return t("cli.status_bar.vim_replace")
-            return t("cli.status_bar.vim_normal")
+                return 'REPLACE'
+            return 'NORMAL'
         except Exception:
             return ""
 
@@ -118,11 +117,11 @@ class CLIStatusBarMixin:
             return f" — {format_battery(reading)}" if reading.available else f" — {no_battery}"
 
         if arg in ("status", "show"):
-            state = t("cli.shared.label_on") if self._battery_visible else t("cli.shared.label_off")
-            detail = _detail(t("cli.status_bar.battery_none"))
+            state = 'on' if self._battery_visible else 'off'
+            detail = _detail('no battery detected on this machine')
             if reading is not None and reading.available:
-                detail = t("cli.status_bar.battery_currently", reading=format_battery(reading))
-            self._console_print(f"  {t('cli.status_bar.battery_state', state=state, detail=detail)}")
+                detail = (f' — currently {format_battery(reading)}')
+            self._console_print(f"  {(f'Battery indicator {state}{detail}')}")
             return
 
         if arg in ("on", "true", "yes"):
@@ -132,17 +131,17 @@ class CLIStatusBarMixin:
         elif arg in ("", "toggle"):
             target = not self._battery_visible
         else:
-            self._console_print(f"  {t('cli.status_bar.battery_usage')}")
+            self._console_print(f"  {'Usage: /battery [on|off|status]'}")
             return
 
         self._battery_visible = target
         save_config_value("display.battery", target)
         if target:
             self._console_print(
-                f"  {t('cli.status_bar.battery_on', detail=_detail(t('cli.status_bar.battery_none_nothing_shown')))}"
+                f"  {('Battery indicator on{detail}').format(detail=_detail('no battery detected, so nothing will show here'))}"
             )
         else:
-            self._console_print(f"  {t('cli.status_bar.battery_off')}")
+            self._console_print(f"  {'Battery indicator off'}")
 
     @staticmethod
     def _compression_count_style(count: int) -> str:
@@ -170,15 +169,15 @@ class CLIStatusBarMixin:
         minutes, seconds = int(remaining // 60), int(remaining % 60)
         days, hours = int(days), int(hours)
         if days > 0:
-            time_str = t("cli.shared.duration_dhm", days=days, hours=hours, minutes=minutes)
+            time_str = (f'{days}d {hours}h {minutes}m')
         elif hours > 0:
-            time_str = (t("cli.shared.duration_hms", hours=hours, minutes=minutes, seconds=seconds) if seconds
-                        else t("cli.shared.duration_hm", hours=hours, minutes=minutes))
+            time_str = ((f'{hours}h {minutes}m {seconds}s') if seconds
+                        else (f'{hours}h {minutes}m'))
         elif minutes > 0:
-            time_str = (t("cli.shared.duration_ms", minutes=minutes, seconds=seconds) if seconds
-                        else t("cli.shared.duration_m", minutes=minutes))
+            time_str = ((f'{minutes}m {seconds}s') if seconds
+                        else (f'{minutes}m'))
         else:
-            time_str = t("cli.shared.duration_s", seconds=int(elapsed))
+            time_str = (f'{int(elapsed)}s')
         return f"{'⏱' if live else '⏲'} {time_str}"
 
     @staticmethod
@@ -194,7 +193,7 @@ class CLIStatusBarMixin:
         from cli import _reverse_alias_for_display, datetime, format_duration_compact
         agent = getattr(self, "agent", None)
         # Prefer the agent's model name — it updates on fallback; self.model never changes.
-        model_name = (getattr(agent, "model", None) or self.model or t("cli.shared.unknown"))
+        model_name = (getattr(agent, "model", None) or self.model or 'unknown')
         # Friendly display: reverse-alias from config ``model_aliases:`` first (turns long
         # Palantir RIDs into the user's short name), else slash/length truncation.
         model_short = _reverse_alias_for_display(model_name)
@@ -394,9 +393,9 @@ class CLIStatusBarMixin:
         except Exception:
             avg_lat = avg_vel = None
         snapshot["avg_latency"] = float(avg_lat) if avg_lat is not None else None
-        snapshot["avg_latency_label"] = t("cli.status_bar.latency_label", value=f"{avg_lat:.1f}") if avg_lat is not None else ""
+        snapshot["avg_latency_label"] = ('{value}s').format(value=f"{avg_lat:.1f}") if avg_lat is not None else ""
         snapshot["avg_velocity"] = float(avg_vel) if avg_vel is not None else None
-        snapshot["avg_velocity_label"] = t("cli.status_bar.velocity_label", value=f"{avg_vel:.0f}") if avg_vel is not None else ""
+        snapshot["avg_velocity_label"] = ('{value} t/s').format(value=f"{avg_vel:.0f}") if avg_vel is not None else ""
         return snapshot
 
     def _get_status_bar_session_title(self) -> str:
@@ -566,10 +565,9 @@ class CLIStatusBarMixin:
             elapsed = time.monotonic() - t0
             # Fixed-width timers (01m05s / " 5.2s") avoid status-line wrap jitter on repaint.
             if elapsed >= 60:
-                elapsed_str = t("cli.shared.duration_ms_compact",
-                                minutes=f"{int(elapsed // 60):02d}", seconds=f"{int(elapsed % 60):02d}")
+                elapsed_str = ('{minutes}m{seconds}s').format(minutes=f"{int(elapsed // 60):02d}", seconds=f"{int(elapsed % 60):02d}")
             else:
-                elapsed_str = t("cli.shared.duration_s", seconds=f"{elapsed:5.1f}")
+                elapsed_str = ('{seconds}s').format(seconds=f"{elapsed:5.1f}")
             return f"  {txt}  ({elapsed_str} · {flow})" if flow else f"  {txt}  ({elapsed_str})"
         return f"  {txt}  ({flow})" if flow else f"  {txt}"
 
@@ -941,44 +939,6 @@ class CLIStatusBarMixin:
             thread.join(timeout=0.3)
         self._pet_anim_thread = None
 
-    # ── voice ─────────────────────────────────────────────────────────────────
-
-    def _voice_record_key_label(self) -> str:
-        """The push-to-talk key label every voice-facing hint advertises. Cached at startup
-        (``set_voice_record_key_cache``) because the prompt_toolkit binding is registered once —
-        re-reading config per render could advertise a chord that isn't bound — and this sits on
-        the hot render path.
-
-        Two reasons (review round-13 on 19835): See #19835.
-        """
-        return getattr(self, "_voice_record_key_display_cache", None) or "Ctrl+B"
-
-    def set_voice_record_key_cache(self, raw_key: object) -> None:
-        """Populate the voice label cache from a raw ``voice.record_key``; called after the
-        prompt_toolkit binding is registered so the label matches the live binding."""
-        try:
-            from hermes_cli.voice import format_voice_record_key_for_status
-            self._voice_record_key_display_cache = format_voice_record_key_for_status(raw_key)
-        except Exception:
-            self._voice_record_key_display_cache = "Ctrl+B"
-
-    def _get_voice_status_fragments(self, width: Optional[int] = None):
-        """Voice status bar fragments for the interactive TUI."""
-        width = width or self._get_tui_terminal_width()
-        compact = self._use_minimal_tui_chrome(width=width)
-        label = self._voice_record_key_label()
-        if self._voice_recording:
-            if compact:
-                return [("class:voice-status-recording", f" {t('cli.status_bar.voice_rec')} ")]
-            return [("class:voice-status-recording", f" {t('cli.status_bar.voice_rec_stop_hint', shortcut=label)} ")]
-        if self._voice_processing:
-            return [("class:voice-status",
-                     f" {t('cli.status_bar.voice_stt')} " if compact else f" {t('cli.status_bar.voice_transcribing')} ")]
-        if compact:
-            return [("class:voice-status", f" 🎤 {label} ")]
-        tts = t("cli.status_bar.voice_tts_on") if self._voice_tts else ""
-        cont = t("cli.status_bar.voice_continuous") if self._voice_continuous else ""
-        return [("class:voice-status", f" {t('cli.status_bar.voice_mode_hint', tts=tts, cont=cont, shortcut=label)} ")]
 
     # ── status bar rendering ──────────────────────────────────────────────────
 
@@ -990,7 +950,7 @@ class CLIStatusBarMixin:
             return ""
         used = snapshot.get("goal_turns_used") or 0
         max_turns = snapshot.get("goal_max_turns") or 0
-        return t("cli.status_bar.goal_turns", used=used, max=max_turns) if max_turns else t("cli.status_bar.goal")
+        return (f'⊙ goal {used}/{max_turns}') if max_turns else '⊙ goal'
 
     def _get_status_bar_field_set(self) -> Optional[frozenset]:
         """Visible status-bar fields from ``display.status_bar.fields`` (module-level
@@ -1058,11 +1018,11 @@ class CLIStatusBarMixin:
                 if snapshot["context_length"]:
                     ctx_total = _format_context_length(snapshot["context_length"])
                     ctx_used = format_token_count_compact(snapshot["context_tokens"])
-                    pin = (t("cli.status_bar.ctx_pinned") if snapshot.get("context_pinned")
-                           else t("cli.status_bar.ctx_fallback") if snapshot.get("context_fallback") else "")
+                    pin = (' pinned' if snapshot.get("context_pinned")
+                           else ' fallback' if snapshot.get("context_fallback") else "")
                     context_label = f"{mark}{ctx_used}/{ctx_total}{pin}"
                 else:
-                    context_label = t("cli.status_bar.ctx_unknown")
+                    context_label = 'ctx --'
                 segs.append([(_DIM, context_label)])
             if _ok("context_pct"):
                 bar_style = self._status_bar_context_style(percent)
@@ -1100,7 +1060,7 @@ class CLIStatusBarMixin:
         if focus_label:
             add("focus", _STRONG, focus_label)
         if yolo_active:
-            add("yolo", "class:status-bar-yolo", t("cli.status_bar.yolo_badge"))
+            add("yolo", "class:status-bar-yolo", '⚠ YOLO')
         if wide:
             # Session token total (Σ) — opt-in only via an explicit fields list.
             total_tokens = snapshot.get("session_total_tokens", 0)
@@ -1194,11 +1154,11 @@ class CLIStatusBarMixin:
     def _fmt_stash_age(stashed_at: float) -> str:
         secs = int(time.monotonic() - stashed_at)
         if secs < 10:
-            return t("cli.shared.just_now")
+            return 'just now'
         if secs < 90:
-            return t("cli.shared.ago_seconds", seconds=secs)
+            return (f'{secs}s ago')
         mins = secs // 60
-        return t("cli.shared.ago_minutes", minutes=mins) if mins < 60 else t("cli.shared.ago_hours", hours=mins // 60)
+        return (f'{mins} min ago') if mins < 60 else (f'{mins // 60}h ago')
 
     def _render_stash_panel(self, stash_list: list, cursor: int, width: int) -> list:
         """prompt_toolkit fragments for the stash panel box. Every horizontal measurement uses
@@ -1208,11 +1168,11 @@ class CLIStatusBarMixin:
         W = max(12, min(width - 4, 80))
 
         n = len(stash_list)
-        hdr_key = "cli.status_bar.stash_header_one" if n == 1 else "cli.status_bar.stash_header_other"
-        hdr_prefix_str = f"╭─ {t(hdr_key, count=n)} "
+        hdr_key = '📌 Stash ({count} item)' if n == 1 else '📌 Stash ({count} items)'
+        hdr_prefix_str = f"╭─ {(hdr_key).format(count=n)} "
         HDR_SUFFIX = " Ctrl+S ─╮"
         FTR_PREFIX = "╰"
-        FTR_SUFFIX = f" {t('cli.status_bar.stash_footer')} ─╯"
+        FTR_SUFFIX = f" {'↑↓ Enter=restore  D=delete  Esc'} ─╯"
 
         # On narrow terminals the full hint text is wider than the box: drop to compact
         # affordances rather than letting the frame bleed past the right edge.
@@ -1220,7 +1180,7 @@ class CLIStatusBarMixin:
             hdr_prefix_str = f"╭─ 📌 {n} "
             HDR_SUFFIX = "─╮"
         if cw(FTR_PREFIX) + cw(FTR_SUFFIX) > W:
-            FTR_SUFFIX = f" {t('cli.status_bar.stash_footer_compact')} ─╯"
+            FTR_SUFFIX = f" {'↑↓ ⏎ D Esc'} ─╯"
         if cw(FTR_PREFIX) + cw(FTR_SUFFIX) > W:
             FTR_SUFFIX = "─╯"
 

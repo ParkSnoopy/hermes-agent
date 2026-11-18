@@ -1,10 +1,11 @@
-import { messages } from '../i18n/runtime.js'
+import { contentEn } from '../copy/content.js'
 
-/** Everyday fortunes, in catalog order, resolved against the active language at call time. */
-export const fortunes = (): string[] => Object.values(messages().content.fortunes)
+
+/** Everyday fortunes in display order. */
+export const fortunes = (): string[] => Object.values(contentEn.content.fortunes)
 
 /** Rare fortunes (every 20th roll). */
-export const legendaryFortunes = (): string[] => Object.values(messages().content.legendaryFortunes)
+export const legendaryFortunes = (): string[] => Object.values(contentEn.content.legendaryFortunes)
 
 const hash = (s: string) => [...s].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261) >>> 0
 

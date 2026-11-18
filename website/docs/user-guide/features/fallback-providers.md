@@ -200,7 +200,6 @@ fallback_providers:
 | Messaging gateway (Telegram, Discord, etc.) | ✔ |
 | Desktop app / TUI chats | ✔ (a chain added or edited while a chat is open applies from its next turn) |
 | Subagent delegation | ✔ (`delegation.fallback_providers` when set; otherwise only unpinned children inherit the parent chain; `[]` disables) |
-| Cron jobs | ✔ (unpinned jobs inherit the configured chain; a job with its own provider/model/base_url never falls back to it) |
 | Auxiliary tasks on `provider: auto` | ✔ (try per-task fallback, then the main fallback chain before built-in aux discovery) |
 
 :::tip
@@ -420,24 +419,6 @@ See [Subagent Delegation](./delegation.md) for full configuration details.
 
 ---
 
-## Cron Job Providers
-
-Unpinned cron jobs inherit your configured `fallback_providers` chain (or legacy `fallback_model`), both when the primary's credentials fail to resolve before the run and when the provider errors mid-run. A job pinned to its own provider, model or endpoint does **not**: if that route fails, the run fails (same-provider [credential pool](../configuration.md#credential-pool-strategies) rotation still applies). This matches how a pinned [delegation](./delegation.md) child behaves. Pin a cron job with `provider` and `model` overrides on the job itself:
-
-```python
-cronjob(
-    action="create",
-    schedule="every 2h",
-    prompt="Check server status",
-    provider="openrouter",
-    model="google/gemini-3-flash-preview"
-)
-```
-
-To keep fallback for a job, leave it unpinned and choose its model with `cron.model` / `cron.model_provider` instead. See [Scheduled Tasks (Cron)](./cron.md#provider-recovery) for details.
-
----
-
 ## Summary
 
 | Feature | Fallback Mechanism | Config Location |
@@ -452,4 +433,3 @@ To keep fallback for a job, leave it unpinned and choose its model with `cron.mo
 | Title generation | Layered (see above) | `auxiliary.title_generation` |
 | Triage specifier | Layered (see above) | `auxiliary.triage_specifier` |
 | Delegation | Uses `delegation.fallback_providers` when declared; otherwise only unpinned children inherit the parent chain | `delegation.provider` / `delegation.model` / `delegation.fallback_providers` |
-| Cron jobs | Unpinned jobs inherit the configured `fallback_providers` chain; a job with its own `provider` / `model` / `base_url` never falls back to it | Per-job `provider` / `model`, or `cron.model` / `cron.model_provider` |

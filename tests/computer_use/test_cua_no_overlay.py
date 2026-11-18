@@ -4,7 +4,7 @@ cua-driver's cursor overlay rendering loop can consume CPU indefinitely when
 idle (#28152, #47032), and on Linux/X11 its fullscreen always-on-top overlay
 window can wedge the desktop when a session ends uncleanly. Hermes passes
 ``--no-overlay`` to suppress it when the ``computer_use.no_overlay`` config is
-enabled (or auto-detected on macOS, headless Linux / WSL2, and Linux X11).
+enabled (or auto-detected on headless Linux / WSL2 and Linux X11).
 
 These assert the behavior contract (auto-detect, explicit override, version
 probe), not specific config snapshots.
@@ -30,17 +30,6 @@ class TestNoOverlayFlag:
                    return_value={"computer_use": {"no_overlay": True}}):
             assert cua_backend._cua_no_overlay() is True
 
-
-    @pytest.mark.platforms("macos")
-    def test_config_load_failure_falls_through_to_auto_detect_macos(self):
-        """Unreadable config => auto-detect (macOS defaults to overlay off).
-
-        macOS-only: the auto-detect verdict IS ``sys.platform == "darwin"``,
-        so a patched platform would only re-assert the patch.
-        """
-        with patch("hermes_cli.config.load_config",
-                   side_effect=RuntimeError("boom")):
-            assert cua_backend._cua_no_overlay() is True
 
     @pytest.mark.platforms("linux")
     def test_config_load_failure_falls_through_to_auto_detect_linux(self, monkeypatch):
@@ -227,7 +216,7 @@ class TestMcpArgsOverlayFlag:
 
 
 class TestEmbeddedDaemonOverlayFlag:
-    @pytest.mark.platforms("not macos")
+    @pytest.mark.platforms("linux")
     def test_serve_process_disables_overlay_when_policy_requires_it(self):
         from tools.computer_use import cua_backend_daemon
 
@@ -245,14 +234,13 @@ class TestEmbeddedDaemonOverlayFlag:
         ), patch.object(
             cua_backend_driver, "_cua_driver_supports_no_overlay", return_value=True,
         ), patch.object(
-            cua_backend.subprocess, "Popen", return_value=process,
-        ) as popen, patch.object(
+            cua_backend_daemon, "spawn_owned", return_value=process,
+        ) as spawn, patch.object(
             cua_backend.subprocess, "run", return_value=status,
-        ), patch.object(cua_backend_daemon.threading, "Thread"), patch(
-            "hermes_cli.process_identity._update_supervised_pgids",  # a MagicMock pid never reaches the supervisor
-        ), patch("hermes_cli.process_identity.register_child"):
+        ), patch.object(cua_backend_daemon.threading, "Thread"):
             daemon.start()
 
-        command = popen.call_args.args[0]
+        assert spawn.call_args.kwargs["purpose"] == "cua-driver-embedded"
+        command = spawn.call_args.args[0]
         assert command[:2] == ["/usr/bin/cua-driver", "serve"]
         assert "--no-overlay" in command

@@ -150,9 +150,6 @@ def test_shutdown_sessions_flushes_before_teardown(monkeypatch):
     order: list[str] = []
 
     monkeypatch.setattr(
-        server, "_release_gateway_wake_owner", lambda: None, raising=False
-    )
-    monkeypatch.setattr(
         server,
         "_flush_sessions_before_exit",
         lambda budget_s=None: order.append("flush") or 0,
@@ -211,7 +208,6 @@ def test_shutdown_mid_tool_kills_the_command_and_keeps_its_result(monkeypatch):
     assert sleeper is not None, "test setup: foreground sleep never started"
 
     at_teardown: list = []
-    monkeypatch.setattr(server, "_release_gateway_wake_owner", lambda: None, raising=False)
     monkeypatch.setattr(server, "_flush_sessions_before_exit", lambda budget_s=None: 0)
     monkeypatch.setattr(server, "_close_session_by_id", lambda sid, **kw: at_teardown.append(list(messages)))
     # The join returns as soon as the turn ends; 0.5s is too tight for the kill + bookkeeping under -n 40.

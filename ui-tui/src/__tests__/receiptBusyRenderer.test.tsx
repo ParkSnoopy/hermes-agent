@@ -58,7 +58,6 @@ function mount() {
     session: { STARTUP_RESUME_ID: '', colsRef: { current: 80 }, newSession: noop, resetSession: noop, resumeById: noop, setCatalog: noop },
     submission: { submitRef: { current: noop } }, system: { bellOnComplete: false, sys: noop },
     transcript: { appendMessage: noop, panel: noop, setHistoryItems: noop },
-    voice: { setProcessing: noop, setRecording: noop, setVoiceEnabled: noop }
   } as any)
 
   const emit = (type: string, generation: number) => onEvent({ type, session_id: 'owner',

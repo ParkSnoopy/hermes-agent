@@ -180,7 +180,7 @@ def _pid_owned_by_home(pid: int, home) -> bool:
     """
     from gateway import host_attach, host_rendezvous as hr
     from gateway.status import _same_hermes_home
-    from hermes_cli.dashboard_procs import _hermes_home_for_pid
+    from hermes_cli.process_identity import _hermes_home_for_pid
 
     record = hr.read_record(hr.ROLE_GATEWAY)
     is_host = record is not None and record.pid == pid and hr.record_names_live_owner(record)

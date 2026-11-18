@@ -43,7 +43,7 @@ HOST_UNSUPPORTED_CTX_METHODS: dict[str, str] = {
     "register_platform_handler": "the handler factory receives the platform's native SDK client",
     "register_telegram_handler": "the handler factory receives the native Telegram Application",
     "register_slack_action_handler": "the callback receives native slack_bolt ack/body objects",
-    "register_dashboard_auth_provider": "dashboard auth is owned by the launch process, not a profile",
+
     "register_approval_transport": "approval transports hold the live approval request/response channel",
     "post_message": "the returned handle is bound to the gateway's event loop and live adapter",
     "apost_message": "the returned handle is bound to the gateway's event loop and live adapter",
@@ -57,7 +57,7 @@ HOST_SKIPPED_CTX_METHODS: dict[str, str] = {
 
 # Live ctx facades the host reaches by method call; each call returns plain data.
 HOST_REMOTE_FACADES: frozenset[str] = frozenset({
-    "state", "llm", "platform_actions", "subagent_lifecycle", "delegation_backends",
+    "state", "llm", "subagent_lifecycle", "delegation_backends",
 })
 
 # Object-taking ctx methods and the ABC the parent checks. The host sends the object's method table
@@ -67,10 +67,7 @@ HOST_OBJECT_BASES: dict[str, str] = {
     "register_video_gen_provider": "agent.video_gen_provider:VideoGenProvider",
     "register_web_search_provider": "agent.web_search_provider:WebSearchProvider",
     "register_browser_provider": "agent.browser_provider:BrowserProvider",
-    "register_terminal_environment_provider": "agent.terminal_env_provider:TerminalEnvironmentProvider",
     "register_secret_source": "agent.secret_sources.base:SecretSource",
-    "register_tts_provider": "agent.tts_provider:TTSProvider",
-    "register_transcription_provider": "agent.transcription_provider:TranscriptionProvider",
     "register_delegation_provider": "agent.delegation_provider:DelegationProvider",
     "register_context_engine": "agent.context_engine:ContextEngine",
     "register_context_reference": "agent.context_references:ContextReferenceProvider",

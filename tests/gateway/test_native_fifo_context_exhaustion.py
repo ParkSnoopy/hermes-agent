@@ -1,6 +1,6 @@
 """Native messages queued behind a turn that exhausts its context run once, in order, on the fresh
 session the auto-reset creates; the exhausted turn is not replayed and a transport retry of a
-re-homed message still dedupes. Real GatewayRunner, DiscordAdapter, SessionAuthority and drain over
+re-homed message still dedupes. Real GatewayRunner, generic adapter, SessionAuthority and drain over
 SQLite; the turn is a stand-in. Adapted from helix4u's #139673 headline test."""
 import asyncio
 from types import SimpleNamespace
@@ -17,23 +17,28 @@ from gateway.session_contract import SessionRef
 from gateway.session_ingress_context import native_callback
 from hermes_constants import get_hermes_home
 from hermes_state_runtime import list_session_admissions
-from plugins.platforms.discord.adapter import DiscordAdapter
+from tests.gateway.test_shared_busy_receive_loop import Adapter
 
 _REAL_SCHEDULE = SessionAuthority._schedule  # the fixture parks scheduling; races restore it
 
 
 @pytest_asyncio.fixture
 async def native(monkeypatch):
-    monkeypatch.setenv("DISCORD_ALLOWED_USERS", "42")
+    from gateway.platform_registry import PlatformEntry, platform_registry
+
+    platform_registry.register(PlatformEntry(name="fifo_test", label="FIFO test", adapter_factory=lambda _: Adapter(),
+                                             check_fn=lambda: True, allowed_users_env="FIFO_TEST_ALLOWED_USERS"))
+    monkeypatch.setenv("FIFO_TEST_ALLOWED_USERS", "42")
     monkeypatch.setattr(SessionAuthority, "_schedule", lambda self, ref: None)
     runner = GatewayRunner(GatewayConfig())
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token="fixture-token", typing_indicator=False))
+    adapter = Adapter()
+    adapter.platform = Platform("fifo_test")
 
     async def send(chat_id, content, reply_to=None, metadata=None):
         return SendResult(success=True, message_id="fixture-reply")
 
     monkeypatch.setattr(adapter, "send", send)
-    runner.adapters = {Platform.DISCORD: adapter}
+    runner.adapters = {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id="default", instance_id="fixture")
     runner._wire_adapter_handlers(adapter)
     source = adapter.build_source(chat_id="42", chat_type="dm", user_id="42")
@@ -43,6 +48,7 @@ async def native(monkeypatch):
         from gateway.session_runtime_workers import mutation_tasks
         await asyncio.gather(*mutation_tasks(authority))
         authority.db.close()
+        platform_registry.unregister("fifo_test")
 
 
 async def _admit(native, text, event=None):
@@ -99,7 +105,7 @@ async def test_exhaustion_reset_runs_queued_native_messages_on_the_fresh_session
 async def test_exhaustion_reset_is_ordered_with_redelivery_and_cleanup(native, monkeypatch, redeliver):
     """A redelivery of queued B that resolves the route to the fresh session mid-reset dedupes onto
     the moved row (no UNIQUE collision rolling the whole move back); and the reset schedules the
-    moved rows only after the conversation cleanup and topic binding sync."""
+    moved rows only after the conversation cleanup."""
     from gateway.session_results import execution_result
     runner, authority, db = native.runner, native.authority, native.authority.db
     loop = asyncio.get_running_loop()
@@ -120,7 +126,7 @@ async def test_exhaustion_reset_is_ordered_with_redelivery_and_cleanup(native, m
 
     monkeypatch.setattr(runner.session_store, "reset_session", reset_then_redeliver)
     monkeypatch.setattr(runner, "_clear_conversation_scope", lambda *a, **k: events.append("clear"))
-    monkeypatch.setattr(runner, "_sync_telegram_topic_binding", lambda *a, **k: events.append("sync"))
+
     monkeypatch.setattr(SessionAuthority, "_schedule", lambda self, ref: events.append("schedule"))
     executed, fresh = [], {}
 
@@ -145,7 +151,7 @@ async def test_exhaustion_reset_is_ordered_with_redelivery_and_cleanup(native, m
         _, retry = await asyncio.wrap_future(redelivery["B"])
         assert retry.admission_id == admitted[1][1].admission_id
     else:
-        assert events == ["clear", "sync", "schedule"]
+        assert events == ["clear", "schedule"]
     await authority._drain(SessionRef(authority.profile_id, new))
     assert executed == ["A", "B", "C"]
     new_rows = list_session_admissions(db, session_id=new, pending_only=False)
@@ -155,23 +161,27 @@ async def test_exhaustion_reset_is_ordered_with_redelivery_and_cleanup(native, m
 
 @pytest.mark.asyncio
 async def test_no_scheduler_starts_the_fresh_fifo_before_reset_cleanup_finishes(native, monkeypatch):
-    """With the real scheduler, a redelivery of B while the topic binding sync is still running
-    (it schedules the fresh FIFO itself) must not start B there before the reset finishes."""
-    import threading
+    """Redelivery cannot start the fresh FIFO before the reset clears conversation state."""
+    import gateway.session_automation as automation
     from gateway.session_results import execution_result
     runner, authority = native.runner, native.authority
-    loop = asyncio.get_running_loop()
     admitted = [await _admit(native, text) for text in ("A", "B", "C")]
     old = admitted[0][1].ref
-    events, executed, entered, release = [], [], asyncio.Event(), threading.Event()
+    events, executed, entered, release = [], [], asyncio.Event(), asyncio.Event()
+    move_wakes = automation.move_route_wakes
+    clear_scope = runner._clear_conversation_scope
 
-    def held_sync(*args, **kwargs):
-        events.append("sync:entered")
-        loop.call_soon_threadsafe(entered.set)
-        assert release.wait(10)
-        events.append("sync:done")
+    async def held_move(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        return await move_wakes(*args, **kwargs)
 
-    monkeypatch.setattr(runner, "_sync_telegram_topic_binding", held_sync)
+    def record_clear(*args, **kwargs):
+        clear_scope(*args, **kwargs)
+        events.append("clear:done")
+
+    monkeypatch.setattr(automation, "move_route_wakes", held_move)
+    monkeypatch.setattr(runner, "_clear_conversation_scope", record_clear)
 
     async def turn(event, source, session_key, run_generation):
         entry = runner.session_store.lookup_by_session_key(session_key)
@@ -191,22 +201,24 @@ async def test_no_scheduler_starts_the_fresh_fifo_before_reset_cleanup_finishes(
     monkeypatch.setattr(runner, "_handle_message_with_agent", turn)
     monkeypatch.setattr(SessionAuthority, "_schedule", _REAL_SCHEDULE)
     authority._schedule(old)
-    await asyncio.wait_for(entered.wait(), 10)
-    _, retry = await _admit(native, "B", admitted[1][0])  # dedupes, then schedules its FIFO
-    assert retry.admission_id == admitted[1][1].admission_id
-    ran_early = asyncio.Event()
-    monkeypatch.setattr(runner, "_handle_message_with_agent", lambda *a: ran_early.set() or turn(*a))
-    with pytest.raises(asyncio.TimeoutError):  # nothing runs on the fresh session during the sync
-        await asyncio.wait_for(ran_early.wait(), 0.5)
-    assert [t for t, _ in executed] == ["A"]
-    release.set()
+    try:
+        await asyncio.wait_for(entered.wait(), 10)
+        _, retry = await _admit(native, "B", admitted[1][0])  # dedupes, then schedules its FIFO
+        assert retry.admission_id == admitted[1][1].admission_id
+        ran_early = asyncio.Event()
+        monkeypatch.setattr(runner, "_handle_message_with_agent", lambda *a: ran_early.set() or turn(*a))
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(ran_early.wait(), 0.5)
+        assert [t for t, _ in executed] == ["A"]
+    finally:
+        release.set()
     for _ in range(300):
         if len(executed) == 3:
             break
         await asyncio.sleep(0.02)
     new = runner.session_store.lookup_by_session_key(runner.session_store._generate_session_key(native.source)).session_id
     assert executed == [("A", old.session_id), ("B", new), ("C", new)]
-    assert events.index("sync:done") < events.index("turn:B")
+    assert events.index("clear:done") < events.index("turn:B")
 
 
 @pytest.mark.asyncio

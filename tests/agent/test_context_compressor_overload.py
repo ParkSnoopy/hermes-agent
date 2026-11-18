@@ -62,7 +62,6 @@ class TestSustainedOverloadEscalation:
             # An auth/quota error that also says "overloaded" never escalates (#29559).
             assert third == msgs
             assert c._last_compress_aborted is True
-            assert c._last_compression_telemetry["failure_class"] == "summary_auth_failure"
             # ...and never bumps the overload budget, so the next real 503 keeps its grace (#115906).
             assert c._consecutive_overload_aborts == 0
             return
@@ -71,7 +70,6 @@ class TestSustainedOverloadEscalation:
         assert c._last_compress_aborted is False
         assert c._last_summary_fallback_used is True
         assert c._last_summary_dropped_count > 0
-        assert c._last_compression_telemetry["failure_class"] == "summary_overload_degraded"
 
     def test_a_healthy_summary_restarts_the_overload_budget(self):
         """A summary that lands resets the strikes even when its compaction is later refused, so one
@@ -123,7 +121,6 @@ class TestSustainedOverloadEscalation:
         assert third != msgs
         assert second._last_summary_fallback_used is True
         assert second._last_summary_overload_degraded is True
-        assert second._last_compression_telemetry["failure_class"] == "summary_overload_degraded"
         # The committed degraded fallback settles the budget so recovery gets a fresh run
         # (the boundary caller records the completed compaction, as compress_context does).
         second.record_completed_compaction(used_fallback=True)

@@ -5,7 +5,7 @@
 #   pkgs.hermes-agent.override { extraPythonPackages = [...]; }
 #   pkgs.hermes-agent.override { extraDependencyGroups = [ "google-meet" ]; }
 # Both extras add to what the package ships. The shipped groups live in
-# defaultDependencyGroups (set by packages.nix for `full`/`messaging`), so a
+# defaultDependencyGroups (set by packages.nix for `full`), so a
 # plain override of the extras never drops them.
 {
   lib,
@@ -14,10 +14,10 @@
   writeText,
   callPackage,
   runCommand,
-  electron,
+
   git,
   openssh,
-  ffmpeg-headless,
+
 
   # for pm
   writeShellApplication,
@@ -74,7 +74,7 @@ let
     else
       version;
 
-  # CLI and Electron consume the same provenance and update owner.
+  # The CLI and TUI consume the same provenance and update owner.
   installStampFile = writeText "hermes-install-stamp.json" (
     builtins.toJSON {
       schemaVersion = 2;
@@ -110,10 +110,6 @@ let
     inherit uv2nix pyproject-nix pyproject-build-systems;
   };
 
-  # Icons render on the runtime venv: Pillow and resvg-py are core dependencies.
-  generatedIcons = callPackage ./icons.nix {
-    inherit (mkHermesVenv [ ]) venv;
-  };
 
   hermesNpmLib = callPackage ./lib.nix {
     inherit pmPackages;
@@ -123,14 +119,6 @@ let
     inherit hermesNpmLib;
   };
 
-  hermesWeb = callPackage ./web.nix {
-    inherit hermesNpmLib generatedIcons;
-  };
-
-  # The store is read-only, so the Webapp is built here and never by `hermes webapp`.
-  hermesWebapp = callPackage ./webapp.nix {
-    inherit hermesNpmLib;
-  };
 
   bundledSkills = lib.cleanSourceWith {
     src = ../skills;
@@ -153,13 +141,8 @@ let
     filter = path: _type: !(lib.hasInfix "/__pycache__/" path);
   };
 
-  # i18n locale catalogs (locales/*.yaml). Shipped into the store and pointed
-  # at by HERMES_BUNDLED_LOCALES so the wrapped binary always resolves human
-  # strings instead of raw i18n keys (#23943 / #27632 / #35374).
-  bundledLocales = lib.cleanSource ../locales;
-
   # Shipped MCP catalog (optional-mcps/<name>/manifest.yaml). Same bare-data-dir
-  # case as locales: not a Python package, so it's symlinked into the store and
+  # directory is not a Python package, so it's symlinked into the store and
   # exposed via HERMES_OPTIONAL_MCPS.
   bundledOptionalMcps = lib.cleanSourceWith {
     src = ../optional-mcps;
@@ -176,15 +159,7 @@ let
     git
     openssh
   ]
-  # pm's macOS ffmpeg is a single binary with no ffprobe, which transcription
-  # needs to measure duration before splitting long recordings. Only ffprobe
-  # is linked, so `ffmpeg` on PATH stays the pinned build.
-  ++ lib.optionals stdenv.hostPlatform.isDarwin [
-    (runCommand "ffprobe-${ffmpeg-headless.version}" { } ''
-      mkdir -p $out/bin
-      ln -s ${lib.getBin ffmpeg-headless}/bin/ffprobe $out/bin/ffprobe
-    '')
-  ]
+
   ++ lib.optionals stdenv.hostPlatform.isLinux [
     wl-clipboard
     xclip
@@ -211,7 +186,7 @@ let
       code = "${hermesVenv}/${sitePackagesPath}";
       repo = "share/hermes-agent";
       placement = "references";
-      target = "${if stdenv.hostPlatform.isDarwin then "darwin" else "linux"}-${
+      target = "linux-${
         if stdenv.hostPlatform.isAarch64 then "arm64" else "x64"
       }";
       python = "${hermesVenv}/bin/python3";
@@ -223,13 +198,11 @@ let
         skills = toString bundledSkills;
         optional-skills = toString bundledOptionalSkills;
         plugins = toString bundledPlugins;
-        locales = toString bundledLocales;
         optional-mcps = toString bundledOptionalMcps;
       };
       frontends = {
         tui = "${hermesTui}/lib/hermes-tui";
-        web = toString hermesWeb;
-        webapp = toString hermesWebapp;
+
       };
       ref = if dirty then null else rev;
       stamp = toString installStampFile;
@@ -401,8 +374,7 @@ stdenv.mkDerivation (finalAttrs: {
     {
       inherit
         hermesTui
-        hermesWeb
-        hermesWebapp
+
         hermesNpmLib
         hermesVenv
         agentBuilderSrc
@@ -415,23 +387,6 @@ stdenv.mkDerivation (finalAttrs: {
         pmPython
         ;
 
-      # `hermesDesktop` references `finalAttrs.finalPackage` (this whole
-      # derivation, after all overrides are applied) so the desktop wrapper
-      # can pin its `hermes` command via HERMES_DESKTOP_HERMES. The
-      # deployment override then picks up the fully wrapped
-      # `hermes` binary — venv with all deps, bundled skills/plugins,
-      # runtime PATH (ripgrep/git/ffmpeg/etc).  No re-implementation
-      # of the agent resolution in the desktop wrapper.
-      hermesDesktop = callPackage ./desktop.nix {
-        inherit
-          hermesNpmLib
-          electron
-          installStampFile
-          generatedIcons
-          ;
-        python3 = python;
-        hermesAgent = finalAttrs.finalPackage;
-      };
 
       devShellHook = ''
         export HERMES_PYTHON=${devVenv}/bin/python3

@@ -52,7 +52,7 @@ def source(tmp_path, monkeypatch):
     monkeypatch.setattr(update_cmd, "_begin_update_receipt_and_plan", lambda *_: None)
     monkeypatch.setattr(main, "_run_pre_update_backup", lambda *_: None)
     monkeypatch.setattr(main, "_pause_windows_gateways_for_update", lambda: None)
-    monkeypatch.setattr(update_cmd, "_prepare_git_command", lambda **_: (False, ["git"], False))
+    monkeypatch.setattr(update_cmd, "_prepare_git_command", lambda **_: (["git"], False))
     return SimpleNamespace(home=home, origin=origin, root=checkout, commits=commits, parser=parser)
 
 
@@ -82,6 +82,47 @@ def install_reader(monkeypatch, result):
 
 def saved(source):
     return channel_record(require_readable_config_before_write(source.home / "config.yaml"), source.root)
+
+
+@pytest.mark.parametrize("invalid", [None, "draft", "prerelease", "origin", "missing"])
+@pytest.mark.parametrize("channel", ["stable", "canary"])
+def test_published_source_resolves_without_desktop_metadata(source, monkeypatch, invalid, channel):
+    tag = "v1.2.3+canary.20260818T103000Z" if channel == "canary" else "v1.2.3"
+    older = "v1.2.3+canary.20260817T103000Z" if channel == "canary" else "v1.2.2"
+    for name, commit in ((tag, source.commits[1]), (older, source.commits[0])):
+        git(source.origin, "tag", "-a", name, commit, "-m", "Canary source fixture")
+    calls = []
+
+    def api(url):
+        calls.append(url)
+        release = {"tag_name": tag, "draft": invalid == "draft",
+                   "prerelease": (channel == "canary") != (invalid == "prerelease")}
+        if url.endswith("/releases/latest"):
+            return {} if invalid == "missing" else release
+        if "/releases?" in url:
+            if invalid == "missing":
+                return []
+            return [{**release, "tag_name": older}, release,
+                    {"tag_name": "v1.2.3+canary.20260819T103000Z", "draft": True, "prerelease": True}]
+        assert url.endswith("/commits/" + tag)
+        return {"sha": source.commits[2] if invalid == "origin" else source.commits[1]}
+
+    def no_desktop_record(*args, **kwargs):
+        raise AssertionError("Published source must not read Desktop channel metadata")
+
+    monkeypatch.setattr(source_releases, "_json", api)
+    monkeypatch.setattr(source_releases, "_resolve_channel", no_desktop_record)
+    monkeypatch.setattr(source_releases, "_read", no_desktop_record)
+    before = git(source.root, "rev-parse", "HEAD")
+    if invalid is None:
+        target = source_releases.resolve_source_target(channel, ["git"], source.root)
+        assert (target.channel, target.version, target.commit, target.build_id) == (
+            channel, tag[1:], source.commits[1], None)
+        assert calls[-1].endswith("/commits/" + tag)
+    else:
+        with pytest.raises(ValueError):
+            source_releases.resolve_source_target(channel, ["git"], source.root)
+    assert git(source.root, "rev-parse", "HEAD") == before
 
 
 def test_tagless_channel_check_apply_is_pinned_not_branch_tip(source, monkeypatch, capsys):
@@ -346,7 +387,7 @@ def test_offline_retirement_uses_qualified_build_before_current_stable(
     assert git(source.root, "rev-parse", "HEAD") == source.commits[1]
     assert saved(source)["channel"] == "stable"
     # The adopted stable subscription follows the published GitHub release, not R2.
-    monkeypatch.setattr(source_releases, "_resolve_stable", lambda repository, *_: source_releases.SourceTarget(
+    monkeypatch.setattr(source_releases, "_resolve_published", lambda channel, repository, *_: source_releases.SourceTarget(
         "stable", "stable", repository, commit=source.commits[2], version="1.2.4"))
     status = source_check.check_for_updates(install_root=source.root, home=source.home, force=True)
     assert status["targetSha"] == source.commits[2], status
@@ -356,7 +397,7 @@ def test_offline_retirement_uses_qualified_build_before_current_stable(
     assert "channel_retirement" not in completed[1]
 
 
-@pytest.mark.parametrize("transport", ["git", "shallow", "zip"])
+@pytest.mark.parametrize("transport", ["git", "shallow"])
 def test_retirement_refuses_to_downgrade_newer_source(
         source, monkeypatch, retired_channel_archive, transport):
     git(source.root, "checkout", "--detach", source.commits[2])
@@ -364,55 +405,18 @@ def test_retirement_refuses_to_downgrade_newer_source(
         import shutil
         shutil.rmtree(source.root)
         git(source.root.parent, "clone", "--depth=1", source.origin.as_uri(), str(source.root))
-    if transport == "zip":
-        (source.root / "pyproject.toml").write_text('[project]\nversion = "1.2.2"\n')
-        monkeypatch.setattr(update_cmd, "_prepare_git_command", lambda **_: (True, ["git"], False))
     original = deepcopy(saved(source))
     completed = []
     monkeypatch.setattr(update_cmd, "_complete_source_update", lambda request: completed.append(request))
     with pytest.raises(ValueError, match="newer|downgrade"):
         source_releases.resolve_source_target(retired_channel_archive.name,
-                                              None if transport == "zip" else ["git"], source.root)
+                                              ["git"], source.root)
     with pytest.raises(SystemExit):
         update_cmd._cmd_update_impl(source.parser.parse_args(["update", "--yes"]), False)
     assert git(source.root, "rev-parse", "HEAD") == source.commits[2]
     assert saved(source) == original and not completed
 
 
-@pytest.mark.parametrize("dirty", [False, True])
-def test_tagless_zip_apply_uses_pinned_source_archive(source, monkeypatch, dirty):
-    import urllib.request
-    from hermes_cli import update_cmd_zip
-
-    name = "zip-preview"
-    set_install_channel(name, source.root)
-    install_reader(monkeypatch, reader_result(source, name, "stable"))
-    archive = source.home / "source.zip"
-    git(source.origin, "archive", "--format=zip", "--prefix=hermes-agent-fixture/",
-        "--output=" + str(archive), source.commits[1])
-    urls = []
-    def download(url, filename):
-        import shutil
-        urls.append(url)
-        shutil.copyfile(archive, filename)
-    monkeypatch.setattr(urllib.request, "urlretrieve", download)
-    monkeypatch.setattr(update_cmd, "_prepare_git_command", lambda **_: (True, ["git"], False))
-    completed = []
-    monkeypatch.setattr(update_cmd, "_complete_source_update", lambda req: completed.append(deepcopy(req)))
-    if dirty:
-        (source.root / "notes.txt").write_text("do not remove")
-        with pytest.raises(SystemExit):
-            update_cmd._cmd_update_impl(source.parser.parse_args(["update"]), False)
-        assert not urls and not completed
-        assert (source.root / "content.txt").read_text() == "installed"
-        assert (source.root / "notes.txt").read_text() == "do not remove"
-    else:
-        update_cmd._cmd_update_impl(source.parser.parse_args(["update"]), False)
-        assert urls == [f"https://github.com/NousResearch/hermes-agent/archive/{source.commits[1]}.zip"]
-        assert (source.root / "content.txt").read_text() == "published"
-        assert completed[0]["expected_sha"] == source.commits[1]
-        assert completed[0]["channel_retirement"]["destination"] == "stable"
-    assert saved(source)["channel"] == name
 
 
 @pytest.mark.parametrize("outcome", ["success", "failure", "uncorrelated", "missing"])

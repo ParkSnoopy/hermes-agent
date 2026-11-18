@@ -33,23 +33,18 @@ _PRE_UPDATE_SNAPSHOT_KEEP = 1
 # small hard-to-regenerate state, not a multi-GB state.db (24 GB cost ~60s + 24 GB/update).
 _PRE_UPDATE_SNAPSHOT_MAX_FILE_SIZE = 1 << 30  # 1 GiB
 
-#: Reinstalling through the official installer swaps in a Python whose SQLite is safe; the
-#: one-liner differs per OS (mirrors ``uninstall._REINSTALL_HINT``). windows -> command
-_REINSTALL_ONE_LINER = {
-    True: "iex (irm https://hermes-agent.nousresearch.com/install.ps1)",
-    False: "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
-}
+#: Reinstalling through the official installer swaps in a Python whose SQLite is safe.
+_REINSTALL_ONE_LINER = "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"
 
 
 def _sqlite_partial_completion_lines(sqlite_version: str) -> list[str]:
     """Shared ``⚠ Update partially complete`` wording for a vulnerable post-update SQLite, so the
     two completion banners cannot drift. The lead names the consequence, the second line the
     exact fix command."""
-    from hermes_cli.update_cmd import _m
     return [
         f"⚠ Update partially complete — your Python's SQLite ({sqlite_version}) has a known "
         "corruption bug. Hermes works, but sessions could be damaged.",
-        f"  Fix: run the installer again ({_REINSTALL_ONE_LINER[bool(_m()._is_windows())]}) "
+        f"  Fix: run the installer again ({_REINSTALL_ONE_LINER}) "
         "which installs a safe Python, then run `hermes doctor` to confirm.",
     ]
 
@@ -285,11 +280,12 @@ def _refresh_dashboard_after_update(*, already_restarted_units: set[str] | None 
 
     See #83595.
     """
-    from hermes_cli.update_cmd import _m, _record_update_step
+    from hermes_cli.update_cmd import _record_update_step
+    from hermes_cli.dashboard_procs import _kill_stale_dashboard_processes
     from hermes_constants import get_hermes_home
 
     try:
-        stop_result = _m()._kill_stale_dashboard_processes(
+        stop_result = _kill_stale_dashboard_processes(
             restart_managed=True, already_restarted_units=already_restarted_units,
             scope_home=str(get_hermes_home()),
         )
@@ -797,6 +793,28 @@ def _run_pre_update_backup(args) -> Optional[str]:
     return snapshot_id
 
 
+def _refresh_bootstrap_cache_scripts(branch: str = "main") -> None:
+    """Refresh an existing Linux branch installer cache without changing pinned entries."""
+    import re
+    from hermes_cli.update_cmd import _m
+
+    cache_dir = Path(_m().get_hermes_home()) / "bootstrap-cache"
+    if not cache_dir.is_dir():
+        return
+    safe_ref = re.sub(r"[^A-Za-z0-9._-]", "_", str(branch or "main"))
+    if re.fullmatch(r"[0-9a-fA-F]{7,40}", safe_ref):
+        return
+    source = _m().PROJECT_ROOT / "scripts" / "install.sh"
+    cached = cache_dir / f"install-{safe_ref}.sh"
+    if source.is_file() and cached.is_file():
+        data = source.read_bytes()
+        if cached.read_bytes() != data:
+            tmp = cached.with_suffix(cached.suffix + ".tmp")
+            tmp.write_bytes(data)
+            os.replace(tmp, cached)
+            print(f"  ✓ Refreshed installer bootstrap-cache script: {cached.name}")
+
+
 def _sweep_bytecode_after_update(branch: str) -> None:
     """Clear stale ``__pycache__`` (else gateway restart ImportErrors on names absent from old
     bytecode), re-stamp the fingerprint, refresh the bootstrap cache scripts.
@@ -820,7 +838,7 @@ def _sweep_bytecode_after_update(branch: str) -> None:
     except Exception as exc:  # health: allow BLE001 -- owed to the next launch's fingerprint sweep
         record_followup("bytecode_sweep", str(exc) or type(exc).__name__)
     try:
-        _m()._refresh_bootstrap_cache_scripts(branch)
+        _refresh_bootstrap_cache_scripts(branch)
     except Exception as exc:  # health: allow BLE001 -- refreshed again by the next update
         record_followup("bootstrap_scripts", str(exc) or type(exc).__name__,
                         retry="the next `hermes update` refreshes them")
@@ -875,20 +893,8 @@ def _refresh_cua_driver_after_update() -> None:
         return
     if pm.installed_package("cua-driver", allow_outdated=True) is None:
         return
-    if sys.platform == "win32":
-        # The scheduled task targets a versioned binary. Selecting a new pin
-        # without re-registering leaves it stale; registration requires UAC.
-        print("\n→ Windows cua-driver refresh deferred (autostart registration requires UAC).")
-        print("  Run `hermes computer-use install --upgrade` in an interactive terminal.")
-        return
     print("\n→ Preparing pinned cua-driver (Computer Use)...")
-    if sys.platform == "darwin":
-        # PM preserves the signed app; setup validates and registers its new path
-        # with LaunchServices. This path never requests permissions or elevation.
-        from hermes_cli.tools_config_cua import install_cua_driver
-        install_cua_driver(show_installer_progress=False)
-    else:
-        pm.ensure("cua-driver", explicit=True)
+    pm.ensure("cua-driver", explicit=True)
 
 
 def _install_default_tools_after_update() -> None:
@@ -930,16 +936,10 @@ def _print_checkpoint_footprint_notice() -> None:
 
 
 def _print_post_update_notices_and_self_heals() -> None:
-    """Best-effort notices (FTS optimize, curator) and self-heals (FHS PATH, ACP launcher,
-    Windows bin launchers, cua-driver refresh) that run after the summary."""
+    """Best-effort notices and self-heals that run after the summary."""
     from hermes_cli.update_cmd import _m, _print_curator_first_run_notice, _print_curator_recent_run_notice
     from hermes_cli import _launchers
 
-    def _migrate_windows_bin_path() -> None:
-        # Windows launchers into the managed bin dir: in-checkout launchers were swept by the
-        # autostash (--include-untracked) and updates never run install.ps1. No-op on POSIX.
-        from hermes_cli._install_repair import migrate_windows_bin_path
-        migrate_windows_bin_path(_m().PROJECT_ROOT)
 
     for message, step in (
         # v23 FTS layout is opt-in (existing indexes untouched); surface the command here.
@@ -948,21 +948,13 @@ def _print_post_update_notices_and_self_heals() -> None:
         ('Curator recent-run notice failed: %s', _print_curator_recent_run_notice),
         ('FHS PATH guard check failed: %s', _ensure_fhs_path_guard),
         ('CLI launcher exposure failed: %s', lambda: _launchers.expose_cli(_m().PROJECT_ROOT)),
-        ('Windows bin launcher migration failed: %s', _migrate_windows_bin_path),
+
         ('cua-driver refresh failed: %s', _refresh_cua_driver_after_update),
         ('Default PM tool install failed: %s', _install_default_tools_after_update),
         ('Checkpoint footprint notice failed: %s', _print_checkpoint_footprint_notice),
-        # Legacy HERMES_NEMO_RELAY_ATIF_*/ATOF_* vars produce no traces since the Relay cutover;
-        # generate each profile's relay-plugins.toml instead of leaving exports silently dead.
-        ('Relay exporter migration failed: %s', _migrate_relay_exporter_env),
     ):
         with _best_effort(message):
             step()
-
-
-def _migrate_relay_exporter_env() -> None:
-    from hermes_cli.relay_plugin_migrate import run_relay_migration_after_update
-    run_relay_migration_after_update()
 
 
 def _run_post_update_maintenance(
@@ -990,31 +982,6 @@ def _run_post_update_maintenance(
                 followups.append((name, reason))
 
     from hermes_cli.update_cmd import _check_and_apply_config_migration, _m
-    from hermes_cli.update_windows_acl import repair_windows_home_acl
-    owed_step("windows_home_acl", repair_windows_home_acl)
-    # macOS TCC: Desktop bundles are re-signed each update, so old grants can go stale
-    # (toggle ON, yet macOS re-prompts with no Allow button). Tell users how to re-grant.
-    # With the post-#73681 identifier-pinned DR, new grants survive rebuilds — but a grant made to a pre-fix
-    # binary stays stale: the System Settings toggle shows ON while macOS re-prompts on every capture, and
-    # the modern prompt has no Allow button, so users loop. One line of guidance after update tells affected
-    # users how to complete the one-time re-grant.
-    if sys.platform == "darwin" and had_desktop_app_before_update:
-        print()
-        print(
-            "  ℹ macOS: if Hermes re-prompts for permissions you already "
-            "granted (toggle shows ON), the stored grant is stale — run "
-            "`tccutil reset ScreenCapture com.nousresearch.hermes` (repeat "
-            "per affected service), toggle it ON in System Settings, then "
-            "fully quit & relaunch once."
-        )
-
-    # macOS TCC interpreter anchor; boot-gated — a failed probe leaves the venv untouched.
-    try:
-        # See #95596.
-        from hermes_cli.macos_tcc_anchor import ensure_tcc_anchor
-        ensure_tcc_anchor()
-    except Exception:
-        logger.debug("macOS TCC anchor refresh skipped", exc_info=True)
 
     # state.db integrity guard for root home AND every profile; restore from own snapshot.
     with _best_effort('Post-update state.db integrity check failed: %s'):

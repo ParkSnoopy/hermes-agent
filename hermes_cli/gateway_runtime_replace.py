@@ -128,9 +128,7 @@ def replace_incompatible_owner(home: Path, *, deadline: float) -> str | None:
     _write_planned_stop(control, pid, start_time)
     graceful = min(_GRACEFUL_STOP_SECONDS, max(deadline - time.monotonic() - _FORCED_STOP_SECONDS, 1.0))
     try:
-        if os.name != "nt":
-            # Windows has no SIGTERM for an asyncio loop: the marker watcher IS its graceful stop.
-            terminate_pid(pid, expected_start_time=start_time)
+        terminate_pid(pid, expected_start_time=start_time)
         if _wait_gone(pid, graceful):
             return None
         terminate_pid(pid, force=True, expected_start_time=start_time)

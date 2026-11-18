@@ -27,9 +27,8 @@ for word, and a test fails the build if the two drift apart.
   point `subdir` at its directory. The
   [plugin developer guide](./index.md) covers the layout.
 - **Public surfaces only.** Extend Hermes through hooks, middleware, the
-  `ctx.register_*` APIs, provider plugins and the
-  [Desktop plugin SDK](../desktop-plugin-sdk.md). Never patch Hermes
-  code or Desktop markup at runtime. If the hook you need is missing, see
+  `ctx.register_*` APIs and provider plugins. Never patch Hermes
+  code at runtime. If the hook you need is missing, see
   [Asking for a hook](#asking-for-a-hook).
 - **Validation passes locally.** Run the same check catalog CI runs, against a
   checkout at the commit you are about to pin:
@@ -167,7 +166,7 @@ the gallery. There is no separate listing to maintain.
    Hermes's approval system: no auto-approving, no disabling guards, and no
    spawning Hermes or shell children that inherit YOLO or non-interactive mode
    to run commands nobody approved. Anything that waits for a person (a prompt,
-   an OAuth browser flow) fails cleanly or times out under cron, the messaging
+   an OAuth browser flow) fails cleanly or times out under the messaging
    gateway and other unattended runs instead of hanging the agent.
 13. **Risky behaviour is disclosed.** What a user would want to know before
    installing goes in the PR description and the plugin's README: network calls

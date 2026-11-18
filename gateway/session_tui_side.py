@@ -58,7 +58,7 @@ def _side_scope(authority, policy, task_id):
     identity (approval key, HERMES_SESSION_ID) for the side agent's thread."""
     from gateway.session_authorities import owner_scope, served_profile_name
     from gateway.session_context import clear_session_vars, set_session_vars
-    from gateway.session_policy import bind_turn_workspace, policy_scope, unbind_turn_workspace
+    from gateway.session_policy import policy_scope
     from tools.environments.local import _is_routed_home
     # The owning profile, as its own turns bind it: a served secondary by its name, so persistent
     # Docker keys ITS workspace container (never the launch profile's live one for the same folder);
@@ -71,12 +71,8 @@ def _side_scope(authority, policy, task_id):
         tokens = set_session_vars(session_key=task_id, session_id=task_id, cwd=policy.cwd, profile=profile,
                                   async_delivery=False)
         try:
-            # The session's workspace, as its own turns get it (#140665): mounted at /workspace in a
-            # per-task container, or the session's own persistent workspace container (same digest).
-            bind_turn_workspace(policy, task_id)
             yield
         finally:
-            unbind_turn_workspace(task_id)
             clear_session_vars(tokens)
 
 

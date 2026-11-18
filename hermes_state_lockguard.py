@@ -14,7 +14,7 @@ extra to track or retire), and they conflict with a foreign EXCLUSIVE exactly li
 so the sibling's close-time unlink is refused while a guarded handle is open. The guard is
 lifted before the handle's own close so a true last close still ends the generation normally;
 lifting it first re-takes SQLite's own POSIX locks on the same ranges, so the handle is never
-unlocked while its connection is still open. No-op on Windows and on runtimes without OFD locks.
+unlocked while its connection is still open. Unavailable on runtimes without OFD locks.
 
 Ownership model: the guard is a property of the *descriptor*, and a descriptor number is
 reusable. Each ``hold()`` therefore locks every matching descriptor unconditionally (an OFD
@@ -28,7 +28,6 @@ from __future__ import annotations
 import logging
 import os
 import struct
-import sys
 import threading
 from typing import Dict, Optional, Set, Tuple
 
@@ -41,37 +40,21 @@ _SHARED_FIRST = _PENDING_BYTE + 2
 _SHARED_SIZE = 510
 _SHM_DMS_BYTE = 128
 
-# Windows has no POSIX advisory locks, and the module promises to be a no-op there. Gate on the
-# platform FIRST: some Windows installs have a third-party module importable as `fcntl` (stock
-# CPython for Windows ships none), and letting the import decide would arm the guard on a
-# lookalike. Off Windows a partial module is equally fatal at import time — every importer of
-# hermes_state dies before supported() can say "no" (#118026) — so tolerate a missing attribute
-# the same way as a missing module and fall back to the no-op.
-if os.name == "nt":
+try:
+    import fcntl
+    # CPython before 3.12 may omit the stable Linux ABI constant.
+    _F_OFD_SETLK = getattr(fcntl, "F_OFD_SETLK", 37)
+    _F_RDLCK, _F_UNLCK, _SEEK_SET = fcntl.F_RDLCK, fcntl.F_UNLCK, os.SEEK_SET
+    _F_SETLK = fcntl.F_SETLK
+    if not callable(getattr(fcntl, "fcntl", None)):
+        raise ImportError("fcntl module has no fcntl() callable")
+except (ImportError, AttributeError):
     fcntl = None  # type: ignore[assignment]
-    _F_OFD_SETLK: Optional[int] = None
+    _F_OFD_SETLK = None
     _F_RDLCK = _F_UNLCK = _SEEK_SET = _F_SETLK = 0
-else:
-    try:
-        import fcntl
-        # CPython exports F_OFD_SETLK only from 3.12. The kernel ABI values are stable: 37 on every
-        # Linux arch (asm-generic/fcntl.h), 90 on XNU (bsd/sys/fcntl.h, documented in fcntl(2)).
-        _F_OFD_SETLK = getattr(
-            fcntl, "F_OFD_SETLK", {"linux": 37, "darwin": 90}.get(sys.platform.rstrip("0123456789")))
-        _F_RDLCK, _F_UNLCK, _SEEK_SET = fcntl.F_RDLCK, fcntl.F_UNLCK, os.SEEK_SET
-        _F_SETLK = fcntl.F_SETLK
-        # The constants alone do not make the guard usable: _ofd_lock() calls fcntl.fcntl(), so a
-        # module that has the constants but no callable would pass supported() and then raise
-        # from the first hold(). Probe the whole capability here, not just the symbols.
-        if not callable(getattr(fcntl, "fcntl", None)):
-            raise ImportError("fcntl module has no fcntl() callable")
-    except (ImportError, AttributeError):
-        fcntl = None  # type: ignore[assignment]
-        _F_OFD_SETLK = None
-        _F_RDLCK = _F_UNLCK = _SEEK_SET = _F_SETLK = 0
 
-# struct flock differs per libc: glibc/musl put type+whence first, Darwin/BSD last.
-_FLOCK_FORMAT = "@qqihh" if sys.platform == "darwin" or "bsd" in sys.platform else "@hhqqi"
+# Linux struct flock layout.
+_FLOCK_FORMAT = "@hhqqi"
 
 Identity = tuple[int, int]
 Held = dict[Identity, tuple[int, int]]  # inode this handle guards -> its (start, length) range
@@ -87,8 +70,6 @@ def supported() -> bool:
 
 
 def _flock(lock_type: int, start: int, length: int) -> bytes:
-    if _FLOCK_FORMAT == "@qqihh":
-        return struct.pack(_FLOCK_FORMAT, start, length, 0, lock_type, _SEEK_SET)
     return struct.pack(_FLOCK_FORMAT, lock_type, _SEEK_SET, start, length, 0)
 
 

@@ -48,7 +48,7 @@ def top_level_value_flag_sets() -> tuple[frozenset[str], frozenset[str]]:
     argparse surface — the drift that made ``hermes --reasoning high chat …`` misread ``high`` as
     the subcommand and forced eager plugin discovery.
 
-    Mirrors the ``update_cmd._holder_value_flags`` precedent, including the handwritten-snapshot fallback
+    Mirrors the ``process_identity._holder_value_flags`` precedent, including the handwritten-snapshot fallback
     for a broken parser import. Cached per process. See #93530.
     """
     try:
@@ -113,7 +113,7 @@ Examples:
     hermes config                 View configuration
     hermes config edit            Edit config in $EDITOR
     hermes config set model gpt-4 Set a config value
-    hermes gateway                Run messaging gateway
+    hermes gateway                Run the gateway
     hermes gateway install        Install gateway background service
     hermes gateway start          Start the installed gateway service
     hermes gateway stop           Stop the gateway service
@@ -132,9 +132,6 @@ Examples:
     hermes debug share             Upload debug report for support
     hermes console                Open the safe Hermes command console
     hermes update                 Update to latest version
-    hermes dashboard              Start web UI dashboard (port 9119)
-    hermes dashboard --stop       Stop running dashboard processes
-    hermes dashboard --status     List running dashboard processes
 
 For more help on a command:
     hermes <command> --help

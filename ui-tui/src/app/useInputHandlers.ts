@@ -1,14 +1,14 @@
 import { forceRedraw, type Key, useInput } from '@hermes/ink'
 import { sharedControlParams } from '@hermes/shared/gateway-canonical'
-import type { ConfigSetResponse, SharedControlRespondResponse, VoiceRecordResponse } from '@hermes/shared/gateway-types'
+import type { ConfigSetResponse, SharedControlRespondResponse } from '@hermes/shared/gateway-types'
 import { applyCompletion } from '@hermes/shared/slash-input'
 import { useStore } from '@nanostores/react'
 import { useEffect, useRef } from 'react'
 
 import { DASHBOARD_TUI_MODE, NATIVE_MODE } from '../config/env.js'
 import { DOUBLE_ESC_MS, TYPING_IDLE_MS } from '../config/timing.js'
-import { t } from '../i18n/runtime.js'
-import { isAction, isCopyShortcut, isMac, isMacActionFallback, isVoiceToggleKey } from '../lib/platform.js'
+import { sessionEn } from '../copy/session.js'
+import { isAction, isCopyShortcut, isMac, isMacActionFallback } from '../lib/platform.js'
 import { computePrecisionWheelStep, initPrecisionWheel } from '../lib/precisionWheel.js'
 import { computeWheelStep, initWheelAccelForHost } from '../lib/wheelAccel.js'
 import { closeWidget, dispatchWidgetInput } from '../sdk/host.js'
@@ -70,7 +70,7 @@ export function handleIdleHotkeyExit(
   if (!shouldAllowIdleHotkeyExit(dashboardTuiMode)) {
     requestDashboardNewSession?.()
 
-    return actions.sys(t('session.input.dashboardNewSession'))
+    return actions.sys(sessionEn.session.input.dashboardNewSession)
   }
 
   return actions.die()
@@ -228,17 +228,16 @@ function runBacktrackEsc(o: {
   return true
 }
 
-/** Esc: voice binding, then the double-Esc interrupt/discard, then backtrack. Any other key ends a
+/** Esc: double-Esc interrupt/discard, then backtrack. Any other key ends a
  * primed backtrack (and then acts normally). True when the key was consumed. */
 export function handleEscBacktrack(
   o: Parameters<typeof runDoubleEsc>[0] & {
     hasSelection: boolean
     isDouble: boolean
     isEsc: boolean
-    isVoiceKey: boolean
   }
 ): boolean {
-  if (!o.isEsc || o.isVoiceKey) {
+  if (!o.isEsc) {
     cancelBacktrackPrime()
 
     return false
@@ -295,34 +294,14 @@ export function shouldFallThroughForScroll(key: {
   return false
 }
 
-export function applyVoiceRecordResponse(
-  response: null | VoiceRecordResponse,
-  starting: boolean,
-  voice: Pick<InputHandlerContext['voice'], 'setProcessing' | 'setRecording'>,
-  sys: (text: string) => void
-) {
-  if (!starting || response?.status === 'recording') {
-    return
-  }
-
-  voice.setRecording(false)
-
-  if (response?.status === 'busy') {
-    voice.setProcessing(true)
-    sys(t('session.input.voiceStillTranscribing'))
-  } else {
-    voice.setProcessing(false)
-  }
-}
-
 type SensitivePrompt = (typeof SENSITIVE_PROMPTS)[number]
 
 const DISMISSED_PROMPT_NOTICE: { [K in SensitivePrompt]: (req: NonNullable<OverlayState[K]>) => string } = {
-  sudo: () => t('session.input.sudoCancelled'),
-  secret: () => t('session.input.secretCancelled'),
-  vaultUnlock: req => t('session.input.vaultStaysLocked', req.displayName),
-  vaultSaveLogin: req => t('session.input.loginNotSaved', req.site),
-  vaultCode: req => t('session.input.codeSkipped', req.site)
+  sudo: () => sessionEn.session.input.sudoCancelled,
+  secret: () => sessionEn.session.input.secretCancelled,
+  vaultUnlock: req => sessionEn.session.input.vaultStaysLocked(req.displayName),
+  vaultSaveLogin: req => sessionEn.session.input.loginNotSaved(req.site),
+  vaultCode: req => sessionEn.session.input.codeSkipped(req.site)
 }
 
 const dismissedNotice = <K extends SensitivePrompt>(key: K, req: NonNullable<OverlayState[K]>) =>
@@ -428,7 +407,7 @@ function handlePagerKey(ch: string, key: Key, pagerPageSize: number) {
 }
 
 export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
-  const { actions, composer, gateway, terminal, voice, wheelStep } = ctx
+  const { actions, composer, gateway, terminal, wheelStep } = ctx
   const { actions: cActions, refs: cRefs, state: cState } = composer
 
   const overlay = useStore($overlayState)
@@ -486,7 +465,7 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
 
       const settle = () => {
         patchOverlayState({ approval: null })
-        patchTurnState({ outcome: t('session.approval.denied') })
+        patchTurnState({ outcome: sessionEn.session.approval.denied })
       }
 
       // Canonical shared controls deny through the generation-bound RPC; a
@@ -625,45 +604,6 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
     }
   }
 
-  // CLI parity: Ctrl+B toggles a VAD-bounded push-to-talk capture
-  // (NOT the voice-mode umbrella bit). The mode is enabled via /voice on;
-  // Ctrl+B while the mode is off sys-nudges the user. While the mode is
-  // on, the first press starts a single VAD-bounded capture
-  // (gateway -> start_continuous(auto_restart=false), VAD auto-stop ->
-  // transcribe -> idle), a subsequent press stops and transcribes it.
-  // The gateway publishes voice.status + voice.transcript events that
-  // createGatewayEventHandler turns into UI badges and composer injection.
-  const voiceRecordToggle = () => {
-    if (!voice.enabled) {
-      return actions.sys(t('session.input.voiceModeOff'))
-    }
-
-    const starting = !voice.recording
-    const action = starting ? 'start' : 'stop'
-
-    // Optimistic UI — flip the REC badge immediately so the user gets
-    // feedback while the RPC round-trips; the voice.status event is the
-    // authoritative source and may correct us.
-    if (starting) {
-      voice.setRecording(true)
-    } else {
-      voice.setRecording(false)
-      voice.setProcessing(false)
-    }
-
-    gateway
-      .rpc<VoiceRecordResponse>('voice.record', { action, session_id: getUiState().sid })
-      .then(r => applyVoiceRecordResponse(r, starting, voice, actions.sys))
-      .catch((e: Error) => {
-        // Revert optimistic UI on failure.
-        if (starting) {
-          voice.setRecording(false)
-        }
-
-        actions.sys(t('session.input.voiceError', e.message))
-      })
-  }
-
   // Double-Esc discards the draft, matching Claude Code / Gemini CLI. It
   // sits above the isBlocked early-return so a prompt overlay cannot swallow
   // it. Ctrl+C now clears a non-empty composer even mid-stream; Esc Esc is
@@ -688,16 +628,11 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
 
   useInput((ch, key, event) => {
     const live = getUiState()
-    const isVoiceKey = key.escape && isVoiceToggleKey(key, ch, voice.recordKey)
     const now = Date.now()
-    // Escape-configured voice bindings (ctrl/alt/super+escape PTT) must win
-    // over the double-Esc interrupt, exactly as they win over the generic
-    // Esc handlers below — two quick PTT presses are a stop/start pair,
-    // not an interrupt.
-    const isDouble = key.escape && !isVoiceKey && now - lastEscRef.current <= DOUBLE_ESC_MS
+    const isDouble = key.escape && now - lastEscRef.current <= DOUBLE_ESC_MS
 
     if (key.escape) {
-      lastEscRef.current = isDouble || isVoiceKey ? 0 : now
+      lastEscRef.current = isDouble ? 0 : now
     }
 
     const escHandled = handleEscBacktrack({
@@ -709,7 +644,6 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
       isBlocked,
       isDouble,
       isEsc: key.escape,
-      isVoiceKey,
       live
     })
 
@@ -835,14 +769,6 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
       const step = Math.max(4, Math.floor(viewport / 2))
 
       return scrollTranscript(key.pageUp ? -step : step)
-    }
-
-    // Escape-based voice bindings (ctrl/alt/super+escape) must win before the
-    // generic Esc handlers below; otherwise queue-edit cancel / selection-clear
-    // would swallow the chord and /voice would advertise a shortcut that never
-    // actually toggles recording in those UI states.
-    if (key.escape && isVoiceToggleKey(key, ch, voice.recordKey)) {
-      return voiceRecordToggle()
     }
 
     // Queue-edit cancel beats selection-clear for plain Esc: the queue header
@@ -989,10 +915,6 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
       return
     }
 
-    if (isVoiceToggleKey(key, ch, voice.recordKey)) {
-      return voiceRecordToggle()
-    }
-
     // Cmd/Ctrl+G, plus Alt+G fallback for VSCode/Cursor (they bind the
     // primary keystroke to "Find Next" before the TUI sees it; Alt+G
     // arrives as meta+g across platforms).
@@ -1000,8 +922,8 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
       return void cActions.openEditor().catch((err: unknown) => {
         actions.sys(
           err instanceof Error
-            ? t('session.input.failedToOpenEditorWith', err.message)
-            : t('session.input.failedToOpenEditor')
+            ? sessionEn.session.input.failedToOpenEditorWith(err.message)
+            : sessionEn.session.input.failedToOpenEditor
         )
       })
     }
@@ -1009,22 +931,22 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
     // shift-tab flips yolo without spending a turn (claude-code parity)
     if (key.shift && key.tab && !cState.completions.length) {
       if (!live.sid) {
-        return void actions.sys(t('session.input.yoloNeedsSession'))
+        return void actions.sys(sessionEn.session.input.yoloNeedsSession)
       }
 
       // gateway.rpc swallows errors with its own sys() message and resolves to null,
       // so we only speak when it came back with a real shape. null = rpc already spoke.
       return void gateway.rpc<ConfigSetResponse>('config.set', { key: 'yolo', session_id: live.sid }).then(r => {
         if (r?.value === '1') {
-          return actions.sys(t('session.input.yoloOn'))
+          return actions.sys(sessionEn.session.input.yoloOn)
         }
 
         if (r?.value === '0') {
-          return actions.sys(t('session.input.yoloOff'))
+          return actions.sys(sessionEn.session.input.yoloOff)
         }
 
         if (r) {
-          actions.sys(t('session.input.yoloToggleFailed'))
+          actions.sys(sessionEn.session.input.yoloToggleFailed)
         }
       })
     }

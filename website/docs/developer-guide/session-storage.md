@@ -5,7 +5,7 @@ metadata, full message history, and model configuration across CLI and gateway
 sessions. This replaces the earlier per-session JSONL file approach.
 
 The profile's gateway is the **only writer of canonical sessions**: `hermes chat`,
-the TUI, Desktop (local), the API server, ACP, cron, Bot Chat and Kanban workers are
+the TUI, Desktop (local), the API server, ACP, Bot Chat and Kanban workers are
 clients that admit input to its session authority over `/api/ws` (see
 [Gateway local sessions](./gateway-local-sessions.md)). Out-of-process managed
 workers write through that owner (`RuntimeSessionStore` RPC), never by opening
@@ -17,8 +17,7 @@ Source files: `hermes_state.py` (facade) plus the `hermes_state_*.py` siblings (
 
 `get_hermes_home()` is the authoritative filesystem resolver for state and
 configuration. It uses a context-local override first, then the `HERMES_HOME`
-environment variable, and finally the platform default (`~/.hermes` on macOS
-and Linux; `%LOCALAPPDATA%/hermes` on Windows). Consequently, the default
+environment variable, and finally the Linux default (`~/.hermes`). Consequently, the default
 database is always `get_hermes_home() / "state.db"`, not a path that callers
 should hard-code as `~/.hermes/state.db`.
 
@@ -135,7 +134,7 @@ ownership for a redelivered event.
 ├── delivery_obligations  — Gateway outbox (owed replies); created lazily by gateway/delivery_ledger.py
 ├── runtime_epoch         — Session authority's owner epoch + instance id (one row)
 ├── session_admissions    — Durable per-session input FIFO (queued → started → terminal; unknown on owner loss)
-├── worker_executions     — Managed worker/child/cron/kanban executions bound to a session and epoch
+├── worker_executions     — Managed worker/child/kanban executions bound to a session and epoch
 ├── worker_receipts       — Ordered, digest-checked results a managed worker reported
 └── schema_version        — Single-row table tracking migration state
 ```

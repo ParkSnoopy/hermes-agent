@@ -1,7 +1,7 @@
 """Slash command registry for the Hermes CLI and gateway.
 
-Every consumer -- CLI help, gateway dispatch, Telegram BotCommands, Slack
-subcommand mapping, autocomplete -- derives from ``COMMAND_REGISTRY``. To add a
+Every consumer -- CLI help, gateway dispatch, autocomplete -- derives from
+``COMMAND_REGISTRY``. To add a
 command, append a ``CommandDef``; to add an alias, set ``aliases=("short",)``.
 """
 
@@ -14,31 +14,14 @@ from dataclasses import dataclass
 from typing import Optional
 
 from utils import is_truthy_value
-from agent.i18n import t
 from hermes_constants import INDICATOR_STYLES
 
 logger = logging.getLogger(__name__)
 
 
-def _localized(key: str, default: str) -> str:
-    """``t(key)`` with *default* when no catalog (not even ``en``) carries the key."""
-    value = t(key)
-    return default if value == key else value
-
-
-# Category identifiers -> ``slash.category.<slug>`` (identifiers stay English; labels are localized
-# only at render time via ``category_label``).
-_CATEGORY_SLUGS: dict[str, str] = {
-    "Session": "session", "Configuration": "configuration", "Info": "info",
-    "Tools & Skills": "tools_skills", "Plugins": "plugins", "Exit": "exit",
-    "Context": "context", "Background & Automation": "background_automation",
-}
-
-
 def category_label(category: str) -> str:
-    """Localized label for a registry category / help sub-group identifier."""
-    slug = _CATEGORY_SLUGS.get(category)
-    return _localized(f"slash.category.{slug}", category) if slug else category
+    """Return the English registry category label."""
+    return category
 
 
 @dataclass(frozen=True)
@@ -73,8 +56,8 @@ class CommandDef:
     desktop_subcommands: tuple[str, ...] | None = None
 
     def describe(self) -> str:
-        """Localized description (``slash.<name>.description``); ``description`` is the English source."""
-        return _localized(f"slash.{self.name}.description", self.description)
+        """Return the English command description."""
+        return self.description
 
 
 VALID_BUSY_POLICIES: frozenset[str] = frozenset({"dispatch", "reject", "interrupt_then_dispatch"})
@@ -82,13 +65,11 @@ VALID_BUSY_POLICIES: frozenset[str] = frozenset({"dispatch", "reject", "interrup
 
 COMMAND_REGISTRY: list[CommandDef] = [
     # Session
-    CommandDef("start", "Acknowledge platform start pings without a reply", "Session",
-               gateway_only=True, busy_policy="dispatch", busy_handler="start"),
+
     CommandDef("new", "Start a new session (fresh session ID + history)", "Session",
                aliases=("reset",), args_hint="[name]",
                busy_policy="interrupt_then_dispatch", busy_handler="new"),
-    CommandDef("topic", "Enable or inspect Telegram DM topic sessions", "Session",
-               gateway_only=True, args_hint="[off|help|session-id]"),
+
     CommandDef("clear", "Clear screen and start a new session", "Session",
                cli_only=True, desktop="terminal"),
     CommandDef("redraw", "Force a full UI repaint (recovers from terminal drift)", "Session",
@@ -105,8 +86,6 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("rewind", "Rewind to an earlier prompt to edit & resend it, or fork from there (Esc Esc)",
                "Session", cli_only=True, args_hint="[N | fork N]", desktop="terminal"),
     CommandDef("title", "Set a title for the current session", "Session", args_hint="[name]"),
-    CommandDef("handoff", "Hand off this session to a messaging platform (Telegram, Discord, etc.)", "Session",
-               args_hint="<platform>", cli_only=True, argument_mode="options"),
     CommandDef("branch", "Branch the current session (new thread on Discord/Telegram/Slack/Matrix; --here stays here)",
                "Session", aliases=("fork",), args_hint="[--here] [name]"),
     CommandDef("worktree", "Show, list, create, or prune isolated git worktrees", "Session",
@@ -179,8 +158,7 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("whoami", "Show your slash command access (admin / user)", "Info"),
     CommandDef("profile", "Show active profile name and home directory", "Info",
                busy_policy="dispatch", execute="profile"),
-    CommandDef("sethome", "Set this chat as the home channel", "Session",
-               gateway_only=True, aliases=("set-home",), desktop="terminal"),
+
     CommandDef("resume", "Resume a previously-named session", "Session",
                args_hint="[name]", argument_mode="mixed"),
     CommandDef("sessions", "Browse and resume previous sessions", "Session"),
@@ -233,11 +211,6 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("indicator", "Pick the TUI busy-indicator style", "Configuration",
                cli_only=True, args_hint=f"[{'|'.join(INDICATOR_STYLES)}]",
                subcommands=INDICATOR_STYLES, desktop="terminal"),
-    CommandDef("voice", "Toggle voice mode", "Configuration",
-               args_hint="[on|off|tts|status]", subcommands=("on", "off", "tts", "status"),
-               desktop="composer-voice"),
-    CommandDef("wake", "Toggle the 'Hey Hermes' wake word listener", "Configuration",
-               cli_only=True, args_hint="[on|off|status]", subcommands=("on", "off", "status")),
     CommandDef("busy", "Control how messages behave while Hermes is working", "Configuration",
                args_hint="[queue|steer|interrupt|status]",
                subcommands=("queue", "steer", "interrupt", "status"),
@@ -276,28 +249,12 @@ COMMAND_REGISTRY: list[CommandDef] = [
                "Tools & Skills", args_hint="<what to learn from>"),
     CommandDef("init", "Generate or update AGENTS.md project instructions from a repo scan",
                "Tools & Skills", args_hint="[notes]"),
-    CommandDef("cron", "Manage scheduled tasks", "Tools & Skills",
-               cli_only=True, args_hint="[subcommand]",
-               subcommands=("list", "add", "create", "edit", "pause", "resume", "run", "remove"),
-               desktop="terminal"),
-    CommandDef("suggestions", "Review suggested automations (accept/dismiss)",
-               "Tools & Skills", aliases=("suggest",), args_hint="[accept|dismiss N | catalog]",
-               subcommands=("accept", "dismiss", "catalog", "clear")),
-    CommandDef("blueprint", "Set up an automation from a blueprint template",
-               "Tools & Skills", aliases=("bp",), args_hint="[name] [slot=value ...]"),
+
     CommandDef("curator", "Background skill maintenance (status, run, pin, archive, list-archived)",
                "Tools & Skills", args_hint="[subcommand]",
                subcommands=("status", "run", "pause", "resume", "pin", "unpin", "restore", "list-archived"),
                desktop="advanced"),
-    CommandDef("kanban", "Multi-profile collaboration board (tasks, links, comments)",
-               "Tools & Skills", args_hint="[subcommand]",
-               subcommands=("init", "boards", "create", "list", "ls", "show", "assign",
-                            "reclaim", "reassign", "diagnostics", "diag", "link", "unlink",
-                            "claim", "comment", "complete", "edit", "block", "unblock",
-                            "archive", "tail", "dispatch", "stats", "notify-subscribe",
-                            "notify-list", "notify-unsubscribe", "log", "runs",
-                            "heartbeat", "assignees", "context", "specify", "gc"),
-               busy_policy="dispatch", desktop="advanced"),
+
     CommandDef("reload", "Reload .env variables into the running session", "Tools & Skills",
                cli_only=True, desktop="terminal"),
     CommandDef("reload-mcp", "Reload MCP servers from config", "Tools & Skills",
@@ -330,10 +287,7 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("topup", "Show your Nous balance and manage billing on the portal", "Info"),
     CommandDef("insights", "Show usage insights and analytics", "Info",
                args_hint="[days]", desktop="advanced"),
-    CommandDef("platforms", "Show gateway/messaging platform status", "Info",
-               cli_only=True, aliases=("gateway",), desktop="terminal"),
-    CommandDef("platform", "Pause, resume, or list a failing gateway platform", "Info",
-               gateway_only=True, args_hint="<pause|resume|list> [name]"),
+
     CommandDef("copy", "Copy the last assistant response to clipboard", "Info",
                cli_only=True, args_hint="[number]", desktop="terminal"),
     CommandDef("paste", "Attach clipboard image from your clipboard", "Info",
@@ -405,17 +359,16 @@ def resolve_command(name: str) -> CommandDef | None:
 
 
 def _build_description(cmd: CommandDef) -> str:
-    """CLI-facing localized description including the usage hint."""
+    """CLI-facing description including the usage hint."""
     if not cmd.args_hint:
         return cmd.describe()
-    return t("slash.shared.usage_suffix", description=cmd.describe(), name=cmd.name, args_hint=cmd.args_hint)
+    return (f'{cmd.describe()} (usage: /{cmd.name} {cmd.args_hint})')
 
 
 def build_commands_by_category() -> dict[str, dict[str, str]]:
-    """Localized ``{category: {"/command": description}}`` (excludes gateway_only).
+    """``{category: {"/command": description}}`` (excludes gateway_only).
 
-    Built per call so a ``display.language`` change applies without a restart; category keys are
-    the registry identifiers -- render them with ``category_label``.
+    Category keys are registry identifiers -- render them with ``category_label``.
     """
     grouped: dict[str, dict[str, str]] = {}
     for cmd in COMMAND_REGISTRY:
@@ -423,22 +376,21 @@ def build_commands_by_category() -> dict[str, dict[str, str]]:
             continue
         entries = {f"/{cmd.name}": _build_description(cmd)}
         for alias in cmd.aliases:
-            entries[f"/{alias}"] = t("slash.shared.alias_for", description=cmd.describe(), name=cmd.name)
+            entries[f"/{alias}"] = (f'{cmd.describe()} (alias for /{cmd.name})')
         grouped.setdefault(cmd.category, {}).update(entries)
     return grouped
 
 
 def build_commands() -> dict[str, str]:
-    """Localized flat ``{"/command": description}`` (excludes gateway_only)."""
+    """Flat ``{"/command": description}`` (excludes gateway_only)."""
     flat: dict[str, str] = {}
     for entries in build_commands_by_category().values():
         flat.update(entries)
     return flat
 
 
-# ``COMMANDS`` / ``COMMANDS_BY_CATEGORY`` resolve lazily through the module ``__getattr__`` below so
-# every ``from hermes_cli.commands import COMMANDS`` sees the active language.
-_LAZY_LOCALIZED_TABLES = {"COMMANDS": build_commands, "COMMANDS_BY_CATEGORY": build_commands_by_category}
+# ``COMMANDS`` / ``COMMANDS_BY_CATEGORY`` resolve lazily through the module ``__getattr__`` below.
+_LAZY_COMMAND_TABLES = {"COMMANDS": build_commands, "COMMANDS_BY_CATEGORY": build_commands_by_category}
 
 # Subcommands lookup: "/cmd" -> ["sub1", ...]; explicit ``subcommands`` first (in
 # registry order), then pipe patterns in args_hint ("[on|off|status]") as fallback.
@@ -548,7 +500,7 @@ def gateway_help_lines(allowed: Optional[Iterable[str]] = None) -> list[str]:
         # Skip internal aliases like reload_mcp (underscore variant of the name).
         alias_parts = [f"`/{a}`" for a in cmd.aliases
                        if not (a.replace("-", "_") == cmd.name.replace("-", "_") and a != cmd.name)]
-        alias_note = t("slash.shared.alias_note", aliases=", ".join(alias_parts)) if alias_parts else ""
+        alias_note = (' (alias: {aliases})').format(aliases=", ".join(alias_parts)) if alias_parts else ""
         lines.append(f"`/{cmd.name}{args}` -- {cmd.describe()}{alias_note}")
     return lines
 
@@ -561,13 +513,13 @@ def _iter_plugin_command_entries() -> list[tuple[str, str, str]]:
         commands = get_plugin_commands() or {}
     except Exception:
         return []
-    return [(name, str(meta.get("description") or t("slash.shared.plugin_default_desc", name=name)),
+    return [(name, str(meta.get("description") or (f'Run /{name}')),
              str(meta.get("args_hint") or "").strip())
             for name, meta in commands.items() if isinstance(name, str) and isinstance(meta, dict)]
 
 
-def __getattr__(name):  # PEP 562 — COMMANDS / COMMANDS_BY_CATEGORY are built per call so labels follow the active language
-    localized = _LAZY_LOCALIZED_TABLES.get(name)
-    if localized is None:
+def __getattr__(name):  # PEP 562 — COMMANDS / COMMANDS_BY_CATEGORY are built per call
+    build = _LAZY_COMMAND_TABLES.get(name)
+    if build is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    return localized()
+    return build()

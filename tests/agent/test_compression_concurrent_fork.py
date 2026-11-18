@@ -1593,7 +1593,6 @@ def test_late_hard_interrupt_restores_full_compressor_attempt_state_and_retry(
     messages = [{"role": "user", "content": f"m{i}"} for i in range(20)]
     provider_returned = threading.Event()
     allow_compress_return = threading.Event()
-    shared_telemetry = {"shared": [1, 2, 3]}
     state_fields = {
         "_previous_summary": "old-summary",
         "_summary_has_user_turn": False,
@@ -1617,15 +1616,9 @@ def test_late_hard_interrupt_restores_full_compressor_attempt_state_and_retry(
         "_last_aux_model_failure_model": "old-aux-model",
         "_summary_model_fallen_back": True,
         "summary_model": "old-summary-model",
-        "_last_compression_telemetry": shared_telemetry,
-        "_active_compression_telemetry": shared_telemetry,
-        "_compression_telemetry_seed": {"seed": [3]},
     }
     for name, value in state_fields.items():
         setattr(agent.context_compressor, name, copy.deepcopy(value))
-    restored_shared_telemetry = copy.deepcopy(shared_telemetry)
-    agent.context_compressor._last_compression_telemetry = restored_shared_telemetry
-    agent.context_compressor._active_compression_telemetry = restored_shared_telemetry
 
     def _provider_succeeded_then_waits(*_args, **_kwargs):
         for name in state_fields:
@@ -1657,10 +1650,6 @@ def test_late_hard_interrupt_restores_full_compressor_attempt_state_and_retry(
         name: copy.deepcopy(getattr(agent.context_compressor, name))
         for name in state_fields
     } == state_fields
-    assert (
-        agent.context_compressor._active_compression_telemetry
-        is agent.context_compressor._last_compression_telemetry
-    )
     assert db.get_compression_lock_holder(session_id) is None
 
     agent.clear_interrupt()
@@ -1709,8 +1698,6 @@ def test_force_cancel_restores_newer_durable_cooldown_captured_under_lease(
     )
     assert durable_before[0] is not None
 
-    stale_seed = {"seed": ["truly-pre-attempt"]}
-    stale._compression_telemetry_seed = copy.deepcopy(stale_seed)
     stale._previous_summary = "pre-attempt-summary"
     stale_agent._compression_feasibility_checked = True
     stale_agent.compression_in_place = True
@@ -1746,7 +1733,6 @@ def test_force_cancel_restores_newer_durable_cooldown_captured_under_lease(
     assert stale._summary_failure_cooldown_until > time.monotonic()
     assert stale._last_summary_error == "newer durable failure"
     assert stale._cooldown_persist_failed is False
-    assert stale._compression_telemetry_seed == stale_seed
     assert stale._previous_summary == "pre-attempt-summary"
     assert db.get_compression_lock_holder(session_id) is None
 

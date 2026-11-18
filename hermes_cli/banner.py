@@ -470,11 +470,14 @@ def save_banner_snapshot(tools: list[dict], enabled_toolsets: list[str], availab
 def compute_toolset_availability(enabled_toolsets: list[str] | None = None) -> dict[str, Any]:
     """Compute ``{"unavailable_toolsets", "lazy_tools", "disabled_tools"}`` for the banner.
 
-    Split out so the result can be snapshotted and replayed without importing ``model_tools``.
+    The result can be snapshotted and replayed without importing ``model_tools``.
     """
-    from model_tools import check_tool_availability, TOOLSET_REQUIREMENTS
+    from importlib import import_module
+    from tools.registry import registry
+    import_module("model_tools")  # Discover built-in and plugin tools on first import.
     enabled_toolsets = enabled_toolsets or []
-    _, unavailable_toolsets = check_tool_availability(quiet=True)
+    _, unavailable_toolsets = registry.check_tool_availability(quiet=True)
+    requirements = registry.get_toolset_requirements()
     # The availability check walks the GLOBAL registry, so it includes toolsets outside this
     # agent's platform set (e.g. `discord` on a CLI session) which must never surface in
     # "Available Tools". Restrict to enabled toolsets; an enabled toolset with unmet deps
@@ -487,7 +490,7 @@ def compute_toolset_availability(enabled_toolsets: list[str] | None = None) -> d
     # because the check hasn't run yet, but not misconfigured.
     lazy_tools, disabled_tools = set(), set()
     for item in unavailable_toolsets:
-        is_lazy = TOOLSET_REQUIREMENTS.get(item.get("name", ""), {}).get("check_fn")
+        is_lazy = requirements.get(item.get("name", ""), {}).get("check_fn")
         (lazy_tools if is_lazy else disabled_tools).update(item.get("tools", []))
     return {"unavailable_toolsets": unavailable_toolsets, "lazy_tools": sorted(lazy_tools),
             "disabled_tools": sorted(disabled_tools)}
@@ -687,7 +690,10 @@ def build_welcome_banner(
     from rich.panel import Panel
     from rich.table import Table
     if get_toolset_for_tool is None:
-        from model_tools import get_toolset_for_tool
+        from importlib import import_module
+        from tools.registry import registry
+        import_module("model_tools")  # Discover built-in and plugin tools on first import.
+        get_toolset_for_tool = registry.get_toolset_for_tool
     tools = tools or []
     enabled_toolsets = enabled_toolsets or []
     if availability is None:

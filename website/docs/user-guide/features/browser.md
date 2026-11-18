@@ -112,8 +112,8 @@ and it works on headless servers with no desktop browser at all.
   Chromium can open `localhost` and LAN addresses whatever
   `security.allow_private_urls` says: it reaches nothing the terminal can't.
   The private-address guard applies when the browser can reach networks the
-  terminal can't (a cloud provider, a `/browser connect` endpoint, or a
-  Docker/SSH/Modal terminal backend). Cloud-metadata URLs the agent writes are
+  terminal can't (a cloud provider or a `/browser connect` endpoint).
+  Cloud-metadata URLs the agent writes are
   always refused.
 
 **Which Chromium.** Hermes picks the first that exists:
@@ -311,9 +311,7 @@ logins, and preferences — into a managed snapshot under
 `~/.hermes/browser-profile/<browser>/`, then launches your **real browser
 binary** on that snapshot and attaches its browsing engine to it. Launching the
 real binary (instead of a bundled Chromium with mock-keychain switches) is what
-keeps OS-encrypted cookies decryptable — on macOS, Chrome cookies are encrypted
-through the Keychain, and a mock-keychain launch would silently drop every one
-of them, opening signed out. Your live browser profile is **never opened
+keeps OS-encrypted cookies decryptable. Your live browser profile is **never opened
 directly**: the
 snapshot is a separate directory, so it doesn't fight your running browser for
 the profile lock and it sidesteps Chrome 136+'s block on remote-debugging the
@@ -356,19 +354,13 @@ profile, the agent gets a fresh browser **without your logins** for that session
 and its first browser result says why (`real_profile_unavailable`), so it can tell
 you instead of acting as if it were signed in. That happens when:
 
-- **Windows, first use only:** a running Chrome/Edge/Brave holds its cookie
-  database with an exclusive (deny-all) lock, so the first copy needs the browser
-  **fully quit**, including any background/tray instance (Chrome's "continue
-  running background apps when closed" keeps a `chrome.exe` alive after you close
-  the window). After one successful copy, a later launch with the browser open
-  reuses that copy instead: your logins are as of the last copy, and they refresh
-  the next time Hermes starts its browser while yours is closed.
+
 - **Your default browser isn't a supported Chromium** (Firefox, a Beta/Dev/Canary
   channel), or the pinned profile doesn't exist.
 - **The cookie database is unreadable or corrupt**: the message names it and the
   SQLite error.
 
-On macOS and Linux a running Chrome holds `Login Data`, `Login Data For Account`
+On Linux a running Chrome holds `Login Data`, `Login Data For Account`
 and `Web Data` (saved passwords and autofill) with a write lock, but `Cookies`
 still copies, and cookies are what keep you signed in to sites. Hermes copies the
 cookies and skips the locked password/autofill files, so you can keep your browser
@@ -376,7 +368,7 @@ open. Each database is copied through SQLite's online backup (never a raw file
 copy, which could lose recent logins).
 
 Set `browser.real_profile_autoclose: true` to let Hermes **offer to close the
-browser for you** when it's holding the profile lock (the Windows case). Even with
+browser for you** when it's holding the profile lock. Even with
 this on, Hermes never closes it automatically: the agent asks you first, and only on
 your approval runs `hermes browser close-profile` (terminates the browser process
 tree bound to that profile, losing unsaved tabs). A new browser session then picks
@@ -397,40 +389,6 @@ up your profile.
 - **Desktop:** toggle it in **Capabilities → Tools → Browser → Use My Real
   Browser Profile** (the switch sits above the backend options), or in
   Settings → Config under the `browser` section.
-
-### Scheduled and unattended runs
-
-A real-profile session lets a `cronjob` drive a site you're already signed into.
-The snapshot runs headless by default, and the auth files (`Cookies`,
-`Login Data`, …) are re-synced from your real profile on every fresh session —
-an already-open session is reused as-is, so the sync happens when a new one is
-launched. Without saved vault credentials, an expired session on that site
-surfaces as a login page that the unattended tick reports rather than hanging on.
-
-Three things to set up before scheduling one:
-
-- **Turn the toggle on.** `browser.use_real_profile` defaults to `false`, and
-  without it the job gets a clean, unauthenticated profile — see above.
-- **Give the job the browser toolset:**
-  `cronjob(action="create", enabled_toolsets=["browser", ...], ...)` — a per-job
-  list wins over the cron-platform config
-  ([details](./cron.md#toolsets-available-to-cron-jobs)).
-- **Assume nothing can be prompted for.** A cron, webhook, API or
-  `hermes chat -q` session has nobody to answer a prompt, so a site that is not
-  usable on the synced cookies alone — a login form, a fresh 2FA challenge —
-  needs its credentials saved ahead of time, authenticator key included. That is
-  the [credential vault's](./credential-vault.md#headless-sessions) job, and it
-  is what carries a run after your own session has expired.
-
-**Windows prerequisite:** the browser has to be fully quit for the first snapshot.
-After that, a tick that runs while it is open reuses the last snapshot (logins as of
-that copy); with no snapshot yet, the tick runs on a fresh, signed-out browser. Hermes never closes it without asking you first
-(see the note above).
-
-The bundled `product-price-monitor` skill is a worked example of the recurring
-shape — a JSON watch contract written during setup, then one scheduled tick that
-re-reads it, compares, and alerts on change — though it covers the scheduling
-half, not logins.
 
 ## Lightpanda local engine
 
@@ -488,19 +446,7 @@ google-chrome \
   --no-first-run \
   --no-default-browser-check &
 
-# macOS — Brave
-"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" \
-  --remote-debugging-port=9222 \
-  --user-data-dir="$HOME/.hermes/chrome-debug" \
-  --no-first-run \
-  --no-default-browser-check &
 
-# macOS — Google Chrome
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
-  --remote-debugging-port=9222 \
-  --user-data-dir="$HOME/.hermes/chrome-debug" \
-  --no-first-run \
-  --no-default-browser-check &
 ```
 
 Then launch the Hermes CLI and run `/browser connect`.
@@ -513,22 +459,6 @@ A dedicated profile starts out signed out of everything. If you want the agent t
 :::
 
 When connected, `browser_exec`, `browser_cdp`, `browser_dialog` and `browser_vault` all drive your live browser instead of launching their own. The endpoint can also be set persistently with `browser.cdp_url` in `config.yaml` or the `BROWSER_CDP_URL` environment variable.
-
-### WSL2 + Windows Chrome: prefer MCP over `/browser connect`
-
-If Hermes runs inside WSL2 but the Chrome window you want to control runs on the Windows host, `/browser connect` is often not the best path.
-
-Why:
-
-- `/browser connect` expects Hermes itself to reach a usable CDP endpoint
-- modern Chrome live-debugging sessions often expose a host-local endpoint that is not directly reachable from WSL the same way a classic `9222` port is
-- even when Windows Chrome is debuggable, the cleanest integration is often to let a Windows-side browser MCP server attach to Chrome and let Hermes talk to that MCP server
-
-For that setup, prefer `chrome-devtools-mcp` through Hermes MCP support.
-
-See the MCP guide for the practical setup:
-
-- [Use MCP with Hermes](../../guides/use-mcp-with-hermes.md#wsl2-bridge-hermes-in-wsl-to-windows-chrome)
 
 ## Bot Desktop screen
 

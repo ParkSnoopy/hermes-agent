@@ -106,7 +106,7 @@ ACHIEVEMENTS: list[dict[str, Any]] = [
     _ach("patch_wizard", "Patch Wizard", "Bend files to your will with targeted patches.", "Tool Mastery", "wand", metric="total_patch_calls", tiers=[250, 750, 2000, 6000, 15000]),
     _ach("file_archaeologist", "File Archaeologist", "Dig through the filesystem with reads and searches.", "Tool Mastery", "folder", metric="total_file_reads_searches", tiers=[750, 2000, 6000, 15000, 50000]),
     _ach("image_whisperer", "Image Whisperer", "Use image generation or vision tools enough for visual work.", "Tool Mastery", "eye", metric="image_vision_calls", tiers=[100, 300, 1000, 3000, 8000]),
-    _ach("voice_of_the_machine", "Voice Of The Machine", "Use text-to-speech or voice tooling repeatedly.", "Tool Mastery", "wave", metric="tts_calls", tiers=[10, 30, 100, 300, 800]),
+
 
     # Model Lore
     _ach("model_hopper", "Model Hopper", "Switch or inspect providers/models enough to count as a habit.", "Model Lore", "swap", metric="model_events", tiers=[10000, 30000, 80000, 200000, 500000]),
@@ -346,7 +346,7 @@ def analyze_messages(session_id: str, title: str, messages: list[dict[str, Any]]
         "process_calls": _count_tool(tool_sequence, "process") + hits(r"background\s*=\s*true"),
         "cron_calls": _count_tool(tool_sequence, "cronjob"),
         "image_vision_calls": _count_tool(tool_sequence, "image", "vision"),
-        "tts_calls": _count_tool(tool_sequence, "tts", "text_to_speech"),
+
         "skill_events": _count_tool(tool_sequence, "skill") + len(re.findall(r"\bskill", lower)),
         "skill_manage_events": _count_tool(tool_sequence, "skill_manage"),
         "memory_events": _count_tool(tool_sequence, "memory", "mnemosyne"),
@@ -490,7 +490,7 @@ METRIC_LABELS = {
     "total_patch_calls": "lifetime targeted patch edits",
     "total_file_reads_searches": "lifetime read_file/search_files calls",
     "image_vision_calls": "image generation or vision tool calls",
-    "tts_calls": "text-to-speech or voice tool calls",
+
     "distinct_model_count": "distinct model names seen in session metadata",
     "distinct_provider_count": "distinct model providers inferred from session metadata",
     "claude_events": "Claude/Anthropic model mentions",
@@ -645,7 +645,7 @@ _SESSION_SUM_METRICS = {
     "total_cron_calls": "cron_calls",
     "browser_calls": "browser_calls",
     "image_vision_calls": "image_vision_calls",
-    "tts_calls": "tts_calls"}
+    }
 # ``*_events`` counters summed under their own name.
 _SESSION_EVENT_KEYS = [
     "traceback_events", "log_read_events", "port_conflict_events", "permission_denied_events", "install_error_events", "install_success_events", "restart_after_error_events", "env_var_error_events", "yaml_error_events", "docker_conflict_events", "frontend_activity_events", "css_activity_events", "git_events", "tiny_patch_after_errors_events", "skill_events", "skill_manage_events", "memory_events", "memory_write_events", "context_events", "gateway_events", "plugin_events", "rollback_events", "docs_activity_events", "model_events", "openrouter_events", "codex_events", "claude_events", "gemini_events", "local_model_events", "toolset_events", "config_events", "git_history_events", "test_events", "screenshot_events", "release_events", "cache_events",

@@ -88,18 +88,6 @@ def test_close_evicts_the_system_prompt_the_history_never_holds():
     assert id(system_prompt) not in _pinned_ids()
 
 
-def test_compression_telemetry_does_not_pin_the_one_shot_summary_prompt():
-    from agent.context_compressor_telemetry import CompressionTelemetryMixin
-
-    recorder = CompressionTelemetryMixin()
-    recorder._active_compression_telemetry = {"effective_aux_context": None}
-    prompt = "summarize this serialized transcript " * 20000
-
-    recorder._record_aux_compression_call(prompt_messages=[{"role": "user", "content": prompt}],
-                                          max_tokens=None, duration_ms=1)
-
-    assert recorder._active_compression_telemetry["aux_prompt_tokens"] > 0
-    assert id(prompt) not in _pinned_ids()
 
 
 def test_close_evicts_a_prompt_caching_split_system_prompt():

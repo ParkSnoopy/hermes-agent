@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
-# Start/stop the mock inference server and point the app at it as a REAL
-# configured provider.
-#
-# Why: the desktop app boots to the onboarding overlay when no provider is
-# configured - a fullscreen div that intercepts every click, which killed
-# the app-update legs. Seeding a fake key makes the overlay vanish but
-# leaves a lying app; this makes the app GENUINELY configured (config.yaml
-# provider + key env, exactly what tests-js/scripts/mock-server.ts's
-# dev:mock flow writes) with a real, chat-capable backend.
+# Start/stop the mock inference server and configure the installed gateway
+# with an OpenAI-compatible provider for native chat checks.
 #
 # Usage (sourced from a driver):
 #   mock_start <workroot>      start, write config into $HERMES_HOME
@@ -34,9 +27,8 @@ mock_start() {
     live_url="$(cat "$MOCK_URLFILE")"
     export HERMES_E2E_MOCK_URL="$live_url"
     ok "mock inference server already live: $live_url"
-    # The config write is NOT optional: this is what re-points the app at a live
-    # endpoint, and callers that only want that (the app-update flow, whose app
-    # reads config.yaml/.env rather than the env var) depend on it.
+    # The config write re-points callers that read config.yaml/.env rather
+    # than the environment variable at the live endpoint.
     mock_configure_provider "$live_url"
     return 0
   fi
@@ -48,8 +40,7 @@ mock_start() {
   rm -f "$MOCK_PIDFILE" "$MOCK_URLFILE"
 
   # Bare `node file.ts` type-stripping works on node >=22.18 (the images
-  # ship 22.22+; the installed managed node is >=26) - same contract as
-  # the repo's own `dev:mock` script.
+  # ship 22.22+; the installed managed node is >=26).
   node "$ASSETS/mock-provider.mjs" "$MOCK_URLFILE" "$prior_url" > "$LOG_DIR/mock.log" 2>&1 &
   echo $! > "$MOCK_PIDFILE"
 
@@ -76,7 +67,7 @@ mock_configure_provider() {
 }
 
 mock_stop() {
-  if [ -n "$MOCK_PIDFILE" ] && [ -f "$MOCK_PIDFILE" ]; then
+  if [ "$MOCK_PIDFILE" != "" ] && [ -f "$MOCK_PIDFILE" ]; then
     kill "$(cat "$MOCK_PIDFILE")" 2>/dev/null || true
     rm -f "$MOCK_PIDFILE"
   fi

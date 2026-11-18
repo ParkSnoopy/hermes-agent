@@ -15,7 +15,6 @@ import sys
 import threading
 import time
 
-from agent.i18n import t
 from agent.interrupt_compat import request_hard_interrupt
 from hermes_cli.commands_completion import SlashCommandAutoSuggest, cli_slash_completer
 from pathlib import Path
@@ -52,17 +51,17 @@ _TYPING_CHARS = string.digits + string.ascii_letters + "-_.:/ "
 
 # Approval-choice identifiers (protocol tokens, never translated) → catalog keys for their labels.
 _APPROVAL_CHOICE_KEYS = {
-    "once": "cli.tui.approval_once",
-    "session": "cli.tui.approval_session",
-    "always": "cli.tui.approval_always",
-    "deny": "cli.tui.approval_deny",
-    "view": "cli.tui.approval_view"}
+    "once": 'Allow once',
+    "session": 'Allow for this session',
+    "always": 'Add to permanent allowlist',
+    "deny": 'Deny',
+    "view": 'Show full command'}
 
 
 def _approval_choice_label(choice: str) -> str:
     """Localized label for an approval choice id; unknown ids render verbatim."""
     key = _APPROVAL_CHOICE_KEYS.get(choice)
-    return t(key) if key else choice
+    return key if key else choice
 
 
 def _agent_name() -> str:
@@ -73,9 +72,6 @@ def _agent_name() -> str:
         return "Hermes"
 
 
-def _tn(key: str, count: int, **kwargs) -> str:
-    """Plural-aware lookup: ``<key>_one`` for exactly one, ``<key>_other`` otherwise."""
-    return t(f"{key}_one" if count == 1 else f"{key}_other", count=count, **kwargs)
 
 
 def _num_prefix(i: int) -> str:
@@ -109,11 +105,11 @@ class CLITuiMixin:
         if not state:
             return []
         wrap = _wrap_panel_text_keep_ws
-        title = state.get("title") or t("cli.tui.confirm_title")
+        title = state.get("title") or 'Confirm action'
         detail = state.get("detail") or ""
         choices = state.get("choices") or []
         selected = state.get("selected", 0)
-        footer = t("cli.tui.confirm_footer")
+        footer = 'Type 1/2/3 or use ↑/↓ then Enter. ESC/Ctrl+C cancels.'
         choice_labels = [
             f"{'❯' if idx == selected else ' '} [{idx + 1}] {label} — {desc}"
             for idx, (_value, label, desc) in enumerate(choices)]
@@ -130,7 +126,7 @@ class CLITuiMixin:
         available = max(0, _term_rows() - _PANEL_RESERVED_BELOW)
         max_detail_rows = min(8, max(1, available - chrome_full - len(choice_wrapped)))
         if len(detail_wrapped) > max_detail_rows:
-            detail_wrapped = detail_wrapped[:max(1, max_detail_rows - 1)] + [t("cli.tui.detail_truncated")]
+            detail_wrapped = detail_wrapped[:max(1, max_detail_rows - 1)] + ['… (detail truncated)']
 
         panel = _Panel('class:approval-border', box_width)
         panel.row('class:approval-title', title)
@@ -162,7 +158,7 @@ class CLITuiMixin:
         choices = state["choices"]
         selected = state.get("selected", 0)
         show_full = state.get("show_full", False)
-        title = t("cli.tui.approval_title")
+        title = state.get("title") or '⚠️  Dangerous Command'
 
         preview_lines = wrap(description, 60)
         preview_lines.extend(wrap(command, 60))
@@ -177,7 +173,7 @@ class CLITuiMixin:
         cmd_wrapped = wrap(command, inner_text_width)
         if not show_full and "view" in choices and len(cmd_wrapped) > 4:
             cmd_wrapped = cmd_wrapped[:3] + wrap(
-                t("cli.tui.approval_choose_full", label=t("cli.tui.approval_view")), inner_text_width)
+                ('… (choose {label})').format(label='Show full command'), inner_text_width)
         choice_labels = [
             f"{'❯' if i == selected else ' '} {_num_prefix(i)}. {_approval_choice_label(choice)}"
             for i, choice in enumerate(choices)]
@@ -196,7 +192,7 @@ class CLITuiMixin:
         if len(cmd_wrapped) > max_cmd_rows:
             keep = max(1, max_cmd_rows - 1) if max_cmd_rows > 1 else 1
             cmd_wrapped = cmd_wrapped[:keep] + wrap(
-                t("cli.tui.approval_command_truncated"), inner_text_width)
+                '… (command truncated — use /logs or /debug for full text)', inner_text_width)
 
         # Remaining rows go to the description (minus the blank separator in full mode), capped
         # at 10 so the panel stays compact even on huge terminals.
@@ -207,7 +203,7 @@ class CLITuiMixin:
         if available_for_desc < 1 or not desc_wrapped:
             desc_wrapped = []
         elif len(desc_wrapped) > available_for_desc:
-            desc_wrapped = desc_wrapped[:max(1, available_for_desc - 1)] + [t("cli.tui.approval_description_truncated")]
+            desc_wrapped = desc_wrapped[:max(1, available_for_desc - 1)] + ['… (description truncated)']
 
         # Render title → command → choices → description; description last so any overflow
         # clips the least-critical content, never the command or choices.
@@ -258,13 +254,6 @@ class CLITuiMixin:
         # Icon-only custom prompts should still remain visible in special states.
         return symbol, symbol
 
-    def _audio_level_bar(self) -> str:
-        """One-char audio level indicator from the recorder's current RMS."""
-        rec = getattr(self, "_voice_recorder", None)
-        if rec is None:
-            return ""
-        # RMS 0-32767 → index 0-7; typical speech is 500-5000, display caps at ~8000.
-        return " ▁▂▃▄▅▆▇"[min(rec.current_rms, 8000) * 7 // 8000]
 
     def _get_tui_prompt_fragments(self):
         """prompt_toolkit fragments for the current interactive state."""
@@ -281,10 +270,6 @@ class CLITuiMixin:
                 return [(style, f"{icon} {extra} {state_suffix}")]
             return [(style, f"{icon} {state_suffix}")]
 
-        if self._voice_recording:
-            return _state_fragment("class:voice-recording", "●", self._audio_level_bar())
-        if self._voice_processing:
-            return _state_fragment("class:voice-processing", "◉")
         if self._sudo_state:
             return _state_fragment("class:sudo-prompt", "🔐")
         if self._secret_state:
@@ -301,8 +286,6 @@ class CLITuiMixin:
             return _state_fragment("class:prompt-working", self._command_spinner_frame())
         if self._agent_running:
             return _state_fragment("class:prompt-working", "☤")
-        if self._voice_mode:
-            return _state_fragment("class:voice-prompt", "🎤")
         return [("class:prompt", symbol)]
 
     def _get_tui_prompt_text(self) -> str:
@@ -371,7 +354,6 @@ class CLITuiMixin:
         image_bar,
         input_area,
         input_rule_bot,
-        voice_status_bar,
         completions_menu) -> list:
         """Ordered children of the root ``HSplit``; override only for full control over ordering
         (wrappers normally override ``_get_extra_tui_widgets`` instead)."""
@@ -396,7 +378,6 @@ class CLITuiMixin:
             image_bar,
             input_area,
             input_rule_bot,
-            voice_status_bar,
             completions_menu]
         if getattr(self, "_modern_layout", False):  # footer under the composer and its completions
             ordered.append(ordered.pop(ordered.index(status_bar)))
@@ -436,8 +417,8 @@ class CLITuiMixin:
         multi_select = state.get("multi_select", False)
         selected_indices = state.get("selected_indices", set()) if multi_select else set()
         freetext = self._clarify_freetext
-        title = t("cli.tui.clarify_title", agent_name=_agent_name())
-        header = _tn("cli.tui.clarify_question_count", len(questions_list))
+        title = (f'{_agent_name()} needs your input')
+        header = ('{count} question' if len(questions_list) == 1 else '{count} questions').format(count=len(questions_list))
 
         def _status_rows(width):
             rows = []
@@ -475,15 +456,15 @@ class CLITuiMixin:
                     # An earlier typed answer stays visible next to Other; Enter on it edits
                     # (the composer is prefilled).
                     other_text = (answer_meta.get(entry["qid"]) or {}).get("other_text") or ""
-                    other_suffix = t("cli.tui.clarify_other_answer", text=other_text) if other_text else None
+                    other_suffix = (f'Other: {other_text}') if other_text else None
                     if freetext:
-                        other_label = f"  ❯ {mid}. " + (other_suffix or t("cli.tui.clarify_other_type_below"))
+                        other_label = f"  ❯ {mid}. " + (other_suffix or 'Other (type below)')
                         other_style = 'class:clarify-active-other'
                     elif selected == other_idx:
-                        other_label = f"  ❯ {mid}. " + (other_suffix or t("cli.tui.clarify_other_type_answer"))
+                        other_label = f"  ❯ {mid}. " + (other_suffix or 'Other (type your answer)')
                         other_style = 'class:clarify-selected'
                     else:
-                        other_label = f"    {mid}. " + (other_suffix or t("cli.tui.clarify_other_type_answer"))
+                        other_label = f"    {mid}. " + (other_suffix or 'Other (type your answer)')
                         other_style = 'class:clarify-choice'
                     first = len(rows)
                     for wrapped in _wrap_panel_text(other_label, width, subsequent_indent="      "):
@@ -491,7 +472,7 @@ class CLITuiMixin:
                     if freetext or selected == other_idx:
                         focus["selected"] = (first, len(rows))
                 elif freetext:
-                    guidance = "  " + t("cli.tui.clarify_guidance")
+                    guidance = "  " + 'Type your answer in the prompt below, then press Enter.'
                     for wrapped in _wrap_panel_text(guidance, width):
                         rows.append(('class:clarify-active-other', wrapped))
                 focus["end"] = len(rows)
@@ -568,37 +549,35 @@ class CLITuiMixin:
         if not state:
             return []
         if state.get("stage", "provider") == "provider":
-            title = t("cli.tui.picker_title_provider")
+            title = '⚙ Model Picker — Select Provider'
             choices = []
             _providers = state.get("providers")
             for p in _providers if isinstance(_providers, list) else []:
                 count = p.get("total_models", len(p.get("models", [])))
-                label = _tn("cli.tui.picker_provider_row", count, name=p['name'])
+                label = ('{name} ({count} model)' if count == 1 else '{name} ({count} models)').format(count=count, name=p['name'])
                 if p.get("is_current"):
-                    label += t("cli.tui.picker_current_marker")
+                    label += '  ← current'
                 choices.append(label)
-            choices.append(t("cli.shared.cancel"))
-            _unknown = t("cli.shared.unknown")
-            hint = t("cli.tui.picker_current_hint",
-                     model=state.get('current_model', _unknown),
-                     provider=state.get('current_provider', _unknown))
+            choices.append('Cancel')
+            _unknown = 'unknown'
+            hint = ('Current: {model} on {provider}').format(model=state.get('current_model', _unknown), provider=state.get('current_provider', _unknown))
         elif state.get("stage") == "reasoning":
             from hermes_cli.cli_model_switch_mixin import _picker_reasoning_rows
             result = state.get("switch_result")
-            picked = getattr(result, "new_model", "") or t("cli.shared.noun_model")
-            title = t("cli.tui.picker_title_effort", model=picked)
+            picked = getattr(result, "new_model", "") or 'model'
+            title = (f'⚙ Model Picker — Reasoning effort for {picked}')
             rc = self.reasoning_config
             current = ("none" if isinstance(rc, dict) and rc.get("enabled") is False
                        else (rc or {}).get("effort", "medium") if isinstance(rc, dict) else "medium")
-            choices = [t("cli.tui.picker_current_labeled", label=label) if value == current else label
+            choices = [(f'{label}  ← current') if value == current else label
                        for value, label in _picker_reasoning_rows()]
-            choices += [t("cli.shared.back"), t("cli.shared.cancel")]
-            hint = t("cli.tui.picker_effort_hint")
+            choices += ['← Back', 'Cancel']
+            hint = 'Applies with the model switch (same scope) — Enter to choose'
         else:
             provider_data = state.get("provider_data") or {}
             model_list = state.get("model_list") or []
-            title = t("cli.tui.picker_title_models", provider=provider_data.get(
-                'name', provider_data.get('slug', t("cli.tui.picker_provider_fallback"))))
+            title = ('⚙ Model Picker — {provider}').format(provider=provider_data.get(
+                'name', provider_data.get('slug', 'Provider')))
             # Fuzzy filter narrows the concrete list; selection still resolves to a real entry via
             # the filtered_pairs index mapping, so this never makes model resolution ambiguous.
             _query = state.get("filter", "") or ""
@@ -607,13 +586,13 @@ class CLITuiMixin:
             model_labels = [e for (_i, e) in filtered_pairs]
             from hermes_cli.model_picker_usage import annotate_window_plan_rows
             row_labels, limit_line = annotate_window_plan_rows(provider_data, model_labels)
-            choices = row_labels + [t("cli.shared.back"), t("cli.shared.cancel")]
+            choices = row_labels + ['← Back', 'Cancel']
             if _query:
-                hint = t("cli.tui.picker_filter_hint", query=_query, shown=len(model_labels), total=len(model_list))
+                hint = (f'Filter: {_query}▏  ({len(model_labels)}/{len(model_list)} match — type to narrow, Backspace to clear)')
             elif model_list:
-                hint = t("cli.tui.picker_select_hint", count=len(model_list))
+                hint = (f'Select a model ({len(model_list)} available) — type to filter')
             else:
-                hint = t("cli.tui.picker_empty")
+                hint = 'No models listed for this provider. Use Back or Cancel.'
             # Window plan past an allowance: say once what happens next (pay as you go or wait), above the hint.
             if limit_line:
                 hint = [limit_line, hint]
@@ -629,12 +608,12 @@ class CLITuiMixin:
         _query = state.get("filter", "") or ""
         total = len(state.get("entries") or [])
         if _query:
-            hint = t("cli.tui.palette_filter_hint", query=_query, shown=len(rows), total=total)
+            hint = (f'Filter: {_query}▏  ({len(rows)}/{total} match — Enter inserts, Esc cancels)')
         else:
-            hint = t("cli.tui.palette_hint", total=total)
-        labels = [f"{c}  —  {d}" if d else c for (c, _cat, d) in rows] or [t("cli.tui.palette_empty")]
+            hint = (f'Type to filter {total} commands — ↑/↓ then Enter inserts, Esc cancels')
+        labels = [f"{c}  —  {d}" if d else c for (c, _cat, d) in rows] or ['(no matching commands)']
         return self._render_scroll_list_panel(
-            state, t("cli.tui.palette_title"), hint, labels, min_width=50, max_width=90, indent='    ')
+            state, '⚙ Command Palette', hint, labels, min_width=50, max_width=90, indent='    ')
 
     def _render_sudo_style_panel(
         self, title: str, body_lines: list[str], row_styles: list[str] | None = None
@@ -658,33 +637,32 @@ class CLITuiMixin:
         # Panel bodies are one catalog value per panel (multi-line prose), split into rows here.
         if code := self._sudo_state.get("vault_code"):
             return self._render_sudo_style_panel(
-                t("cli.tui.vault_code_title", site=code["site"]),
-                t("cli.tui.vault_code_body", site=code["site"], agent_name=_agent_name()).split("\n"))
+                ('🔐 Verification code for {site}').format(site=code["site"]),
+                ('{site} is asking for a one-time code (text message, email or authenticator app).\nType the code and press Enter; {agent_name} enters it into the page for you.\nEnter on an empty line skips. The model never sees the code.').format(site=code["site"], agent_name=_agent_name()).split("\n"))
         if save := self._sudo_state.get("vault_save"):
             if save["step"] == "identifier":
                 return self._render_sudo_style_panel(
-                    t("cli.tui.vault_save_title", site=save["site"]),
-                    t("cli.tui.vault_save_body").split("\n"))
+                    ('🔐 Save login for {site}').format(site=save["site"]),
+                    'The agent reached a sign-in page with no saved login for this site.\nType the email / username you sign in with (shown), then Enter.\nEnter on an empty line skips. Nothing here is shown to the model.'.split("\n"))
             return self._render_sudo_style_panel(
-                t("cli.tui.vault_save_title", site=save["site"]),
-                t("cli.tui.vault_save_pw_body", origin=save["origin"]).split("\n"))
+                ('🔐 Save login for {site}').format(site=save["site"]),
+                ('Now the password (hidden). It is encrypted on this machine, bound to\n{origin}, and filled into the page without the model ever seeing it.\nEnter on an empty line skips.').format(origin=save["origin"]).split("\n"))
         if backend := self._sudo_state.get("vault_backend"):
             return self._render_sudo_style_panel(
-                t("cli.tui.vault_unlock_title", backend=backend),
-                t("cli.tui.vault_unlock_body", backend=backend).split("\n"))
-        return self._render_sudo_style_panel(t("cli.tui.sudo_title"), [t("cli.tui.sudo_body")])
+                (f'🔐 Unlock {backend}'),
+                (f'The agent wants to sign into a site with a login saved in {backend}.\nType your master password (hidden) to unlock it for this session.\nEnter on an empty line keeps it locked. The model never sees the password.').split("\n"))
+        return self._render_sudo_style_panel('🔐 Sudo Password Required', ['Enter password below (hidden), or press Enter to skip'])
 
     def _get_secret_display_fragments(self):
         state = self._secret_state
         if not state:
             return []
-        prompt = state.get("prompt") or t(
-            "cli.tui.secret_prompt", var_name=state.get('var_name', t("cli.tui.secret_fallback_name")))
+        prompt = state.get("prompt") or ('Enter value for {var_name}').format(var_name=state.get('var_name', 'secret'))
         help_text = (state.get("metadata") or {}).get("help")
-        content_lines = [prompt, t("cli.tui.secret_body")]
+        content_lines = [prompt, 'Enter secret below (hidden), ESC or Ctrl+C to skip']
         if help_text:
             content_lines.insert(1, str(help_text))
-        return self._render_sudo_style_panel(t("cli.tui.secret_title"), content_lines)
+        return self._render_sudo_style_panel('🔑 Skill Setup Required', content_lines)
 
     def _get_connection_display_fragments(self):
         state = self._connection_state
@@ -704,37 +682,37 @@ class CLITuiMixin:
             elif body_lines:
                 action_index = len(body_lines) - 1
                 styles[action_index] = 'class:clarify-selected'
-                choices = [t("cli.tui.connection_connect"), t("cli.shared.cancel")]
+                choices = ['Connect', 'Cancel']
                 selected = min(1, max(0, state.get("selected", 0)))
                 body_lines[action_index] = "    ".join(
                     f"▸ {choice}" if i == selected else choice for i, choice in enumerate(choices)
                 )
         elif phase == "authorized" and body_lines:
             styles[-1] = 'class:clarify-selected'
-            body_lines[-1] = "▸ " + t("cli.tui.connection_continue")
+            body_lines[-1] = "▸ " + 'Continue'
         return self._render_sudo_style_panel(lines[0], body_lines, styles)
 
     # (state attr, deadline attr, hint catalog key) for the modal prompts with a countdown hint
     # row. Keys, not text: the label is looked up at render time so a language switch applies.
     _TUI_MODAL_HINTS = (
-        ("_sudo_state", "_sudo_deadline", "cli.tui.hint_sudo"),
-        ("_secret_state", "_secret_deadline", "cli.tui.hint_secret"),
-        ("_approval_state", "_approval_deadline", "cli.tui.hint_approval"),
-        ("_slash_confirm_state", "_slash_confirm_deadline", "cli.tui.hint_slash_confirm"),
+        ("_sudo_state", "_sudo_deadline", 'password hidden · Enter to skip'),
+        ("_secret_state", "_secret_deadline", 'secret hidden · Enter to skip'),
+        ("_approval_state", "_approval_deadline", '↑/↓ to select, Enter to confirm'),
+        ("_slash_confirm_state", "_slash_confirm_deadline", 'type 1/2/3, or ↑/↓ to select, Enter to confirm'),
     )
     # Connection-setup phase (protocol id) → hint catalog key.
     _TUI_CONNECTION_HINT_KEYS = {
-        "form": "cli.tui.hint_connection_form",
-        "failed": "cli.tui.hint_connection_form",
-        "url": "cli.tui.hint_connection_url",
-        "authorized": "cli.tui.hint_connection_authorized",
-        "waiting": "cli.tui.hint_connection_waiting",
+        "form": 'type the value, Enter for next field · ↑/↓ move · ESC cancel',
+        "failed": 'type the value, Enter for next field · ↑/↓ move · ESC cancel',
+        "url": 'Enter to open in browser · ESC cancel',
+        "authorized": '↑/↓ select, Enter to confirm',
+        "waiting": 'waiting for the backend… · Ctrl+C interrupt',
     }
 
     def _tui_hint_text(self):
         if self._connection_state:
             phase = self._connection_state.get("phase")
-            hint = "  " + t(self._TUI_CONNECTION_HINT_KEYS.get(phase, "cli.tui.hint_connection_default"))
+            hint = "  " + self._TUI_CONNECTION_HINT_KEYS.get(phase, 'connection setup')
             deadline = float(self._connection_state.get("payload", {}).get("deadline_at") or 0)
             countdown = f"  ({max(0, int(deadline - time.time()))}s)" if deadline else ""
             return [('class:hint', hint), ('class:clarify-countdown', countdown)]
@@ -742,8 +720,8 @@ class CLITuiMixin:
             if getattr(self, state_attr):
                 if state_attr == "_sudo_state" and ((self._sudo_state.get("vault_save") or {}).get("step") == "identifier"
                                                     or self._sudo_state.get("vault_code")):
-                    hint_key = "cli.tui.hint_vault_username"
-                hint = "  " + t(hint_key)
+                    hint_key = 'shown as you type · Enter to continue'
+                hint = "  " + hint_key
                 remaining = max(0, int(getattr(self, deadline_attr) - time.monotonic()))
                 return [('class:hint', hint), ('class:clarify-countdown', f'  ({remaining}s)')]
         if self._clarify_state:
@@ -753,48 +731,42 @@ class CLITuiMixin:
             else:
                 countdown = f'  ({max(0, int(self._clarify_deadline - time.monotonic()))}s)'
             if self._clarify_freetext:
-                hint = "  " + t("cli.tui.hint_clarify_freetext")
+                hint = "  " + 'type your answer and press Enter'
             else:
-                hint = "  " + t("cli.tui.hint_clarify_batch")
+                hint = "  " + '↑/↓ to select, Enter to lock, Tab next question'
             return [('class:hint', hint), ('class:clarify-countdown', countdown)]
         if self._command_running:
             frame = self._command_spinner_frame()
             if self._command_blocks_input:
-                detail = t("cli.tui.hint_input_disabled")
+                detail = 'input temporarily disabled'
             else:
-                detail = t("cli.tui.hint_input_queues")
-            return [('class:hint', "  " + t("cli.tui.hint_command_running", frame=frame, detail=detail))]
+                detail = 'input stays active; Enter queues'
+            return [('class:hint', "  " + (f'{frame} command in progress · {detail}'))]
         return []
 
     def _tui_placeholder_text(self):
-        if self._voice_recording:  # live STT partial text (stt.streaming) replaces the hint
-            return self._voice_live_text or t("cli.tui.placeholder_recording", shortcut=self._voice_record_key_label())
-        if self._voice_processing:
-            return self._voice_live_text or t("cli.tui.placeholder_transcribing")
         if self._sudo_state:
             if (self._sudo_state.get("vault_save") or {}).get("step") == "identifier":
-                return t("cli.tui.placeholder_vault_username")
+                return 'type your email / username, Enter to continue · ESC to skip'
             if self._sudo_state.get("vault_code"):
-                return t("cli.tui.placeholder_vault_code")
-            return t("cli.tui.placeholder_password")
+                return 'type the code, Enter to submit · ESC to skip'
+            return 'type password (hidden), Enter to submit · ESC to skip'
         if self._secret_state:
-            return t("cli.tui.placeholder_secret")
+            return 'type secret (hidden), Enter to submit · ESC to skip'
         if self._approval_state:
             return ""
         if self._slash_confirm_state:
-            return t("cli.tui.placeholder_choice")
+            return 'type 1/2/3, or use ↑/↓ then Enter'
         if self._clarify_freetext:
-            return t("cli.tui.placeholder_answer")
+            return 'type your answer here and press Enter'
         if self._clarify_state:
             return ""
         if self._command_running:
-            return f"{self._command_spinner_frame()} {self._command_status or t('cli.tui.placeholder_processing_command')}"
+            return f"{self._command_spinner_frame()} {self._command_status or 'Processing command...'}"
         if self._agent_running:
             if getattr(self, "_modern_layout", False):
-                return t(f"cli.modern.placeholder_busy_{self.busy_input_mode}")
-            return t("cli.tui.placeholder_busy")
-        if self._voice_mode:
-            return t("cli.tui.placeholder_voice_idle", shortcut=self._voice_record_key_label())
+                return {'steer': 'type to steer this turn · Tab queues it for after', 'interrupt': 'type to redirect this turn · Tab queues it for after', 'queue': 'type to queue a message for after this turn'}[self.busy_input_mode]
+            return 'msg=interrupt · /queue · /bg · /steer · Ctrl+C cancel'
         # Advertise a parked draft so the stash can never be silently forgotten.
         try:
             _stash_hint = self._prompt_stash.placeholder_hint()
@@ -814,79 +786,7 @@ class CLITuiMixin:
         except Exception:
             return []
 
-    def _tui_handle_voice_record(self, event):
-        """Toggle voice recording when voice mode is active.
 
-        Runs on prompt_toolkit's event-loop thread: any blocking call here (locks, sd.wait,
-        disk I/O) freezes the whole UI, so all heavy work goes to daemon threads.
-        """
-        from cli import _DIM, _RST, _cprint, logger
-        if not self._voice_mode:
-            return
-        if self._voice_recording:
-            # Always allow STOPPING (even while the agent runs); manual stop ends continuous
-            # mode. Flag clearing happens atomically inside _voice_stop_and_transcribe.
-            with self._voice_lock:
-                self._voice_continuous = False
-            event.app.invalidate()
-            threading.Thread(target=self._voice_stop_and_transcribe, daemon=True).start()
-            return
-        # Allow disarming continuous mode while the agent runs or transcribes — otherwise the
-        # user is stuck in an auto-restart loop until /voice off.
-        if self._agent_running or self._voice_processing:
-            with self._voice_lock:
-                self._voice_continuous = False
-            event.app.invalidate()
-            return
-        # Don't START recording during interactive prompts.
-        if (self._clarify_state or self._sudo_state or self._approval_state
-                or self._slash_confirm_state or self._connection_state):
-            return
-        # Cut TTS so the user can start talking: stop_playback() just terminates a subprocess;
-        # the stop event drains the streaming pipeline if one is live.
-        if not self._voice_tts_done.is_set():
-            try:
-                logger.info("TTS CUT: record key handler cutting TTS")
-                from tools.tts_streaming import mark_speech_interrupted
-                mark_speech_interrupted()
-                if self._voice_tts_stop is not None:
-                    self._voice_tts_stop.set()
-                from tools.voice_mode import stop_playback
-                stop_playback()
-                self._voice_tts_done.set()
-            except Exception:
-                pass
-        with self._voice_lock:
-            self._voice_continuous = True
-
-        # play_beep(sd.wait), AudioRecorder.start(lock) and config I/O must never block the loop.
-        def _start_recording():
-            try:
-                self._voice_start_recording()
-                if hasattr(self, '_app') and self._app:
-                    self._app.invalidate()
-            except Exception as e:
-                _cprint(f"\n{_DIM}{t('cli.tui.voice_recording_failed', error=e)}{_RST}")
-
-        threading.Thread(target=_start_recording, daemon=True).start()
-        event.app.invalidate()
-
-    def _tui_cancel_voice_recording(self, event) -> bool:
-        """Cancel an active recording; True when one was cancelled (caller stops there)."""
-        from cli import _DIM, _RST, _cprint
-        _recorder_ref = None
-        with self._voice_lock:
-            if self._voice_recording and self._voice_recorder:
-                _recorder_ref = self._voice_recorder
-                self._voice_recording = False
-                self._voice_continuous = False
-        if _recorder_ref is None:
-            return False
-        _cprint(f"\n{_DIM}{t('cli.tui.recording_cancelled')}{_RST}")
-        # cancel() may block on AudioRecorder._lock / CoreAudio — keep it off the event loop.
-        threading.Thread(target=_recorder_ref.cancel, daemon=True).start()
-        event.app.invalidate()
-        return True
 
     def _tui_cancel_foreground_ui(self, event, *, closers) -> bool:
         """Close the first active foreground UI (slash-confirm / picker / palette); True if any."""
@@ -924,12 +824,10 @@ class CLITuiMixin:
             event.app.exit()
 
     def _tui_handle_ctrl_c(self, event):
-        """Ctrl+C priority: cancel voice recording → cancel foreground UI/overlay prompt or the wait for a
+        """Ctrl+C priority: cancel foreground UI/overlay prompt or the wait for a
         command on its own gateway socket (a plugin command, /cron) → clear a typed draft, even mid-run (a correction must never kill the turn)
         → interrupt the running agent → force exit (second press within 2s) → when idle and empty, exit."""
         now = time.time()
-        if self._tui_cancel_voice_recording(event):
-            return
         if self._tui_cancel_foreground_ui(event, closers=(
             ("_slash_confirm_state", lambda: self._submit_slash_confirm_response("cancel")),
             ("_model_picker_state", self._close_model_picker), ("_command_palette_state", self._close_command_palette),
@@ -940,20 +838,18 @@ class CLITuiMixin:
             return
         if self._agent_running and self.agent and not (event.app.current_buffer.text or self._attached_images):
             if now - self._last_ctrl_c_time < 2.0:
-                print("\n" + t("cli.tui.force_exiting"))
+                print("\n" + '⚡ Force exiting...')
                 self._should_exit = True
                 event.app.exit()
                 return
             self._last_ctrl_c_time = now
-            print("\n" + t("cli.tui.interrupting_again_hint"))
+            print("\n" + '⚡ Interrupting agent... (press Ctrl+C again to force exit)')
             request_hard_interrupt(self.agent)
         else:
             self._tui_clear_or_exit(event)
 
     def _tui_handle_ctrl_q(self, event):
         """Ctrl+Q: like Ctrl+C minus the double-press force exit (and it leaves the palette)."""
-        if self._tui_cancel_voice_recording(event):
-            return
         if self._tui_cancel_foreground_ui(event, closers=(
             ("_slash_confirm_state", lambda: self._submit_slash_confirm_response("cancel")),
             ("_model_picker_state", self._close_model_picker))):
@@ -962,7 +858,7 @@ class CLITuiMixin:
         if overlay_cleared and not (self._agent_running and self.agent):
             return
         if self._agent_running and self.agent and not (event.app.current_buffer.text or self._attached_images):
-            print("\n" + t("cli.tui.interrupting"))
+            print("\n" + '⚡ Interrupting agent...')
             request_hard_interrupt(self.agent)
         else:
             self._tui_clear_or_exit(event)
@@ -1097,15 +993,12 @@ class CLITuiMixin:
     def _tui_handle_ctrl_z(self, event):
         """Ctrl+Z suspends the process (Unix only)."""
         from cli import _DIM, _RST, _cprint
-        if sys.platform == 'win32':
-            _cprint(f"\n{_DIM}{t('cli.tui.suspend_unsupported')}{_RST}")
-            event.app.invalidate()
-            return
+
         import signal as _sig
         from prompt_toolkit.application import run_in_terminal
         from hermes_cli.skin_engine import get_active_skin
         agent_name = get_active_skin().get_branding("agent_name", "Hermes Agent")
-        msg = "\n" + t("cli.tui.suspended", agent_name=agent_name)
+        msg = "\n" + (f'{agent_name} has been suspended. Run `fg` to bring {agent_name} back.')
 
         def _suspend():
             os.write(1, msg.encode())
@@ -1371,12 +1264,6 @@ class CLITuiMixin:
             st["selected"] = max(0, st["selected"] - 1)
             event.app.invalidate()
 
-    def _tui_wake_startup(self):
-        from cli import logger
-        try:
-            self._maybe_start_wake_word()
-        except Exception as e:
-            logger.debug("wake-word startup skipped: %s", e)
 
     def _tui_suppress_closed_loop_errors(self, loop, context):
         exc = context.get("exception")
@@ -1490,22 +1377,20 @@ class CLITuiMixin:
                     if self.agent is not None and hasattr(self.agent, "steer"):
                         accepted = self.agent.steer(text)
                 except Exception as exc:
-                    _cprint(f"  {_DIM}{t('cli.tui.steer_failed_queued', error=exc)}{_RST}")
+                    _cprint(f"  {_DIM}{(f'Steer failed ({exc}) — queued for next turn.')}{_RST}")
                     accepted = False
-                if accepted == "voice_stopped":  # TUI-26: consumed as a voice stop; nothing to queue
-                    return
                 if accepted:
                     preview = text[:80] + ("..." if len(text) > 80 else "")
-                    _cprint(f"  {_ACCENT}{t('cli.tui.steered', preview=preview)}{_RST}")
+                    _cprint('  ' + format((_ACCENT), '') + format(((f"⏩ Steered: '{preview}'")), '') + format((_RST), ''))
                 else:
                     _effective_mode = "queue"
         if _effective_mode == "queue" and text and not images and self._gateway_queue_store() is not None:
             self._queue_enqueue(text)
         elif _effective_mode == "queue":
             self._pending_input.put(payload)
-            preview = text if text else _tn("cli.tui.images_attached_preview", len(images))
+            preview = text if text else ('[{count} image attached]' if len(images) == 1 else '[{count} images attached]').format(count=len(images))
             preview = preview[:80] + ('...' if len(preview) > 80 else '')
-            _cprint("  " + t("cli.tui.queued_next_turn", preview=preview))
+            _cprint("  " + (f'Queued for the next turn: {preview}'))
         elif _effective_mode == "interrupt":
             if not images and text:
                 try:
@@ -1516,11 +1401,9 @@ class CLITuiMixin:
                         redirected = self.agent.redirect(text)
                 except Exception:
                     redirected = False
-            if redirected == "voice_stopped":  # TUI-26: consumed as a voice stop; nothing to queue
-                return
             if redirected:
                 preview = text[:80] + ("..." if len(text) > 80 else "")
-                _cprint(f"  {_ACCENT}{t('cli.tui.redirected_turn', preview=preview)}{_RST}")
+                _cprint('  ' + format((_ACCENT), '') + format(((f"↪ Redirected current turn: '{preview}'")), '') + format((_RST), ''))
             else:
                 self._interrupt_queue.put(payload)
                 try:
@@ -1593,7 +1476,7 @@ class CLITuiMixin:
                 from hermes_cli.model_switch import resolve_persist_behavior
                 self._handle_model_picker_selection(persist_global=resolve_persist_behavior(False, False))
             except Exception as _exc:
-                _cprint("  " + t("cli.tui.model_selection_failed", error=_exc))
+                _cprint("  " + (f'✗ Model selection failed: {_exc}'))
                 self._close_model_picker()
             buf.reset()
             event.app.invalidate()
@@ -1795,8 +1678,6 @@ class CLITuiMixin:
         badges = _format_image_attachment_badges(self._attached_images, self._image_counter)
         return [("class:image-badge", f" {badges} ")]
 
-    def _tui_voice_status_fragments(self):
-        return self._get_voice_status_fragments()
 
     def _tui_spinner_text(self):
         spinner_line = self._render_spinner_text()
@@ -1814,7 +1695,7 @@ class CLITuiMixin:
         return self._agent_spacer_height()
 
     def _tui_init_run_state(self):
-        """Reset the per-run REPL state (queues, modal states, voice state, config watcher)."""
+        """Reset the per-run REPL state (queues, modal states, config watcher)."""
         from hermes_cli.config_backend import config_version_or_none
         self._agent_running = False
         self._pending_input = queue.Queue()     # normal input (commands + new queries)
@@ -1864,20 +1745,6 @@ class CLITuiMixin:
         self._attached_images: list[Path] = []  # clipboard image attachments
         self._image_counter = 0
 
-        # Voice mode state (protected by _voice_lock for cross-thread access).
-        self._voice_lock = threading.Lock()
-        self._voice_mode = False
-        self._voice_tts = False
-        self._voice_recorder = None     # AudioRecorder (lazy init)
-        self._voice_recording = False
-        self._voice_processing, self._voice_live_text = False, ""  # STT in progress; live partial text
-        self._voice_continuous = False  # auto-restart after the agent responds
-        self._voice_tts_done = threading.Event()  # TTS playback finished
-        self._voice_tts_done.set()  # initially "done" (no TTS pending)
-        self._voice_tts_stop = None  # active streaming pipeline's stop event
-        self._voice_barge_capture = threading.Event()  # barge monitor is capturing the interruption
-        self._voice_last_tts_text = ""  # most recently spoken TTS text (echo guard, #75780)
-        self._voice_barge_phase = None  # "generation" or "playback" phase of the last barge trip
 
         if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
             self._install_tool_callbacks()
@@ -1933,7 +1800,6 @@ class CLITuiMixin:
         kb.add('escape', 'escape', filter=~_modal_prompt_active)(self._tui_handle_double_escape)
         kb.add('c-z')(self._tui_handle_ctrl_z)
 
-        kb.add(*self._tui_voice_record_key_sequence())(self._tui_handle_voice_record)
         kb.add(Keys.BracketedPaste, eager=True)(self._tui_handle_paste)
         kb.add('c-v')(self._tui_handle_ctrl_v)
         kb.add('escape', 'v')(self._tui_handle_alt_v)
@@ -2043,51 +1909,6 @@ class CLITuiMixin:
             _idx = 9 if _num == 0 else _num - 1
             kb.add(str(_num), filter=_slash_confirm)(self._tui_make_slash_confirm_number_handler(_idx))
 
-    def _tui_voice_record_key_sequence(self) -> tuple:
-        """Resolve the push-to-talk key (voice.record_key, default Ctrl+B) to a prompt_toolkit
-        key sequence and cache the UI label.
-
-        Config spellings (ctrl/control/alt/option/opt) are normalized to c-x / a-x so the same
-        value binds identically in TUI and CLI. super/win/windows silently fall back to the
-        default (prompt_toolkit has no super modifier) — warn so users notice the split. The
-        label cache uses the same ``_raw_key`` that drives the binding, so status/placeholder/
-        recording-hint renders can never drift from the live key even if the config is edited
-        mid-session.
-        """
-        from cli import logger
-        # Voice push-to-talk key: configurable via config.yaml (voice.record_key) Default: Ctrl+B (avoids
-        # conflict with Ctrl+R readline reverse-search). Config spellings (ctrl/control/alt/option/opt) are
-        # normalized to prompt_toolkit's c-x / a-x format via
-        # ``normalize_voice_record_key_for_prompt_toolkit`` so the same config value binds identically in
-        # the TUI and CLI (review round-9 on #19835). ``super``/``win``/``windows`` configs silently
-        # fall back to the default here since prompt_toolkit has no super modifier — log a warning so users
-        # notice the TUI/CLI split instead of a silent mismatch (round-11).
-        _raw_key: object = "ctrl+b"
-        try:
-            from hermes_cli.config import load_config
-            from hermes_cli.voice import (
-                normalize_voice_record_key_for_prompt_toolkit,
-                pt_key_to_sequence,
-                voice_record_key_from_config)
-            _raw_key = voice_record_key_from_config(load_config())
-            _voice_key = normalize_voice_record_key_for_prompt_toolkit(_raw_key)
-            if (
-                isinstance(_raw_key, str)
-                and _raw_key.strip().lower().split("+", 1)[0].strip() in {"super", "win", "windows"}
-                and _voice_key == "c-b"):
-                logger.warning(
-                    "voice.record_key %r uses a TUI-only modifier (super/win); "
-                    "CLI fell back to Ctrl+B. Use ctrl+<key> or alt+<key> for "
-                    "cross-runtime parity.",
-                    _raw_key)
-        except Exception:
-            _voice_key = "c-b"
-        # Cache the UI label here — same ``_raw_key`` that drives the prompt_toolkit binding below. Every
-        # status / placeholder / recording-hint render reads this cached value so display can never drift
-        # from the live keybinding even if the user edits voice.record_key mid-session (review round-13 on
-        # #19835).
-        self.set_voice_record_key_cache(_raw_key)
-        return pt_key_to_sequence(_voice_key)
 
     def _tui_overlay_widget(self, fragments_fn, state_attr: str):
         """Wrapped, auto-sized panel shown while ``self.<state_attr>`` is not None."""
@@ -2140,9 +1961,6 @@ class CLITuiMixin:
         image_bar = Window(
             content=FormattedTextControl(self._tui_image_bar_fragments),
             height=Condition(lambda: bool(cli_ref._attached_images)))
-        voice_status_bar = ConditionalContainer(
-            Window(FormattedTextControl(self._tui_voice_status_fragments), height=1),
-            filter=Condition(lambda: cli_ref._voice_mode))
         status_bar = ConditionalContainer(
             Window(
                 content=FormattedTextControl(lambda: cli_ref._get_status_bar_fragments()),
@@ -2177,7 +1995,6 @@ class CLITuiMixin:
             image_bar=image_bar,
             input_area=input_area,
             input_rule_bot=input_rule_bot,
-            voice_status_bar=voice_status_bar,
             completions_menu=CompletionsMenu(max_height=12, scroll_offset=1))))
         self._tui_set_base_style()
         return layout, PTStyle.from_dict(self._build_tui_style_dict())
@@ -2304,8 +2121,4 @@ class CLITuiMixin:
             'approval-cmd': '#AAAAAA italic',
             'approval-choice': '#AAAAAA',
             'approval-selected': '#FFD700 bold',
-            'voice-prompt': '#87CEEB',
-            'voice-recording': '#FF4444 bold',
-            'voice-processing': '#FFA500 italic',
-            'voice-status': 'bg:#1a1a2e #87CEEB',
-            'voice-status-recording': 'bg:#1a1a2e #FF4444 bold'}
+        }

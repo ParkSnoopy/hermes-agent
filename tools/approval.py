@@ -20,10 +20,10 @@ import threading
 from typing import Any, Iterable, Optional
 
 from utils import env_var_enabled, is_truthy_value
-from agent.i18n import t
+
 from tools import approval_context
 from tools.approval_context import (
-    _get_session_platform, _is_cron_approval_context,
+    _get_session_platform,
     _is_gateway_approval_context, _is_interactive_cli, _is_single_query_approval_context,
     _is_unattended_platform_approval_context, _resolve_cli_approval_callback, _should_fall_through_to_cli_approval,
     get_current_session_key,
@@ -362,10 +362,9 @@ def clear_session(session_key: str) -> None:
             entry.cancelled = "the session ended before the prompt was answered"
             entry.event.set()
     _release_permission_mode_dependents(session_key)
-    # Session-persistent code kernels (local and remote) share this owner key and die at the same boundary so a
+    # Session-persistent code kernels share this owner key and die at the same boundary so a
     # finished conversation cannot leak a live interpreter.
-    for module, shutdown in (("tools.code_kernel", "shutdown_kernels_for_owner"),
-                             ("tools.code_kernel_remote", "shutdown_remote_kernels_for_owner")):
+    for module, shutdown in (("tools.code_kernel", "shutdown_kernels_for_owner"),):
         try:
             getattr(importlib.import_module(module), shutdown)(session_key)
         except Exception:
@@ -594,21 +593,22 @@ def _approved() -> dict:
     return {"approved": True, "message": None}
 
 
-# ``outcome`` -> one plain sentence for the person who just answered (or did not), keyed as
-# ``approval.summary.<outcome>`` (``approval.summary.default`` for unknown outcomes). ``message`` is
+# ``outcome`` -> one plain sentence for the person who just answered (or did not). ``message`` is
 # addressed to the model ("Do NOT retry ..."); surfaces render ``user_summary`` first and fold the
 # model text away, so a Reject click does not read like an error the user caused.
-_USER_SUMMARY_OUTCOMES = frozenset({"denied", "timeout", "notify_failed", "cancelled", "blocked"})
-# ``_GateSpec.noun`` values (identifiers) -> ``approval.noun.<noun>`` for the human sentence.
-_USER_SUMMARY_NOUNS = frozenset({"command", "code", "action"})
+_USER_SUMMARIES = {
+    "denied": "You denied this {noun} — it did not run.",
+    "timeout": "No answer within {window} — the {noun} did not run.",
+    "notify_failed": "The approval request could not be delivered — the {noun} did not run.",
+    "cancelled": "The approval prompt was withdrawn or never reached you — the {noun} did not run.",
+    "blocked": "This {noun} is not allowed in an unattended session — it did not run.",
+}
 
 
 def _user_summary(outcome: str, noun: str = "command") -> str:
     from tools.approval_context import _get_approval_timeout, format_approval_window
     window = format_approval_window(_get_approval_timeout())
-    key = f"approval.summary.{outcome}" if outcome in _USER_SUMMARY_OUTCOMES else "approval.summary.default"
-    noun_text = t(f"approval.noun.{noun}") if noun in _USER_SUMMARY_NOUNS else noun
-    return t(key, noun=noun_text, window=window)
+    return _USER_SUMMARIES.get(outcome, "This {noun} did not run.").format(noun=noun, window=window)
 
 
 def _denied(message: str, *, pattern_key: str, description: str, outcome: str, noun: str = "command",
@@ -678,10 +678,10 @@ def _pending_result(spec, session_key: str, *, command: str, description: str,
 @dataclass(frozen=True)
 class _Unattended:
     """One non-interactive context and the text every gate uses to explain it."""
-    name: str       # "single_query" | "cron" | "unattended"
+    name: str       # "single_query" | "unattended"
     cfg_key: str    # approvals.<cfg_key>: approve|deny
     clause: str     # "why nobody can approve" (lower-case sentence fragment)
-    scope: str      # "in cron jobs" — completes "To allow ... {scope}"
+    scope: str      # completes "To allow ... {scope}"
     trust: str      # execute_code: "approve only if {trust}"
 
     def mode(self) -> str:
@@ -703,22 +703,16 @@ _SINGLE_QUERY_CTX = _Unattended(
     "single-query mode (-q) runs without a user present to approve it",
     "in single-query mode", "this single-query run is intentionally trusted",
 )
-_CRON_CTX = _Unattended(
-    "cron", "cron_mode", "cron jobs run without a user present to approve it",
-    "in cron jobs", "this cron profile is intentionally trusted",
-)
+
 
 
 def _unattended_contexts() -> list[_Unattended]:
     """Active unattended contexts in evaluation order: single-query first (``hermes chat -q``
-    exports HERMES_INTERACTIVE=1 but nobody answers); cron beats a platform marker because
-    cron binds the platform for delivery routing only."""
+    exports HERMES_INTERACTIVE=1 but nobody answers)."""
     contexts = []
     if _is_single_query_approval_context():
         contexts.append(_SINGLE_QUERY_CTX)
-    if _is_cron_approval_context():
-        contexts.append(_CRON_CTX)
-    elif _is_unattended_platform_approval_context():
+    if _is_unattended_platform_approval_context():
         contexts.append(_Unattended(
             "unattended", "unattended_mode",
             "this session runs on an unattended platform "
@@ -1066,7 +1060,7 @@ def _presence(approval_callback=None) -> tuple:
     approval_callback = _resolve_cli_approval_callback(approval_callback)
     is_cli, is_gateway = _is_interactive_cli(), _is_gateway_approval_context()
     is_ask = env_var_enabled("HERMES_EXEC_ASK")
-    if _is_single_query_approval_context() or _is_cron_approval_context():
+    if _is_single_query_approval_context():
         is_cli = is_gateway = is_ask = False
     elif is_ask and _is_unattended_platform_approval_context() \
             and (_gateway_notify_cb(get_current_session_key()) is None
@@ -1087,7 +1081,7 @@ def _run_approval_gate(
     *, pattern_key: str, description: str, display_target: str, approval_callback=None,
     subject: str = "", noun: str = "flagged actions",
     advice: str = "Find an alternative approach that avoids this action.",
-    cron_deny_message: str = "", single_query_deny_message: str = "", unattended_deny_message: str = "",
+    single_query_deny_message: str = "", unattended_deny_message: str = "",
     autoapprove_log_prefix: str, fail_closed_when_no_human: bool = False, no_human_block_message: str = "",
     pattern_keys: list[str] | None = None,
 ) -> dict:
@@ -1118,7 +1112,7 @@ def _run_approval_gate(
         log_args = (autoapprove_log_prefix, pattern_key, description)
         # Every unattended context resolves instantly — never a pending approval nobody can answer.
         deny_messages = {
-            "single_query": single_query_deny_message, "cron": cron_deny_message,
+            "single_query": single_query_deny_message,
             "unattended": unattended_deny_message,
         }
         for ctx in _unattended_contexts():
@@ -1156,23 +1150,6 @@ def _run_approval_gate(
         pattern_keys=pattern_keys or [pattern_key], session_key=session_key,
         approval_callback=approval_callback, is_cli=is_cli, is_gateway=is_gateway, is_ask=is_ask,
     )
-
-
-def _should_skip_container_guards(env_type: str, has_host_access: bool = False) -> bool:
-    """True when the backend is isolated enough to skip dangerous-command prompts. Docker is the
-    exception once host paths are bind-mounted: ``rm -rf /workspace`` then reaches host files."""
-    if env_type == "docker":
-        return not has_host_access
-    if env_type in ("modal", "daytona", "vercel_sandbox"):
-        return True
-    # Plugin backends declare the same classification through the provider ABI (#94400);
-    # fail-soft to False so an unknown or raising backend — or a raising registry
-    # lookup — keeps the guards on rather than propagating out of the approval predicate.
-    try:
-        from agent.terminal_env_registry import provider_flag
-        return bool(provider_flag(env_type, "skip_container_guards", False))
-    except Exception:
-        return False
 
 
 def _user_deny_block(command: str) -> dict | None:
@@ -1213,13 +1190,9 @@ def _floor_block(command: str, *, sudo_guard: bool = False) -> dict | None:
 
 
 def check_dangerous_command(command: str, env_type: str,
-                            approval_callback=None,
-                            has_host_access: bool = False) -> dict:
-    """Detect a dangerous command and handle approval (pattern layer only). ``has_host_access``:
-    a Docker sandbox that bind-mounts host paths must not skip approval.
+                            approval_callback=None) -> dict:
+    """Detect a dangerous command and handle approval (pattern layer only).
     Returns ``{"approved": True/False, "message": str or None, ...}``."""
-    if _should_skip_container_guards(env_type, has_host_access=has_host_access):
-        return _user_deny_block(command) or _approved()
     blocked = _floor_block(command)
     if blocked is not None:
         return blocked
@@ -1249,8 +1222,8 @@ def request_tool_approval(tool_name: str, reason: str, *, rule_key: str = "", ap
     Entry point for a plugin ``pre_tool_call`` hook returning ``{"action": "approve", ...}``:
     it asks the SAME human gate as Tier-2 dangerous shell patterns (session/permanent
     allowlist, CLI prompt, gateway pending, once/session/always/deny, timeout fail-closed), so
-    the LLM cannot skip it. Cron honors ``approvals.cron_mode``; any OTHER non-interactive
-    context without an approval bridge fails CLOSED. ``rule_key`` controls the ``[a]lways``
+    the LLM cannot skip it. Unattended contexts follow their configured approval mode;
+    a non-interactive context without an approval bridge fails CLOSED. ``rule_key`` controls the ``[a]lways``
     allowlist grain; when empty it is ``tool_name`` + a hash of ``reason`` so DISTINCT reasons
     on the same tool persist independently. Returns the ``check_dangerous_command`` result shape.
     """
@@ -1274,20 +1247,16 @@ def request_tool_approval(tool_name: str, reason: str, *, rule_key: str = "", ap
 # --- Combined pre-exec guard (floors + dangerous command detection) ------------------------------------------------
 
 def check_all_command_guards(command: str, env_type: str,
-                             approval_callback=None,
-                             has_host_access: bool = False) -> dict:
+                             approval_callback=None) -> dict:
     """Run all pre-exec security checks and return a single approval decision. Plugins that
-    want to veto or escalate a command do it from ``pre_tool_call``.
-    ``has_host_access``: a Docker sandbox with bind-mounted host paths takes the normal flow."""
-    if _should_skip_container_guards(env_type, has_host_access=has_host_access):
-        return _user_deny_block(command) or _approved()
+    want to veto or escalate a command do it from ``pre_tool_call``."""
 
     blocked = _floor_block(command, sudo_guard=True)
     if blocked is not None:
         return blocked
 
     from agent.terminal_approval_batch import consume_prepared_guard
-    prepared = consume_prepared_guard(command, env_type, has_host_access)
+    prepared = consume_prepared_guard(command, env_type)
     if prepared is not None:
         return prepared
 
@@ -1342,7 +1311,7 @@ def _is_local_viewer_turn() -> bool:
             and _gateway_notify_cb(get_current_session_key()) is not None)
 
 
-def check_execute_code_guard(code: str, env_type: str, has_host_access: bool = False) -> dict:
+def check_execute_code_guard(code: str, env_type: str) -> dict:
     """Approve an execute_code script before its child process is spawned.
 
     The script can call ``subprocess``/``os.system``/``ctypes`` directly, none of which pass
@@ -1353,18 +1322,17 @@ def check_execute_code_guard(code: str, env_type: str, has_host_access: bool = F
     ``terminal()`` commands the script issues.
 
     See #30882.
-    The hardline floor still blocks catastrophic ``terminal()`` commands the script issues; running
-    arbitrary code headlessly without any approval surface is trusted-by-config (set a gateway/ask surface
-    or ``approvals.cron_mode`` to require approval). See #30882.
     """
     pattern_key = "execute_code"
     description = _EXECUTE_CODE_DESCRIPTION
 
-    # Isolated backends already sandbox the child. vercel_sandbox has no host-bind concept so it stays always-skipped.
-    if env_type == "vercel_sandbox":
-        return _approved()
-    if _should_skip_container_guards(env_type, has_host_access=has_host_access):
-        return _approved()
+    from tools.terminal_tool_config import require_local_environment
+    try:
+        require_local_environment(env_type)
+    except ValueError as exc:
+        return _denied(str(exc), pattern_key=pattern_key, description=description,
+                       outcome="blocked", noun="code")
+
     approval_mode = approval_context._get_approval_mode()
     if _yolo_active() or approval_mode == "off":
         return _approved()

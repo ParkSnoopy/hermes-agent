@@ -216,13 +216,13 @@ def _orphan(tmp_path: Path, profiles: dict) -> None:
 # relaunch verification.
 _RECOVER = """
     import sys, time
-    import hermes_cli.update_cmd_windows as w
+    import hermes_cli.update_cmd_posix_pause as w
     def resume(token):
         print("resume", sorted(token.get("profiles") or {}), file=sys.__stdout__, flush=True)  # recovery sends stdout to stderr
         if sys.argv[1] == "hang":
             time.sleep(120)
         token["resume_needed"] = False
-    w._resume_windows_gateways_after_update = resume
+    w.resume_gateways_after_update = resume
     from hermes_cli import update_pause_record as r
     r.recover(["status"])
     print("done", flush=True)
@@ -356,11 +356,11 @@ _AT_LINE = """
         sys.settrace(trace)
 """
 _RESUMES = """
-    import hermes_cli.update_cmd_windows as w
+    import hermes_cli.update_cmd_posix_pause as w
     def resume(token):
         print("resume", sorted(token.get("profiles") or {}), file=sys.__stdout__, flush=True)  # recovery sends stdout to stderr
         token["resume_needed"] = False
-    w._resume_windows_gateways_after_update = resume
+    w.resume_gateways_after_update = resume
     r.recover(["status"])
     print("done", flush=True)
 """
@@ -539,7 +539,7 @@ def test_a_request_on_disk_is_owed_even_before_it_is_recorded_sent(tmp_path):
     token = r.record_pause({"resume_needed": True, "profiles": {"default": pid},
                             "identities": {str(pid): r.identity(pid)["ct"]}}, None, [])
     r.mark_stop_requested(token, [pid], markers={pid: marker})
-    from hermes_cli.update_cmd_windows import _write_update_planned_stop_marker
+    from hermes_cli.update_cmd_common import _write_update_planned_stop_marker
     assert _write_update_planned_stop_marker(marker.parent, pid)
     print("requested", flush=True)
     time.sleep(120)

@@ -24,16 +24,16 @@ class ProcessOwnershipMixin:
         """Not owned, on purpose: ``persist_on_release`` jobs, which must outlive the agent (#41225);
         every job of a gateway, which re-adopts its jobs from the checkpoint after a crash (flagged by
         recover_from_checkpoint, which every gateway boot runs, checkpoint or not; a supervised gateway
-        also before it gets there). The classic CLI, the TUI, the Desktop, ACP, cron and messaging all
+        also before it gets there). The classic CLI, the TUI, the Desktop, ACP and messaging all
         run their tools in a gateway, so their background jobs are not owned; a process that is not a
         gateway (a standalone serve with no session authority, the slash worker, an embedder of
         AIAgent) owns its jobs, and foreground commands are owned everywhere. Also not owned: every job of a
         managed worker, a per-turn interpreter whose jobs the next turn's worker adopts with their
-        output log (worker_output_log); and Windows, where the layer-3 job object covers ownership."""
+        output log (worker_output_log)."""
         from agent.runtime_session_store import is_worker_process
-        from tools.process_registry import _IS_WINDOWS, _is_supervised_gateway_process
+        from tools.process_registry import _is_supervised_gateway_process
 
-        return not (_IS_WINDOWS or persist_on_release or self._jobs_outlive_host
+        return not (persist_on_release or self._jobs_outlive_host
                     or is_worker_process() or _is_supervised_gateway_process())
 
     def _spawn_job(self, session: Any, argv: list[str], persist_on_release: bool, **popen_kwargs) -> subprocess.Popen:

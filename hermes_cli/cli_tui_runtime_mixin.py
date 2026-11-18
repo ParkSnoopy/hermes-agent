@@ -13,7 +13,6 @@ import shutil
 import sys
 import threading
 import time
-from agent.i18n import t
 from agent.interrupt_compat import request_hard_interrupt
 from agent import terminal_image
 from contextlib import suppress
@@ -100,7 +99,7 @@ class CLITuiRuntimeMixin:
         from cli import _DIM, _PASTE_REF_RE, _RST, _cprint, _detect_file_drop, _looks_like_slash_command, _strip_leaked_bracketed_paste_wrappers, _strip_leaked_terminal_responses_with_meta
         from tools.process_registry_notifications import TimelineNotification
         self._tui_dock_drop_dequeued()
-        user_input, is_voice_input, is_seeded_query = self._tui_unwrap_input(user_input)
+        user_input, is_seeded_query = self._tui_unwrap_input(user_input)
         if not user_input:
             return
         notification_preview = user_input if isinstance(user_input, TimelineNotification) else None
@@ -116,9 +115,6 @@ class CLITuiRuntimeMixin:
             if _had_mouse_reports:
                 self._recover_terminal_input_modes(reason="mouse reports leaked into submitted input")
 
-        # A typed bare stop phrase ends an active voice chat (transcripts are checked earlier).
-        if not is_voice_input and self._typed_voice_stop(user_input):
-            return
 
         # File drops are detected before any dispatch; seeded -q prompts are literal text.
         _file_drop = _detect_file_drop(user_input) if isinstance(user_input, str) and not is_seeded_query else None
@@ -128,9 +124,9 @@ class CLITuiRuntimeMixin:
             if _file_drop["is_image"]:
                 submit_images.append(_drop_path)
                 user_input = _remainder or f"[User attached image: {_drop_path.name}]"
-                _cprint("  " + t("cli.tui.auto_attached_image", name=_drop_path.name))
+                _cprint("  " + (f'📎 Auto-attached image: {_drop_path.name}'))
             else:
-                _cprint("  " + t("cli.tui.detected_file", name=_drop_path.name))
+                _cprint("  " + (f'📄 Detected file: {_drop_path.name}'))
                 user_input = f"[User attached file: {_drop_path}]" + (f"\n{_remainder}" if _remainder else "")
         elif isinstance(user_input, str):
             # A bare number right after a bare `/resume` selects that session (never sent to the agent).
@@ -151,7 +147,7 @@ class CLITuiRuntimeMixin:
 
         if submit_images:
             n = len(submit_images)
-            _attached = t("cli.tui.images_attached_one" if n == 1 else "cli.tui.images_attached_other", count=n)
+            _attached = f"📎 {n} {'image' if n == 1 else 'images'} attached"
             _cprint(f"  {_DIM}{_attached}{_RST}")
             from hermes_cli.cli_inline_images import print_inline_images
             print_inline_images(self, submit_images)
@@ -161,7 +157,7 @@ class CLITuiRuntimeMixin:
         self._turn_summary_begin()
         self._app.invalidate()
         try:
-            self.chat(notification_preview or user_input, images=submit_images or None, voice_input=is_voice_input)
+            self.chat(notification_preview or user_input, images=submit_images or None)
         finally:
             self._tui_after_turn()
 
@@ -176,7 +172,7 @@ class CLITuiRuntimeMixin:
                     self._app.exit()
         except KeyboardInterrupt:
             # Ctrl+C during a slow slash command returns to the prompt instead of exiting.
-            _cprint(f"\n[dim]{t('cli.tui.command_interrupted')}[/dim]")
+            _cprint(f"\n[dim]{'Command interrupted.'}[/dim]")
             return None
         _seed, self._pending_agent_seed = self._pending_agent_seed, None
         return _seed or None
@@ -215,21 +211,6 @@ class CLITuiRuntimeMixin:
             except Exception as _exc:
                 logging.debug("%s hook failed: %s", what, _exc)
 
-        # Continuous voice: restart recording off-thread (beep + recorder start would block process_loop).
-        if self._voice_mode and self._voice_continuous and not self._voice_recording:
-            def _restart_recording():
-                try:
-                    if self._voice_tts:
-                        self._voice_tts_done.wait(timeout=60)
-                        time.sleep(0.3)
-                    # A barge-in capture already owns the mic and submits the interruption itself.
-                    if self._voice_barge_capture.is_set():
-                        return
-                    self._voice_start_recording()
-                    self._app.invalidate()
-                except Exception as e:
-                    _cprint(f"{_DIM}{t('cli.voice.autorestart_failed', error=e)}{_RST}")
-            threading.Thread(target=_restart_recording, daemon=True).start()
 
         with suppress(Exception):
             self._drain_process_notifications("cli-post-turn")
@@ -301,15 +282,7 @@ class CLITuiRuntimeMixin:
             self._maybe_offer_first_run_setup()
         except Exception:
             logger.debug("first-run setup offer failed", exc_info=True)
-        # A persisted Docker sandbox on the previous default image is kept until the user says
-        # so; this TTY is where they can. Either answer pins an image, so it is asked once.
         if sys.stdin.isatty():
-            try:
-                from hermes_cli.sandbox_image_switch import offer_interactive
-                from cli import _cprint
-                offer_interactive(cprint=_cprint)
-            except Exception:
-                logger.debug("sandbox image switch offer failed", exc_info=True)
             # Low disk + auto-prune never decided: ask once (either answer ends it for good).
             try:
                 from hermes_cli.prune_advisor import offer_interactive as _offer_auto_prune
@@ -322,7 +295,7 @@ class CLITuiRuntimeMixin:
             self._display_resumed_history()
 
         _welcome_skin = None  # stays None when the skin engine failed
-        _welcome_text = t("cli.tui.welcome")
+        _welcome_text = 'Welcome to Hermes Agent! Type your message or /help for commands.'
         _welcome_color = "#FFF8DC"
         try:
             from hermes_cli.skin_engine import get_active_skin
@@ -337,7 +310,7 @@ class CLITuiRuntimeMixin:
         if _show_vscode_images_hint:
             from hermes_cli.skin_engine import get_active_skin
             _tip_color = get_active_skin().get_color("banner_dim", "#B8860B")
-            self._console_print(f"[dim {_tip_color}]{t('cli.tip_line', tip=t('cli.tui.vscode_images_hint'))}[/]")
+            self._console_print(f"[dim {_tip_color}]{('✦ Tip: {tip}').format(tip='VS Code can show full-resolution images here: turn on terminal.integrated.enableImages in settings.')}[/]")
         else:
             self._print_random_tip()
 
@@ -346,7 +319,7 @@ class CLITuiRuntimeMixin:
         _skills_for_line = self.preloaded_skills or list(self._preload_skills_requested or [])
         if _skills_for_line and not self._startup_skills_line_shown:
             self._console_print(
-                f"[bold {_accent_hex()}]{t('cli.tui.activated_skills_label')}[/] {', '.join(_skills_for_line)}")
+                f"[bold {_accent_hex()}]{'Activated skills:'}[/] {', '.join(_skills_for_line)}")
             self._startup_skills_line_shown = True
         self._console_print()
 
@@ -378,29 +351,9 @@ class CLITuiRuntimeMixin:
             _redact_raw = os.getenv("HERMES_REDACT_SECRETS", "true")
             if _redact_raw.lower() not in {"1", "true", "yes", "on"}:
                 self._console_print(
-                    f"[bold red]{t('cli.tui.redaction_disabled_title')}[/] "
-                    + t("cli.tui.redaction_disabled_body", value=_escape(_redact_raw),
-                        setting="[cyan]security.redact_secrets: true[/]")
+                    f"[bold red]{'⚠  Secret redaction is DISABLED'}[/] "
+                    + ('(HERMES_REDACT_SECRETS={value}). API keys and tokens may appear verbatim in chat output, session JSONs, and logs. Set {setting} in config.yaml to re-enable.').format(value=_escape(_redact_raw), setting="[cyan]security.redact_secrets: true[/]")
                 )
-        # One-time banner when ~/.openclaw/ is left over from a migration.
-        try:
-            from agent.onboarding import (
-                OPENCLAW_RESIDUE_FLAG, detect_openclaw_residue, is_seen, mark_seen, openclaw_residue_hint_cli,
-            )
-            if not is_seen(self.config, OPENCLAW_RESIDUE_FLAG) and detect_openclaw_residue():
-                try:
-                    _resid_color = _welcome_skin.get_color("banner_dim", "#B8860B")
-                except Exception:
-                    _resid_color = "#B8860B"
-                self._console_print(f"[{_resid_color}]{openclaw_residue_hint_cli()}[/]")
-                try:
-                    from hermes_cli.config import get_config_path as _get_cfg_path_resid
-                    mark_seen(_get_cfg_path_resid(), OPENCLAW_RESIDUE_FLAG)
-                except Exception:
-                    pass  # banner fires again next session
-        except Exception:
-            pass
-
     def _tui_startup_background_maintenance(self):
         """Best-effort startup passes: curator skill maintenance, personal + org skill sync.
 
@@ -457,46 +410,24 @@ class CLITuiRuntimeMixin:
         )
 
     def _tui_install_signal_handlers(self):
-        """SIGTERM/SIGHUP -> graceful shutdown; Windows absorbs SIGINT (see body)."""
+        """Route SIGTERM and SIGHUP to graceful shutdown."""
         try:
             import signal as _signal
             _signal.signal(_signal.SIGTERM, self._tui_signal_handler)
             if hasattr(_signal, 'SIGHUP'):
                 _signal.signal(_signal.SIGHUP, self._tui_signal_handler)
 
-            # Windows: absorb SIGINT. Win32 delivers spurious CTRL_C_EVENT when children spawn
-            # from background threads, which would unwind app.run() mid-turn. Real Ctrl+C is
-            # bound by prompt_toolkit. Never call agent.interrupt() here (fake user message).
-            if sys.platform == "win32":
-                _signal.signal(_signal.SIGINT, lambda signum, frame: None)
+
         except Exception:
             pass  # restricted environments
 
     def _tui_stdin_usable(self) -> bool:
-        """Validate fd 0 before prompt_toolkit starts; on macOS fall back to a select() loop when kqueue can't watch it (uv-managed Python)."""
+        """Validate fd 0 before prompt_toolkit starts."""
         try:
             os.fstat(0)
         except OSError:
-            print(t("cli.tui.stdin_unavailable"))
+            print('Error: stdin (fd 0) is not available.')
             return False
-        if sys.platform == "darwin":
-            import selectors as _selectors
-            try:
-                if hasattr(_selectors, "KqueueSelector"):
-                    _kq = _selectors.KqueueSelector()
-                    try:
-                        _kq.register(0, _selectors.EVENT_READ)
-                        _kq.unregister(0)
-                    finally:
-                        _kq.close()
-            except (OSError, ValueError, KeyError):
-                import asyncio as _aio_probe
-
-                class _SelectEventLoopPolicy(_aio_probe.DefaultEventLoopPolicy):
-                    def new_event_loop(self):
-                        return _aio_probe.SelectorEventLoop(_selectors.SelectSelector())
-
-                _aio_probe.set_event_loop_policy(_SelectEventLoopPolicy())
         return True
 
     def _closing_session_id(self):
@@ -507,13 +438,13 @@ class CLITuiRuntimeMixin:
         return self.session_id if getattr(self, "_gateway_session_open", False) else None
 
     def _tui_shutdown(self):
-        """Teardown after the app exits: interrupt agent, stop voice/pet, persist + close session, cleanup, exit summary."""
+        """Teardown after app exit: interrupt agent, stop pet, persist and close the session."""
         from cli import _DIM, _RST, _cprint, _invoke_interrupted_session_end, _run_cleanup, set_approval_callback, set_secret_capture_callback, set_sudo_password_callback
         self._should_exit = True
         self._pet_stop_anim()
         # Without this line the terminal sits silent through the whole cleanup window.
         with suppress(Exception):
-            print(f"{_DIM}{t('cli.tui.shutting_down')}{_RST}", flush=True)
+            print(f"{_DIM}{'Shutting down… (finalizing session)'}{_RST}", flush=True)
         from hermes_cli.cli_shutdown import _gateway_owns_session_end
         if self.agent and self._agent_running and not (
                 self._detach_on_exit and _gateway_owns_session_end(self.agent)):
@@ -521,13 +452,6 @@ class CLITuiRuntimeMixin:
             # viewer and the owner closes the row once the turn settles (gateway/session_viewer_close).
             with suppress(Exception):
                 request_hard_interrupt(self.agent)
-        if self._voice_recorder:
-            with suppress(Exception):
-                self._voice_recorder.shutdown()
-            self._voice_recorder = None
-        with suppress(Exception):
-            from tools.voice_mode import cleanup_temp_recordings
-            cleanup_temp_recordings()
         from agent.vault_backends.unlock import (lock as _vault_lock, set_code_prompt_callback,
                                                  set_save_login_prompt_callback, set_unlock_prompt_callback)
         for _unset in (set_sudo_password_callback, set_approval_callback, set_secret_capture_callback,
@@ -554,9 +478,9 @@ class CLITuiRuntimeMixin:
                 try:
                     _sid = _closing_sid
                     if self._session_db.delete_session(_sid, sessions_dir=get_hermes_home() / "sessions"):
-                        _cprint(f"  {_DIM}{t('cli.tui.session_deleted', session_id=_escape(_sid))}{_RST}")
+                        _cprint(f"  {_DIM}{(f'✓ Session {_escape(_sid)} deleted')}{_RST}")
                     else:
-                        _cprint(f"  {_DIM}{t('cli.tui.session_delete_missing', session_id=_escape(_sid))}{_RST}")
+                        _cprint(f"  {_DIM}{(f'✗ Session {_escape(_sid)} not found for deletion')}{_RST}")
                 except (Exception, KeyboardInterrupt) as e:
                     logger.debug("Could not delete session on exit: %s", e)
         # run_conversation() fires on_session_end on normal completion; only fire here mid-turn. A gateway

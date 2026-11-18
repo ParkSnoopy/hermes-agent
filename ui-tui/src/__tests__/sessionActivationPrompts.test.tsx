@@ -43,7 +43,6 @@ function mount() {
     session: { STARTUP_RESUME_ID: '', colsRef: { current: 80 }, newSession: noop, resetSession: noop, resumeById: noop, setCatalog: noop },
     submission: { submitRef: { current: noop } }, system: { bellOnComplete: false, sys: noop },
     transcript: { appendMessage: noop, panel: noop, setHistoryItems: noop },
-    voice: { setProcessing: noop, setRecording: noop, setVoiceEnabled: noop }
   } as any)
 
   gw.on('event', onEvent)
@@ -58,7 +57,7 @@ function mount() {
     lifecycle = useSessionLifecycle({
       colsRef: { current: 80 }, composerActions: { setComposerTokens: noop }, gw, rpc: async () => null,
       scrollRef: { current: null }, panel: noop, sys: noop, setHistoryItems: noop, setLastUserMsg: noop,
-      setSessionStartedAt: noop, setStickyPrompt: noop, setVoiceProcessing: noop, setVoiceRecording: noop
+      setSessionStartedAt: noop, setStickyPrompt: noop,
     } as any)
 
     return <Text>probe</Text>

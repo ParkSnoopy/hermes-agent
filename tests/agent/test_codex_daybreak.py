@@ -159,8 +159,7 @@ def test_only_the_owners_own_chats_carry_daybreak(tmp_path, monkeypatch):
     policies = _owner_policies(home, monkeypatch)
     (home / "config.yaml").write_text("agent:\n  daybreak: true\n", encoding="utf-8")
 
-    platforms = {platform: _load(platform) for platform in (Platform.TELEGRAM, Platform.DISCORD, Platform.API_SERVER)}
-    assert platforms == {Platform.TELEGRAM: False, Platform.DISCORD: False, Platform.API_SERVER: False}
+    assert _load(Platform.API_SERVER) is False
     local = {label: _load(Platform.LOCAL, label) for label in [*policies, "unreadable"]}
     assert local == {"gui": True, "cli": True, "tui": True, "oneshot": True, "tool": False, "acp": False,
                      "bot_room": False, "a2a": False, "unreadable": False}
@@ -180,7 +179,7 @@ def test_delegation_sees_the_owners_gateway_chat_with_the_switch_off(tmp_path, m
     surface = {label: _load(Platform.LOCAL, label, "_daybreak_surface") for label in [*policies, "unreadable"]}
     assert surface == {"gui": True, "cli": True, "tui": True, "oneshot": True, "tool": False, "acp": False,
                        "bot_room": False, "a2a": False, "unreadable": False}
-    assert _load(Platform.TELEGRAM, "gui", "_daybreak_surface") is False
+    assert _load(Platform.API_SERVER, "gui", "_daybreak_surface") is False
 
     def seen(**agent):
         with bind_subagent_parent(SimpleNamespace(**agent)):

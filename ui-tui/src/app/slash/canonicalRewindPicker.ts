@@ -1,16 +1,15 @@
+import { accessSync, constants } from 'node:fs'
 // `/rewind` (and Esc, Esc on an idle, empty composer): Codex-style transcript browsing. Pick any
 // earlier prompt, Enter puts it in the composer, and sending the edit rewinds to just before it.
 // The cut is the same revision-fenced `session.mutate rewind` that `/undo` and `/retry` use, aimed at
 // the picked row instead of the newest one — the owner's form of the legacy `prompt.submit
 // truncate_before_row_id` that Desktop's edit-and-resend sends. Nothing is cut until the edit is sent.
 
-import { accessSync, constants } from 'node:fs'
-
 import type { SessionInfo } from '@hermes/shared/gateway-types'
 import { JsonRpcGatewayError } from '@hermes/shared/json-rpc-channel'
 
+import { slashCmdEn } from '../../copy/slashCmd.js'
 import { introMsg, toTranscriptMessages } from '../../domain/messages.js'
-import { t } from '../../i18n/runtime.js'
 import { splitImageNotes } from '../../lib/imageNotes.js'
 import { asRpcResult, rpcErrorMessage } from '../../lib/rpc.js'
 import {
@@ -70,8 +69,7 @@ const readable = (path: string) => {
 
 /** Put a picked prompt back in the composer as the user typed it: the image notes the model got are
  *  dropped and each image they name is attached again as a composer image. The paths are the owner's
- *  files and re-attaching reads them here, so a gateway on another machine (HERMES_TUI_GATEWAY_URL)
- *  whose files this machine cannot read keeps the notes in the text instead, and says so. */
+ *  files and re-attaching reads them here. Unreadable images keep their notes in the text. */
 function prefillPrompt(ctx: SlashRunCtx, stored: string) {
   const { images, text } = splitImageNotes(stored)
 
@@ -80,10 +78,10 @@ function prefillPrompt(ctx: SlashRunCtx, stored: string) {
   const prefill = (value: string) =>
     ctx.composer.restoreDraft?.(value, [], captureDestination()) || ctx.composer.setInput(value)
 
-  if (images.length && process.env.HERMES_TUI_GATEWAY_URL?.trim() && !images.every(readable)) {
+  if (images.length && !images.every(readable)) {
     prefill(stored)
 
-    return ctx.transcript.sys(t('slashCmd.core.rewind.imagesKeptAsNotes', images.length))
+    return ctx.transcript.sys(slashCmdEn.slashCmd.core.rewind.imagesKeptAsNotes(images.length))
   }
 
   prefill(text)
@@ -102,15 +100,15 @@ export function openRewindPicker(ctx: SlashRunCtx) {
   cancelPendingRewind()
 
   if (!sid) {
-    return ctx.transcript.sys(t('slashCmd.core.rewind.nothing'))
+    return ctx.transcript.sys(slashCmdEn.slashCmd.core.rewind.nothing)
   }
 
   if (!ctx.gateway.gw?.isCanonical) {
-    return ctx.transcript.sys(t('slashCmd.core.rewind.unsupported'))
+    return ctx.transcript.sys(slashCmdEn.slashCmd.core.rewind.unsupported)
   }
 
   if (ctx.ui.busy) {
-    return ctx.transcript.sys(t('slashCmd.core.busy.replying', 'rewind'))
+    return ctx.transcript.sys(slashCmdEn.slashCmd.core.busy.replying('rewind'))
   }
 
   void ctx.gateway.gw
@@ -124,7 +122,7 @@ export function openRewindPicker(ctx: SlashRunCtx) {
       const targets = rewindTargets(snapshot)
 
       if (!targets.length) {
-        return ctx.transcript.sys(t('slashCmd.core.rewind.noPrevious'))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.core.rewind.noPrevious)
       }
 
       const destination = captureDestination()
@@ -193,7 +191,7 @@ export async function rewindAndSend(
       // The view moved to another session first: the edit is not sent there and not dropped
       // silently. Its text is in input history (↑) for when the user goes back. Only a definite
       // refusal can say nothing was removed.
-      return ctx.transcript.sys(t(unknown ? 'slashCmd.core.rewind.editNotSentUnknown' : 'slashCmd.core.rewind.editNotSent'))
+      return ctx.transcript.sys((unknown ? slashCmdEn.slashCmd.core.rewind.editNotSentUnknown : slashCmdEn.slashCmd.core.rewind.editNotSent))
     }
 
     // Nothing was cut: the draft goes back whole, chips and their images and pastes included, so a
@@ -202,7 +200,7 @@ export async function rewindAndSend(
     if (!tokens) {
       ctx.composer.setInput(text)
     } else if (!ctx.composer.restoreDraft?.(display, tokens, destination)) {
-      return ctx.transcript.sys(t('slashCmd.core.rewind.editNotSent'))
+      return ctx.transcript.sys(slashCmdEn.slashCmd.core.rewind.editNotSent)
     }
 
     // Unless the user armed another edit or started over meanwhile: theirs is newer.
@@ -224,7 +222,7 @@ export async function rewindAndSend(
     if (!cut) {
       keepEdit()
 
-      return ctx.transcript.sys(t('slashCmd.core.rewind.nothing'))
+      return ctx.transcript.sys(slashCmdEn.slashCmd.core.rewind.nothing)
     }
 
     const snapshot = asRpcResult<{ info?: SessionInfo; messages?: unknown[] }>(
@@ -239,7 +237,7 @@ export async function rewindAndSend(
 
     ctx.transcript.setHistoryItems([introMsg(info), ...toTranscriptMessages(snapshot?.messages ?? [])])
     patchUiState({ info })
-    ctx.transcript.sys(t('slashCmd.core.rewind.done', String(target.turn), String(removed)))
+    ctx.transcript.sys(slashCmdEn.slashCmd.core.rewind.done(String(target.turn), String(removed)))
 
     if (text === display && !attachments?.length) {
       ctx.transcript.send(text)
@@ -263,7 +261,7 @@ export async function forkFrom(ctx: SlashRunCtx, sid: string, target: RewindTarg
   const prefill = (session: null | string) => {
     if (session && getUiState().sid === session) {
       prefillPrompt(ctx, target.text)
-      ctx.transcript.sys(t('slashCmd.core.rewind.forked', String(target.turn)))
+      ctx.transcript.sys(slashCmdEn.slashCmd.core.rewind.forked(String(target.turn)))
     }
   }
 

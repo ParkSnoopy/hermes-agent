@@ -13,7 +13,7 @@ import pytest
 
 from gateway.config import Platform
 from gateway.platform_registry import PlatformEntry, platform_registry
-from tools.send_message_tool import resolve_send_target, send_message_tool
+from gateway.outbound import resolve_send_target, send_outbound
 
 
 @pytest.fixture
@@ -139,7 +139,7 @@ def test_host_send_honors_sync_and_async_plugin_handlers(plugin_platform, async_
     with patch("gateway.config.load_gateway_config", return_value=config), \
          patch("tools.interrupt.is_interrupted", return_value=False), \
          patch("gateway.mirror.mirror_to_session", return_value=True):
-        result = json.loads(send_message_tool({
+        result = json.loads(send_outbound({
             "target": f"{name}:@Alice@Example.COM",
             "message": "hello",
             "subject": "greeting",
@@ -151,8 +151,7 @@ def test_host_send_honors_sync_and_async_plugin_handlers(plugin_platform, async_
     assert seen[-1]["args"]["subject"] == "greeting"
 
 
-def test_cli_and_cron_share_plugin_target_normalization(plugin_platform, monkeypatch, capsys):
-    from cron.scheduler_delivery import _resolve_single_delivery_target
+def test_cli_plugin_target_normalization(plugin_platform, monkeypatch, capsys):
     from hermes_cli.send_cmd import cmd_send
 
     name, _entry, _seen = plugin_platform
@@ -176,15 +175,7 @@ def test_cli_and_cron_share_plugin_target_normalization(plugin_platform, monkeyp
     assert exc.value.code == 0
     assert json.loads(capsys.readouterr().out)["chat_id"] == "@alice@example.com"
 
-    cron_target = _resolve_single_delivery_target(
-        {"name": "fixture"}, f"{name}:@Alice@Example.COM"
-    )
-    assert cron_target == {
-        "platform": name,
-        "chat_id": "@alice@example.com",
-        "thread_id": None,
-        "_resolved_from": "explicit",
-    }
+
 
 
 
@@ -204,7 +195,7 @@ def test_force_reload_unregisters_profile_owned_platform(plugin_platform, monkey
     assert name not in manager._plugin_platform_names
 
 
-def test_fresh_process_real_plugin_fixture_covers_host_send_and_cron(tmp_path):
+def test_fresh_process_real_plugin_fixture_covers_host_send(tmp_path):
     """A standalone directory plugin is visible to host-driven send paths."""
     home = tmp_path / "home"
     plugin = home / "plugins" / "fmsg-fixture"
@@ -231,7 +222,7 @@ from unittest.mock import patch
 from hermes_cli.plugins import discover_plugins
 from gateway.config import Platform
 from tools.registry import registry
-from tools.send_message_tool import send_message_tool
+from gateway.outbound import send_outbound
 
 discover_plugins()
 platform = Platform("fmsg")
@@ -240,17 +231,15 @@ config = SimpleNamespace(platforms={platform: pconfig}, get_home_channel=lambda 
 with patch("gateway.config.load_gateway_config", return_value=config), \
      patch("tools.interrupt.is_interrupted", return_value=False), \
      patch("gateway.mirror.mirror_to_session", return_value=True):
-    host_send = json.loads(send_message_tool({"target": "fmsg:@Alice@Example.COM",
+    host_send = json.loads(send_outbound({"target": "fmsg:@Alice@Example.COM",
                                               "message": "hello", "subject": "hi"}))
-from cron.scheduler_delivery import _resolve_single_delivery_target
-cron = _resolve_single_delivery_target({}, "fmsg:@Alice@Example.COM")
-print(json.dumps({"host_send": host_send, "cron": cron,
+print(json.dumps({"host_send": host_send,
                   "model_registered": registry.get_entry("send_message") is not None}))
 '''
     env = dict(os.environ)
     env.update({
         "HERMES_HOME": str(home),
-        "HERMES_KANBAN_TASK": "fixture",
+
         "PYTHONPATH": os.getcwd(),
     })
     completed = subprocess.run(
@@ -263,7 +252,6 @@ print(json.dumps({"host_send": host_send, "cron": cron,
     )
     payload = json.loads(completed.stdout.strip().splitlines()[-1])
     assert payload["host_send"]["chat_id"] == "@alice@example.com"
-    assert payload["cron"]["chat_id"] == "@alice@example.com"
     assert payload["model_registered"] is False
 
 
@@ -273,7 +261,7 @@ def test_declared_target_syntax_and_standalone_policy_drive_send_routing():
     import asyncio
 
     from gateway.platforms.send_targets import NOT_EXPLICIT, StandaloneSendPolicy
-    from tools.send_message_tool import _send_to_platform
+    from gateway.outbound import _send_to_platform
 
     calls: list[dict] = []
 

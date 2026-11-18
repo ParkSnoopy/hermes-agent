@@ -320,6 +320,15 @@ def test_manifest_scan_follows_plugin_discovery_and_sees_mtime_preserving_edits(
     assert platform_manifest_stamp(tmp_path) != before
 
 
+def test_legacy_platform_manifests_classify_secrets_without_exposing_setup(monkeypatch):
+    import hermes_cli.config as cfg
+
+    manifest = {"requires_env": [{"name": "RETIRED_CHAT_TOKEN"}]}
+    monkeypatch.setattr(cfg, "_platform_plugin_manifests", lambda **kwargs: iter([("retired", manifest)]))
+    assert cfg._bundled_platform_secret_envs() == {"RETIRED_CHAT_TOKEN"}
+    assert "RETIRED_CHAT_TOKEN" not in cfg.OPTIONAL_ENV_VARS
+
+
 def test_unreadable_bundled_manifest_fails_the_policy_instead_of_dropping_it(monkeypatch):
     """The import-time read keeps the bundled secret set only when every bundled manifest was
     read; otherwise the policy's strict re-read raises rather than building without them."""
@@ -333,9 +342,7 @@ def test_unreadable_bundled_manifest_fails_the_policy_instead_of_dropping_it(mon
             raise PermissionError(13, "Permission denied", str(file))
         return real_open(file, *args, **kwargs)
 
-    monkeypatch.setattr(cfg, "OPTIONAL_ENV_VARS", dict(cfg.OPTIONAL_ENV_VARS))
     monkeypatch.setattr(builtins, "open", denying_open)
-    assert cfg._inject_platform_plugin_env_vars() is None
     monkeypatch.setattr(cfg, "BUNDLED_PLATFORM_SECRET_ENVS", None)
     with pytest.raises(PermissionError):
         cfg.platform_manifest_secret_envs(source="bundled", strict=True)
@@ -584,44 +591,6 @@ def test_pythonpath_descendants_are_not_owned():
     assert env["PYTHONPATH"].split(os.pathsep) == entries
 
 
-@pytest.mark.platforms("linux", "macos", "windows")
-@pytest.mark.parametrize("link_at", ["home", "repo", "unrelated"])
-@pytest.mark.parametrize("profile", [False, True])
-def test_launcher_alias_provenance(child_env, monkeypatch, link_at, profile):
-    from hermes_cli.gateway_windows import _preserve_hermes_home_path
-    from hermes_cli.profiles import resolve_profile_env
-    physical_home = child_env / "physical-home"
-    physical_root = physical_home / "hermes-agent"
-    physical_root.mkdir(parents=True)
-    configured = child_env / "configured-home"
-    if link_at == "home":
-        _make_directory_link(configured, physical_home)
-    else:
-        configured.mkdir()
-        if link_at == "repo":
-            _make_directory_link(configured / "hermes-agent", physical_root)
-        else:
-            (configured / "hermes-agent").mkdir()
-    (configured / "profiles/coder").mkdir(parents=True)
-    (configured / "profiles/coder/config.yaml").write_text("{}\n", encoding="utf-8")
-    unrelated = child_env / "user-tools/hermes-agent"
-    unrelated.mkdir(parents=True)
-    lexical_root = configured / "hermes-agent"
-    monkeypatch.setenv("HERMES_HOME", str(configured))
-    assert Path(resolve_profile_env("default")) == configured
-    assert Path(resolve_profile_env("coder")) == configured / "profiles/coder"
-    if link_at == "home":
-        assert Path(_preserve_hermes_home_path(physical_root)) == lexical_root
-    active_home = configured / "profiles/coder" if profile else configured
-    aliases = pp._build_hermes_repo_root_aliases(physical_root.resolve(), physical_root, active_home)
-    monkeypatch.setattr(local, "_hermes_repo_root_aliases", aliases)
-    nested = lexical_root / "user-data"
-    entries = [str(lexical_root), str(nested), str(unrelated), str(active_home / "not-the-repo")]
-    env = {"PYTHONPATH": os.pathsep.join(entries)}
-    pp._strip_hermes_owned_pythonpath(env)
-    assert env["PYTHONPATH"].split(os.pathsep) == (entries if link_at == "unrelated" else entries[1:])
-    if profile:
-        assert active_home / "hermes-agent" not in aliases
 
 
 @pytest.mark.parametrize("has_facts", [True, False])
@@ -1068,46 +1037,6 @@ class TestNativeEnvironmentContracts:
         assert direct_child in entries
         assert "/home/user/my-lib" in entries
 
-    def test_configured_home_alias_matches_launcher_output(self, tmp_path, monkeypatch):
-        """The real producer spelling is derived and consumed end to end."""
-        from tools.environments import local
-        from tools.environments import local_pythonpath
-        from hermes_cli.gateway_windows import _preserve_hermes_home_path
-
-        physical_home = tmp_path / "physical-home"
-        physical_root = _physical_repo_root(tmp_path)
-        configured_home = tmp_path / "configured-home"
-        try:
-            _make_directory_link(configured_home, physical_home)
-        except OSError as exc:
-            pytest.skip(f"directory link unavailable on this host: {exc}")
-        monkeypatch.setenv("HERMES_HOME", str(configured_home))
-
-        launcher_entry = Path(_preserve_hermes_home_path(physical_root))
-        aliases = local_pythonpath._build_hermes_repo_root_aliases(
-            physical_root.resolve(),
-            physical_root,
-            configured_home,
-        )
-
-        assert launcher_entry == configured_home / "hermes-agent"
-        assert launcher_entry in aliases
-
-        monkeypatch.setattr(local, "_hermes_repo_root_aliases", aliases)
-        nested_user_path = launcher_entry / "user-data"
-        env = {
-            "PYTHONPATH": os.pathsep.join([
-                str(launcher_entry),
-                str(nested_user_path),
-                "/home/user/my-lib",
-            ])
-        }
-        local_pythonpath._strip_hermes_owned_pythonpath(env)
-
-        assert env["PYTHONPATH"].split(os.pathsep) == [
-            str(nested_user_path),
-            "/home/user/my-lib",
-        ]
 
     def test_profile_rehome_keeps_junction_lexical_alias(self, tmp_path, monkeypatch):
         """Profile re-home must not lose the launcher's lexical repo-root spelling.

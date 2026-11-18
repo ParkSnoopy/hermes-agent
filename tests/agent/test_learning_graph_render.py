@@ -57,6 +57,13 @@ def _styles(grid):
     return {run[1] for row in grid for run in row}
 
 
+def test_skill_card_hides_count_but_ranking_still_uses_it():
+    node = {"kind": "skill", "label": "example", "category": "research", "useCount": 9, "pinned": True}
+    assert "x9" not in render._node_card(node)["meta"]
+    assert "pinned" in render._node_card(node)["meta"]
+    assert render._node_score(node, 0.5) > render._node_score({**node, "useCount": 0}, 0.5)
+
+
 def test_recency_is_timed_and_bounded():
     rec = render.compute_recency(_payload()["nodes"])
     assert rec["timed"] is True

@@ -1,28 +1,33 @@
 """Shared leaf helpers for the ``hermes update`` modules (no Hermes imports; no cycle)."""
 
 import logging
-import sys
+import os
 from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
 
 # Log-record parity with the origin module.
 logger = logging.getLogger("hermes_cli.update_cmd")
 
 
-def _record_stop(reason: str, *, without_receipt: str | None = None) -> None:
-    """Name the exit about to stop this update as one closed token (see update_receipt.record_stop_reason).
+def _planned_stop_marker_path(profile_path: Path) -> Path:
+    return Path(profile_path) / ".gateway-planned-stop.json"
 
-    ``without_receipt`` (``refused``/``failed``) is for an exit that fires before the receipt
-    opens: a metrics row only. The receipt module is read from ``sys.modules``, never imported:
-    an older updater can load this tree after the swap while its own, older ``update_receipt``
-    (without these calls) stays loaded.
-    """
-    receipt = sys.modules.get("hermes_cli.update_receipt")
-    if without_receipt is None:
-        record = getattr(receipt, "record_stop_reason", None)
-        if record is not None:
-            record(reason)
-    elif (record := getattr(receipt, "record_stop_without_receipt", None)) is not None:
-        record(reason, without_receipt)
+
+def _write_update_planned_stop_marker(profile_path: Path, pid: int) -> bool:
+    """Write a planned-stop marker into a specific profile home."""
+    try:
+        from gateway.status import _get_process_start_time
+        from utils import atomic_json_write
+        atomic_json_write(
+            _planned_stop_marker_path(profile_path),
+            {"target_pid": pid, "target_start_time": _get_process_start_time(pid), "stopper_pid": os.getpid(),
+             "written_at": datetime.now(UTC).isoformat()},
+            indent=None, separators=(",", ":"),
+        )
+        return True
+    except (OSError, PermissionError):
+        return False
 
 
 @contextmanager

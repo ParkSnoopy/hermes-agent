@@ -60,7 +60,7 @@ import tempfile
 import time
 from pathlib import Path, PurePosixPath
 from hermes_constants import get_hermes_home
-from hermes_cli._subprocess_compat import selected_git_env, windows_hide_flags
+from hermes_cli._subprocess_compat import selected_git_env
 from hermes_cli.gitlock import clear_stale_tmp_packs
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -483,10 +483,7 @@ def _run_git(
             env=env,
             cwd=str(normalized_working_dir),
             stdin=subprocess.DEVNULL,
-            # Checkpoints fire several bare git calls per turn from the
-            # console-less desktop/gateway backend; suppress the per-call
-            # conhost flash on Windows (no-op on POSIX).
-            creationflags=windows_hide_flags(),
+
             check=False,
         )
         ok = result.returncode == 0
@@ -637,7 +634,7 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
             capture_output=True, text=True, encoding='utf-8', errors='replace',
             env=init_env, timeout=_GIT_TIMEOUT,
             stdin=subprocess.DEVNULL,
-            creationflags=windows_hide_flags(),
+
             check=False,
         )
         if result.returncode != 0:
@@ -938,18 +935,14 @@ class CheckpointManager:
         self._checkpointed_dirs.clear()
 
     def unsupported_backend_reason(self, task_id: str = "default") -> Optional[str]:
-        """Explain why host checkpoints are off limits for a container-backed session.
-
-        Classifies the task's backend at call time (nothing is remembered), so /rollback is
-        refused before the first mutation and follows a backend change within the session."""
-        from tools.file_tools_paths import container_backend_for_task
-        backend = container_backend_for_task(task_id)
-        if backend is None:
-            return None
-        return (
-            f"Checkpoints are not taken for terminal.backend={backend}: "
-            "file paths belong to the container, not this host."
-        )
+        """Refuse checkpoint operations for unsupported terminal selections."""
+        from tools.file_tools_paths import _terminal_env_type_for_task
+        from tools.terminal_scope import TerminalPolicyUnavailable
+        try:
+            _terminal_env_type_for_task(task_id)
+        except (ValueError, TerminalPolicyUnavailable) as exc:
+            return str(exc)
+        return None
 
     # ------------------------------------------------------------------
     # Public API

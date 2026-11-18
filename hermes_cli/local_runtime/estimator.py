@@ -121,9 +121,8 @@ class HardwareBudget:
     # except integrated GPUs (b11370 #28160); Hermes passes --lazy-mode on to NVIDIA's, so only
     # AMD/Intel integrated GPUs load them up front.
     lazy_reads: bool = True
-    # Windows unified memory, live budgets only: commit the server may take for the models and
-    # their prompt caches. Windows charges every GPU allocation to commit (RAM it can see plus
-    # the page file), so this is the real ceiling there. None everywhere else.
+    # Optional shared resource ceiling for models and their prompt caches. None leaves the
+    # engine's default cache policy in effect.
     commit_room_bytes: int | None = None
 
 

@@ -18,9 +18,7 @@ hermes-agent/
 │   └── main.py           # CLI entry point and argparse
 ├── tools/                # One file per tool
 │   └── registry.py       # Central tool registry
-├── gateway/              # Messaging gateway
-│   └── platforms/        # Platform adapters (telegram, discord, etc.)
-├── cron/                 # Job scheduler
+├── gateway/              # Session and gateway runtime
 ├── tests/                # Extensive pytest suite (run via scripts/run_tests.sh)
 └── website/              # Docusaurus docs site
 ```
@@ -68,7 +66,7 @@ never hardcode `~/.hermes`. For custom/local-only tools, write a plugin in
 2. Add handler in `cli.py` → `process_command()`
 3. (Optional) Add gateway handler in `gateway/run.py`
 
-All consumers (help text, autocomplete, Telegram menu, Slack mapping) derive from the central registry automatically.
+Help text and autocomplete derive from the central registry.
 
 ### Agent Loop (High Level)
 
@@ -102,23 +100,17 @@ scripts/run_tests.sh -v --tb=long             # pass-through pytest flags
   that disposable environment before regeneration.
 - The runner probes repository `.venv`, `venv`, and the standard source-install
   venv before falling back to `HERMES_PYTHON`. Each candidate must contain pytest.
-- **Windows:** run the same wrapper through Git Bash. See `references/windows-quirks.md`.
 - After editing `pyproject.toml`, run `hermes pm lock`, re-source `./activate`, and
   commit `pyproject.toml` with `uv.lock`.
   Do not mutate Hermes environments with raw pip or uv commands.
 
 Host-specific tests run on the real host. Use one `@pytest.mark.platforms(...)`
-marker per test, such as `@pytest.mark.platforms("windows", arch="arm64")`.
+marker per test, such as `@pytest.mark.platforms("linux")`.
 Do not fake the host by patching `sys.platform` or platform probes.
 
 ### System prompt's execution-environment block
 
-Factual host/backend guidance (OS, `$HOME`, cwd, terminal backend, shell)
-is emitted by `agent/prompt_builder.py::build_environment_hints()`. The key
-invariant for prompt authors: with a **remote** terminal backend
-(`docker, modal, daytona, ssh, managed_modal`, plus plugin backends declaring `is_remote`), host info is
-suppressed and *every* file tool runs inside the backend container — the
-prompt must never describe the host the agent can't touch.
+Factual host guidance (OS, `$HOME`, cwd and shell) is emitted by `agent/prompt_builder.py::build_environment_hints()`. Terminal commands run locally under the Hermes process user.
 
 ### Commit Conventions
 

@@ -1,9 +1,7 @@
-"""Bot Desktop JSON-RPC handlers: the Desktop app's door to a profile's headless screen.
+"""Linux headless-screen status, lifecycle, installation, and lease privacy.
 
 ``display.status`` reports runtime + lease; ``display.start`` / ``display.stop`` manage the Xvnc/Xfce
-process; ``display.observe`` mints a single-use ticket the renderer redeems on ``/api/display/ws``
-(``hermes_cli.web_routers.display``) to stream raw RFB; ``display.lease.acquire`` / ``release`` are
-Take over / Hand back. ``display.install`` runs the distro package install on the gateway host: sudo
+process. ``display.install`` runs the distro package install on the gateway host: sudo
 privilege is asked for through the masked ``display.install.sudo`` server→client request (same ``_ask``
 bridge as the terminal tool's sudo prompt), stdout streams as ``display.install.log`` and the run ends with
 ``display.install.done`` carrying a fresh status snapshot. Every handler is profile-scoped so a multiplexed gateway answers for the bot
@@ -15,7 +13,7 @@ Bodies are rebound onto server.py's globals (method_ctx.bind_module) and referen
 
 import logging
 import threading
-import weakref
+
 
 from .method_ctx import HandlerRegistry, bind_module
 
@@ -31,8 +29,9 @@ _lease_listener_installed = threading.Event()
 def _display_snapshot() -> dict:
     from hermes_constants import hermes_home_key
     from tools.bot_desktop import lease as _bd_lease, runtime as _bd_runtime
-    st = _bd_runtime.status()
-    return {**st.as_dict(), "lease": _bd_lease.public_view(_bd_lease.get()), "profile_key": hermes_home_key()}
+    st = _bd_runtime.status().as_dict()
+    st.pop("image_switch", None)
+    return {**st, "lease": _bd_lease.public_view(_bd_lease.get()), "profile_key": hermes_home_key()}
 
 
 def _install_lease_listener() -> None:
@@ -109,84 +108,6 @@ def _(rid, params: dict) -> dict:
         return _err(rid, _DISPLAY_ERR, str(e))
 
 
-# viewer ids minted per connection (keyed by the transport that asked), so a reconnecting pane can
-# keep its identity — and its lease — while nobody can claim an id minted for another connection.
-_minted_viewer_ids: weakref.WeakKeyDictionary[object, set[str]] = weakref.WeakKeyDictionary()
-# Transports that cannot be weakly referenced (stdio, slotted, or none bound at all) are one
-# connection per process — the TUI's own pipe — so their minted ids share one process-wide set.
-_unweakable_minted_ids: set[str] = set()
-
-
-def _minted_for_this_connection() -> set[str]:
-    try:
-        return _minted_viewer_ids.setdefault(current_transport(), set())
-    except TypeError:
-        return _unweakable_minted_ids
-
-
-def _mint_viewer_id(requested: str) -> str:
-    """Server-minted viewer identity. ``requested`` is honoured only when THIS connection minted it
-    earlier; anything else (including a holder id read off display.status) gets a fresh id."""
-    import secrets
-    mine = _minted_for_this_connection()
-    if requested in mine:
-        return requested
-    viewer_id = secrets.token_urlsafe(16)
-    mine.add(viewer_id)
-    return viewer_id
-
-
-def _foreign_viewer_id(rid, viewer_id: str):
-    """The error for a viewer id this connection never minted, or None. acquire/release take the id
-    as a capability, so one a caller invented or read off the wire must be refused — otherwise the
-    minting only shapes the honest path and a made-up id still evicts or releases the human."""
-    if viewer_id in _minted_for_this_connection():
-        return None
-    return _err(rid, _DISPLAY_ERR, "viewer_id was not minted for this connection; call display.observe first",
-                data={"code": "viewer_mismatch"})
-
-
-@method("display.observe")
-@_profile_scoped
-def _(rid, params: dict) -> dict:
-    """Mint a single-use, 30 s ticket for ``/api/display/ws``. The ticket carries the profile home so
-    the bridge dials THIS profile's RFB socket, and a server-minted viewer id (returned to the caller,
-    who passes it to ``display.lease.acquire`` / ``release``) so the lease can name the holder."""
-    from hermes_constants import get_hermes_home
-    from hermes_cli.dashboard_auth.ws_tickets import mint_ticket
-    from hermes_cli.web_session_sockets import admission_of
-    from tools.bot_desktop import runtime as _bd_runtime
-    try:
-        # The bridge dials either the host RFB socket or the sandbox relay; neither exists before start.
-        if _bd_runtime.rfb_socket_path() is None and not _bd_runtime.sandbox_screen_running():
-            return _err(rid, _DISPLAY_ERR, "this profile's Bot Desktop is not running; call display.start first")
-        viewer_id = _mint_viewer_id(str(params.get("viewer_id") or "").strip())
-        extra = {"hermes_home": str(get_hermes_home()), "viewer_id": viewer_id}
-        # A viewer a browser tab opens watches and can drive this screen: it signs out with that tab,
-        # so the ticket carries the credential digest the tab's socket was admitted with.
-        if (admitted := admission_of(getattr(current_transport(), "ws", None))) is not None:
-            extra["admitted_with"] = admitted
-        ticket = mint_ticket(user_id=f"display:{viewer_id}", provider="bot-desktop", extra=extra)
-        return _ok(rid, {"ticket": ticket, "path": "/api/display/ws", "viewer_id": viewer_id,
-                         **_display_snapshot()})
-    except Exception as e:
-        return _err(rid, _DISPLAY_ERR, str(e))
-
-
-@method("display.switchSandboxImage")
-@_profile_scoped
-def _(rid, params: dict) -> dict:
-    """The Screen pane's answer to the pending default-image switch: ``approve`` true pins the new
-    image (the container is recreated on the next terminal call), false pins the current one. Both
-    end the offer. Refused when nothing is pending, so a stale pane cannot rewrite the config."""
-    from hermes_cli.sandbox_image_switch import decide, pending
-    sw = pending()
-    if sw is None:
-        return _err(rid, _DISPLAY_ERR, "no sandbox image switch is pending for this profile")
-    image = decide(sw, approve=bool(params.get("approve", True)))
-    return _ok(rid, {"docker_image": image, **_display_snapshot()})
-
-
 @method("display.install")
 @_profile_scoped
 def _(rid, params: dict) -> dict:
@@ -196,10 +117,7 @@ def _(rid, params: dict) -> dict:
     from tools.bot_desktop import install as _bd_install, runtime as _bd_runtime
     if not _bd_runtime.is_supported_host():
         return _err(rid, _DISPLAY_ERR, "Bot Desktop runs on Linux gateway hosts only")
-    if _bd_runtime.in_sandbox():
-        return _err(rid, _DISPLAY_ERR, "this profile's screen lives inside the terminal backend's sandbox; give that "
-                                       "sandbox an image with the desktop stack (nousresearch/hermes-sandbox:desktop) "
-                                       "instead of installing on the gateway host")
+
     if _bd_runtime.install_command() is None:
         return _err(rid, _DISPLAY_ERR, "no supported package manager (apt-get, dnf, pacman) on this host")
     profile_key = hermes_home_key()
@@ -234,40 +152,6 @@ def _(rid, params: dict) -> dict:
         return _err(rid, _DISPLAY_ERR, str(e))
     threading.Thread(target=ctx.run, args=(_run,), name=f"bot-desktop-install:{profile_key}", daemon=True).start()
     return _ok(rid, {"started": True, "command": _bd_runtime.install_command(), "profile_key": profile_key})
-
-
-@method("display.lease.acquire")
-@_profile_scoped
-def _(rid, params: dict) -> dict:
-    from tools.bot_desktop import lease as _bd_lease, runtime as _bd_runtime
-    viewer_id = str(params.get("viewer_id") or "").strip()
-    if not viewer_id:
-        return _err(rid, _DISPLAY_ERR, "viewer_id required")
-    if (refused := _foreign_viewer_id(rid, viewer_id)) is not None:
-        return refused
-    # A takeover is use, stamped before the lease is written: an idle check (here or in the screen's launcher)
-    # that reads the new lease against the old stamp takes it for an abandoned one and stops the screen under
-    # the human who just took it.
-    _bd_runtime.touch_activity()
-    lease = _bd_lease.acquire(viewer_id, reason=str(params.get("reason") or ""))
-    return _ok(rid, {"lease": _bd_lease.public_view(lease)})
-
-
-@method("display.lease.release")
-@_profile_scoped
-def _(rid, params: dict) -> dict:
-    from tools.bot_desktop import lease as _bd_lease
-    viewer_id = str(params.get("viewer_id") or "").strip() or None
-    # lease.release(None) skips the holder check; a client that lost its viewer id must not be able to
-    # yank control from whoever holds it unless it says so explicitly (force).
-    if viewer_id is not None and not params.get("force") and (refused := _foreign_viewer_id(rid, viewer_id)) is not None:
-        return refused
-    # Same atomicity as display.stop: the "is a human holding?" decision happens inside the transition.
-    lease = _bd_lease.release(viewer_id, unless_human=viewer_id is None and not params.get("force"))
-    if viewer_id is None and lease.holder == _bd_lease.HUMAN:
-        return _err(rid, _DISPLAY_ERR, "viewer_id required to release another viewer's lease (or pass force: true)",
-                    data={"code": "viewer_mismatch"})
-    return _ok(rid, {"lease": _bd_lease.public_view(lease)})
 
 
 def register(server) -> None:

@@ -1,12 +1,13 @@
 """Profile describer — auto-generate ``description`` for a profile.
 
-Mirrors ``hermes_cli/kanban_specify.py``: lazy aux client import, lenient response parse,
-never raises on expected failure modes. Reads at most ``MAX_SKILLS_FOR_PROMPT`` skill
+Uses a lazy aux client import, lenient response parsing and never raises on expected
+failure modes. Reads at most ``MAX_SKILLS_FOR_PROMPT`` skill
 names to keep the prompt bounded.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -22,12 +23,11 @@ logger = logging.getLogger(__name__)
 MAX_SKILLS_FOR_PROMPT = 60
 
 
-_SYSTEM_PROMPT = """You are a profile-describer for the Hermes Agent kanban board.
+_SYSTEM_PROMPT = """You are a profile-describer for Hermes Agent.
 
 A user runs multiple "profiles" — distinct agent identities, each with their
-own skills, model, and configuration. The kanban board's orchestrator routes
-work to whichever profile best fits each task. To do that well, every
-profile needs a short, concrete description of what it's good at.
+own skills, model, and configuration. Each profile needs a short, concrete
+description of what it's good at.
 
 You are given a profile's:
   - Name
@@ -105,8 +105,17 @@ def _sample_skills(names: list[str]) -> list[str]:
 
 
 def _extract_json_blob(raw: str) -> Optional[dict]:
-    from hermes_cli.kanban_specify import _extract_json_blob as _extract
-    return _extract(raw, _FENCE_RE)
+    if not raw:
+        return None
+    stripped = _FENCE_RE.sub("", raw.strip())
+    first, last = stripped.find("{"), stripped.rfind("}")
+    if first < 0 or last <= first:
+        return None
+    try:
+        value = json.loads(stripped[first:last + 1])
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def describe_profile(profile_name: str, *, overwrite: bool = False, timeout: Optional[int] = None) -> DescribeOutcome:

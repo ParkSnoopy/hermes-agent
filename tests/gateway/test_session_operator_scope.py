@@ -101,7 +101,7 @@ async def test_identity_fields_cannot_grant_operator_or_first_claim(tmp_path, mo
         await authority.attach(connection.actor, ref)
     authority.db.create_session('unowned', source='cli')
     operator = replace(connection.actor, capabilities=connection.actor.capabilities | {'session:operator'})
-    from gateway.session_local_migration import resolve_local_target
+    from gateway.session_local_route import resolve_local_target
     with pytest.raises(RuntimeStoreError):
         resolve_local_target(authority, operator, 'unowned')
     trusted = AuthorityConnection(authority, object(), {'user_id': 'verified'}, operator=True)

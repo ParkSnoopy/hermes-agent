@@ -91,11 +91,9 @@ class TestFireworksDoctor:
         import httpx
 
         monkeypatch.setattr(httpx, "get", lambda *a, **k: types.SimpleNamespace(status_code=200))
-        monkeypatch.setitem(
-            sys.modules,
-            "model_tools",
-            types.SimpleNamespace(check_tool_availability=lambda *a, **k: ([], []), TOOLSET_REQUIREMENTS={}),
-        )
+        monkeypatch.setitem(sys.modules, "model_tools", types.SimpleNamespace())
+        monkeypatch.setattr("tools.registry.registry.check_tool_availability", lambda *a, **k: ([], []))
+        monkeypatch.setattr("tools.registry.registry.get_toolset_requirements", dict)
         with contextlib.suppress(Exception):
             from hermes_cli import auth as _auth_mod
 
@@ -131,22 +129,13 @@ class TestFireworksAuxiliary:
             client, model = resolve_provider_client(name)
         return client, model, mock_openai.call_args.kwargs
 
-    def test_client_sends_attribution_headers(self, monkeypatch):
+    def test_client_omits_attribution_headers(self, monkeypatch):
         monkeypatch.setenv("FIREWORKS_API_KEY", "fw_test_key")
         client, _model, kwargs = self._resolve("fireworks")
         assert client is not None
-        headers = kwargs.get("default_headers", {})
-        assert headers["HTTP-Referer"] == "https://hermes-agent.nousresearch.com"
-        assert headers["X-Title"] == "Hermes Agent"
         assert kwargs["base_url"] == "https://api.fireworks.ai/inference/v1"
-
-    def test_client_sends_hermes_user_agent(self, monkeypatch):
-        """The profile's User-Agent survives the generic default_headers
-        fallback and reaches OpenAI client construction."""
-        monkeypatch.setenv("FIREWORKS_API_KEY", "fw_test_key")
-        _client, _model, kwargs = self._resolve("fireworks")
-        headers = kwargs.get("default_headers", {})
-        assert headers["User-Agent"].startswith("HermesAgent/")
+        assert not ({"HTTP-Referer", "X-Title", "User-Agent"} &
+                    (kwargs.get("default_headers") or {}).keys())
 
 
 class TestFireworksModelMetadata:

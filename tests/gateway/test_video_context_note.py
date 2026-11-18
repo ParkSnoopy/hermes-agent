@@ -1,7 +1,5 @@
 """Tests for video attachment context notes in gateway turns."""
 
-from unittest.mock import patch
-
 import pytest
 
 from gateway.config import GatewayConfig, Platform
@@ -32,15 +30,9 @@ async def test_video_attachment_adds_path_note_not_document_note():
         media_types=["video/mp4"],
     )
 
-    with patch(
-        "tools.credential_files.to_agent_visible_cache_path",
-        side_effect=lambda path: path,
-    ):
-        result = await runner._prepare_inbound_message_text(
-            event=event,
-            source=source,
-            history=[],
-        )
+    result = await runner._prepare_inbound_message_text(
+        event=event, source=source, history=[],
+    )
 
     assert "/tmp/video_clip.mp4" in result
     assert "The user sent a document" not in result

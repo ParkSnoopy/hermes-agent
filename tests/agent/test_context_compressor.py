@@ -242,12 +242,6 @@ class TestSummarizeToolResultOutcome:
          "[web_search] query='hermes' (25 chars result) FAILED: rate limited"),
         ("memory", {"action": "add", "target": "a note"}, {"error": "unknown action"},
          "[memory] add on a note FAILED: unknown action"),
-        ("text_to_speech", {}, {"error": "no voice available"},
-         "[text_to_speech] generated audio (31 chars) FAILED: no voice available"),
-        ("cronjob_manage", {"action": "create"}, {"success": False}, "[cronjob] create FAILED"),
-        ("cronjob_manage", {"action": "run"},
-         {"success": True, "job": {"execution_success": False, "execution_error": "agent exited with code 1"}},
-         "[cronjob] run FAILED: agent exited with code 1"),
         ("process_manage", {"action": "poll", "session_id": "p1"},
          {"status": "exited", "exit_code": 1, "completion_reason": "nonzero_exit"},
          "[process] poll session=p1 FAILED: exit code 1"),
@@ -268,10 +262,7 @@ class TestSummarizeToolResultOutcome:
          "[web_search] query='hermes' (31 chars result)"),
         ("write_file", {"path": "a.md", "content": "line 1\nline 2"}, {"bytes_written": 13},
          "[write_file] wrote to a.md (2 lines)"),
-        ("text_to_speech", {}, {"success": True, "path": "/tmp/out.wav"}, "[text_to_speech] generated audio (41 chars)"),
         # ``job`` carries stored state from earlier runs; only this call's outcome may mark the stub.
-        ("cronjob_manage", {"action": "poll"},
-         {"success": True, "job": {"error": "last run failed", "execution_success": True}}, "[cronjob] poll"),
         ("process_manage", {"action": "poll", "session_id": "p1"}, {"status": "exited", "exit_code": 0},
          "[process] poll session=p1"),
         ("process_manage", {"action": "poll", "session_id": "p1"}, {"status": "running", "pid": 4242},
@@ -279,9 +270,6 @@ class TestSummarizeToolResultOutcome:
         # The agent's own kill and a run the scheduler is already firing are not failures.
         ("process_manage", {"action": "poll", "session_id": "p1"},
          {"status": "exited", "exit_code": -15, "completion_reason": "killed"}, "[process] poll session=p1"),
-        ("cronjob_manage", {"action": "run"},
-         {"success": True, "job": {"execution_skipped": "Already being fired by the scheduler; not run again."}},
-         "[cronjob] run SKIPPED: Already being fired by the scheduler; not run again."),
     ])
     def test_successful_call_stub_is_not_marked(self, tool_name, args, payload, expected):
         assert self._stub(tool_name, args, payload) == expected
@@ -447,10 +435,10 @@ def _refusals():
     """Refused-call results from the real producers: the approval gate messages in their terminal
     envelope, the write guard's raw ``BLOCKED:`` text, the workdir guard's ``status`` "blocked"
     envelope (its error reads "Blocked:", not "BLOCKED"), a pending gateway approval, and a
-    successful kanban_block (``status`` "blocked" with no error, which is not a refusal). ``expected`` lists substrings the summary must
+    successful session search. ``expected`` lists substrings the summary must
     contain; empty means it must not read as refused."""
     from tools import approval
-    from tools.kanban_tools import _ok
+    from tools.session_search_tool import _ok
     from tools.terminal_tool import _error_json
     from tools.terminal_tool_guards import _validate_workdir
 
@@ -477,9 +465,8 @@ def _refusals():
         pytest.param("terminal", {"command": "rm -rf build"},
                      _error_json("", status="pending_approval"),
                      ["awaiting the user's approval, not run"], id="pending_approval"),
-        pytest.param("kanban_block", {"reason": "need creds"},
-                     _ok(task_id="t_1", run_id=None, status="blocked", block_kind="needs_input"),
-                     [], id="kanban_block_ok"),
+        pytest.param("session_search", {"query": "notes"},
+                     _ok(results=[]), [], id="session_search_ok"),
     ]
 
 
@@ -1125,7 +1112,6 @@ class TestAuthFailureAborts:
         assert c._last_compress_aborted is True
         assert c._last_summary_fallback_used is False
         assert c._last_summary_dropped_count == 0
-        assert c._last_compression_telemetry["failure_class"] == "summary_overload_failure"
 
 
     def test_403_also_flags_auth_failure(self):
@@ -3148,7 +3134,6 @@ class TestSummaryPromptBounding:
         resp.choices = [MagicMock()]
         resp.choices[0].message = MagicMock()
         resp.choices[0].message.content = "## Historical Task Snapshot\nDone."
-        telemetry = compressor._begin_compression_telemetry(current_tokens=1_000_000)
         with patch("agent.context_compressor.call_llm", return_value=resp) as mock_call:
             assert compressor._generate_summary(messages) is not None
         assert mock_call.call_count == 1
@@ -3165,14 +3150,6 @@ class TestSummaryPromptBounding:
         # Newest record anchors the tail and both ends of the history are represented.
         assert whole[-1].startswith("[USER]: record-1199 ")
         assert whole[0].startswith("[USER]: record-0000 ")
-        # Coverage telemetry describes exactly what the prompt shows, in records and record chars.
-        assert telemetry["summary_input_record_count"] == 1200
-        assert telemetry["summary_input_sampled_record_count"] == len(whole)
-        assert telemetry["summary_input_elided_record_count"] == 1200 - len(whole)
-        assert telemetry["summary_input_sampled_chars"] == sum(map(len, whole))
-        assert telemetry["summary_input_chars"] == (
-            telemetry["summary_input_sampled_chars"] + telemetry["summary_input_omitted_chars"]
-        )
 
     def test_lean_sampling_oversized_middle_record_does_not_evict_tail(self):
         """A record larger than one region's share is bounded inside itself, not allowed to consume
@@ -3182,7 +3159,7 @@ class TestSummaryPromptBounding:
         records.append("[TOOL RESULT oversized-mid]: " + ("y" * (cap // 2)))
         records.extend(f"[USER]: record-{i:04d} " + ("x" * 1200) for i in range(401, 800))
         records.append("[USER]: newest-tail-record")
-        sampled, _coverage = ContextCompressor._sample_summary_records(records)
+        sampled = ContextCompressor._sample_summary_records(records)
         assert len(sampled) <= cap
         assert sampled.rstrip().endswith("[USER]: newest-tail-record")
         assert "[TOOL RESULT oversized-mid]: yyyy" in sampled
@@ -3199,16 +3176,15 @@ class TestSummaryPromptBounding:
     def test_lean_sampling_extension_closes_gaps_without_stray_markers(self):
         """When the extension pass fully closes the gap between two slices, the neighbours become
         one run joined by the record separator — no zero-width elision marker, no missing
-        separator — and the coverage telemetry still counts each shown record once."""
+        separator — and each shown record appears once."""
         cap = ContextCompressor._SUMMARY_INPUT_MAX_CHARS
         records = [f"[USER]: record-{i:02d} " + ("x" * 8500) for i in range(20)]
         assert sum(map(len, records)) > cap  # sampling engages, with headroom > one gap
-        sampled, coverage = ContextCompressor._sample_summary_records(records)
+        sampled = ContextCompressor._sample_summary_records(records)
         assert len(sampled) <= cap
         shown = [int(i) for i in re.findall(r"record-(\d\d) x", sampled)]
         assert shown == sorted(set(shown))
         assert shown[-1] == 19 and shown[0] == 0
-        assert coverage["sampled_record_count"] == len(shown)
         # At least one initial gap was closed: fewer markers than the n-1 the n slices started with.
         assert sampled.count("chars elided") < ContextCompressor._SAMPLED_INPUT_SLICES - 1
         for a, b in itertools.pairwise(shown):
@@ -3525,7 +3501,7 @@ class TestPreLlmFeasibilityCheck:
         return msgs
 
     def test_skip_does_not_increment_strike_counter(self, compressor):
-        """Feasibility skip must use _prellm_skip_count, not _ineffective_compression_count."""
+        """Feasibility skip must not increment the ineffectiveness strike counter."""
         compressor._ineffective_compression_count = 1  # one prior real strike
         msgs = self._make_messages()
 
@@ -3535,8 +3511,6 @@ class TestPreLlmFeasibilityCheck:
 
         # The strike counter must NOT have been incremented by the skip
         assert compressor._ineffective_compression_count == 1
-        # The pre-LLM skip counter should have been incremented
-        assert compressor._prellm_skip_count >= 1
         # _generate_summary must NOT have been called
         mock_gen.assert_not_called()
 
@@ -3566,7 +3540,6 @@ class TestPreLlmFeasibilityCheck:
 
         # _generate_summary MUST have been called despite tiny middle section
         mock_gen.assert_called_once()
-        assert compressor._prellm_skip_count == 0
 
     def test_no_skip_when_no_prior_strikes(self, compressor):
         """No prior ineffectiveness strikes → feasibility check doesn't fire."""
@@ -3577,7 +3550,6 @@ class TestPreLlmFeasibilityCheck:
             compressor.compress(msgs, force=False)
 
         mock_gen.assert_called_once()
-        assert compressor._prellm_skip_count == 0
 
     def test_skip_fires_on_fat_tail_small_middle(self, compressor):
         """The target scenario from #60451: a tool-heavy transcript whose
@@ -3607,7 +3579,6 @@ class TestPreLlmFeasibilityCheck:
             result = compressor.compress(msgs, force=False)
 
         mock_gen.assert_not_called()
-        assert compressor._prellm_skip_count == 1
         assert compressor._last_feasibility_skip is True
         # Deterministic dropping still made progress.
         assert len(result) < len(msgs)
@@ -3635,7 +3606,6 @@ class TestPreLlmFeasibilityCheck:
                 feasibility_skip=compressor._last_feasibility_skip,
             )
 
-        assert compressor._prellm_skip_count == 2
         assert compressor._fallback_compression_streak == 0
         assert not compressor._automatic_compression_blocked_locally()
 

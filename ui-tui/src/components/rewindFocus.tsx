@@ -4,7 +4,7 @@ import { type RefObject, useEffect, useRef } from 'react'
 
 import { $backtrackPrime, $pendingRewind } from '../app/backtrackStore.js'
 import { $rewindFocus, $rewindScrollRestore, rewindFocusIndex } from '../app/rewindFocusStore.js'
-import { useT } from '../i18n/useT.js'
+import { overlaysEn } from '../copy/overlays.js'
 import type { Msg } from '../types.js'
 
 /** While backtrack browsing is open, keep the selected prompt in view: scroll so its row sits a few
@@ -53,7 +53,7 @@ export function useRewindFocusIndex(messages: readonly Msg[]) {
 /** The composer's one-line backtrack hint: the primed Esc (`esc again…`, only with an earlier
  *  prompt to go back to), else the armed edit, else null. */
 export function useBacktrackHint(): null | string {
-  const R = useT().prompt.rewind
+  const R = overlaysEn.prompt.rewind
   const prime = useStore($backtrackPrime)
   const pending = useStore($pendingRewind)
 

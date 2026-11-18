@@ -5,8 +5,7 @@ import type { BillingStateResponse } from '@hermes/shared/gateway-types'
 import { useRef, useState } from 'react'
 
 import type { BillingOverlayState } from '../app/interfaces.js'
-import type { Translations } from '../i18n/types.js'
-import { useT } from '../i18n/useT.js'
+import { billingEn } from '../copy/billing.js'
 import type { Theme } from '../theme.js'
 
 import { ActionRow, footer, MenuRow, type MenuRowSpec, UsageBars, useMenu } from './overlayPrimitives.js'
@@ -21,7 +20,7 @@ interface BillingOverlayProps {
   t: Theme
 }
 
-type BillingMessages = Translations['billing']
+type BillingMessages = typeof billingEn['billing']
 
 function autoReloadLine(B: BillingMessages, s: BillingStateResponse): null | string {
   if (!s.auto_reload) {
@@ -89,7 +88,7 @@ interface ScreenProps {
 }
 
 function OverviewScreen({ ctx, onClose, onPatch, s, t }: ScreenProps) {
-  const B = useT().billing
+  const B = billingEn.billing
   // Full charge menu only for an admin with the org kill-switch on; otherwise it
   // collapses to Manage-on-portal / Close + a one-line note. NOTE: this is the
   // ORG-level gate (cli_billing_enabled), NOT the per-terminal remote spending scope —
@@ -200,7 +199,7 @@ function OverviewScreen({ ctx, onClose, onPatch, s, t }: ScreenProps) {
 // ── Screen 2: Buy credits ─────────────────────────────────────────────
 
 function BuyScreen({ ctx, onPatch, s, t }: ScreenProps) {
-  const B = useT().billing
+  const B = billingEn.billing
   const presets = s.charge_presets_display
   const rawPresets = s.charge_presets
   // No card on file → the buy screen becomes the ADD-CARD path: cards are added
@@ -425,7 +424,7 @@ function ConfirmScreen({
   s: BillingStateResponse
   t: Theme
 }) {
-  const B = useT().billing
+  const B = billingEn.billing
   // rows: Pay $X now / Cancel
   const [sel, setSel] = useState(0)
   const [submitting, setSubmitting] = useState(false)
@@ -530,7 +529,7 @@ function StepUpScreen({
   onClose: () => void
   t: Theme
 }) {
-  const B = useT().billing
+  const B = billingEn.billing
   const [sel, setSel] = useState(0)
   const [phase, setPhase] = useState<'granted' | 'prompt' | 'resuming' | 'waiting'>('prompt')
 
@@ -696,7 +695,7 @@ function StepUpScreen({
 type AutoReloadAction = 'cancel' | 'manageCard' | 'turnOff' | 'turnOn'
 
 function AutoReloadScreen({ ctx, onClose, onPatch, s, t }: ScreenProps) {
-  const B = useT().billing
+  const B = billingEn.billing
   const ar = s.auto_reload
   const enabled = Boolean(ar?.enabled)
   const distinctCard = ar?.card?.kind === 'distinct' ? ar.card : null
@@ -925,7 +924,7 @@ function AutoReloadScreen({ ctx, onClose, onPatch, s, t }: ScreenProps) {
 // ── Screen 5: Monthly spend limit (read-only) ─────────────────────────
 
 function LimitScreen({ ctx, onClose, onPatch, s, t }: ScreenProps) {
-  const B = useT().billing
+  const B = billingEn.billing
   const labels = [B.common.manageOnPortal, B.common.cancel]
 
   const choose = (i: number) => {
@@ -985,7 +984,7 @@ function keepGoingChrome(s: BillingStateResponse, B: BillingMessages, full: bool
 }
 
 /** Flip the account setting; the ✅ line lands once the gateway confirms (errors render there). */
-function applyKeepGoingOnCredits(ctx: BillingOverlayState['ctx'], B: Translations['billing'], enabled: boolean) {
+function applyKeepGoingOnCredits(ctx: BillingOverlayState['ctx'], B: typeof billingEn['billing'], enabled: boolean) {
   void ctx.applyKeepGoingOnCredits(enabled).then(ok => {
     if (ok) {
       ctx.sys(enabled ? B.keepGoing.turnedOn : B.keepGoing.turnedOff)
@@ -996,7 +995,7 @@ function applyKeepGoingOnCredits(ctx: BillingOverlayState['ctx'], B: Translation
 // ── Screen: confirm turning on Keep going on credits (same words as the terminal /topup) ──
 
 function KeepGoingOnCreditsScreen({ ctx, onClose, onPatch, t }: ScreenProps) {
-  const B = useT().billing
+  const B = billingEn.billing
   const labels = [B.keepGoing.turnOn, B.common.cancel]
   const back = () => onPatch({ screen: 'overview' })
 

@@ -10,12 +10,11 @@ import pytest
 
 
 @pytest.mark.platforms("linux")
-@pytest.mark.parametrize('partial_start', [False, True])
-def test_live_runtime_writers_prevent_final_lock_release(tmp_path, monkeypatch, partial_start):
+def test_live_runtime_writers_prevent_final_lock_release(tmp_path, monkeypatch):
     from gateway import run
-    from gateway.run_bootstrap import _start_gateway_start_cron_and_housekeeping
+    from gateway.run_bootstrap import _start_gateway_housekeeping_thread
     from gateway.status import acquire_gateway_runtime_lock, release_gateway_runtime_lock
-    from cron import scheduler_provider
+
 
     home = tmp_path / 'runtime'
     home.mkdir()
@@ -24,21 +23,14 @@ def test_live_runtime_writers_prevent_final_lock_release(tmp_path, monkeypatch, 
     started = threading.Event()
     threads = []
 
-    class Provider:
-        name = 'fixture'
-        def start(self, stop, **kwargs):
-            started.set()
-            gate.wait(20)
+    def housekeeping(*args, **kwargs):
+        started.set()
+        gate.wait(20)
 
-    provider = Provider()
-    monkeypatch.setattr(scheduler_provider, 'resolve_cron_scheduler', lambda: provider)
-    monkeypatch.setattr(scheduler_provider, 'scheduler_for_profile_mode', lambda p, **kw: p)
-    monkeypatch.setattr(run, '_start_gateway_housekeeping', lambda *a, **kw: gate.wait(20))
+    monkeypatch.setattr(run, '_start_gateway_housekeeping', housekeeping)
     original_start = threading.Thread.start
 
     def start_thread(thread):
-        if thread.name == 'gateway-housekeeping' and partial_start:
-            raise RuntimeError('owned thread-start failure')
         threads.append(thread)
         return original_start(thread)
 
@@ -46,7 +38,7 @@ def test_live_runtime_writers_prevent_final_lock_release(tmp_path, monkeypatch, 
     runner = SimpleNamespace(config=SimpleNamespace(multiplex_profiles=False), adapters={})
 
     async def start():
-        return _start_gateway_start_cron_and_housekeeping(runner)
+        return _start_gateway_housekeeping_thread(runner)
 
     probe = '''
 from gateway.status import acquire_gateway_runtime_lock, release_gateway_runtime_lock
@@ -64,11 +56,7 @@ if claimed:
 
     assert acquire_gateway_runtime_lock()
     try:
-        if partial_start:
-            with pytest.raises(RuntimeError, match='owned thread-start failure'):
-                asyncio.run(start())
-        else:
-            asyncio.run(start())
+        asyncio.run(start())
         assert started.wait(5)
         assert contender() == 'CLAIMED False'
         release_gateway_runtime_lock()

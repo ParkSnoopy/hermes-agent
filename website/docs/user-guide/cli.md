@@ -66,8 +66,7 @@ With `hermes --tui -w`, closing the terminal detaches from the gateway-owned
 session. A clean worktree is removed with its branch on quit unless something
 still needs it. It is retained when it has uncommitted changes or unpushed
 commits, when the gateway still has a turn queued or running there, when a
-session in it has an active `/loop`, `/heartbeat` or `/goal`, when an enabled
-cron job runs in it or is bound to such a session, or when another viewer (a
+session in it has an active `/loop`, `/heartbeat` or `/goal`, or when another viewer (a
 Desktop window, say) still holds that session. Resuming a session uses its
 working directory: if quit removed the worktree, `hermes --tui --resume <id>`,
 `hermes --tui -c` and the classic `hermes --resume`/`-c` recreate it at the same
@@ -77,8 +76,7 @@ of the same name from the repo's current `HEAD`). Only worktrees that
 session store and then removes the tree; a viewer that attaches and submits in
 the moment between the two is not seen, so that turn can find its directory
 gone.
-A sweep runs automatically at `hermes -w` startup and every 6 hours from the
-cron ticker: idle clean+merged trees are removed, and idle trees with
+A sweep runs automatically at `hermes -w` startup: idle clean+merged trees are removed, and idle trees with
 uncommitted changes or unpushed commits are **archived, then removed**
 (restorable with `hermes worktree restore <name>`; see
 [Stale worktree sweep](./git-worktrees.md#stale-worktree-sweep-and-restore)).
@@ -143,10 +141,6 @@ Safety guarantees (all modes, any age):
   commits are all on upstream is safe to delete; branches with unique work,
   checked-out branches, and `main`/`master`/`develop` are always kept.
 
-The same sweep also runs from the cron scheduler (at most once every 6 hours
-per profile, in the background) over every repository the profile created a
-worktree in, so gateway-only machines — where nobody launches `hermes -w` for
-days — no longer accumulate scratch trees between CLI sessions.
 
 When `.worktrees/` grows past 10 trees or 5 GB, startup prints a one-line
 notice pointing at these commands.
@@ -267,7 +261,6 @@ On macOS, `F6`/`F7` mean the physical function keys, not the media/system contro
 | `Alt+Enter`, `Ctrl+J`, or `Shift+Enter` | New line (multi-line input). `Shift+Enter` requires a terminal that distinguishes it from `Enter` — see below. On Windows Terminal, `Alt+Enter` is captured by the terminal (fullscreen toggle); use `Ctrl+Enter` or `Ctrl+J` instead. |
 | `Alt+V` | Paste an image from the clipboard when supported by the terminal |
 | `Ctrl+V` | Paste text and opportunistically attach clipboard images |
-| `Ctrl+B` | Start/stop voice recording when voice mode is enabled (`voice.record_key`, default: `ctrl+b`) |
 | `Ctrl+G` | Open the current input buffer in `$EDITOR` (vim/nvim/nano/VS Code/etc.). Save and quit to send the edited text as the next prompt — ideal for long, multi-paragraph prompts. |
 | `Ctrl+X Ctrl+E` | Emacs-style alternate binding for the external editor (same behavior as `Ctrl+G`). |
 | `Ctrl+S` | **Stash the prompt.** Parks the current draft and clears the composer so you can send something else first. Press `Ctrl+S` again on an empty composer to bring the draft back (cursor at the end, attached images restored). Repeated presses build a stack rather than overwriting, so an earlier draft is never silently lost — with two or more stashed, `Ctrl+S` opens a browse panel (`↑`/`↓` to navigate, `Enter` to restore, `D` to discard, `Esc` or `Ctrl+S` to close). A `📌 N` badge in the status bar shows how many drafts are parked. Multi-line drafts round-trip exactly, including blank lines. The stash lives in memory for the session only — nothing is written to disk, since drafts often contain secrets. |
@@ -294,7 +287,7 @@ Start a line with `!` to run it as a shell command instead of sending it to the 
 
 - **Zero cost.** The model is never invoked — no API call, no tokens, no latency.
 - **Nothing enters the conversation.** The command and its output are not added to history, so your context stays clean and the prompt cache is untouched.
-- **Runs on your machine, in the session working directory.** With the default local terminal backend `!pwd` matches what the agent would see. A remote or sandboxed `terminal.backend` (`ssh`, `docker`, …) is **not** used for `!` commands — they always run on the host where Hermes itself runs, so `!hostname` names your machine while the agent's `terminal` tool names the backend. Ask the agent (or open a shell on the target) to run something *inside* the backend. Path completion in the composer, by contrast, does follow the configured backend and lists the target's filesystem.
+- **Runs on the Hermes host, in the session working directory.** Shell mode and the agent terminal use the local filesystem. Nonlocal terminal selections are refused.
 - **Approvals still apply.** A dangerous command (`rm -rf`, writes to `~/.hermes/config.yaml`, etc.) goes through the same approval prompt the agent's `terminal` tool uses. `!` is a cost/latency shortcut, not a security bypass.
 - **Non-zero exits are shown.** A failing command prints `! exited <code>` after its output.
 - `!` on its own prints a one-line usage reminder.
@@ -318,8 +311,6 @@ Common examples:
 | `/bg <prompt>` | Run a prompt in a separate background session |
 | `/btw <question>` | Ask a side question about the current conversation without interrupting it |
 | `/skin` | Show or switch the active CLI skin |
-| `/voice on` | Enable CLI voice mode (press `Ctrl+B` to record) |
-| `/voice tts` | Toggle spoken playback for Hermes replies |
 | `/reasoning high` | Increase reasoning effort |
 | `/title My Session` | Name the current session |
 | `/status` | Show session info — model/profile/tokens/duration — followed by a local **Session recap** block (recent turn counts, top tools used, files touched, latest user prompt + assistant reply). Pure local compute; no LLM call. |
@@ -328,7 +319,6 @@ Common examples:
 
 For the full built-in CLI and messaging lists, see [Slash Commands Reference](../reference/slash-commands.md).
 
-For setup, providers, silence tuning, and messaging/Discord voice usage, see [Voice Mode](features/voice-mode.md).
 
 :::tip
 Commands are case-insensitive — `/HELP` works the same as `/help`. Installed skills also become slash commands automatically.

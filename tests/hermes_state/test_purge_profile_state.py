@@ -146,37 +146,6 @@ class TestPurgeProfileState:
         assert db._read_one(
             "SELECT id FROM sessions WHERE id = ?", ("sess_gone",)) is not None
 
-    def test_purges_topic_bindings_matched_by_session_key_namespace(self, db):
-        """The rekey rewrites a binding's ``profile_name`` AND its ``session_key`` namespace, so the
-        purge has to match both — a binding whose ``profile_name`` names somebody else still belongs
-        to the deleted profile by key, and matching on ``profile_name`` alone leaves it routing
-        events for a profile that no longer exists."""
-        db.create_session(
-            "sess_gone", "telegram", session_key="agent:gone:telegram:dm:chatA",
-            profile_name="gone", chat_id="chatA", chat_type="dm",
-        )
-        db.create_session(
-            "sess_keep", "telegram", session_key="agent:keepme:telegram:dm:chatB",
-            profile_name="keepme", chat_id="chatB", chat_type="dm",
-        )
-        db.bind_telegram_topic(
-            chat_id="chatA", thread_id="threadA", user_id="userA",
-            session_key="agent:gone:telegram:dm:chatA", session_id="sess_gone",
-            profile_name="otherholder")
-        db.bind_telegram_topic(
-            chat_id="chatB", thread_id="threadB", user_id="userB",
-            session_key="agent:keepme:telegram:dm:chatB", session_id="sess_keep",
-            profile_name="keepme")
-
-        counts = db.purge_profile_state("gone")
-
-        assert db._read_one(
-            "SELECT COUNT(*) AS n FROM telegram_dm_topic_bindings WHERE chat_id = ?",
-            ("chatA",))["n"] == 0
-        assert db._read_one(
-            "SELECT COUNT(*) AS n FROM telegram_dm_topic_bindings WHERE chat_id = ?",
-            ("chatB",))["n"] == 1
-        assert counts["telegram_dm_topic_bindings"] == 1
 
     def test_underscore_in_profile_name_is_not_a_like_wildcard(self, db):
         db.save_gateway_routing_entry(
@@ -192,8 +161,8 @@ class TestPurgeProfileState:
         assert "agent:foo_bar:feishu:dm:chatA" not in routing
         assert "agent:fooXbar:feishu:dm:chatB" in routing
 
-    def test_purges_legacy_v2_topic_binding_by_session_key(self, db):
-        """Purge is safe on old tables and leaves unrelated namespace rows intact."""
+    def test_preserves_legacy_v2_topic_bindings_on_purge(self, db):
+        """Retired topic data remains untouched when purging a profile."""
         db.create_session(
             "sess_gone", "telegram", session_key="agent:gone:telegram:dm:chatA",
             profile_name="gone", chat_id="chatA", chat_type="dm")
@@ -214,10 +183,10 @@ class TestPurgeProfileState:
 
         counts = db.purge_profile_state("gone")
 
-        assert counts["telegram_dm_topic_bindings"] == 1
+        assert "telegram_dm_topic_bindings" not in counts
         assert db._read_one(
             "SELECT COUNT(*) AS n FROM telegram_dm_topic_bindings WHERE chat_id = ?", ("chatA",)
-        )["n"] == 0
+        )["n"] == 1
         assert db._read_one(
             "SELECT session_key FROM telegram_dm_topic_bindings WHERE chat_id = ?", ("chatB",)
         )["session_key"] == "agent:keepme:telegram:dm:chatB"

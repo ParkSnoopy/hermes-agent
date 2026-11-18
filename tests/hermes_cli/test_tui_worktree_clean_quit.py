@@ -153,17 +153,3 @@ def test_quit_keeps_the_tree_while_another_viewer_still_holds_the_session(tmp_pa
     assert wt_info['branch'] in _branches(repo)
 
 
-@pytest.mark.parametrize('bound', ['workdir', 'origin'])
-def test_quit_keeps_the_tree_while_a_cron_job_is_bound_to_it(tmp_path, monkeypatch, bound):
-    from cron import jobs
-
-    def prepare(db, cwd):
-        db.end_session('tui-wt', 'tui_shutdown')
-        db._execute_write(lambda conn: conn.execute("UPDATE sessions SET chat_id='local-chat' WHERE id='tui-wt'"))
-        if bound == 'workdir':
-            jobs.create_job('run the tests', 'every 10m', workdir=cwd)
-        else:
-            jobs.create_job('run the tests', 'every 10m', origin={'platform': 'local', 'chat_id': 'local-chat'})
-    tree, repo, wt_info = _quit_with(tmp_path, monkeypatch, prepare)
-    assert tree.is_dir(), f'cron {bound}: tree removed while a job still runs there'
-    assert wt_info['branch'] in _branches(repo)

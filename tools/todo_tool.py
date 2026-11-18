@@ -282,21 +282,15 @@ TODO_SCHEMA = {
     }
 }
 
-# Pre-rename names that replay as the Todo tool. model_tools._LEGACY_TOOL_ALIASES derives its todo
-# entries from this, so the alias map and the transcript/TUI predicates below cannot drift.
-TODO_LEGACY_ALIASES = ("todo",)
-TODO_TOOL_NAMES = frozenset((TODO_SCHEMA["name"], *TODO_LEGACY_ALIASES))
-
-
 def is_todo_tool_name(name: Any) -> bool:
-    """True for the Todo tool's current name or a legacy alias (an already-unwrapped dispatch name)."""
-    return isinstance(name, str) and name in TODO_TOOL_NAMES
+    """True for the Todo tool's current dispatch name."""
+    return name == TODO_SCHEMA["name"]
 
 
 def is_todo_tool_call(tool_call: Any) -> bool:
     """True when a transcript tool_call entry (dict or object) invoked the Todo tool.
 
-    Covers the current name, legacy aliases, and the ``tool_call`` bridge (``todo_list`` is deferred by
+    Covers the current name and the ``tool_call`` bridge (``todo_list`` is deferred by
     default, and the transcript keeps the bridge name). The bridge is peeled from the recorded arguments
     only, never live tool-search config, and must wrap exactly one call. Keep this module free of model_tools / agent.tool_executor
     imports: TUI resume and run_agent call this without loading either.

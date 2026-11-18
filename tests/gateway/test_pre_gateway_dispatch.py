@@ -15,26 +15,30 @@ from gateway.platforms.event import MessageEvent
 from gateway.session import SessionSource
 
 
+@pytest.fixture
+def _register_human_transport(monkeypatch):
+    from tests.gateway.test_authority_busy_plaintext_approval import _human_adapter
+    _human_adapter(monkeypatch)
+
+
 def _clear_auth_env(monkeypatch) -> None:
     for key in (
-        "TELEGRAM_ALLOWED_USERS",
-        "WHATSAPP_ALLOWED_USERS",
+        "HUMAN_FIXTURE_ALLOWED_USERS",
         "GATEWAY_ALLOWED_USERS",
-        "TELEGRAM_ALLOW_ALL_USERS",
-        "WHATSAPP_ALLOW_ALL_USERS",
+        "HUMAN_FIXTURE_ALLOW_ALL_USERS",
         "GATEWAY_ALLOW_ALL_USERS",
     ):
         monkeypatch.delenv(key, raising=False)
 
 
-def _make_event(text: str = "hello", platform: Platform = Platform.WHATSAPP) -> MessageEvent:
+def _make_event(text: str = "hello", platform: Platform | None = None) -> MessageEvent:
     return MessageEvent(
         text=text,
         message_id="m1",
         source=SessionSource(
-            platform=platform,
-            user_id="15551234567@s.whatsapp.net",
-            chat_id="15551234567@s.whatsapp.net",
+            platform=platform or Platform("human_fixture"),
+            user_id="tester",
+            chat_id="tester",
             user_name="tester",
             chat_type="dm",
         ),
@@ -60,10 +64,10 @@ def _make_runner(platform: Platform):
 
 
 @pytest.mark.asyncio
-async def test_internal_events_bypass_hook(monkeypatch):
+async def test_internal_events_bypass_hook(monkeypatch, _register_human_transport):
     """Internal events (event.internal=True) skip the plugin hook entirely."""
     _clear_auth_env(monkeypatch)
-    monkeypatch.setenv("WHATSAPP_ALLOWED_USERS", "*")
+    monkeypatch.setenv("HUMAN_FIXTURE_ALLOWED_USERS", "*")
 
     called = {"count": 0}
 
@@ -76,7 +80,7 @@ async def test_internal_events_bypass_hook(monkeypatch):
 
     monkeypatch.setattr("hermes_cli.plugins.invoke_hook", _fake_hook)
 
-    runner, _adapter = _make_runner(Platform.WHATSAPP)
+    runner, _adapter = _make_runner(Platform("human_fixture"))
     runner._handle_message_with_agent = _capture
 
     event = _make_event("hi")
@@ -87,7 +91,7 @@ async def test_internal_events_bypass_hook(monkeypatch):
     assert called["count"] == 0
 
 @pytest.mark.asyncio
-async def test_hook_fires_without_session_store_attribute(monkeypatch):
+async def test_hook_fires_without_session_store_attribute(monkeypatch, _register_human_transport):
     """A runner missing session_store still delivers the event to plugins.
 
     Regression: the hook kwargs read ``self.session_store`` directly, so a
@@ -110,7 +114,7 @@ async def test_hook_fires_without_session_store_attribute(monkeypatch):
     # The inbound path awaits the hook, so the seam is the async entry point.
     monkeypatch.setattr("hermes_cli.plugins.ainvoke_hook", _fake_hook)
 
-    runner, adapter = _make_runner(Platform.WHATSAPP)
+    runner, adapter = _make_runner(Platform("human_fixture"))
     del runner.session_store
 
     result = await runner._handle_message(_make_event("hi"))
@@ -121,7 +125,7 @@ async def test_hook_fires_without_session_store_attribute(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_async_hook_callback_is_awaited_on_the_gateway_loop(monkeypatch):
+async def test_async_hook_callback_is_awaited_on_the_gateway_loop(monkeypatch, _register_human_transport):
     """An ``async def`` pre_gateway_dispatch callback is awaited on the gateway's own loop.
 
     Regression: the inbound path called the sync ``invoke_hook``, which (since #109196) runs an
@@ -147,7 +151,7 @@ async def test_async_hook_callback_is_awaited_on_the_gateway_loop(monkeypatch):
         await asyncio.sleep(0)
         gate.set()
 
-    runner, adapter = _make_runner(Platform.WHATSAPP)
+    runner, adapter = _make_runner(Platform("human_fixture"))
     asyncio.create_task(_release())
     result = await asyncio.wait_for(runner._handle_message(_make_event("hi")), timeout=5)
     assert result is None
@@ -167,17 +171,17 @@ async def test_rewritten_message_keeps_its_callback_provenance_and_is_admitted(m
     from gateway.session_ingress_context import capture_provenance, native_callback, register_transport_home
     from hermes_constants import get_hermes_home
     from hermes_state_runtime import list_session_admissions
-    from plugins.platforms.discord.adapter import DiscordAdapter
+    from tests.gateway.test_authority_busy_plaintext_approval import _human_adapter
 
     async def rewrite(name, **_kwargs):
         return [{"action": "rewrite", "text": "rewritten"}] if name == "pre_gateway_dispatch" else []
 
     monkeypatch.setattr("hermes_cli.lifecycle.ainvoke_hook", rewrite)
     monkeypatch.setattr(SessionAuthority, "_schedule", lambda self, ref: None)
-    monkeypatch.setenv("DISCORD_ALLOWED_USERS", "42")
     runner = GatewayRunner(GatewayConfig())
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token="fixture-token", typing_indicator=False))
-    runner.adapters = {Platform.DISCORD: adapter}
+    adapter = _human_adapter(monkeypatch)
+    monkeypatch.setenv("HUMAN_FIXTURE_ALLOWED_USERS", "42")
+    runner.adapters = {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id="default", instance_id="owner")
     runner._wire_adapter_handlers(adapter)
     # The multiplexed admission check that refused the reporter (thanks @unsupportedpastels).
@@ -198,7 +202,7 @@ async def test_rewritten_message_keeps_its_callback_provenance_and_is_admitted(m
 
 
 @pytest.mark.asyncio
-async def test_hook_fires_once_at_messaging_ingress_and_never_when_an_admission_executes(monkeypatch):
+async def test_hook_fires_once_at_messaging_ingress_and_never_when_an_admission_executes(monkeypatch, _register_human_transport):
     """PLG-5: executing an admitted row (a local CLI/TUI/Desktop turn, or a messaging turn's first
     run or restart replay) re-enters ``_handle_message``. The hook already ran at ingress (main has
     no other firing point), so it must not run again there, and a "skip" never drops admitted input."""
@@ -222,7 +226,7 @@ async def test_hook_fires_once_at_messaging_ingress_and_never_when_an_admission_
     monkeypatch.setattr("hermes_cli.lifecycle.ainvoke_hook", hook)
     monkeypatch.setattr(authorities, "active_authority", lambda _runner: SimpleNamespace(route_epoch=lambda _route: 0))
     monkeypatch.setattr(ingress, "admit_message", admit)
-    runner, adapter = _make_runner(Platform.WHATSAPP)
+    runner, adapter = _make_runner(Platform("human_fixture"))
     runner._is_user_authorized_for_source = lambda _s: True
     runner._admit_bot_message_for_source = lambda _s: True
     runner._delivery_adapter_for = runner._intake_adapter_for = lambda _s: adapter
@@ -439,184 +443,8 @@ async def test_a_webhook_row_committed_before_the_fingerprint_retries_exactly_an
     assert fired == []
 
 
-@pytest.mark.asyncio
-async def test_relay_resend_of_a_rewritten_delivery_resolves_its_admission(tmp_path, monkeypatch):
-    """A relay re-send of a rewritten delivery resolves the existing admission (same receipt, no second
-    hook call, one row) instead of being acknowledged as a permanent ``admission_conflict``."""
-    import asyncio
-    import json
-
-    websockets = pytest.importorskip("websockets")
-    import gateway.platforms.webhook_ingress as ingress
-    from gateway.relay.adapter import RelayAdapter
-    from gateway.relay.descriptor import CapabilityDescriptor
-    from gateway.relay.ws_transport import WebSocketRelayTransport
-    from gateway.run import GatewayRunner
-    from gateway.session_authority import initialize_session_authority
-    from gateway.session_results import execution_result
-    from tests.waiting import async_wait_until
-
-    outgoing, ready, turns, outcomes, fired = [], asyncio.Queue(), [], [], []
-    descriptor = CapabilityDescriptor(1, "telegram", "Fixture", 4096, False, True, False, "plain", "chars")
-
-    async def connector(ws):
-        await ws.recv()  # hello
-        await ws.send(json.dumps({"type": "descriptor", "descriptor": json.loads(descriptor.to_json())}) + "\n")
-        await ready.put(ws)
-        async for line in ws:
-            frame = json.loads(line)
-            outgoing.append(frame)
-            if frame["type"] == "outbound":
-                await ws.send(json.dumps({"type": "outbound_result", "requestId": frame["requestId"],
-                                          "result": {"success": True, "message_id": "sent"}}) + "\n")
-
-    async def turn(event, *_args, **_kwargs):
-        turns.append(event.text)
-        execution_result.get()["result"] = {"final_response": "ok", "messages": []}
-        return "ok"
-
-    admit = ingress.admit_producer
-
-    async def observed(adapter, event):
-        try:
-            receipt = await admit(adapter, event)
-        except Exception as exc:
-            outcomes.append(getattr(exc, "reason", repr(exc)))
-            raise
-        outcomes.append(receipt.admission_id)
-        return receipt
-
-    monkeypatch.setattr(ingress, "admit_producer", observed)
-    _rewriting_hook(fired)
-    async with websockets.serve(connector, "127.0.0.1", 0) as relay:
-        transport = WebSocketRelayTransport(
-            f"ws://127.0.0.1:{relay.sockets[0].getsockname()[1]}/relay", "telegram", "fixture-bot",
-            gateway_id="fixture-gateway", upgrade_secret="fixture-secret", reconnect=True, reconnect_backoff_s=.05)
-        runner = GatewayRunner(GatewayConfig(sessions_dir=tmp_path / "sessions"))
-        monkeypatch.setattr(runner, "_handle_message_with_agent", turn)
-        authority = await initialize_session_authority(runner, profile_id="default", instance_id="relay-retry")
-        adapter = RelayAdapter(PlatformConfig(enabled=True), descriptor, transport)
-        adapter.gateway_runner = runner
-        runner.adapters[Platform.RELAY] = adapter
-        runner._wire_adapter_handlers(adapter)
-        try:
-            assert await adapter.connect()
-            ws = await asyncio.wait_for(ready.get(), 5)
-            event = {"text": "please rewrite", "message_id": "r1",
-                     "source": {"platform": "telegram", "chat_id": "relay-chat", "chat_type": "dm",
-                                "user_id": "relay-user"}}
-            acked = lambda: {f.get("bufferId") for f in outgoing if f.get("type") == "inbound_ack"}
-            for buffer_id in ("buf-1", "buf-2"):  # the connector re-sends after a lost ACK
-                await ws.send(json.dumps({"type": "inbound", "event": event, "bufferId": buffer_id}) + "\n")
-                await async_wait_until(lambda: buffer_id in acked() and turns, timeout=20,
-                                       what=f"{buffer_id} acknowledged after the turn ran")
-            rows = authority.db._read_all("SELECT admission_id, payload_json FROM session_admissions")
-        finally:
-            await adapter.disconnect()
-            authority.db.close()
-    assert [json.loads(row["payload_json"])["text"] for row in rows] == ["rewritten"]
-    assert outcomes == [rows[0]["admission_id"]] * 2
-    assert (turns, fired) == (["rewritten"], ["r1"])
 
 
-@pytest.mark.asyncio
-async def test_relay_resend_of_a_rewritten_media_delivery_reuses_its_admission_and_changed_bytes_conflict(
-        tmp_path, monkeypatch):
-    """A rewritten relay delivery with media, still queued: an exact re-send (same bytes, re-downloaded
-    under a fresh staging name) resolves to the original admission and releases its freshly retained
-    copy; a re-send whose bytes changed conflicts and retains nothing."""
-    import asyncio
-    import json
-    import threading
-    from http.server import ThreadingHTTPServer
-    from pathlib import Path
-
-    websockets = pytest.importorskip("websockets")
-    import gateway.platforms.webhook_ingress as ingress
-    from gateway.relay.adapter import RelayAdapter
-    from gateway.relay.descriptor import CapabilityDescriptor
-    from gateway.relay.media import RelayMediaClient
-    from gateway.relay.ws_transport import WebSocketRelayTransport
-    from gateway.run import GatewayRunner
-    from gateway.session_authority import SessionAuthority, initialize_session_authority
-    from gateway.session_ingress_media import _media_root
-    from tests.gateway.test_native_media_redelivery import PNG, _Media
-    from tests.waiting import async_wait_until
-
-    outgoing, ready, outcomes, fired = [], asyncio.Queue(), [], []
-    descriptor = CapabilityDescriptor(1, "telegram", "Fixture", 4096, False, True, False, "plain", "chars")
-    monkeypatch.setattr(SessionAuthority, "_schedule", lambda self, ref: None)  # the row stays queued, bytes held
-    media = ThreadingHTTPServer(("127.0.0.1", 0), _Media)
-    threading.Thread(target=media.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{media.server_port}/photo.png"
-
-    async def connector(ws):
-        await ws.recv()  # hello
-        await ws.send(json.dumps({"type": "descriptor", "descriptor": json.loads(descriptor.to_json())}) + "\n")
-        await ready.put(ws)
-        async for line in ws:
-            frame = json.loads(line)
-            outgoing.append(frame)
-            if frame["type"] == "outbound":
-                await ws.send(json.dumps({"type": "outbound_result", "requestId": frame["requestId"],
-                                          "result": {"success": True, "message_id": "sent"}}) + "\n")
-
-    admit = ingress.admit_producer
-
-    async def observed(adapter, event):
-        try:
-            receipt = await admit(adapter, event)
-        except Exception as exc:
-            outcomes.append(getattr(exc, "reason", repr(exc)))
-            raise
-        outcomes.append(receipt.admission_id)
-        return receipt
-
-    monkeypatch.setattr(ingress, "admit_producer", observed)
-    _rewriting_hook(fired)
-    retained = lambda: sorted(_media_root().rglob("*.png"))
-    async with websockets.serve(connector, "127.0.0.1", 0) as relay:
-        transport = WebSocketRelayTransport(
-            f"ws://127.0.0.1:{relay.sockets[0].getsockname()[1]}/relay", "telegram", "fixture-bot",
-            gateway_id="fixture-gateway", upgrade_secret="fixture-secret", reconnect=True, reconnect_backoff_s=.05)
-        runner = GatewayRunner(GatewayConfig(sessions_dir=tmp_path / "sessions"))
-        authority = await initialize_session_authority(runner, profile_id="default", instance_id="relay-media")
-        adapter = RelayAdapter(PlatformConfig(enabled=True), descriptor, transport)
-        adapter._media_client = RelayMediaClient(f"http://127.0.0.1:{media.server_port}", None, None)
-        adapter.gateway_runner = runner
-        runner.adapters[Platform.RELAY] = adapter
-        runner._wire_adapter_handlers(adapter)
-        acked = lambda: {f.get("bufferId") for f in outgoing if f.get("type") == "inbound_ack"}
-        try:
-            assert await adapter.connect()
-            ws = await asyncio.wait_for(ready.get(), 5)
-            event = {"text": "please rewrite", "message_id": "r1", "message_type": "photo",
-                     "media_urls": [url], "media": [{"url": url, "mime": "image/png"}],
-                     "source": {"platform": "telegram", "chat_id": "relay-chat", "chat_type": "dm",
-                                "user_id": "relay-user"}}
-            for buffer_id in ("buf-1", "buf-2"):  # the connector re-sends after a lost ACK
-                await ws.send(json.dumps({"type": "inbound", "event": event, "bufferId": buffer_id}) + "\n")
-                await async_wait_until(lambda: buffer_id in acked() and len(outcomes) == int(buffer_id[-1]),
-                                       timeout=20, what=f"{buffer_id} acknowledged")
-            kept = retained()
-            _Media.body = PNG + b"changed"
-            await ws.send(json.dumps({"type": "inbound", "event": event, "bufferId": "buf-3"}) + "\n")
-            await async_wait_until(lambda: "buf-3" in acked(), timeout=20, what="the changed re-send acknowledged")
-            after_conflict = retained()
-            rows = authority.db._read_all("SELECT admission_id, payload_json FROM session_admissions")
-        finally:
-            _Media.body = PNG
-            media.shutdown()
-            media.server_close()
-            await adapter.disconnect()
-            authority.db.close()
-    [row] = rows
-    committed = json.loads(row["payload_json"])
-    assert committed["text"] == "rewritten" and len(committed["native_text_v1"]["media"]) == 1
-    assert outcomes == [row["admission_id"]] * 2 + ["admission_conflict"]
-    assert kept == after_conflict == [Path(committed["native_text_v1"]["media"][0]["path"])], (
-        "a re-send's fresh copy must be released, the original's kept")
-    assert fired == ["r1"]
 
 
 @pytest.mark.asyncio
@@ -668,114 +496,5 @@ async def test_an_identical_webhook_delivery_waits_for_the_running_hook_and_gets
     assert fired == ["d-1"]
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("hook_name, verdict, outcome", [
-    ("pre_gateway_dispatch", {"action": "skip"}, None),
-    ("post_gateway_admission", {"action": "handled"}, None),
-    ("pre_gateway_dispatch", {"action": "rewrite", "text": "/status"}, "invalid_params"),
-    ("pre_gateway_dispatch", "drain", "runtime_draining"),
-])
-async def test_a_relay_media_delivery_no_admission_owns_retains_no_bytes(
-        tmp_path, monkeypatch, hook_name, verdict, outcome):
-    """Preparing a producer delivery copies its media into the retained store before the hooks run. A
-    delivery a plugin skips or consumes, or whose admission is refused after the hook (a command-shaped
-    rewrite, a drain that began during the hook), is never admitted: that copy is released."""
-    import asyncio
-    import json
-    import threading
-    from http.server import ThreadingHTTPServer
-
-    websockets = pytest.importorskip("websockets")
-    import gateway.platforms.webhook_ingress as ingress
-    from gateway.relay.adapter import RelayAdapter
-    from gateway.relay.descriptor import CapabilityDescriptor
-    from gateway.relay.media import RelayMediaClient
-    from gateway.relay.ws_transport import WebSocketRelayTransport
-    from gateway.run import GatewayRunner
-    from gateway.session_authority import initialize_session_authority
-    from gateway.session_ingress_media import _media_root
-    from hermes_cli.plugins import get_plugin_manager
-    from tests.gateway.test_native_media_redelivery import _Media
-    from tests.waiting import async_wait_until
-
-    outgoing, ready, fired, outcomes = [], asyncio.Queue(), [], []
-    descriptor = CapabilityDescriptor(1, "telegram", "Fixture", 4096, False, True, False, "plain", "chars")
-    media = ThreadingHTTPServer(("127.0.0.1", 0), _Media)
-    threading.Thread(target=media.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{media.server_port}/photo.png"
-
-    def hook(**kwargs):
-        fired.append(hook_name)
-        if verdict == "drain":
-            runner._draining = True  # the owner began draining while the hook ran
-            return None
-        return verdict
-
-    manager = get_plugin_manager()
-    manager._discovered = True
-    manager._hooks.setdefault(hook_name, []).append(hook)
-    admit = ingress.admit_producer
-
-    async def observed(adapter, event):
-        try:
-            outcomes.append(await admit(adapter, event))
-        except Exception as exc:
-            outcomes.append(getattr(exc, "reason", repr(exc)))
-            raise
-
-    monkeypatch.setattr(ingress, "admit_producer", observed)
-
-    async def connector(ws):
-        await ws.recv()  # hello
-        await ws.send(json.dumps({"type": "descriptor", "descriptor": json.loads(descriptor.to_json())}) + "\n")
-        await ready.put(ws)
-        async for line in ws:
-            outgoing.append(json.loads(line))
-
-    async with websockets.serve(connector, "127.0.0.1", 0) as relay:
-        transport = WebSocketRelayTransport(
-            f"ws://127.0.0.1:{relay.sockets[0].getsockname()[1]}/relay", "telegram", "fixture-bot",
-            gateway_id="fixture-gateway", upgrade_secret="fixture-secret", reconnect=True, reconnect_backoff_s=.05)
-        runner = GatewayRunner(GatewayConfig(sessions_dir=tmp_path / "sessions"))
-        authority = await initialize_session_authority(runner, profile_id="default", instance_id="relay-skip")
-        adapter = RelayAdapter(PlatformConfig(enabled=True), descriptor, transport)
-        adapter._media_client = RelayMediaClient(f"http://127.0.0.1:{media.server_port}", None, None)
-        adapter.gateway_runner = runner
-        runner.adapters[Platform.RELAY] = adapter
-        runner._wire_adapter_handlers(adapter)
-        try:
-            assert await adapter.connect()
-            ws = await asyncio.wait_for(ready.get(), 5)
-            event = {"text": "look", "message_id": "r1", "message_type": "photo",
-                     "media_urls": [url], "media": [{"url": url, "mime": "image/png"}],
-                     "source": {"platform": "telegram", "chat_id": "relay-chat", "chat_type": "dm",
-                                "user_id": "relay-user"}}
-            await ws.send(json.dumps({"type": "inbound", "event": event, "bufferId": "buf-1"}) + "\n")
-            await async_wait_until(lambda: outcomes, timeout=20, what="the delivery decided")
-            rows = authority.db._read_all("SELECT 1 FROM session_admissions")
-        finally:
-            runner._draining = False
-            media.shutdown()
-            media.server_close()
-            await adapter.disconnect()
-            authority.db.close()
-    assert (fired, outcomes, rows) == ([hook_name], [outcome], [])
-    assert not list(_media_root().rglob("*.png")), "a delivery no admission owns left its retained copy"
 
 
-def test_relay_binding_moves_to_a_text_rewrite_but_never_to_a_new_source():
-    """The relay binding gets the same treatment as the native one, under the same guard: it follows
-    a text-only rewrite, and is never carried to an event whose source object was swapped."""
-    from copy import copy
-    from dataclasses import replace
-
-    from gateway.session_ingress_context import _relay_callback, carry_callback, relay_callback
-
-    transport, event = object(), _make_event("a")
-    with relay_callback(transport, event):
-        rewritten = replace(event, text="b")
-        carry_callback(event, rewritten)
-        assert _relay_callback.get() == (transport, rewritten)
-        carry_callback(rewritten, replace(rewritten, source=copy(rewritten.source), text="c"))
-        assert _relay_callback.get()[1] is rewritten
-    assert _relay_callback.get() is None

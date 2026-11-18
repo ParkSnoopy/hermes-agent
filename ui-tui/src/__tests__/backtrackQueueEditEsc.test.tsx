@@ -68,7 +68,6 @@ function mount(queueEditIdx: null | number) {
       },
       gateway: { gw: { isCanonical: true } },
       terminal: { hasSelection: false, stdout },
-      voice: { recordKey: 'ctrl+b' },
       wheelStep: 3
     } as any)
 

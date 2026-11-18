@@ -15,18 +15,15 @@ import sys
 from contextlib import contextmanager, suppress
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
-from hermes_cli._subprocess_compat import windows_hide_flags
-from tools.computer_use.permissions import _child_env as _sanitized_cua_env
-from tools.computer_use.permissions import stale_tcc_grant_hint
+from tools.computer_use.cua_backend import sanitized_cua_driver_env as _sanitized_cua_env
 
 # Match the ALLOWED_STATUS_VALUES + ALLOWED_OVERALL_VALUES the cua-driver integration test pins.
 _STATUS_GLYPH = {"pass": "✅", "fail": "❌", "skip": "⏭️"}
 _OVERALL_GLYPH = {"ok": "✅", "degraded": "⚠️", "failed": "❌"}
-_SUPPORTED_PLATFORMS = ("darwin", "linux", "windows")
-_TCC_HINT = "Grant {} to CuaDriver in System Settings → Privacy & Security."
-_ZERO_DISPLAY_MSG = "ScreenCaptureKit reachable but 0 shareable display(s) — every capture will return 0x0."
-_ZERO_DISPLAY_HINT = ("Wake the built-in display, connect a monitor or HDMI dummy dongle (e.g. Headless Ghost), or enable "
-                      "a virtual display (Screen Sharing/VNC, BetterDisplay). Verify with `system_profiler SPDisplaysDataType`.")
+_SUPPORTED_PLATFORMS = ("linux",)
+_ZERO_DISPLAY_MSG = "The capture backend sees 0 shareable display(s) — every capture will return 0x0."
+_ZERO_DISPLAY_HINT = ("Wake the display, connect a monitor or configure a virtual display, "
+                      "then verify that the active display session permits capture.")
 _IO_EXC = (OSError, subprocess.TimeoutExpired)
 _PRUNED_UNIT_MSG = "Exec targets {target} which no longer exists — a cua-driver upgrade pruned that release directory"
 _PRUNED_UNIT_HINT = ("Point the {kind} at ~/.cua-driver/packages/current/cua-driver — `current` survives upgrades; "
@@ -61,7 +58,7 @@ def _first_line(text: str) -> Optional[str]:
     return text.strip().splitlines()[0].strip() if text.strip() else None
 
 def _read_cli_version(binary: str, *, timeout: float = 5.0) -> Optional[str]:
-    """First line of ``--version`` or None; health_report's ``driver_version`` can disagree (seen on Windows)."""
+    """First line of ``--version`` or None; health_report's ``driver_version`` can disagree."""
     cp = _cli_text(binary, "--version", timeout=timeout, exc_types=_IO_EXC + (ValueError, TypeError))
     return None if isinstance(cp, BaseException) else _first_line(cp.stdout or cp.stderr or "")
 
@@ -116,9 +113,9 @@ def _extract_health_report_from_result(result: Report) -> Report:
     raise RuntimeError(f"health_report response carried neither structuredContent nor a parseable JSON text block. Result keys: {list(result.keys())}")
 
 def _open_mcp(binary: str) -> subprocess.Popen:
-    """Spawn ``<binary> mcp``; pin UTF-8 — cua-driver emits emoji/arbitrary paths and Windows' cp1252 would raise."""
+    """Spawn ``<binary> mcp`` with UTF-8 for diagnostic glyphs and arbitrary paths."""
     return subprocess.Popen([binary, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=True, encoding="utf-8", errors="replace", bufsize=1, creationflags=windows_hide_flags(),
+                            text=True, encoding="utf-8", errors="replace", bufsize=1,
                             env=_sanitized_cua_env())
 
 def _mcp_rpc(proc: subprocess.Popen, msg_id: int, method: str, params: Any = None) -> Report:
@@ -186,7 +183,7 @@ def _drive_fallback_probes(binary: str, *, timeout: float = 12.0) -> Report:
     with _mcp_session(binary, timeout) as proc:
         server_info = (_mcp_rpc(proc, 1, "initialize", {}).get("result") or {}).get("serverInfo") or {}
         out["init_version"] = server_info.get("version") if isinstance(server_info, dict) else None
-        perms, out["permissions_error"] = _probe_tool(proc, 2, "check_permissions")  # primary TCC signal on 0.10
+        perms, out["permissions_error"] = _probe_tool(proc, 2, "check_permissions")
         out["permissions"] = _structured(perms) if perms is not None else None
         # list_apps — light AX capability probe; text-only success still counts as AX working
         apps, out["list_apps_error"] = _probe_tool(proc, 3, "list_apps")
@@ -197,23 +194,6 @@ def _drive_fallback_probes(binary: str, *, timeout: float = 12.0) -> Report:
 
 def _platform_name() -> str:
     return (_platform_mod.system() or "").lower() or "unknown"
-
-def _tcc_row(field: str, label: str, platform_bound: bool, ctx: Report) -> _Row:
-    """tcc_* row for one check_permissions boolean *field* (Accessibility / Screen Recording)."""
-    perms, err = ctx["perms"], ctx["perm_err"]
-    if perms is None:
-        return ("fail" if err else "skip"), err or "check_permissions unavailable", {}
-    granted = perms.get(field)
-    if not isinstance(granted, bool):  # only real booleans select a branch; anything else is "absent"
-        off_platform = platform_bound and ctx["plat"] != "darwin"
-        return "skip", f"not applicable on {ctx['plat']}" if off_platform else f"{field} field absent from check_permissions", {}
-    if not granted:
-        return "fail", f"{label} is not granted.", {"hint": _TCC_HINT.format(label), "data": {field: False}}
-    data = {field: True, **({"screen_recording_capturable": perms.get("screen_recording_capturable")} if field == "screen_recording" else {})}
-    if data.get("screen_recording_capturable") is False:  # the granted-but-not-capturable row wins over plain pass
-        return "fail", "Screen Recording granted but not capturable.", {"hint": (
-            "Screen Recording permission may need a restart of CuaDriver or a re-grant in System Settings."), "data": data}
-    return "pass", f"{label} is granted.", {"data": data}
 
 def _ax_capability_row(ctx: Report) -> _Row:
     """ax_capability — inferred from list_apps success or the accessibility grant."""
@@ -235,8 +215,6 @@ _FALLBACK_PROBES: tuple[tuple[str, Callable[[Report], Optional[_Row]]], ...] = (
     ("platform_supported", lambda c: ("pass", f"platform={c['plat']}", {}) if c["plat"] in _SUPPORTED_PLATFORMS else ("fail", f"platform={c['plat']} (unsupported)", {})),
     # doctor does not start a session, so session_active is never probed
     ("session_active", lambda c: ("skip", "not probed (doctor does not open a cua session)", {})),
-    ("tcc_accessibility", lambda c: _tcc_row("accessibility", "Accessibility", False, c)),
-    ("tcc_screen_recording", lambda c: _tcc_row("screen_recording", "Screen Recording", True, c)),
     ("ax_capability", _ax_capability_row),
     ("health_report_path", lambda c: ("skip", "fallback composite (cua-driver 0.10 unclassified health_report); "
                                               f"cause: {c['reason_short']}", {})),
@@ -244,11 +222,11 @@ _FALLBACK_PROBES: tuple[tuple[str, Callable[[Report], Optional[_Row]]], ...] = (
 )
 
 def _overall_from(checks: list[Report]) -> str:
-    """failed if binary missing/bad; ok if accessibility fine and nothing failed; else degraded."""
+    """failed if binary missing/bad; ok if nothing failed; else degraded."""
     by_name = {c.get("name"): c.get("status") for c in checks}
     if by_name.get("binary_version") != "pass":
         return "failed"
-    ok = by_name.get("tcc_accessibility") in ("pass", "skip", None) and not any(c.get("status") == "fail" for c in checks)
+    ok = not any(c.get("status") == "fail" for c in checks)
     return "ok" if ok else "degraded"
 
 def _compose_fallback_report(binary: str, *, reason: str = "", timeout: float = 12.0) -> Report:
@@ -273,22 +251,9 @@ def _compose_fallback_report(binary: str, *, reason: str = "", timeout: float = 
             "overall": _overall_from(checks), "checks": checks,
             "fallback": True, "fallback_reason": reason or "health_report unavailable"}
 
-_TCC_CHECK_FIELDS = {"tcc_accessibility": "accessibility", "tcc_screen_recording": "screen_recording"}
-
-def _apply_stale_tcc_guard(report: Report) -> Report:
-    """Append the stale-row recovery to every failed ``tcc_*`` check. Applied at the report seam so the driver's
-    own health_report rows (0.22+) get it too, not only the 0.10 fallback probes — the users hit by a stale row
-    are on current drivers (trycua/cua#3170)."""
-    checks = report.get("checks")
-    for check in (c for c in (checks if isinstance(checks, list) else ()) if isinstance(c, dict)):
-        field = _TCC_CHECK_FIELDS.get(check.get("name"))
-        if field and check.get("status") == "fail":
-            check["hint"] = f"{check.get('hint') or ''} {stale_tcc_grant_hint(field)}".strip()
-    return report
-
 def _apply_display_count_guard(report: Report) -> Report:
-    """Fail an 'ok' screen_capture_capability with ``display_count=0``: macOS ScreenCaptureKit reports 0 on headless
-    / asleep panels — TCC fine, health_report ok, yet every capture is 0x0. Turns a silent failure actionable; applied
+    """Fail an 'ok' screen_capture_capability with ``display_count=0``: a headless or sleeping display session can
+    report capture access while every capture is 0x0. Turns a silent failure actionable; applied
     at the report seam so the real and the fallback path both get it.
 
     Composed from PR #52949 (sujeet111) and PR #67259 (webtecnica).
@@ -413,7 +378,7 @@ def _print_text_report(report: Report, color: bool, *, identity: Optional[Report
                   f"  {dim}gateway environment was not checked; active gateway computer_use sessions use that process environment{reset}"]
     if identity.get("version_mismatch"):
         lines += [f"  {yellow}⚠️ version mismatch: health_report says {report_v!r} but binary --version is {cli_v!r}{reset}",
-                  f"  {dim}→ trust --version / packages/current for debugging; health_report's binary_version check can lag on Windows{reset}"]
+                  f"  {dim}→ trust --version / packages/current for debugging; health_report's binary_version check can lag{reset}"]
     for check in report.get("checks", []):
         status = check.get("status", "?")
         lines.append(f"  {_STATUS_GLYPH.get(status, '•')} {status_cols.get(status, '')}{check.get('name', '?')}{reset}: {check.get('message') or ''}")
@@ -428,7 +393,7 @@ def run_doctor(driver_cmd: Optional[str] = None, *, include: Sequence[str] = (),
                color: Optional[bool] = None) -> int:
     """Resolve the binary via the shared runtime resolver (diagnose what `computer_use` actually invokes), call
     `health_report`, render; on 0.10.x (denied) a report is synthesized from probes."""
-    # Windows' locale codec (cp1252, cp936, ...) cannot encode the ✅ ❌ ⚠️ ⏭️ glyphs — force UTF-8.
+    # Keep diagnostic glyphs readable under non-UTF-8 locales.
     for stream in (sys.stdout, sys.stderr):
         with suppress(AttributeError, OSError):
             stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
@@ -443,19 +408,15 @@ def run_doctor(driver_cmd: Optional[str] = None, *, include: Sequence[str] = (),
         except HealthReportUnavailable as e:
             report = _compose_fallback_report(binary, reason=str(e), timeout=12.0)
     except OSError as e:
-        # The spawn itself failed (Windows: a venv interpreter denied `CreateProcess` on a binary under
-        # `C:\Program Files\WindowsApps`, WinError 5). A traceback here hides the one fact the user needs.
+        # Preserve the concrete execution error instead of hiding it behind a traceback.
         print(f"cua-driver could not be started from {binary!r}: {e}\n"
-              "  The Hermes runtime interpreter cannot execute this binary; the tool may still work because the\n"
-              "  shell resolves a different copy on PATH. Fix: install cua-driver outside the protected directory\n"
-              "  (e.g. the upstream installer's default under your user profile) or point HERMES_CUA_DRIVER_CMD at\n"
-              "  a copy the runtime can execute, then re-run `hermes computer-use doctor`.", file=sys.stderr)
+              "  Check executable permissions and parent-directory access, or point HERMES_CUA_DRIVER_CMD at\n"
+              "  a binary the runtime can execute, then re-run `hermes computer-use doctor`.", file=sys.stderr)
         return 2
     except RuntimeError as e:
         print(f"cua-driver health_report failed: {e}", file=sys.stderr)
         return 2
     report = _apply_display_count_guard(report)
-    report = _apply_stale_tcc_guard(report)
     report = _apply_stale_unit_guard(report)
     report = _apply_daemon_liveness_guard(report, binary)
     identity = _build_identity(binary, report)

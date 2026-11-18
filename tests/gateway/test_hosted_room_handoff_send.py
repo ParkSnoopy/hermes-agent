@@ -1,13 +1,7 @@
-"""A Group Chat the gateway took over keeps answering, and a stored Send is never reported as failed.
-
-#145960: rooms handed from the standalone backend to the gateway (``hosted_rooms_gateway_import``)
-refused every Send with ``invalid_params`` after storing the message, and no member was woken.
-#143239: any failure after the user event committed came back to the client as a failed Send.
-"""
+"""Stored Group Chat sends survive preparation failures and unavailable members."""
 
 from __future__ import annotations
 
-import sqlite3
 import threading
 
 import pytest
@@ -15,7 +9,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from gateway import hosted_room_driver, hosted_rooms
-from gateway.hosted_rooms_gateway_import import handoff_gateway_id, import_standalone_rooms
 from tests.waiting import wait_until
 from gateway.session_hosted_controls import HostedControls
 from tui_gateway.hosted_room_service import HostedRoomService
@@ -64,45 +57,6 @@ def _service(db_path: Path, cls: type[HostedRoomService] = HostedRoomService) ->
 
 def _kinds(db: Path, room_id: str) -> list[str]:
     return [e["kind"] for e in hosted_rooms.read_events(db, room_id=room_id, since_seq=0)["events"]]
-
-
-def _authority(db: Path, room_id: str) -> tuple[str, int]:
-    with sqlite3.connect(db) as conn:
-        return conn.execute("SELECT authority_gateway_id, authority_epoch FROM hosted_rooms WHERE room_id=?",
-                            (room_id,)).fetchone()
-
-
-def test_a_room_handed_to_the_gateway_takes_sends_and_wakes_its_members(tmp_path):
-    source, target = tmp_path / "shared-state.db", tmp_path / "state.db"
-    with sqlite3.connect(target) as conn:  # the gateway's SessionDB table the owner claim lives in
-        conn.execute("CREATE TABLE state_meta (key TEXT PRIMARY KEY, value TEXT)")
-    local = hosted_rooms.local_authority_gateway_id()
-    hosted_rooms.create_room(source, room_id="room-desk", name="Desk", members=MEMBERS,
-                             authority_gateway_id=local)
-    assert import_standalone_rooms(target) == 1
-    # The stores every room the shipped import handed over is in (#145960's report): nothing to migrate.
-    assert _authority(source, "room-desk") == (handoff_gateway_id(), 2)
-    assert _authority(target, "room-desk") == (local, 3)
-
-    service, rpc = _service(target)
-    sent = service.send(room_id="room-desk", event_id="user-1",
-                        payload={"text": "@ops inspect", "thread_id": "thread-1"})
-    assert sent["kind"] == "message.user" and sent["authority_epoch"] == 3
-    # #145977: a Desktop that journaled the refused Send retries the exact same intent; it is
-    # acknowledged as the stored message (so the client retires it), never stored twice.
-    again = service.send(room_id="room-desk", event_id="user-1",
-                         payload={"text": "@ops inspect", "thread_id": "thread-1"})
-    assert again["seq"] == sent["seq"] and _kinds(target, "room-desk").count("message.user") == 1
-    assert len(hosted_room_driver.list_tasks(target, room_id="room-desk", status="queued")) == 1
-
-    service.start()
-    try:
-        wait_until(lambda: "message.member" in _kinds(target, "room-desk"), timeout=5, what="member reply")
-    finally:
-        assert service.stop(timeout=5.0)
-    assert rpc.submits == ["ops"]
-    assert _kinds(target, "room-desk").count("message.member") == 1
-
 
 def test_a_send_already_stored_is_answered_as_sent_when_preparing_the_room_fails(tmp_path):
     db = tmp_path / "state.db"

@@ -765,7 +765,7 @@ def clear_dead_guest(reason: str, *, dead_token: Optional[str] = None) -> None:
         with _nous_shared_store_lock():
             shared = _read_shared_nous_state()
             if token and is_guest_state(shared) and shared.get("anon_token") == token:
-                _clear_shared_nous_state(reason)
+                _clear_shared_nous_state()
     _clear_mint_failure()
     logger.info("Nous free-tier identity retired (%s); a new one is set up on next use", reason)
 

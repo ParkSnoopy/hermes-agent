@@ -17,7 +17,7 @@ import pytest
 
 
 from cli import HermesCLI
-from agent.i18n import t
+
 
 
 def _make_cli(quiet=False, session_id="20260524_111111_xyz", db=None):
@@ -54,9 +54,9 @@ class TestResumeQuietStderr:
         captured = capsys.readouterr()
         assert result is False
         # stdout must stay clean
-        assert t("cli.resume.session_not_found", session_id=cli.session_id) not in captured.out
+        assert (f'Session not found: {cli.session_id}') not in captured.out
         # the resume status goes to stderr
-        assert t("cli.resume.session_not_found", session_id=cli.session_id) in captured.err
+        assert (f'Session not found: {cli.session_id}') in captured.err
         assert "hermes sessions list" in captured.err
 
     def test_session_not_found_goes_to_stdout_in_full_mode(self, capsys):
@@ -69,7 +69,7 @@ class TestResumeQuietStderr:
         captured = capsys.readouterr()
         assert result is False
         # Interactive mode keeps the existing _cprint path → stdout.
-        assert t("cli.resume.session_not_found", session_id=cli.session_id) in captured.out
+        assert (f'Session not found: {cli.session_id}') in captured.out
 
     def test_resumed_banner_goes_to_stderr_in_quiet_mode(self, capsys):
         db = MagicMock()
@@ -94,8 +94,8 @@ class TestResumeQuietStderr:
 
         captured = capsys.readouterr()
         # Banner on stderr — stdout stays clean for automation.
-        assert t("cli.resume.resumed_session") not in captured.out
-        assert t("cli.resume.resumed_session") in captured.err
+        assert '↻ Resumed session' not in captured.out
+        assert '↻ Resumed session' in captured.err
         assert "20260524_111111_xyz" in captured.err
         assert "demo" in captured.err
 

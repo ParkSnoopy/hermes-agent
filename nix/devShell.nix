@@ -29,8 +29,7 @@
         # evaluate on darwin.
         ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
           # Headless Wayland compositor for E2E tests (test:e2e:visual).
-          # cage renders a single client with no window management, so
-          # the Electron window opens at a fixed size without tiling.
+          # cage renders a single client with no window management.
           # libglvnd provides libEGL.so.1 that cage needs on NixOS.
           cage
           libglvnd

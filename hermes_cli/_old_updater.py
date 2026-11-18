@@ -145,32 +145,11 @@ def _run_child(request: dict) -> tuple[int, dict]:
 
 def _run_in_custody(argv: list, root: Path, **kwargs) -> int:
     """Run the takeover (it syncs and builds the checkout) in this updater's checkout custody,
-    from the update_lock module ALREADY loaded here (nothing new is imported). Windows: created
-    suspended, bound to this updater's kill-on-close job, then resumed; a refused bind still runs
-    (the update committed) and the takeover joins the lock holding its own lease. Releases
+    from the update_lock module ALREADY loaded here (nothing new is imported). Releases
     without these helpers hold no checkout lock, and the takeover acquires it itself."""
-    lock = sys.modules.get("hermes_cli.update_lock")
-    bind, resume = (getattr(lock, name, None) for name in ("bind_child_to_update_tree", "resume_suspended_child"))
-    if os.name != "nt" or bind is None or resume is None or getattr(lock, "_HELD", None) is None:
-        # Unbounded for the same reason as the Windows wait below (review L7): the takeover is
-        # the rest of a committed update (sync + build), and it holds the checkout lock fd, so the
-        # checkout stays locked for as long as it runs, even past this updater's death.
-        # health: allow HX006 -- unbounded by design: the update's own supervised child
-        return subprocess.run(argv, **kwargs, **_checkout_custody(root)).returncode  # noqa: PLW1510 -- forwarding wrapper: callers pass subprocess kwargs via **kwargs (check may arrive through it); an explicit check=False would raise TypeError
-    proc = subprocess.Popen(argv, creationflags=lock.CREATE_SUSPENDED, **kwargs)
-    try:
-        refusal = bind(proc)
-        if refusal is not None:
-            print(f"  ! The update's job would not take the takeover ({refusal}); it runs outside the job, "
-                  "holding its own checkout lease.", flush=True)
-        resume(proc)
-        # The takeover is the rest of a committed update (sync + build): a bound would abandon it
-        # mid-write. It dies with this updater (kill-on-close job, or the except path below).
-        # health: allow HX006 -- unbounded by design: the update's own supervised child
-        return proc.wait()
-    except BaseException:
-        proc.kill()
-        raise
+    # The committed update holds its checkout fd for the whole sync/build, even past our death.
+    # health: allow HX006 -- unbounded by design: the update's own supervised child
+    return subprocess.run(argv, **kwargs, **_checkout_custody(root)).returncode  # noqa: PLW1510 -- forwarding wrapper: callers pass subprocess kwargs via **kwargs (check may arrive through it); an explicit check=False would raise TypeError
 
 
 def _checkout_custody(root: Path) -> dict:
@@ -193,11 +172,7 @@ def stop_for_relaunch(*, incomplete: bool = False) -> NoReturn:
     """
     if incomplete:
         # A newly retired completion hook has no complete captured worklist.
-        # It must not start another update or invent a successful receipt. It names its stop on
-        # the receipt the loaded update_receipt keeps open (an older one lacks the call: no-op).
-        record = getattr(sys.modules.get("hermes_cli.update_receipt"), "record_stop_reason", None)
-        if record is not None:
-            record("old_version_handoff")
+        # It must not start another update or invent a successful receipt.
         print(
             "You're updating from an older version of Hermes Agent. "
             "To complete this update, run `hermes update` again.",

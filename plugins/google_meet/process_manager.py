@@ -15,12 +15,12 @@ import signal
 import subprocess
 import sys
 import time
-import uuid
+
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from hermes_constants import get_hermes_home
-from plugins.google_meet._jsonfile import say_queue_lock
+
 
 from utils import atomic_json_write
 
@@ -63,11 +63,12 @@ _NO_ACTIVE = {"ok": False, "reason": "no active meeting"}
 
 def start(url: str, *, out_dir: Optional[Path] = None, headed: bool = False,
           auth_state: Optional[str] = None, guest_name: str = "Hermes Agent", duration: Optional[str] = None,
-          session_id: Optional[str] = None, mode: str = "transcribe", realtime_model: Optional[str] = None,
-          realtime_voice: Optional[str] = None, realtime_instructions: Optional[str] = None,
-          realtime_api_key: Optional[str] = None) -> dict[str, Any]:
+          session_id: Optional[str] = None, mode: str = "transcribe") -> dict[str, Any]:
     """Spawn the meet_bot subprocess for *url*, stopping any running bot first (one active meeting)."""
     from plugins.google_meet.meet_bot import _is_safe_meet_url, _meeting_id_from_url
+    if not isinstance(mode, str) or mode.strip().lower() != "transcribe":
+        return {"ok": False, "error": "mode must be 'transcribe'; other modes are unsupported"}
+    mode = "transcribe"
     if not _is_safe_meet_url(url):
         return {"ok": False, "error": "refusing: only https://meet.google.com/ URLs are allowed. got: " + repr(url)}
     if _pid_alive(int((_read_active() or {}).get("pid", 0))):
@@ -81,23 +82,17 @@ def start(url: str, *, out_dir: Optional[Path] = None, headed: bool = False,
             (out / name).unlink()
     env = {**os.environ, "HERMES_MEET_URL": url, "HERMES_MEET_OUT_DIR": str(out),
            "HERMES_MEET_GUEST_NAME": guest_name}
+    for key in ("OPENAI_API_KEY", "HERMES_MEET_REALTIME_KEY", "HERMES_MEET_REALTIME_MODEL",
+                "HERMES_MEET_REALTIME_VOICE", "HERMES_MEET_REALTIME_INSTRUCTIONS"):
+        env.pop(key, None)
     for value, var in (
         (headed and "1", "HERMES_MEET_HEADED"),
         (auth_state, "HERMES_MEET_AUTH_STATE"),
         (duration, "HERMES_MEET_DURATION"),
-        (mode, "HERMES_MEET_MODE"),  # bot defaults to transcribe when unset (v1 behavior)
-        (realtime_model, "HERMES_MEET_REALTIME_MODEL"),
-        (realtime_voice, "HERMES_MEET_REALTIME_VOICE"),
-        (realtime_instructions, "HERMES_MEET_REALTIME_INSTRUCTIONS")):
+        (mode, "HERMES_MEET_MODE")):
         if value:
             env[var] = value
-    # Resolve the realtime key at SPAWN time in the parent, where the profile secret scope
-    # (a contextvar) is installed; the detached child inherits env, not scope.
-    if not realtime_api_key:
-        from agent.secret_scope import get_secret
-        realtime_api_key = get_secret("HERMES_MEET_REALTIME_KEY") or get_secret("OPENAI_API_KEY")
-    if realtime_api_key:
-        env["HERMES_MEET_REALTIME_KEY"] = realtime_api_key
+
     log_path = out / "bot.log"
     # Detach: stdout/stderr → log file, new session so parent signals don't propagate.
     with open(log_path, "ab", buffering=0) as log_fh:
@@ -158,28 +153,6 @@ def transcript(last: Optional[int] = None) -> dict[str, Any]:
     return {"ok": True, "meetingId": active.get("meeting_id"),
             "lines": all_lines[-last:] if last else all_lines, "total": len(all_lines), "path": str(tp)}
 
-
-def enqueue_say(text: str) -> dict[str, Any]:
-    """Append a ``say`` request to ``<out_dir>/say_queue.jsonl``.
-    Refused when no meeting is active or the active bot is transcribe-only."""
-    text = (text or "").strip()
-    if not text:
-        return {"ok": False, "reason": "text is required"}
-    active = _read_active()
-    if not active:
-        return dict(_NO_ACTIVE)
-    if active.get("mode") != "realtime":
-        return {"ok": False, "reason": ("active meeting is in transcribe mode — pass mode='realtime' "
-                                        "to meet_join to enable agent speech")}
-    out_dir = Path(active.get("out_dir", ""))
-    if not out_dir.is_dir():
-        return {"ok": False, "reason": f"out_dir missing: {out_dir}"}
-    queue_path = out_dir / "say_queue.jsonl"
-    entry = {"id": uuid.uuid4().hex[:12], "text": text}
-    with say_queue_lock(queue_path), queue_path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
-    return {"ok": True, "meetingId": active.get("meeting_id"), "enqueued_id": entry["id"],
-            "queue_path": str(queue_path)}
 
 
 def stop(*, reason: str = "requested") -> dict[str, Any]:

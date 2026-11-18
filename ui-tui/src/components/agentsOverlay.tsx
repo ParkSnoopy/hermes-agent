@@ -14,10 +14,8 @@ import { patchOverlayState } from '../app/overlayStore.js'
 import { type ProcessRow, useProcessRows } from '../app/processRoster.js'
 import { $spawnDiff, $spawnHistory, clearDiffPair, type SpawnSnapshot } from '../app/spawnHistoryStore.js'
 import { $uiState } from '../app/uiStore.js'
+import { hubsEn } from '../copy/hubs.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { messages } from '../i18n/runtime.js'
-import type { Translations } from '../i18n/types.js'
-import { useT } from '../i18n/useT.js'
 import { asRpcResult } from '../lib/rpc.js'
 import { statusGlyph as agentStatusGlyph } from '../lib/subagentGlyph.js'
 import {
@@ -52,10 +50,9 @@ type Status = SubagentProgress['status']
 const SORT_ORDER: readonly SortMode[] = ['depth-first', 'tools-desc', 'duration-desc', 'status']
 const FILTER_ORDER: readonly FilterMode[] = ['all', 'running', 'failed', 'leaf']
 
-type AgentsMessages = Translations['hubs']['agents']
+type AgentsMessages = typeof hubsEn['hubs']['agents']
 
-// Mode → catalog leaf. Labels are resolved against the active language at
-// render time (`sortLabel` / `filterLabel`), never at import time.
+// Mode → presentation label.
 const SORT_KEY: Record<SortMode, keyof AgentsMessages['sort']> = {
   'depth-first': 'depthFirst',
   'duration-desc': 'durationDesc',
@@ -70,9 +67,9 @@ const FILTER_KEY: Record<FilterMode, keyof AgentsMessages['filter']> = {
   running: 'running'
 }
 
-export const sortLabel = (mode: SortMode, m: AgentsMessages = messages().hubs.agents): string => m.sort[SORT_KEY[mode]]
+export const sortLabel = (mode: SortMode, m: AgentsMessages = hubsEn.hubs.agents): string => m.sort[SORT_KEY[mode]]
 
-export const filterLabel = (mode: FilterMode, m: AgentsMessages = messages().hubs.agents): string =>
+export const filterLabel = (mode: FilterMode, m: AgentsMessages = hubsEn.hubs.agents): string =>
   m.filter[FILTER_KEY[mode]]
 
 /** Agent state values are compared in code; only the display label is localised. */
@@ -162,7 +159,7 @@ function GanttStrip({
   now: number
   t: Theme
 }) {
-  const T = useT().hubs.agents
+  const T = hubsEn.hubs.agents
 
   const spans = flatNodes
     .map((node, idx) => {
@@ -321,7 +318,7 @@ function OverlaySection({
 /** Background processes owned by this session, listed under the spawn tree. They are
  * not part of the cursor roster (no per-row steer/tail); `/stop` ends them all. */
 function ProcessesSection({ cols, rows, t }: { cols: number; rows: readonly ProcessRow[]; t: Theme }) {
-  const T = useT().hubs.agents
+  const T = hubsEn.hubs.agents
 
   if (rows.length === 0) {
     return null
@@ -351,7 +348,7 @@ function Field({ name, t, value }: { name: string; t: Theme; value: ReactNode })
 }
 
 function Detail({ id, node, t }: { id?: string; node: SubagentNode; t: Theme }) {
-  const T = useT().hubs.agents
+  const T = hubsEn.hubs.agents
   const D = T.detail
   const { aggregate: agg, item } = node
   const { color, glyph } = statusGlyph(item, t)
@@ -493,7 +490,7 @@ function ListRow({
   t: Theme
   width: number
 }) {
-  const T = useT().hubs.agents
+  const T = hubsEn.hubs.agents
   const { color, glyph } = statusGlyph(node.item, t)
   const palette = heatPalette(t)
   const heatIdx = hotnessBucket(node.aggregate.hotness, peak, palette.length)
@@ -540,7 +537,7 @@ function DiffPane({
   totals: ReturnType<typeof treeTotals>
   width: number
 }) {
-  const T = useT().hubs.agents
+  const T = hubsEn.hubs.agents
 
   return (
     <Box flexDirection="column" width={width}>
@@ -586,7 +583,7 @@ function DiffView({
   pair: { baseline: SpawnSnapshot; candidate: SpawnSnapshot }
   t: Theme
 }) {
-  const T = useT().hubs.agents.diff
+  const T = hubsEn.hubs.agents.diff
   const aTotals = useMemo(() => treeTotals(buildSubagentTree(pair.baseline.subagents)), [pair.baseline])
   const bTotals = useMemo(() => treeTotals(buildSubagentTree(pair.candidate.subagents)), [pair.candidate])
   const paneWidth = Math.floor((cols - 4) / 2)
@@ -639,7 +636,7 @@ function DiffView({
 // ── Main overlay ─────────────────────────────────────────────────────
 
 export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: AgentsOverlayProps) {
-  const T = useT().hubs.agents
+  const T = hubsEn.hubs.agents
   const liveSubagents = useAgentRoster()
   const delegation = useStore($delegationState)
   const history = useStore($spawnHistory)
@@ -721,7 +718,7 @@ export function AgentsOverlay({ gw, initialHistoryIndex = 0, onClose, t }: Agent
     if (historyIndex === 0 && prev > 0 && liveSubagents.length === 0 && history.length > 0) {
       setHistoryIndex(1)
       setCursor(0)
-      setFlash(messages().hubs.agents.flash.turnFinished)
+      setFlash(hubsEn.hubs.agents.flash.turnFinished)
     }
   }, [history.length, historyIndex, liveSubagents.length])
 

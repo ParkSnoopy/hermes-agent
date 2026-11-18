@@ -35,8 +35,7 @@ class TestCredentialFingerprint:
         valid, odd = _FakeAdapter("tok"), _FakeAdapter("tok\ud800")
         assert GatewayRunner._adapter_credential_fingerprint(valid) == hashlib.sha256(b"hermes-mux:tok").hexdigest()[:16]
         assert GatewayRunner._adapter_credential_fingerprint(odd)
-        photon = types.SimpleNamespace(_sidecar_bind="0.0.0.0", _sidecar_port=float("inf"))
-        assert GatewayRunner._adapter_listener_claim(Platform("photon"), photon) is None
+
 
 
     def test_reads_photon_project_secret(self):
@@ -215,8 +214,6 @@ class _SecondaryRecoveryAdapter:
     def set_busy_session_handler(self, handler):
         self.busy_session_handler = handler
 
-    def set_topic_recovery_fn(self, handler):
-        self.topic_recovery_fn = handler
 
     def set_authorization_check(self, handler):
         self.authorization_check = handler
@@ -235,7 +232,6 @@ def _secondary_recovery_runner(*, running=True):
     runner._background_tasks = set()
     runner.session_store = object()
     runner._handle_active_session_busy_message = object()
-    runner._recover_telegram_topic_thread_id = object()
     runner._busy_text_mode = "queue"
     runner._make_adapter_auth_check = lambda platform, profile_name=None: object()
     runner._adapter_disconnect_timeout_secs = lambda: 0
@@ -849,43 +845,6 @@ class TestSecondaryProfileConfigHandling:
             )
         ]
 
-    @pytest.mark.asyncio
-    async def test_duplicate_listener_is_persisted_without_public_bind_details(
-        self, monkeypatch
-    ):
-        class _ListenerAdapter(_SecondaryRecoveryAdapter):
-            _sidecar_bind = "127.0.0.1"
-            _sidecar_port = 8789
-
-        runner = _secondary_recovery_runner()
-        platform = Platform("photon")
-        config = GatewayConfig(
-            multiplex_profiles=True,
-            platforms={platform: PlatformConfig(enabled=True)},
-        )
-        adapter = _ListenerAdapter()
-        adapter.platform = platform
-        adapter.config = config.platforms[platform]
-        writes = []
-
-        monkeypatch.setattr("gateway.config.load_gateway_config", lambda: config)
-        monkeypatch.setattr(runner, "_create_adapter", lambda _p, _c: adapter)
-        monkeypatch.setattr(
-            runner,
-            "_update_platform_runtime_status",
-            lambda key, **kwargs: writes.append((key, kwargs)),
-        )
-        claim = runner._adapter_listener_claim(platform, adapter)
-
-        connected = await runner._start_one_profile_adapters(
-            "reviewer", "/tmp/reviewer", {claim: "default"}
-        )
-
-        assert connected == 0
-        assert writes[0][0] == "reviewer:photon"
-        assert writes[0][1]["error_code"] == "duplicate_listener"
-        assert "127.0.0.1" not in writes[0][1]["error_message"]
-        assert "8789" not in writes[0][1]["error_message"]
 
     @pytest.mark.asyncio
     async def test_multiplexer_skips_bad_profile_and_continues(self, monkeypatch, caplog):
@@ -991,175 +950,6 @@ class TestSecondaryProfileConfigHandling:
         with pytest.raises(MultiplexConfigError, match="open policy"):
             await runner._start_secondary_profile_adapters()
 
-
-    @pytest.mark.asyncio
-    async def test_secondary_distinct_photon_credentials_distinct_ports_connect(
-        self, monkeypatch
-    ):
-        """Multiplexing remains supported when Photon sidecars cannot collide."""
-        from gateway.config import GatewayConfig, Platform, PlatformConfig
-
-        class _PhotonAdapter:
-            def __init__(self, secret, port):
-                self._project_secret = secret
-                self._sidecar_bind = "127.0.0.1"
-                self._sidecar_port = port
-                self.platform = Platform("photon")
-                self.connected = False
-                self.disconnected = False
-                self.config = PlatformConfig(enabled=True)
-
-            def __getattr__(self, name):
-                if name.startswith("set_"):
-                    return lambda *args, **kwargs: None
-                raise AttributeError(name)
-
-            async def disconnect(self):
-                self.disconnected = True
-
-        runner = GatewayRunner.__new__(GatewayRunner)
-        runner.config = GatewayConfig(multiplex_profiles=True)
-        runner._profile_adapters = {}
-        runner.session_store = None
-        runner._busy_text_mode = "queue"
-
-        photon = Platform("photon")
-        reviewer_cfg = GatewayConfig(multiplex_profiles=True)
-        reviewer_cfg.platforms = {photon: PlatformConfig(enabled=True)}
-        primary = _PhotonAdapter("primary-secret", 8789)
-        secondary = _PhotonAdapter("different-secret", 8790)
-        claimed = {
-            GatewayRunner._adapter_listener_claim(photon, primary): "default"
-        }
-
-        async def _connect(adapter, platform, **_kw):
-            adapter.connected = True
-            return True
-
-        monkeypatch.setattr("gateway.config.load_gateway_config", lambda: reviewer_cfg)
-        monkeypatch.setattr(runner, "_create_adapter", lambda p, c: secondary)
-        monkeypatch.setattr(runner, "_connect_adapter_with_timeout", _connect)
-        monkeypatch.setattr(
-            runner, "_make_adapter_auth_check", lambda p, **kwargs: None
-        )
-
-        connected = await runner._start_one_profile_adapters(
-            "reviewer", "/tmp/x", claimed
-        )
-
-        assert connected == 1
-        assert secondary.connected is True
-        assert secondary.disconnected is False
-        assert runner._profile_adapters["reviewer"][photon] is secondary
-
-    @pytest.mark.asyncio
-    async def test_failed_photon_connect_releases_listener_for_later_profile(
-        self, monkeypatch
-    ):
-        """A failed sidecar must not reserve an endpoint it never owned."""
-        from gateway.config import GatewayConfig, Platform, PlatformConfig
-
-        class _PhotonAdapter:
-            def __init__(self, secret, should_connect):
-                self._project_secret = secret
-                self._sidecar_bind = "127.0.0.1"
-                self._sidecar_port = 8789
-                self.platform = Platform("photon")
-                self.should_connect = should_connect
-                self.disconnected = False
-                self.config = PlatformConfig(enabled=True)
-
-            def __getattr__(self, name):
-                if name.startswith("set_"):
-                    return lambda *args, **kwargs: None
-                raise AttributeError(name)
-
-            async def disconnect(self):
-                self.disconnected = True
-
-        runner = GatewayRunner.__new__(GatewayRunner)
-        runner.config = GatewayConfig(multiplex_profiles=True)
-        runner._profile_adapters = {}
-        runner.session_store = None
-        runner._busy_text_mode = "queue"
-
-        photon = Platform("photon")
-        profile_cfg = GatewayConfig(multiplex_profiles=True)
-        profile_cfg.platforms = {photon: PlatformConfig(enabled=True)}
-        failed = _PhotonAdapter("failed-secret", False)
-        later = _PhotonAdapter("later-secret", True)
-        adapters = iter((failed, later))
-        claimed = {}
-
-        async def _connect(adapter, platform, **_kw):
-            return adapter.should_connect
-
-        monkeypatch.setattr("gateway.config.load_gateway_config", lambda: profile_cfg)
-        monkeypatch.setattr(runner, "_create_adapter", lambda p, c: next(adapters))
-        monkeypatch.setattr(runner, "_connect_adapter_with_timeout", _connect)
-        monkeypatch.setattr(
-            runner, "_make_adapter_auth_check", lambda p, **kwargs: None
-        )
-
-        first = await runner._start_one_profile_adapters("broken", "/tmp/x", claimed)
-        second = await runner._start_one_profile_adapters("later", "/tmp/y", claimed)
-
-        assert first == 0
-        assert failed.disconnected is True
-        assert second == 1
-        assert runner._profile_adapters["later"][photon] is later
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("paired", [False, True])
-    async def test_secondary_profile_adapter_start_skips_whatsapp(self, monkeypatch, tmp_path, paired):
-        """Only paired secondaries start a profile-local WhatsApp adapter."""
-        runner = _secondary_recovery_runner()
-        direct = _SecondaryRecoveryAdapter()
-        _real_profile_scope = gateway_run._profile_runtime_scope
-        _install_secondary_reconnect_context(monkeypatch, runner, direct)
-        monkeypatch.setattr(gateway_run, "_profile_runtime_scope", _real_profile_scope)
-        home = tmp_path / "secondary"
-        session = home / "platforms/whatsapp/session"
-        session.mkdir(parents=True)
-        if paired:
-            (session / "creds.json").write_text("{}")
-        statuses = []
-        monkeypatch.setattr(runner, "_update_platform_runtime_status", lambda *a, **kw: statuses.append((a, kw)))
-        monkeypatch.setattr(
-            "gateway.config.load_gateway_config",
-            lambda: GatewayConfig(
-                multiplex_profiles=True,
-                platforms={
-                    Platform.WHATSAPP: PlatformConfig(enabled=True),
-                    Platform.DISCORD: PlatformConfig(enabled=True, token="profile-token"),
-                },
-            ),
-        )
-        factory_calls = []
-
-        def _create_adapter(platform, config):
-            factory_calls.append(platform)
-            if platform is Platform.WHATSAPP:
-                from plugins.platforms.whatsapp.adapter import WhatsAppAdapter
-                wa = WhatsAppAdapter(config)
-                assert wa._session_path == session
-                return wa
-            return direct
-
-        async def _connect(adapter, platform):
-            return True
-
-        monkeypatch.setattr(runner, "_create_adapter", _create_adapter)
-        monkeypatch.setattr(runner, "_connect_initial_adapter_with_timeout", _connect)
-
-        monkeypatch.setattr(runner, "_configure_profile_adapter", lambda *a: None)
-        connected = await runner._start_one_profile_adapters("clientbot", home, {})
-
-        assert connected == (2 if paired else 1)
-        assert factory_calls == ([Platform.WHATSAPP, Platform.DISCORD] if paired else [Platform.DISCORD])
-        if not paired:
-            assert statuses[-1][1]["error_code"] == "whatsapp_unpaired"
-            assert "hermes -p clientbot whatsapp" in statuses[-1][1]["error_message"]
 
 
 class TestSecondaryProfileHookRegistration:

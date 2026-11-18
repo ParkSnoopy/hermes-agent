@@ -26,6 +26,8 @@ def commit_local_session(db, *, epoch, receipt):
         on_create.read()  # its file read: in the caller's thread, outside the write transaction
     encoded = _json(receipt)
     receipt = json.loads(encoded)
+    if 'legacy_session_id' in receipt:
+        raise RuntimeStoreError('invalid_params')
     sid, route = receipt['session_id'], receipt['route']
     key = POLICY_PREFIX + sid
     def write(conn):
@@ -34,6 +36,8 @@ def commit_local_session(db, *, epoch, receipt):
         if old is not None:
             try:
                 saved = json.loads(old[0])
+                if 'legacy_session_id' in saved:
+                    raise RuntimeStoreError('storage_unavailable')
                 same = all(saved[k] == receipt[k] for k in (
                     'profile_id', 'principal_id', 'request_id', 'session_id', 'route'))
                 same = same and same_create_retry(saved['policy'], receipt['policy']['request_json'], request)
@@ -47,14 +51,10 @@ def commit_local_session(db, *, epoch, receipt):
             # Deleted: its receipt was retired with the transcript; a create/cron retry must not
             # resurrect the row (and re-fire its prompt) under the same deterministic id.
             raise RuntimeStoreError('not_found')
-        if ('legacy_session_id' not in receipt and
-                conn.execute('SELECT 1 FROM sessions WHERE id=?', (sid,)).fetchone()):
+        if conn.execute('SELECT 1 FROM sessions WHERE id=?', (sid,)).fetchone():
             raise RuntimeStoreError('storage_unavailable')
         if conn.execute("SELECT 1 FROM gateway_routing WHERE scope='' AND session_key=?", (route,)).fetchone():
             raise RuntimeStoreError('admission_conflict')
-        if 'legacy_session_id' in receipt:
-            from hermes_state_local_migration import bind_legacy_target
-            bind_legacy_target(db, conn, receipt)
         policy, entry = receipt['policy'], receipt['entry']
         from datetime import datetime
         started = datetime.fromisoformat(entry['created_at']).timestamp()
@@ -188,11 +188,10 @@ def moved_receipts(conn, target_ids=None):
 
 
 def release_receipts(conn, owners):
-    """Retire *owners*' local receipts (creation policy and legacy binding): the row they guarded now
+    """Retire *owners*' local receipts: the row they guarded now
     belongs to a messaging lane, which restores it from its route like any other platform session."""
-    from hermes_state_local_migration import LEGACY_PREFIX
-    conn.executemany('DELETE FROM state_meta WHERE key IN (?,?)',
-                     [(POLICY_PREFIX + owner, LEGACY_PREFIX + owner) for owner in owners])
+    conn.executemany('DELETE FROM state_meta WHERE key=?',
+                     [(POLICY_PREFIX + owner,) for owner in owners])
 
 
 def handoff_head(db, session_id):

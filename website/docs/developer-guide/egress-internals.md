@@ -6,6 +6,10 @@ description: "How the iron-proxy egress firewall integrates with Hermes — modu
 
 # Egress proxy internals
 
+:::danger Historical integration
+The Docker terminal backend and its automatic proxy wiring have been removed. The material below describes the former implementation and is not an operational security guide for local terminal execution. Do not rely on it for credential isolation or egress enforcement.
+:::
+
 This page covers the architecture of the egress credential-injection firewall (`hermes egress` / iron-proxy) from a contributor / plugin author's perspective. End-user setup + usage docs live at [Egress proxy](../user-guide/egress/iron-proxy.md).
 
 The threat model and high-level design are summarised on the user page; this page is about *how* it's wired, where the security-relevant code lives, and what invariants you have to preserve if you touch it.
@@ -171,7 +175,7 @@ Regression: `test_subprocess_env_strips_unrelated_secrets`, `test_subprocess_env
 
 ### Bind policy
 
-`_default_http_listen` returns a single-element list: on Linux the docker bridge gateway IP (containers reach the proxy via `host.docker.internal:host-gateway`, which resolves to the bridge gateway — a loopback bind is unreachable from inside containers there); on macOS/Windows Docker Desktop, loopback (VPNkit routes `host.docker.internal` to the host).  Linux without a detectable docker0 bridge falls back to loopback with a warning.  Never `0.0.0.0`, never `:PORT` (INADDR_ANY).
+`_default_http_listen` returns a single-element list containing the Docker bridge gateway IP when detected (a loopback bind is unreachable from inside containers). Without a detectable docker0 bridge it falls back to loopback with a warning. Never `0.0.0.0`, never `:PORT` (INADDR_ANY).
 
 `_detect_docker_bridge_ip` validates via `ipaddress.IPv4Address` and rejects `is_unspecified` / `is_loopback` / `is_multicast` / `is_reserved` / `is_link_local` / `is_global`.  A hostile `ip` shim on PATH cannot inject `0.0.0.0`.
 
@@ -179,7 +183,7 @@ Regression: `test_subprocess_env_strips_unrelated_secrets`, `test_subprocess_env
 
 The liveness probes (`start_proxy` poll loop, `get_status`) read the configured bind host via `_read_http_listen_from_config()` and probe THAT host — a hardcoded loopback probe would report a healthy bridge-bound daemon as dead.
 
-Regression: `test_default_bind_is_loopback_not_zero_zero` (asserts no INADDR_ANY AND that `http_listens` is NOT in the rendered yaml), `test_default_bind_uses_docker_bridge_on_linux`, `test_default_bind_falls_back_to_loopback_without_bridge`, `test_default_bind_is_loopback_on_macos`, `test_detect_docker_bridge_ip_rejects_dangerous` (parametrized over 8 attack inputs).
+Regression: `test_default_bind_is_loopback_not_zero_zero` (asserts no INADDR_ANY AND that `http_listens` is NOT in the rendered yaml), `test_default_bind_uses_docker_bridge_on_linux`, `test_default_bind_falls_back_to_loopback_without_bridge`, `test_detect_docker_bridge_ip_rejects_dangerous` (parametrized over 8 attack inputs).
 
 ### Metrics port collision
 
@@ -290,7 +294,7 @@ _NON_BEARER_PROVIDERS: Tuple[str, ...] = (
 5. Distributes the CA cert into the sandbox at a path the runtime will trust (typically `/etc/ssl/certs/hermes-egress-ca.crt`).
 6. Implements collision detection against the user's backend-specific env config.
 
-The Docker implementation is ~150 lines; expect similar volume for Modal / Daytona / SSH.
+The Docker implementation is ~150 lines; expect similar volume for SSH.
 
 ### Subscribing to per-request audit events
 

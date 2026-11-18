@@ -34,7 +34,7 @@ def _show_managed_banner() -> None:
 
 _SHOW_CONFIG_API_KEYS = (
     ("OPENROUTER_API_KEY", "OpenRouter"),
-    ("VOICE_TOOLS_OPENAI_KEY", "OpenAI (STT/TTS)"),
+
     ("EXA_API_KEY", "Exa"),
     ("PARALLEL_API_KEY", "Parallel"),
     ("FIRECRAWL_API_KEY", "Firecrawl"),
@@ -87,25 +87,9 @@ def _show_terminal_section(config: dict[str, Any]) -> None:
     print(f"  Working dir:  {terminal.get('cwd', '.')}")
     print(f"  Timeout:      {terminal.get('timeout', 60)}s")
 
-    configured = lambda *names: 'configured' if all(_cfg.get_env_value(n) for n in names) else '(not set)'
-    from hermes_cli.config_defaults import DEFAULT_SANDBOX_IMAGE as default_img, DEFAULT_VERCEL_IMAGE as _DEFAULT_VERCEL_IMAGE
-    backend_lines = {
-        'docker': lambda: [f"  Docker image: {terminal.get('docker_image', default_img)}"],
-        'modal': lambda: [
-            f"  Modal image:  {terminal.get('modal_image', default_img)}",
-            f"  Modal token:  {configured('MODAL_TOKEN_ID')}"],
-        'daytona': lambda: [
-            f"  Daytona image: {terminal.get('daytona_image', default_img)}",
-            f"  API key:      {configured('DAYTONA_API_KEY')}"],
-        'vercel_sandbox': lambda: [
-            f"  Vercel image:   {terminal.get('vercel_runtime') or terminal.get('vercel_image') or _DEFAULT_VERCEL_IMAGE}",
-            f"  Vercel auth:    {'configured' if _cfg.get_env_value('VERCEL_OIDC_TOKEN') or (_cfg.get_env_value('VERCEL_TOKEN') and _cfg.get_env_value('VERCEL_PROJECT_ID') and _cfg.get_env_value('VERCEL_TEAM_ID')) else '(not set)'}",
-        ],
-        'ssh': lambda: [
-            f"  SSH host:     {_cfg.get_env_value('TERMINAL_SSH_HOST') or '(not set)'}",
-            f"  SSH user:     {_cfg.get_env_value('TERMINAL_SSH_USER') or '(not set)'}"]}
-    for line in backend_lines.get(terminal.get('backend'), list)():
-        print(line)
+
+    if str(terminal.get("backend") or "local").strip().lower() != "local":
+        print("  Unsupported backend; set terminal.backend to local")
 
 
 def _show_compression_section(config: dict[str, Any]) -> None:
@@ -194,11 +178,6 @@ def show_config():
 
     _show_compression_section(config)
     _show_aux_overrides(config)
-
-    _section("Messaging Platforms")
-    for label, env_key in (("Telegram", "TELEGRAM_BOT_TOKEN"), ("Discord", "DISCORD_BOT_TOKEN")):
-        state = 'configured' if _cfg.get_env_value(env_key) else color('not configured', Colors.DIM)
-        print(f"  {label + ':':<13} {state}")
 
     _show_skill_settings()
 

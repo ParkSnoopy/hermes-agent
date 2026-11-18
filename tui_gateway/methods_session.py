@@ -284,7 +284,7 @@ def _seed_branch_row(record: dict, key: str, parent_session_id: str, history: li
             if db is None:
                 return
             _persist_branch(db, key, parent_session_id, _branch_title(db, parent_session_id), history,
-                            source=source, cwd=None if _is_remote_launch_cwd(record) else record["cwd"],
+                            source=source, cwd=record["cwd"],
                             profile_name=profile_name_for_home(profile_home) or _current_profile_name(),
                             model=_session_default_route(record)[0], compensate=True, title_source="derived", user_id=_session_auth_user_id(record))
             record["pending_title"] = None
@@ -391,7 +391,7 @@ def _create_session(rid, params: dict, *, copy_parent_history: bool = False) -> 
             return _err(rid, 4008, "send a message first")
     # Only a chosen workspace persists as cwd; the launch-dir fallback is "No workspace"
     # (#108205: the desktop arm lets the client vouch for a host-invisible path, #52589 provenance).
-    explicit_cwd, session_cwd, remote_cwd = _resolve_create_cwd(params, source, profile_home)
+    explicit_cwd, session_cwd = _resolve_create_cwd(params, source, profile_home)
     _enable_gateway_prompts()
     from .methods_session_model_guard import create_overrides
     try:
@@ -457,11 +457,6 @@ def _create_session(rid, params: dict, *, copy_parent_history: bool = False) -> 
         _seed_branch_row(_sessions[sid], key, parent_session_id, history, source, profile_home)
     elif history:
         _seed_row(_sessions[sid])
-    elif explicit_cwd and remote_cwd:
-        # A remote project session persists its row now: the per-profile gateway that runs the first turn mints
-        # the row itself (AIAgent INSERT-OR-IGNORE) with cwd=None, and the sidebar then drops it to Home. Local
-        # project drafts stay lazy — their cwd reaches the row on the first prompt (no "Untitled" litter).
-        _ensure_session_db_row(_sessions[sid])
     # Return immediately so Ink can paint; the AIAgent builds right after the flush.
     _schedule_agent_build(sid)
     _schedule_session_cap_enforcement()  # trim detached idle sessions over the cap
@@ -836,16 +831,7 @@ def _resume_follow_tip(ctx: _Resume) -> None:
 def _resume_guard(ctx: _Resume) -> dict | None:
     """Refuse a runaway transcript before any history read (sessions.max_resume_messages). Deferred /
     omit_messages / lazy paths load the TIP segment only and are guarded tip-only (a lineage count rejected
-    exactly the well-compressed chats). Metadata fallback for lightweight adaptor DBs; fails OPEN on errors.
-
-    Kanban worker transcripts refuse FIRST and fail CLOSED on a positive match (#68779): a
-    resumed Desktop/TUI session would be a write-capable writer with none of the dispatcher
-    ownership env, invisible to the board while a re-dispatch can start a competing writer
-    in the same workspace. One guard for every resume shape below (cold / eager / deferred /
-    lazy / live-reuse) — no slash worker is ever built for a refused session."""
-    from hermes_cli.kanban_resume_guard import kanban_resume_refusal
-    if (kanban_refusal := kanban_resume_refusal(ctx.db, ctx.target)) is not None:
-        return _err(ctx.rid, 4132, kanban_refusal)
+    exactly the well-compressed chats). Metadata fallback for lightweight adaptor DBs; fails OPEN on errors."""
     from hermes_state import SessionResumeTooLargeError, resolved_max_resume_messages
     tip_only = ctx.lazy or ctx.omit_messages or (ctx.defer_history and not ctx.eager_build)
     try:
@@ -1167,7 +1153,6 @@ def _(rid, params: dict, session: dict) -> dict:
 @method("session.delete")
 def _(rid, params: dict) -> dict:
     """Delete a stored session + transcripts; refused while live here (FK trips on the agent's next flush)."""
-    from agent.onboarding_record import delete_chat
     from hermes_state_errors import SessionActiveWriteGuardError  # body runs on server.py globals
 
     if not (target := params.get("session_id", "")):
@@ -1183,8 +1168,8 @@ def _(rid, params: dict) -> dict:
             return _db_unavailable_error(rid, code=5036)
         try:
             home = Path(profile_home) if profile_home is not None else get_hermes_home()
-            deleted = delete_chat(db, target, lambda: db.delete_session(
-                target, sessions_dir=home / "sessions", exclude_active_write_guards=True))
+            deleted = db.delete_session(
+                target, sessions_dir=home / "sessions", exclude_active_write_guards=True)
         except SessionActiveWriteGuardError:
             return _err(rid, 4023, "cannot delete an active session")
         except Exception as e:
@@ -1328,11 +1313,16 @@ def _(rid, params: dict, session: dict) -> dict:
                 row_id = db.latest_message_row_id(row_session, role=newest_role)
                 if row_id is None:
                     return _err(rid, 4040, "no message to react to yet")
+            role = db.get_message_role(row_session, int(row_id))
+            if role is None:
+                return _err(rid, 4040, "message not found in this session")
             reactions = db.set_message_reaction(row_session, int(row_id), emoji, author=author)
         except Exception as e:
             return _err(rid, 5007, str(e))
     if reactions is None:
         return _err(rid, 4040, "message not found in this session")
+    _emit("message.reaction", str(params["session_id"]),
+          {"row_id": int(row_id), "reactions": reactions, "role": role})
     return _ok(rid, {"row_id": int(row_id), "reactions": reactions})
 
 
@@ -1367,76 +1357,6 @@ def _(rid, params: dict) -> dict:
     except Exception as e:
         logger.warning("llm.oneshot failed: %s", e)
         return _err(rid, 5030, f"one-shot generation failed: {e}")
-
-
-# ── handoff ──────────────────────────────────────────────────────────
-@_session_method("handoff.request")
-def _(rid, params: dict, session: dict) -> dict:
-    """Queue a handoff (desktop /handoff): only writes ``pending``; the gateway watcher claims and re-binds."""
-    if session.get("running"):
-        return _err(rid, 4009, "session busy — wait for the current turn to finish, then retry the handoff")
-    if not (platform_name := (params.get("platform", "") or "").strip().lower()):
-        return _err(rid, 4023, "platform required")
-    # Validate up front: an unconfigured platform / missing home channel pends forever.
-    from gateway.config import Platform, load_gateway_config
-    try:
-        platform = Platform(platform_name)
-    except (ValueError, KeyError):
-        return _err(rid, 4024, f"unknown platform '{platform_name}'")
-    try:
-        with _session_profile_runtime_scope(session):
-            gw_config = load_gateway_config()
-    except Exception as e:
-        return _err(rid, 5021, f"could not load gateway config: {e}")
-    if not getattr(gw_config.platforms.get(platform), "enabled", False):
-        return _err(rid, 4025, f"platform '{platform_name}' is not configured/enabled in the gateway")
-    if not (home := gw_config.get_home_channel(platform)) or not home.chat_id:
-        return _err(rid, 4026, f"no home channel configured for {platform_name} — set one with "
-                    "/sethome on the destination chat first")
-    # The watcher transfers a persisted row, so make sure one exists for an empty chat.
-    _ensure_session_db_row(session)
-    key = session["session_key"]
-    with _session_db(session) as db:
-        if db is None:
-            return _db_unavailable_error(rid, code=5007)
-        try:
-            if not db.get_session(key):
-                db.set_session_title(key, f"handoff-{key[:8]}")
-            if not db.request_handoff(key, platform_name):
-                return _err(rid, 4027, "session is already in flight for handoff — wait for it to settle, then retry")
-        except Exception as e:
-            return _err(rid, 5007, str(e))
-    return _ok(rid, {"queued": True, "session_key": key, "platform": platform_name, "home_name": home.name})
-
-
-@method("handoff.state")
-@_with_db(5007, session_scoped=True)
-def _(rid, params: dict, session: dict, db) -> dict:
-    """Poll ``{state, platform, error}``; ``state`` is pending|running|completed|failed or empty."""
-    record = db.get_handoff_state(session["session_key"]) or {}
-    return _ok(rid, {field: record.get(field) or "" for field in ("state", "platform", "error")})
-
-
-@method("handoff.fail")
-def _(rid, params: dict) -> dict:
-    """Fail a not-yet-claimed handoff (poll timeout); a claimed ``running`` row is the watcher's (CAS)."""
-    # Undecorated on purpose: tests rebind this handler's __code__ directly.
-    session, err = _sess_nowait(params, rid)
-    if err:
-        return err
-    reason = str(params.get("error") or "handoff failed").strip()[:500]
-    with _session_db(session) as db:
-        if db is None:
-            return _db_unavailable_error(rid, code=5007)
-        key = session["session_key"]
-        try:
-            failed = db.fail_handoff(key, reason, only_states=("pending",))
-        except TypeError:
-            # Older SessionDB without only_states: fail only when still pending.
-            if failed := ((db.get_handoff_state(key) or {}).get("state") or "") == "pending":
-                db.fail_handoff(key, reason)
-        state = "failed" if failed else (db.get_handoff_state(key) or {}).get("state") or ""
-    return _ok(rid, {"failed": bool(failed), "state": state})
 
 
 # ── usage ────────────────────────────────────────────────────────────
@@ -2015,8 +1935,7 @@ def _(rid, params: dict, session: dict) -> dict:
                 removed = (rewound := _rewind_active_session_history(session, user_turns - 1))[2]
             except Exception as exc:
                 return _err(rid, 5008, f"undo: {exc}")
-    if removed:  # Ink /retry is undo + resend and says so via ``intent`` (helper: methods_tools).
-        _tui_model_friction("retry" if params.get("intent") == "retry" else "undo", session)
+
     return _ok(rid, {"removed": removed, **_tools_mod("tui_gateway.checkpoints").undo_hint_fields(session, rewound, params)})
 
 
@@ -2245,22 +2164,6 @@ def _(rid, params: dict) -> dict:
     return _ok(rid, {"path": str(path), "session_id": session_id})
 
 
-def _legacy_spawn_tree_entry(p, session_dir_name: str) -> dict | None:
-    """Index-shaped entry for a pre-index snapshot file (None when unreadable)."""
-    try:
-        stat = p.stat()
-    except OSError:
-        return None
-    raw = {}
-    with contextlib.suppress(Exception):
-        raw = json.loads(p.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raw = {}
-    subagents = raw.get("subagents") or []
-    return {"path": str(p), "session_id": raw.get("session_id") or session_dir_name,
-            "finished_at": raw.get("finished_at") or stat.st_mtime, "started_at": raw.get("started_at"),
-            "label": raw.get("label") or "", "count": len(subagents) if isinstance(subagents, list) else 0}
-
 
 @method("spawn_tree.list")
 def _(rid, params: dict) -> dict:
@@ -2274,10 +2177,7 @@ def _(rid, params: dict) -> dict:
         if indexed := _read_spawn_tree_index(d):
             # Skip index entries whose snapshot file was manually deleted.
             entries.extend(e for e in indexed if (p := e.get("path")) and Path(p).exists())
-        else:  # Legacy (pre-index) sessions: full scan, once per session until the next save.
-            entries.extend(
-                entry for p in d.glob("*.json")
-                if p.name != _SPAWN_TREE_INDEX and (entry := _legacy_spawn_tree_entry(p, d.name)) is not None)
+
     entries.sort(key=lambda e: e.get("finished_at") or 0, reverse=True)
     return _ok(rid, {"entries": entries[:int(params.get("limit") or 50)]})
 

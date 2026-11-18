@@ -27,14 +27,13 @@ def launch_credentials_copy(error: Any) -> str:
     """The refusal for a session whose own launch/route API key changed or is gone (``RuntimeStoreError``
     or an RPC refusal carrying ``field``/``detail``). A session never sends a different key than it
     started with, so /retry repeats the refusal: the copy names /new on every surface."""
-    from agent.i18n import t
 
     data = getattr(error, "data", None)
     data = data if isinstance(data, dict) else {}
     field = getattr(error, "field", None) or data.get("field")
     detail = getattr(error, "detail", None) or data.get("detail")
     named = f" ({field}: {detail or 'unavailable'})" if field else ""
-    text = t("gateway.errors.launch_credentials_unavailable", detail=named)
+    text = (f"⚠️ This chat can't use the API key it was started with any more{named}, so nothing can run in it. An open chat never switches to a different key on its own, so /retry fails the same way. Use /new to start a new chat on your current key.")
     # The raw code + field stay greppable for bug reports and log matching (untranslated, last line).
     return f"{text}\n\nDetails: launch_credentials_unavailable{named}" if field else text
 

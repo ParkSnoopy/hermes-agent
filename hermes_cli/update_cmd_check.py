@@ -17,10 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 def _git(git_cmd: list[str], root: Path, args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    from hermes_cli._subprocess_compat import windows_hide_flags
-    # Callers pass **_no_prompt_git_kwargs() which already carries creationflags;
-    # OR the hide flag into the shared kwargs instead of passing the keyword twice.
-    kwargs["creationflags"] = kwargs.get("creationflags", 0) | windows_hide_flags()
     from hermes_cli.update_custody import run_git
 
     return run_git(
@@ -241,7 +237,6 @@ def select_apply_target(args, branch: str, request: dict, *, git_cmd, stop) -> t
     from hermes_cli.release_channels import retrying_reads
     from hermes_cli.source_releases import resolve_source_target
     from hermes_cli.update_channel import channel_record, rides_default_channel
-    from hermes_cli.update_cmd_common import _record_stop
 
     if getattr(args, "branch", None):
         return f"origin/{branch}", None, False, None
@@ -257,7 +252,6 @@ def select_apply_target(args, branch: str, request: dict, *, git_cmd, stop) -> t
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         print(f"✗ Could not resolve the {selected} source channel: {exc}. No update was applied.")
         stop()
-        _record_stop("channel_unresolved")
         sys.exit(1)
     if target.retired:
         print(f"→ {selected} retired; source destination: {target.channel}")

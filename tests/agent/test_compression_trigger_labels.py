@@ -1,7 +1,6 @@
-"""Each automatic compression entry point names itself in the attempt record.
+"""Each automatic compression entry point passes its trigger label.
 
-``agent._compress_context(..., trigger=<label>)`` is the only place the content-free attempt
-telemetry learns ``trigger_source``; a caller that drops its label is reported as plain ``auto``.
+``agent._compress_context(..., trigger=<label>)`` carries the caller label to compaction hooks.
 These tests drive the real turn-start and turn-loop callers with a minimal agent double whose
 ``_compress_context`` records the label and then stops the caller, so each driver only needs the
 preconditions that reach the compression call.

@@ -11,9 +11,7 @@ import sys
 from pathlib import Path
 from hermes_cli.doctor_platform import _system_package_install_cmd
 from hermes_cli.doctor_report import Finding, _fail_and_issue, check_bool, check_info, check_ok, check_warn, doctor_check
-from hermes_cli.vercel_auth import describe_vercel_auth
 from hermes_constants import is_termux as _is_termux
-from tools.environments.docker import docker_runtime_name, docker_runtime_start_hint, find_docker
 
 
 def _safe_which(cmd: str) -> str | None:
@@ -84,24 +82,10 @@ def _run_ok(cmd: list[str], timeout: int, **kw) -> bool:
 
 _TERMUX_INSTALL_ALL_FALLBACK_NOTES = (
     "Termux uses the Hermes APT package: pkg install hermes-agent.",
-    "Matrix E2EE extra is excluded on Termux (python-olm currently fails to build).",
-    "Local faster-whisper extra is excluded on Termux (ctranslate2/av build path unavailable).",
-    "STT fallback: use Groq Whisper (set GROQ_API_KEY) or OpenAI Whisper (set VOICE_TOOLS_OPENAI_KEY).",
+
+
 )
 
-
-def _is_kanban_worker_env_gate(item: dict) -> bool:
-    """Return True when Kanban is unavailable only because this is not a worker process."""
-    tools = item.get("tools") or []
-    return (item.get("name") == "kanban" and not os.environ.get("HERMES_KANBAN_TASK")
-            and bool(tools) and all(str(tool).startswith("kanban_") for tool in tools))
-
-
-def _doctor_tool_availability_detail(toolset: str) -> str:
-    """Optional explanatory suffix for toolsets whose doctor status needs context."""
-    if toolset == "kanban" and not os.environ.get("HERMES_KANBAN_TASK"):
-        return "(runtime-gated; loaded only for dispatcher-spawned workers)"
-    return ""
 
 
 def _doctor_web_capability_rows() -> list[tuple[str, str, str]]:
@@ -133,16 +117,6 @@ def _doctor_web_capability_rows() -> list[tuple[str, str, str]]:
                     else ("warn", capability, f"({name} selected; provider not configured)"))
     return rows
 
-
-def _apply_doctor_tool_availability_overrides(available: list[str], unavailable: list[dict]) -> tuple[list[str], list[dict]]:
-    """Adjust runtime-gated tool availability for doctor diagnostics."""
-    updated_available, updated_unavailable = list(available), []
-    for item in unavailable:
-        if not _is_kanban_worker_env_gate(item):
-            updated_unavailable.append(item)
-        elif "kanban" not in updated_available:
-            updated_available.append("kanban")
-    return updated_available, updated_unavailable
 
 
 def _enabled_cli_toolsets_for_doctor() -> set[str] | None:
@@ -184,131 +158,13 @@ def _check_git_and_rg(should_fix: bool, f: Finding) -> None:
         check_info(f"Install for faster search: {_system_package_install_cmd('ripgrep')}")
 
 
-_BUILTIN_TERMINAL_BACKENDS = {"local", "docker", "modal", "managed_modal", "daytona", "vercel_sandbox", "ssh"}
-
-
-def _check_docker_backend(terminal_env: str, running_in_container: bool, issues: list[str]) -> None:
-    docker_exe = find_docker()
-    if terminal_env == "docker":
-        if not docker_exe:
-            _fail_and_issue("Docker or Podman not installed", "(needed for the 'docker' terminal backend)",
-                            "Install Docker or Podman, or run `hermes setup terminal` to switch backend.", issues)
-        else:
-            runtime = docker_runtime_name(docker_exe)
-            hint = docker_runtime_start_hint(docker_exe)
-            unreachable = (
-                f"{runtime} daemon not running" if runtime == "Docker" else f"{runtime} not reachable")
-            # `<cli> version` hits /version, which socket proxies (tecnativa) allow by default; `docker info`
-            # needs /info and is commonly blocked, giving a false "daemon not running". The backend itself
-            # probes with `<cli> version` too (environments/docker.py).
-            _require(_run_ok([docker_exe, "version"], timeout=10),
-                     (runtime, "(daemon running)" if runtime == "Docker" else "(reachable)"),
-                     (unreachable, "(needed for the 'docker' terminal backend)"),
-                     f"{hint[0].upper()}{hint[1:]}, or run `hermes setup terminal` to switch backend.", issues)
-    elif docker_exe:
-        check_ok(docker_runtime_name(docker_exe), "(optional)")
-    elif _is_termux():
-        check_info("Docker backend is not available inside Termux (expected on Android)")
-    elif not running_in_container:  # in-container case already explained by the caller
-        check_warn("Docker/Podman not found", "(optional)")
-
-
-def _check_ssh_backend(issues: list[str]) -> None:
-    ssh_host = os.getenv("TERMINAL_SSH_HOST")
-    if not ssh_host:
-        return _fail_and_issue("SSH host not configured", "(needed for the 'ssh' terminal backend)",
-                               "run `hermes setup terminal` and enter the SSH host and user.", issues)
-    ssh_user, ssh_port, ssh_key = (os.getenv(f"TERMINAL_SSH_{k}") for k in ("USER", "PORT", "KEY"))
-    cmd = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes"]
-    if ssh_port:
-        cmd += ["-p", ssh_port]
-    if ssh_key:
-        cmd += ["-i", os.path.expanduser(ssh_key)]
-    cmd += [f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host, "echo ok"]
-    _require(_run_ok(cmd, timeout=15, text=True, encoding='utf-8', errors='replace'),
-             f"SSH connection to {ssh_host}", (f"SSH connection to {ssh_host}", ""), f"Check SSH configuration for {ssh_host}", issues)
-
-
-def _require(cond, ok, bad, issue: str, issues: list[str]) -> None:
-    """``check_ok(*ok)`` when *cond*, else ``check_fail(*bad)`` and record *issue*."""
-    if not check_bool(cond, ok, bad, fail=True):
-        issues.append(issue)
-
-
-def _check_daytona_backend(issues: list[str]) -> None:
-    _require(os.getenv("DAYTONA_API_KEY"), ("Daytona API key", "(configured)"),
-             ("Daytona API key missing", "(needed for the 'daytona' terminal backend)"),
-             "run `hermes setup terminal` (Daytona) to enter it.", issues)
-    try:
-        from daytona import Daytona
-        check_ok("daytona SDK", "(installed)")
-    except ImportError:
-        _fail_and_issue("daytona SDK not installed", "(run hermes setup terminal)", "Run hermes setup terminal and select Daytona, then restart Hermes", issues)
-
-
-def _check_vercel_backend(issues: list[str]) -> None:
-    from tools.terminal_tool_backends import _SUPPORTED_VERCEL_RUNTIMES
-    runtime = os.getenv("TERMINAL_VERCEL_RUNTIME", "node24").strip() or "node24"
-    supported = ", ".join(_SUPPORTED_VERCEL_RUNTIMES)
-    _require(runtime in _SUPPORTED_VERCEL_RUNTIMES, ("Vercel runtime", f"({runtime})"),
-             ("Vercel runtime unsupported", f"({runtime}; use {supported})"), f"Set TERMINAL_VERCEL_RUNTIME to one of: {supported}", issues)
-    _require(os.getenv("TERMINAL_CONTAINER_DISK", "51200").strip() in {"", "0", "51200"},
-             ("Vercel disk setting", "(uses platform default)"), ("Vercel custom disk unsupported", "(reset terminal.container_disk to 51200)"),
-             "Vercel Sandbox does not support custom container_disk; use the shared default 51200", issues)
-    _require(importlib.util.find_spec("vercel") is not None, ("vercel SDK", "(installed)"),
-             ("vercel SDK not installed", "(run hermes setup terminal)"),
-             "Run hermes setup terminal and select Vercel Sandbox, then restart Hermes", issues)
-    auth_status = describe_vercel_auth()
-    if auth_status.ok:
-        check_ok("Vercel auth", f"({auth_status.label})")
-    elif auth_status.label.startswith("partial"):
-        _fail_and_issue("Vercel auth incomplete", f"({auth_status.label})", "Set VERCEL_TOKEN, VERCEL_PROJECT_ID, and VERCEL_TEAM_ID together", issues)
-    else:
-        _fail_and_issue("Vercel auth not configured", f"({auth_status.label})", "Configure Vercel Sandbox auth with VERCEL_TOKEN, VERCEL_PROJECT_ID, and VERCEL_TEAM_ID", issues)
-    for line in auth_status.detail_lines:
-        check_info(f"Vercel auth {line}")
-    persistent = os.getenv("TERMINAL_CONTAINER_PERSISTENT", "true").lower() in {"1", "true", "yes", "on"}
-    check_info("Vercel persistence: snapshot filesystem only; live processes do not survive sandbox recreation"
-               if persistent else "Vercel persistence: ephemeral filesystem")
-
-
-def _check_plugin_backend(terminal_env: str, issues: list[str]) -> None:
-    try:
-        from hermes_cli.plugins import discover_plugins
-        discover_plugins()
-        from agent.terminal_env_registry import get_provider
-        provider = get_provider(terminal_env)
-    except Exception:
-        provider = None
-    if provider is None:
-        return _fail_and_issue(f"Unknown terminal backend '{terminal_env}'", "(no built-in or plugin backend by that name)",
-                               "Fix terminal.backend in config.yaml, or install/enable the plugin that provides it", issues)
-    for ok, label, detail in provider.doctor_checks():
-        _require(ok, (label, detail), (label, detail), detail.strip("()"), issues)
-
-
-_BACKEND_CHECKS = {"ssh": _check_ssh_backend, "daytona": _check_daytona_backend, "vercel_sandbox": _check_vercel_backend}
-
-
-@doctor_check()
 def _check_terminal_backend(should_fix: bool, f: Finding) -> None:
-    """Docker/SSH/Daytona/Vercel/plugin terminal backends, gated on TERMINAL_ENV."""
-    terminal_env = os.getenv("TERMINAL_ENV", "local")
-    try:
-        from hermes_constants import is_container as _is_container
-        running_in_container = _is_container()
-    except Exception:
-        running_in_container = False
-    # In our container docker-in-docker isn't set up, so local is intended: skip the noisy "Docker/Podman not found"
-    # warning. An explicit TERMINAL_ENV=docker (mounted docker.sock) still gets checked.
-    if running_in_container and terminal_env != "docker":
-        check_info("Running inside a container — using local terminal backend (docker-in-docker is not configured by default)")
-        terminal_env = "local"
-    _check_docker_backend(terminal_env, running_in_container, f.issues)
-    if terminal_env in _BACKEND_CHECKS:
-        _BACKEND_CHECKS[terminal_env](f.issues)
-    elif terminal_env not in _BUILTIN_TERMINAL_BACKENDS:
-        _check_plugin_backend(terminal_env, f.issues)
+    backend = os.getenv("TERMINAL_ENV", "local").strip().lower() or "local"
+    if backend == "local":
+        check_ok("Local terminal backend")
+    else:
+        _fail_and_issue(f"Unsupported terminal backend '{backend}'", "(only local is supported)",
+                        "Set terminal.backend to local in config.yaml", f.issues)
 
 
 def _chromium_not_needed_reason() -> str:
@@ -438,32 +294,21 @@ def _audit_one(tool: str, cwd, label: str, audit_extra: list[str], manual_issues
 
 @doctor_check()
 def _check_npm_audit(should_fix: bool, f: Finding) -> None:
-    """pnpm audit per installed workspace (root, web, ui-tui); npm audit for the WhatsApp bridge.
+    """pnpm audit per installed workspace (root, web, ui-tui).
 
     The workspaces are audited one --filter each, so the desktop app's tree (Electron, node-pty, ...) is
-    never part of a routine check (#38772). The WhatsApp bridge may live under a writable HERMES_HOME
-    mirror rather than the (possibly read-only) Docker install tree, hence the shared resolver.
+    never part of a routine check (#38772).
     """
     from hermes_cli.doctor import PROJECT_ROOT
-    staged = _pm_tool_path("npm")
-    npm_bin = str(staged) if staged else (_safe_which("npm") if _is_termux() else None)
+
     # Termux has no pnpm: nothing installs the JS workspaces on device.
     pnpm_bin = _pm_tool_path("pnpm")
-    try:
-        # The WhatsApp bridge may live under a writable HERMES_HOME mirror instead of the (possibly
-        # read-only) install tree in Docker — resolve it through the shared helper so we audit the dir
-        # that actually holds node_modules. See #49561.
-        from gateway.platforms.whatsapp_common import resolve_whatsapp_bridge_dir
-        whatsapp_bridge_dir = resolve_whatsapp_bridge_dir()
-    except Exception:
-        whatsapp_bridge_dir = PROJECT_ROOT / "scripts" / "whatsapp-bridge"
     for tool, tree, label, audit_extra in (
         # The root package.json itself (js-yaml, semver, eslint tooling). See #122223.
         (pnpm_bin, PROJECT_ROOT, "Root npm package", ["--filter", "."]),
         # `{./X}...`: the workspace and the sibling workspaces it depends on (apps/shared, hermes-ink).
         (pnpm_bin, PROJECT_ROOT / "web", "web workspace", ["--filter", "{./web}..."]),
         (pnpm_bin, PROJECT_ROOT / "ui-tui", "ui-tui workspace", ["--filter", "{./ui-tui}..."]),
-        (npm_bin, whatsapp_bridge_dir, "WhatsApp bridge", []),
     ):
         # Only installed trees: pnpm links each installed workspace's own node_modules.
         if tool and (tree / "node_modules").exists():
@@ -479,8 +324,11 @@ def _check_tool_availability(should_fix: bool, f: Finding) -> None:
     from hermes_cli.doctor import PROJECT_ROOT
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
-    from model_tools import check_tool_availability, TOOLSET_REQUIREMENTS
-    available, unavailable = _apply_doctor_tool_availability_overrides(*check_tool_availability())
+    from importlib import import_module
+    from tools.registry import registry
+    import_module("model_tools")  # Discover built-in and plugin tools on first import.
+    available, unavailable = registry.check_tool_availability()
+    requirements = registry.get_toolset_requirements()
     # Web is split into search/extract readiness rows so an explicitly
     # selected but unconfigured backend cannot look healthy.
     web_rows = []
@@ -491,7 +339,7 @@ def _check_tool_availability(should_fix: bool, f: Finding) -> None:
             available = [tid for tid in available if tid != "web"]
             unavailable = [item for item in unavailable if item.get("name") != "web"]
     for tid in available:
-        check_ok(TOOLSET_REQUIREMENTS.get(tid, {}).get("name", tid), _doctor_tool_availability_detail(tid))
+        check_ok(requirements.get(tid, {}).get("name", tid))
     for status, label, detail in web_rows:
         (check_ok if status == "ok" else check_warn)(label, detail)
     for item in unavailable:

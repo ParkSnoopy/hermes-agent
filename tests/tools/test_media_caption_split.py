@@ -1,18 +1,6 @@
-"""Guard test for the MEDIA:<path> caption chokepoint (_media_caption_split).
+"""Guard the shared MEDIA caption decision for outbound adapters."""
 
-`hermes send` strips the MEDIA: tag and leaves the remaining prose as the
-accompanying text. Historically every standalone sender posted that text as a
-*separate* message before an uncaptioned media bubble, splitting
-``hermes send --to whatsapp "MEDIA:/x.png This Caption"`` into two parts.
-
-`_media_caption_split` is the single enforced decision point that all standalone
-senders (WhatsApp, Telegram, Discord) consult to decide whether the text should
-ride on the media bubble as a native caption. This test pins that contract so
-the platforms can't diverge.
-"""
-
-from tools.send_message_tool import _DEFAULT_CAPTION_LIMIT, _media_caption_split
-from plugins.platforms.telegram.standalone import _TELEGRAM_CAPTION_LIMIT
+from gateway.outbound_senders import _DEFAULT_CAPTION_LIMIT, _media_caption_split
 
 
 def test_single_image_short_text_becomes_caption():

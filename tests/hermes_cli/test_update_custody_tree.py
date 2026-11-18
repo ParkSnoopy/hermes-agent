@@ -1,10 +1,4 @@
-"""#144439: where there is no parent-death signal (macOS), updater git custody owns the git
-TREE, not git's pid: a timeout, or the owner's death, ends the helpers git started too.
-
-Real git, real processes. The helper is the fetch's upload-pack (a shell git starts), which
-stands in for git-remote-https / index-pack. Linux runs the same code with the parent-death
-signal switched off; the macOS tests-os lane runs it natively.
-"""
+"""Linux git custody: timeout and owner-death safety with a real fetch helper."""
 
 from __future__ import annotations
 
@@ -76,20 +70,19 @@ def _wait_pid(path: Path) -> int:
     raise AssertionError("the fetch never started its helper")
 
 
-@pytest.mark.platforms("posix")
+@pytest.mark.platforms("linux")
 def test_a_timed_out_fetch_takes_its_helpers_with_it(fetch_rig, tmp_path, monkeypatch):
     from hermes_cli import update_custody
 
     repo, helper, helper_pid = fetch_rig
     monkeypatch.setattr(update_custody, "_held", lambda: {"fd": None})
-    monkeypatch.setattr(update_custody, "_death_signal_preexec", lambda: None)
     with pytest.raises(subprocess.TimeoutExpired):
         update_custody.run_git(["git"], ["fetch", f"--upload-pack={helper}", "origin"], cwd=str(repo),
                                capture_output=True, timeout=2)
     assert _gone_within(_wait_pid(helper_pid), 5), "the fetch's helper outlived the timed-out fetch"
 
 
-@pytest.mark.platforms("posix")
+@pytest.mark.platforms("linux")
 def test_a_killed_owner_takes_the_fetch_helpers_with_it(fetch_rig, tmp_path):
     repo, helper, helper_pid = fetch_rig
     owner_script = textwrap.dedent(f"""
@@ -97,7 +90,6 @@ def test_a_killed_owner_takes_the_fetch_helpers_with_it(fetch_rig, tmp_path):
         sys.path.insert(0, {str(REPO_ROOT)!r})
         from pathlib import Path
         from hermes_cli import update_custody, update_lock as ul, update_cmd
-        update_custody._death_signal_preexec = lambda: None  # what macOS has
         lock = ul.UpdateLock(path=Path(sys.argv[2]), install_root=sys.argv[1])
         assert lock.acquire()
         update_cmd._git_run(["git"], ["fetch", "--upload-pack=" + sys.argv[3], "origin"], cwd=sys.argv[1], network=True)
@@ -112,22 +104,3 @@ def test_a_killed_owner_takes_the_fetch_helpers_with_it(fetch_rig, tmp_path):
     finally:
         if owner.poll() is None:
             owner.kill()
-
-
-@pytest.mark.platforms("posix")
-def test_a_reaped_git_never_signals_the_group_its_pid_now_names():
-    """``communicate`` reaps git on a Ctrl-C inside its wait window, and the cleanup then reaches
-    ``_kill_tree``. A reaped pid may already lead another session; signalling it as a group would
-    SIGKILL that unrelated process. The decoy stands in for the session that reused the id."""
-    from hermes_cli.update_custody import _kill_tree
-
-    git = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
-    git.wait()
-    decoy = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
-    try:
-        git.pid = decoy.pid  # the reused id
-        _kill_tree(git)
-        assert not _gone_within(decoy.pid, 0.5), "a reaped handle signalled another session's group"
-    finally:
-        decoy.kill()
-        decoy.wait()

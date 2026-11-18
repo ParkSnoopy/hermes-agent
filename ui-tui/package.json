@@ -10,8 +10,7 @@
     "dev": "pnpm run build:ink && tsx --watch src/entry.tsx",
     "start": "tsx src/entry.tsx",
     "build": "node ../scripts/build/tui.mjs",
-    "i18n:keys": "tsx scripts/i18n-keys.ts",
-    "i18n:keys:check": "tsx scripts/i18n-keys.ts --check",
+
     "build:ink": "pnpm --dir packages/hermes-ink run build",
     "visual": "node scripts/visual/run.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -19,7 +18,7 @@
     "lint:fix": "eslint src/ packages/ --fix",
     "fmt": "prettier --write 'src/**/*.{ts,tsx}' 'packages/**/*.{ts,tsx}'",
     "fix": "pnpm run lint:fix && pnpm run fmt",
-    "check": "pnpm run build:ink && pnpm run typecheck && pnpm run i18n:keys:check && pnpm run test && pnpm run lint",
+    "check": "pnpm run build:ink && pnpm run typecheck && pnpm run test && pnpm run lint",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -400,7 +400,6 @@ async def _retire_profile_authority(authority, timeout=None):
     those turns must be signalled first or the room stop cannot finish. False when a turn or room
     thread misses *timeout* (default TURN_SETTLE_SECONDS): it may still call tools and write
     history, so the caller must keep the profile's reservation and store handles."""
-    from gateway.session_cron import unbind_owner
     from gateway.session_runtime_workers import join_authority_work, stop_authority_work
     timeout = TURN_SETTLE_SECONDS if timeout is None else timeout
     authority.retiring = True
@@ -428,7 +427,6 @@ async def _retire_profile_authority(authority, timeout=None):
         task.cancel()
     if rest:
         await asyncio.gather(*rest, return_exceptions=True)
-    unbind_owner(authority)
     # Ownership is released next; until a successor bumps the epoch, A's epoch still fences its
     # writes as current, so a stale connection to A must find it retired instead.
     authority.retired = True
@@ -455,7 +453,6 @@ async def serve_profile_runtime(runner, name, home):
     from gateway.session_authorities import owner_scope
     from gateway.session_hosted_service import _ensure_hosted_service, start_ready_hosted_services
     from gateway.session_local_recovery import recover_local_sessions
-    from gateway.platforms.webhook_ingress import recover_webhook_finalizations
     home = await asyncio.to_thread(Path(home).resolve)
     registry = runner.session_authorities
     existing = registry.for_home(home)
@@ -474,8 +471,6 @@ async def serve_profile_runtime(runner, name, home):
             _drop_retired_local_adapter(authority)
             await recover_bot_mailbox(authority)
             recover_local_sessions(authority, schedule=True)
-            await recover_webhook_finalizations(authority)
-            _recover_published_api_turns(runner, authority)
         if getattr(runner, 'session_control_server', None) is not None:
             await _ensure_hosted_service(runner, authority)
     except BaseException:
@@ -498,16 +493,6 @@ def _drop_retired_local_adapter(authority):
     previous = getattr(adapters.get(Platform.LOCAL), 'authority', None)
     if previous is not None and previous is not authority and getattr(previous, 'retired', False):
         del adapters[Platform.LOCAL]
-
-
-def _recover_published_api_turns(runner, authority):
-    """Boot recovers queued API turns when the launch API adapter is published
-    (``recover_api_turns``); a profile served after that runs the same pass on its own store."""
-    from gateway.config import Platform
-    api = (getattr(runner, 'adapters', None) or {}).get(Platform.API_SERVER)
-    if api is not None:
-        from gateway.session_api_turn import recover_authority_api_turns
-        recover_authority_api_turns(api, authority)
 
 
 async def recover_served_native_rows(runner):
@@ -566,52 +551,7 @@ async def recover_bot_mailbox(authority):
 
 async def start_gateway_runtime_api(runner):
     from gateway import run_api
-    from gateway.webapp_listener import (
-        STARTING, BrowserCredentialError, browser_session_token, dial_origin, listener_plan, register_control_verbs,
-    )
-    from hermes_constants import get_hermes_home
-    home = get_hermes_home()
-    # The bootstrap registered these before its control socket answered; a runner started without it
-    # (an embedded gateway) gets them here, before the listener's slow start.
-    register_control_verbs(runner, home)
-    host, port, webapp, unusable = listener_plan(home)
-    # A webapp: block that asks for the Webapp but cannot be used is reported with its reason.
-    runner.webapp_status = ({"state": "unavailable", "url": None, "reason": unusable} if unusable
-                            else {"state": "off", "url": None, "reason": None} if webapp is None
-                            else dict(STARTING))
-    try:
-        # Without the Webapp the listener is main's: the same call, a private ephemeral port.
-        runner.session_api = await (run_api.start_gateway_api(runner, host=host, port=port, webapp=webapp)
-                                    if webapp is not None else run_api.start_gateway_api(runner))
-    except (Exception, SystemExit) as exc:
-        if webapp is None:
-            raise
-        # The Webapp's listener could not start (port taken, address unavailable, its browser credential
-        # not storable in the home, or the dashboard's auth gate exiting on a wildcard bind with no
-        # sign-in provider): native clients still need this gateway, so it keeps main's private
-        # listener and reports why the Webapp is not served.
-        if isinstance(exc, SystemExit):
-            reason = str(exc.code).strip()  # the gate's own message names the fix
-        elif isinstance(exc, BrowserCredentialError):
-            reason = str(exc)  # names the file and why it cannot be stored
-        elif isinstance(exc, OSError) and exc.filename:  # the browser credential's file, not the port
-            reason = f"could not use {exc.filename} ({exc.strerror or exc})"
-        else:
-            cause = (exc.strerror or exc) if isinstance(exc, OSError) else exc
-            reason = f"could not listen on {host}:{port} ({cause})"
-        logger.error("Webapp unavailable: %s", reason)
-        runner.webapp_status = {"state": "unavailable", "url": None, "reason": reason}
-        # Open tabs keep sending their credential to whatever answers on the Webapp's port, and that
-        # is not this gateway now. Replace it, so one captured there never opens this gateway; the
-        # tabs sign in again once the Webapp is back.
-        try:
-            browser_session_token(home, rotate=True)
-        except OSError as write_error:
-            logger.warning("Could not replace the Webapp's browser credential: %s", write_error)
-        runner.session_api = await run_api.start_gateway_api(runner)
-    else:
-        if webapp is not None:
-            runner.webapp_status = {"state": "serving", "url": dial_origin(host, port), "reason": None}
+    runner.session_api = await run_api.start_gateway_api(runner)
     runner.session_runtime_descriptor['api_origin'] = runner.session_api.api_origin
     for authority in _authorities(runner):
         await _recover_profile_bot_mailbox(runner, authority)
@@ -661,12 +601,10 @@ async def recover_gateway_native_sessions(runner):
     from gateway.session_hosted_service import ensure_hosted_service
     await ensure_hosted_service(runner)
     from gateway.session_local_recovery import recover_local_sessions
-    from gateway.platforms.webhook_ingress import recover_webhook_finalizations
     results = {}
     for authority in authorities:
         with owner_scope(authority):
             recover_local_sessions(authority, schedule=True)
-            await recover_webhook_finalizations(authority)
         results.update(await recover_profile_native_sessions(runner, authority))
     return results
 

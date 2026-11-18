@@ -1,5 +1,5 @@
 """Background-process launch path: ``terminal(background=true)`` spawns a tracked
-process via the process registry (Popen locally, ``env.execute`` in a sandbox),
+process via the local process registry,
 stamps gateway routing metadata for completion / watch-pattern notifications and
 returns the JSON result. Lazy ``tools.terminal_tool`` imports keep the origin's
 monkeypatch points authoritative.
@@ -16,10 +16,10 @@ logger = logging.getLogger("tools.terminal_tool")
 # only for servers/watchers; for bounded tasks the agent almost always wanted a
 # notification and forgot the flag, so nudge it (cheap false positive).
 _SILENT_BACKGROUND_HINT = (
-    'background=true without notify_on_complete=true means this process runs SILENTLY — you '
+    'background=true without notify=true means this process runs SILENTLY — you '
     'will not be told when it exits. If this is a bounded task (test suite, build, CI poller, '
-    'deploy, anything with a defined end), you almost certainly wanted notify_on_complete=true '
-    'so the system pings you on exit. Re-launch with notify_on_complete=true, or call '
+    'deploy, anything with a defined end), you almost certainly wanted notify=true '
+    'so the system pings you on exit. Re-launch with notify=true, or call '
     "process(action='poll') / process(action='wait') yourself to learn the outcome. Only "
     'ignore this hint for genuine long-lived processes that never exit (servers, watchers, '
     'daemons).'
@@ -54,7 +54,7 @@ _AUTO_BACKGROUND_NOTE = (
 )
 
 _ASYNC_UNSUPPORTED_NOTE = (
-    'notify_on_complete / watch_patterns are not available in this session — it cannot receive '
+    'notify is not available in this session — it cannot receive '
     'an async completion after the turn ends (a one-shot runner such as `hermes -z`, a /bg '
     'background task, a cron job, a Kanban worker, or a stateless HTTP endpoint). The process is running in the '
     "background; retrieve its result with process(action='poll') or process(action='wait')."
@@ -97,11 +97,11 @@ def _spawn(process_registry, *, env, env_type, command, cwd, effective_task_id, 
     common = dict(command=command, cwd=cwd, task_id=effective_task_id,
                   owner_task_id=task_id or effective_task_id, session_key=session_key,
                   persist_on_release=persist_on_release)
-    if env_type == "local":
-        return process_registry.spawn_local(
-            env_vars=env.env if hasattr(env, 'env') else None, use_pty=effective_pty,
-            restore_login_path=True, **common)
-    return process_registry.spawn_via_env(env=env, **common)
+    from tools.terminal_tool_config import require_local_environment
+    require_local_environment(env_type)
+    return process_registry.spawn_local(
+        env_vars=env.env if hasattr(env, 'env') else None, use_pty=effective_pty,
+        restore_login_path=True, **common)
 
 
 def _apply_async_support(proc_session, result_data, notify_on_complete, watch_patterns):
@@ -154,7 +154,6 @@ def spawn_background_process(
     pty_disabled_reason: Optional[str],
     heartbeat_seconds: int = 0,
     persist_on_release: bool = False,
-    mounted_host: Optional[str] = None,
     auto_backgrounded: bool = False,
 ) -> str:
     """Spawn *command* as a tracked background process and return the JSON result.
@@ -171,9 +170,7 @@ def spawn_background_process(
     )
 
     effective_cwd = _resolve_command_cwd(
-        workdir=workdir, default_cwd=cwd, session_key=session_key, env_type=env_type,
-        mounted_host=mounted_host if mounted_host is not None else getattr(env, "host_cwd", None),
-        env=env,
+        workdir=workdir, default_cwd=cwd, session_key=session_key,
     )
     try:
         proc_session = _spawn(
@@ -254,12 +251,11 @@ def yield_to_background_handler(
     task_id: Optional[str], session_key: str,
 ):
     """Build the ``yield_handler`` a foreground ``env.execute`` calls when the tool thread is
-    asked to yield (a user message arrived mid-command). Local backend only: the live Popen
+    asked to yield (a user message arrived mid-command). The live Popen
     is adopted by the process registry as a notify-on-complete background session and the
-    partial output is returned to the model right away. Other backends return None (no
-    adoptable host process) and the foreground wait continues."""
-    if env_type != "local":
-        return None
+    partial output is returned to the model right away."""
+    from tools.terminal_tool_config import require_local_environment
+    require_local_environment(env_type)
 
     def _handler(proc, output_so_far: str) -> dict:
         from tools.process_registry import process_registry

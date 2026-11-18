@@ -27,17 +27,3 @@ def test_generic_exception_result_redacts_error_and_traceback(monkeypatch):
     assert SECRET not in result["traceback"]
     # The redaction must mask the value, not drop the message entirely.
     assert "OPENAI_API_KEY=" in result["error"]
-
-
-def test_degraded_fail_mode_result_redacts_error_and_traceback(monkeypatch):
-    from tools.environments.base import EnvironmentConnectionError
-
-    monkeypatch.setenv("TERMINAL_DEGRADED_MODE", "fail")
-    exc = EnvironmentConnectionError(
-        f"ssh auth failed TOKEN={SECRET}", retry_hint="retry later"
-    )
-    _force_exception(monkeypatch, exc)
-    result = json.loads(terminal_tool.terminal_tool("echo hi"))
-    assert result["status"] == "error"
-    assert SECRET not in result["error"]
-    assert SECRET not in result["traceback"]

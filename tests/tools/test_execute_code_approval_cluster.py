@@ -5,9 +5,9 @@ Covers the canonical fix for issues #4146, #27303, #30882, #33057:
   1. tools.thread_context.propagate_context_to_thread — propagates the agent
      turn's ContextVars AND thread-local approval/sudo callbacks into worker
      threads, and clears the callbacks on teardown.
-  2. Local and remote file-RPC carry the cell's authority in real processes.
+  2. Local file-RPC carries the cell's authority in real processes.
   3. tools.approval.check_execute_code_guard — the entry-point guard decision
-     matrix (isolated backends, yolo/off, cron-deny, headless-local,
+     matrix (retired backend refusal, yolo/off, headless-local,
      gateway approve/deny/timeout/missing-notify, smart mode).
   4. tools.code_execution_env._scrub_child_env — broad HERMES_ prefix dropped,
      operational allowlist kept, DSN/WEBHOOK blocked, passthrough precedence.
@@ -27,7 +27,6 @@ from tools import approval_detection
 from tools import approval_context
 from tools import approval_smart
 from tools.thread_context import propagate_context_to_thread
-from gateway.session_context import clear_session_vars, reset_session_vars, set_session_vars
 from tests.tools._child_env_fixtures import child_env
 
 
@@ -88,13 +87,11 @@ def test_helper_clears_callbacks_on_teardown():
 
 
 @pytest.mark.platforms("posix")
-@pytest.mark.parametrize("transport", ["local", "remote-file"])
-def test_rpc_carries_authority_to_real_dispatch(child_env, monkeypatch, transport):
-    import time
+def test_rpc_carries_authority_to_real_dispatch(child_env, monkeypatch):
     import model_tools
-    from tests.tools._child_env_fixtures import RunToCompletionEnv, run_code
+    from tests.tools._child_env_fixtures import run_code
     from tools import terminal_tool
-    from tools.code_execution_tool import _run_remote_per_call
+
 
     witness = child_env / "authority.txt"
 
@@ -115,15 +112,7 @@ def test_rpc_carries_authority_to_real_dispatch(child_env, monkeypatch, transpor
             token = marker.set(turn)
             terminal_tool.set_approval_callback(callback)
             try:
-                if transport == "local":
-                    result = run_code(code, reset=(turn == "first"))
-                else:
-                    raw = json.loads(_run_remote_per_call(
-                        RunToCompletionEnv(child_env), "ssh", code, "authority-test",
-                        frozenset({"read_file"}), timeout=30, max_tool_calls=2, exec_start=time.monotonic()))
-                    assert raw["status"] == "success", raw
-                    assert raw["tool_calls_made"] == 1
-                    result = json.loads(raw["output"])
+                result = run_code(code, reset=(turn == "first"))
                 assert "content" in result, result
                 assert f"real RPC payload {turn}" in result["content"]
                 assert seen[-1] == (turn, callback)
@@ -144,7 +133,7 @@ def gw_session(monkeypatch):
     key, and isolated gateway queues/callbacks. Yields the session_key."""
     monkeypatch.setenv("HERMES_GATEWAY_SESSION", "1")
     monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
-    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+
     monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
     # Force manual mode regardless of host config and disable any process-level
     # yolo inherited from the developer's live environment.
@@ -198,63 +187,28 @@ def _register_capturing_resolver(session_key: str, result):
     return seen
 
 
-def test_guard_isolated_backend_approved():
-    # Container backends already sandbox the child — no-op approve.
-    assert A.check_execute_code_guard("import os", "docker")["approved"] is True
+@pytest.mark.parametrize("backend", ["docker", "ssh", "modal", "daytona", "vercel_sandbox", "plugin"])
+def test_guard_retired_backend_refused(backend):
+    result = A.check_execute_code_guard("import os", backend)
+    assert result["approved"] is False
+    assert "Only 'local'" in result["message"]
+    assert result["outcome"] == "blocked"
 
 
 def test_guard_headless_local_approved(monkeypatch):
     # Documented #30882 limitation: no approval surface → preserve auto-run.
     monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
     monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
-    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+
     monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
     monkeypatch.setattr(approval_context, "_get_approval_mode", lambda: "manual")
     assert A.check_execute_code_guard("import os", "local")["approved"] is True
 
 
-def test_guard_cron_deny_blocks(monkeypatch):
-    monkeypatch.setattr(A, "_YOLO_MODE_FROZEN", False)
-    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
-    monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-    monkeypatch.setattr(approval_context, "_get_approval_mode", lambda: "manual")
-    monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "deny")
-    tokens = set_session_vars(cron_session="1")
-    try:
-        res = A.check_execute_code_guard("import os", "local")
-    finally:
-        clear_session_vars(tokens)
-    assert res["approved"] is False
-    assert res["outcome"] == "blocked"
 
 
-def test_guard_explicit_non_cron_masks_leaked_env(monkeypatch):
-    monkeypatch.setattr(A, "_YOLO_MODE_FROZEN", False)
-    monkeypatch.setenv("HERMES_CRON_SESSION", "1")
-    monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-    monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
-    monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
-    monkeypatch.setattr(approval_context, "_get_approval_mode", lambda: "manual")
-    monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "deny")
-    tokens = set_session_vars(cron_session="")
-    try:
-        res = A.check_execute_code_guard("import os", "local")
-    finally:
-        clear_session_vars(tokens)
-        reset_session_vars()
-    assert res["approved"] is True
 
 
-def test_guard_legacy_env_cron_still_blocks(monkeypatch):
-    reset_session_vars()
-    monkeypatch.setattr(A, "_YOLO_MODE_FROZEN", False)
-    monkeypatch.setenv("HERMES_CRON_SESSION", "1")
-    monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-    monkeypatch.setattr(approval_context, "_get_approval_mode", lambda: "manual")
-    monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "deny")
-    res = A.check_execute_code_guard("import os", "local")
-    assert res["approved"] is False
-    assert res["outcome"] == "blocked"
 
 
 def test_guard_gateway_user_approves_is_one_shot(gw_session):
@@ -474,14 +428,14 @@ def test_env_scrub_hermes_allowlist_and_secret_blocks():
         "HERMES_DELEGATED_CHILD_CONTEXT": "1",
         # other HERMES_* → dropped (broad prefix removed)
         "HERMES_BASE_URL": "https://x", "HERMES_INTERACTIVE": "1",
-        "HERMES_KANBAN_TASK": "t_parent",
+        "HERMES_WORKSPACE": "/workspace",
         # secret substrings (incl. new DSN/WEBHOOK) → dropped
         "SENTRY_DSN": "https://a@s.io/1", "SLACK_WEBHOOK": "https://h/x",
         "OPENAI_API_KEY": "sk", "GITHUB_TOKEN": "ghp",
         # safe prefix → kept; uncategorized → dropped
         "PATH": "/usr/bin", "RANDOM_X": "y",
     }
-    out = _scrub_child_env(env, is_passthrough=lambda _: False, is_windows=False)
+    out = _scrub_child_env(env, is_passthrough=lambda _: False)
 
     for kept in (
         "HERMES_HOME", "HERMES_PROFILE", "HERMES_CONFIG", "HERMES_ENV",
@@ -489,11 +443,20 @@ def test_env_scrub_hermes_allowlist_and_secret_blocks():
     ):
         assert kept in out, f"{kept} should be kept"
     for dropped in (
-        "HERMES_BASE_URL", "HERMES_INTERACTIVE", "HERMES_KANBAN_TASK",
+        "HERMES_BASE_URL", "HERMES_INTERACTIVE", "HERMES_WORKSPACE",
         "SENTRY_DSN", "SLACK_WEBHOOK", "OPENAI_API_KEY", "GITHUB_TOKEN",
         "RANDOM_X",
     ):
         assert dropped not in out, f"{dropped} should be dropped"
+
+
+def test_env_scrub_marks_in_process_delegation():
+    from agent.delegation_context import delegated_child_context, DELEGATED_CHILD_ENV_MARKER
+    from tools.code_execution_env import _scrub_child_env
+
+    with delegated_child_context():
+        out = _scrub_child_env({"PATH": "/usr/bin"}, is_passthrough=lambda _: False)
+    assert out[DELEGATED_CHILD_ENV_MARKER] == "1"
 
 
 def test_env_scrub_passthrough_overrides_secret_block():
@@ -502,8 +465,7 @@ def test_env_scrub_passthrough_overrides_secret_block():
     from tools.code_execution_env import _scrub_child_env
 
     env = {"MY_SERVICE_DSN": "value"}
-    out = _scrub_child_env(env, is_passthrough=lambda k: k == "MY_SERVICE_DSN",
-                           is_windows=False)
+    out = _scrub_child_env(env, is_passthrough=lambda k: k == "MY_SERVICE_DSN")
     assert out.get("MY_SERVICE_DSN") == "value"
 
 

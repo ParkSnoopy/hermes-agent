@@ -96,23 +96,23 @@ def test_resolve_unknown_name_points_at_tool_search_not_direct_call():
     # NOT be told "call it directly" — that is the opposite of the required correction.
     from tools.registry import registry
 
-    name, _args, err = resolve_underlying_call({"name": "not_a_real_tool", "arguments": {}})
+    name, _args, err = resolve_underlying_call({"calls": [{"name": "not_a_real_tool", "arguments": {}}]})
     assert name is None
     assert "not a known tool name" in err and "call it directly" not in err.lower()
     registry.register(name="mcp__mempalace__mempalace_search", toolset="mcp-mempalace",
                       handler=lambda a, **kw: "{}",
                       schema={"name": "mcp__mempalace__mempalace_search", "description": "x",
                               "parameters": {"type": "object", "properties": {}}})
-    _, _, err = resolve_underlying_call({"name": "mempalace_search", "arguments": {}})
+    _, _, err = resolve_underlying_call({"calls": [{"name": "mempalace_search", "arguments": {}}]})
     registry.deregister("mcp__mempalace__mempalace_search")
     assert "Did you mean 'mcp__mempalace__mempalace_search'?" in err
-    _, _, err = resolve_underlying_call({"name": "read_file", "arguments": {}})
+    _, _, err = resolve_underlying_call({"calls": [{"name": "read_file", "arguments": {}}]})
     assert "directly-listed tool" in err and "not a known tool" not in err
 
 
-def test_resolve_legacy_connector_single_shape_routes_to_sentinel():
+def test_resolve_connector_single_call_in_batch_routes_to_sentinel():
     name, args, err = resolve_underlying_call(
-        {"name": "connectors__gmail__CREATE_EMAIL_DRAFT", "arguments": {}}
+        {"calls": [{"name": "connectors__gmail__CREATE_EMAIL_DRAFT", "arguments": {}}]}
     )
     assert err is None
     assert name == CONNECTOR_BATCH_SENTINEL
@@ -140,6 +140,7 @@ def test_normalize_parses_string_envelope_single_dict():
     "bad,expected_fragment",
     [
         ({}, "requires 'calls'"),
+        ({"name": "session_search", "arguments": {}}, "requires 'calls'"),
         ({"calls": []}, "non-empty array"),
         ({"calls": [{"arguments": {}}]}, "requires a 'name'"),
         ({"calls": [{"name": "tool_search"}]}, "itself a bridge tool"),

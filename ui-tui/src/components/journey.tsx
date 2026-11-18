@@ -1,9 +1,8 @@
 import { Box, NoSelect, ScrollBox, type ScrollBoxHandle, Text, useInput, useStdout } from '@hermes/ink'
 import { useEffect, useRef, useState } from 'react'
 
+import { connectionEn } from '../copy/connection.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import type { Translations } from '../i18n/types.js'
-import { useT } from '../i18n/useT.js'
 import { openInEditor } from '../lib/editor.js'
 import { rpcErrorMessage } from '../lib/rpc.js'
 import { deriveStarmapPalette, fadeHex, fadeInk, type StarmapPalette } from '../lib/starmapPalette.js'
@@ -136,7 +135,7 @@ function ListRow({ active, cells, t }: { active: boolean; cells: Cell[]; t: Them
 }
 
 export function Journey({ gw, onClose, t }: JourneyProps) {
-  const T = useT()
+  const T = connectionEn
   const { stdout } = useStdout()
   const cols = Math.max(40, (stdout?.columns ?? 90) - 3)
   const rows = Math.max(16, (stdout?.rows ?? 30) - 2)
@@ -529,7 +528,7 @@ export function Journey({ gw, onClose, t }: JourneyProps) {
 const countLabel = (one: (n: number) => string, other: (n: number) => string, n: number): string =>
   n === 1 ? one(n) : other(n)
 
-const sliceMeta = (T: Translations, bucket: BucketRow): string => {
+const sliceMeta = (T: typeof connectionEn, bucket: BucketRow): string => {
   const { slice } = T.journey
   const skills = countLabel(slice.skillsOne, slice.skillsOther, bucket.skills)
   const memories = countLabel(slice.memoriesOne, slice.memoriesOther, bucket.memories)
@@ -538,7 +537,7 @@ const sliceMeta = (T: Translations, bucket: BucketRow): string => {
 }
 
 function TreeLine({ active, palette, row, t }: { active: boolean; palette: StarmapPalette; row: TreeRow; t: Theme }) {
-  const T = useT()
+  const T = connectionEn
 
   if (row.kind === 'gap') {
     return <Text> </Text>
@@ -575,7 +574,7 @@ function TreeLine({ active, palette, row, t }: { active: boolean; palette: Starm
 }
 
 function Shell({ children, t }: { children: React.ReactNode; t: Theme }) {
-  const T = useT()
+  const T = connectionEn
 
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
@@ -589,7 +588,7 @@ function Shell({ children, t }: { children: React.ReactNode; t: Theme }) {
 }
 
 function StatusLines({ confirm, label, notice, t }: { confirm: boolean; label: string; notice: string; t: Theme }) {
-  const T = useT()
+  const T = connectionEn
 
   if (confirm) {
     return <Text color={t.color.error}>{T.journey.confirmDelete(label)}</Text>

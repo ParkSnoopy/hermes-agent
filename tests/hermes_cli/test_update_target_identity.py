@@ -56,6 +56,9 @@ def update_tree(tmp_path, monkeypatch):
     newer = git(origin, 'rev-parse', 'HEAD')
 
     monkeypatch.setattr(cli_main, 'PROJECT_ROOT', clone)
+    # This fixture borrows the test interpreter; it must never re-exec its owner.
+    monkeypatch.setattr('hermes_cli.update_owning_install.retarget_to_owning_install', lambda *_: None)
+    monkeypatch.setattr(subprocess, 'call', lambda *_a, **_k: pytest.fail('update test attempted a process re-exec'))
     monkeypatch.setattr(update_receipt, '_code_identity', lambda **_: {'commit': base})
     monkeypatch.setattr(cli_main, '_run_pre_update_backup', lambda *_: 'release-snapshot')
     monkeypatch.setattr(cli_main, '_pause_windows_gateways_for_update', lambda: None)
@@ -92,7 +95,7 @@ def _publish_stable(monkeypatch, t):
     """stable = the latest published GitHub release; its resolver pins t.wanted (v1.1.0)."""
     from hermes_cli import source_releases
 
-    monkeypatch.setattr(source_releases, '_resolve_stable', lambda repository, *_: source_releases.SourceTarget(
+    monkeypatch.setattr(source_releases, '_resolve_published', lambda channel, repository, *_: source_releases.SourceTarget(
         'stable', 'stable', repository, commit=t.wanted, version='1.1.0'))
 
 

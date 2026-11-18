@@ -325,7 +325,7 @@ def test_malformed_secondary_cannot_evict_recorded_member(admission_env, monkeyp
 
 @pytest.mark.skipif(not _uv_available(), reason="uv not on PATH")
 def test_plugin_whose_pyproject_installs_nothing_keeps_the_environment(admission_env):
-    """``dependencies = []`` (the official agent-importers plugin) puts nothing in the environment:
+    """``dependencies = []`` puts nothing in the environment:
     enabling that plugin, and each later change to its files, keeps the selected generation instead
     of locking and syncing a new one. A plugin with a real dependency still joins the workspace."""
     import tomllib

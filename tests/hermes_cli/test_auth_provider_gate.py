@@ -56,7 +56,7 @@ def test_vertex_adc_counts_as_explicit_when_config_present(tmp_path, monkeypatch
     """A keyless Vertex provider is explicitly configured when the user pointed
     Hermes at it (VERTEX_PROJECT_ID / vertex.project_id / VERTEX_CREDENTIALS_PATH),
     even when it is NOT the current provider — otherwise it silently vanishes
-    from explicit-only pickers (desktop chat model menu) unless already selected."""
+    from explicit-only provider selection unless already selected."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     for var in ("VERTEX_PROJECT_ID", "VERTEX_CREDENTIALS_PATH", "GOOGLE_APPLICATION_CREDENTIALS"):
         monkeypatch.delenv(var, raising=False)
@@ -213,12 +213,12 @@ def test_profile_dotenv_key_counts_as_explicit_when_process_env_lacks_it(tmp_pat
     monkeypatch.setattr(lpp, "_snapshot", None)
 
     from hermes_cli.auth import is_provider_explicitly_configured
-    from hermes_cli.web_server_profiles import _config_profile_scope
+    from tui_gateway.model_switch import _session_profile_runtime_scope
 
     assert is_provider_explicitly_configured("deepseek") is False
-    with _config_profile_scope("content-studio"):
+    with _session_profile_runtime_scope({"profile_home": studio}, hydrate_secrets=False):
         assert is_provider_explicitly_configured("deepseek") is True
-    with _config_profile_scope(None):
+    with _session_profile_runtime_scope({"profile_home": None}, hydrate_secrets=False):
         assert is_provider_explicitly_configured("deepseek") is False
 
 

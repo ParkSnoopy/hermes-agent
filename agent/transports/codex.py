@@ -22,29 +22,9 @@ from agent.transports.types import NormalizedResponse, ToolCall
 
 logger = logging.getLogger(__name__)
 
-# Cron fires use ``cron_<job_id>_<YYYYMMDD_HHMMSS>``; the per-fire timestamp is
-# stripped so repeat fires of one job share a cache scope.
-# See #51395, #52295.
-_CRON_SESSION_ID_RE = re.compile(r"^(cron_.+)_\d{8}_\d{6}$")
-
-
 def _cache_scope_from_session_id(session_id: Optional[str]) -> str:
-    """Normalize a physical session_id into a stable logical cache scope."""
-    sid = str(session_id or "")
-    match = _CRON_SESSION_ID_RE.match(sid)
-    if match:
-        return match.group(1)
-    # The unified scheduler admits cron fires into a ``local-*`` session. Its
-    # physical id is intentionally opaque and changes on every fire, so recover
-    # the stable job scope from the bound scheduler admission instead.
-    from gateway.session_cron import current_execution
-
-    execution = current_execution()
-    if execution is not None and str(execution[1]) == sid:
-        job_id = str(execution[2] or "").strip()
-        if job_id:
-            return f"cron_{job_id}"
-    return sid
+    """Return the physical session ID as the cache scope."""
+    return str(session_id or "")
 
 
 def _bounded_prompt_cache_key(value: Any) -> Optional[str]:

@@ -1,6 +1,6 @@
 """``hermes gateway restart`` for a gateway whose supervisor Hermes did not install.
 
-A custom launchd agent / systemd unit / any KeepAlive-style manager running ``gateway run
+A custom systemd unit or other supervisor running ``gateway run
 --external-supervisor`` owns the respawn. The manual fallback in ``_cmd_restart`` (SIGTERM, then a
 foreground ``run_gateway`` inside the restart CLI) stamps the CLI's own PID as the gateway, so every
 supervisor respawn refuses with "Gateway already running (PID <restart>)" and the gateway stays
@@ -15,8 +15,7 @@ from pathlib import Path
 
 from agent.deadline import poll_until
 
-# A custom KeepAlive supervisor keeps its own respawn interval (launchd's is ~once per 10s,
-# per LAUNCHD_SUPERVISION_VERIFY_TIMEOUT); 15s matches _wait_for_launchd_service_pid's budget.
+# A custom supervisor keeps its own respawn interval; allow time for replacement.
 SUPERVISED_REPLACEMENT_VERIFY_TIMEOUT = 15.0
 
 
@@ -24,8 +23,8 @@ def gateway_declares_external_supervisor(pid: int, home: Path | None = None) -> 
     """True when the running gateway ``pid`` was launched for an external supervisor.
 
     The supervisor is SELF-declared by the gateway from its launch context: the control socket
-    ``identify`` answer (any launch supervisor other than ``"manual"`` — a custom systemd unit or
-    launchd agent sets INVOCATION_ID / the XPC name, so the gateway answers ``systemd``/``launchd``
+    ``identify`` answer (any launch supervisor other than ``"manual"`` — a custom systemd unit
+    sets INVOCATION_ID, so the gateway answers ``systemd``
     even though ``_installed_service_kind_for`` saw no canonical unit, and the same supervisor owns
     the respawn), OR the ``--external-supervisor`` argv marker read live (same marker
     ``_prepare_profile_gateway_update_restart`` trusts), else the argv the gateway stamped into
@@ -55,8 +54,7 @@ def _wait_for_supervised_gateway_replacement(
     """Poll the pidfile until the supervisor's replacement gateway registers a fresh PID.
 
     A graceful SIGUSR1 exit only proves the old process left — an unloaded, broken, or
-    stopped-retrying supervisor leaves the gateway down. Custom-supervisor counterpart of
-    ``_wait_for_launchd_service_pid``: the label is invisible to launchctl queries, so identity
+    stopped-retrying supervisor leaves the gateway down. Identity
     comes from ``get_running_pid``'s lock+PID liveness verification and freshness from ``!= old_pid``.
     Returns the fresh PID, or None once ``timeout`` passes.
     """
@@ -77,7 +75,7 @@ def restart_externally_supervised_gateway(supervised_pid: int) -> None:
     Never falls through to SIGTERM + foreground run on either failure branch: that would
     SIGTERM a KeepAlive-armed process and stamp this CLI's PID, recreating the competing-owner
     wedge (#110637). A broken/unloaded supervisor surfaces as exit 1, not a success printed over
-    a dead gateway (the contract ``launchd_restart`` enforces via ``_wait_for_launchd_service_pid``).
+    a dead gateway.
     """
     from hermes_cli.gateway import _get_restart_exit_wait_budget, _graceful_restart_via_sigusr1, _print_lines
 

@@ -21,7 +21,7 @@ from gateway.session_contract import (
 from gateway.session_events import SessionEvents
 from gateway.session_pending_controls import PendingControls
 from gateway.session_producer_lifecycle import drop_producer_turn, mark_producer_admission
-from hermes_cli.observability.shared_metrics_busy import busy_row_settled
+
 from hermes_state_runtime import (
     STEERING, RuntimeStoreError, admit_session_input, begin_runtime_epoch,
     cancel_session_input, claim_session_input, get_session_admission,
@@ -213,9 +213,8 @@ class SessionAuthority:
                 raise RuntimeStoreError('not_found')
             from hermes_state_local import POLICY_PREFIX
             with self.db._read_ctx() as conn:
-                from hermes_state_local_migration import LEGACY_PREFIX
-                local = conn.execute('SELECT 1 FROM state_meta WHERE key IN (?,?)',
-                    (POLICY_PREFIX + ref.session_id, LEGACY_PREFIX + ref.session_id)).fetchone()
+                local = conn.execute('SELECT 1 FROM state_meta WHERE key=?',
+                    (POLICY_PREFIX + ref.session_id,)).fetchone()
             if local or str(row.get('chat_id') or '').startswith('local-'):
                 from gateway.session_local_recovery import restore_local_session
                 restore_local_session(self, ref.session_id)
@@ -362,10 +361,7 @@ class SessionAuthority:
         from gateway.session_local_recovery import local_history, prepare_history, transcript_target
         # The lineage read stays off the loop and the lock; without history the target is resolved under it.
         prepared = await prepare_history(self, ref) if history else None
-        from gateway.session_onboarding import keep_from_discard
-        # The last await before the viewer joins: a fresh launch's claim is taken back with no yield
-        # before the join, and a delete already past it answers not_found below.
-        await keep_from_discard(self, ref.session_id)
+
         # A delete or eviction can land during those awaits: re-check, so it answers not_found, never a KeyError.
         self.authorize(actor, ref, 'session:read')
         live = self.sessions[ref.session_id]
@@ -692,15 +688,11 @@ class SessionAuthority:
         return results
 
     async def submit(self, actor: SessionActor, request: Submission, *, _authorize_write=None, queue_while_restarting=False,
-                     _replay_guard=None, _kanban_card=None):
+                     _replay_guard=None):
         """``queue_while_restarting``: the caller is an interactive client attached to a restart's
         after-turn wait, which commits the input queued for the next owner. Machine callers (a2a,
-        kanban, hosted rooms) keep the plain ``runtime_draining`` refusal and retry against the next
-        owner with their own stable request id; none of them reads a released waiter as queued.
-
-        ``_kanban_card`` is the Kanban dispatcher's trusted producer marker (``session_kanban.run_task``
-        only): committed as ``kanban_card_v1``, it lets a card attempt lost across an owner restart
-        settle interrupted (#134889 KB-8). Never a payload field: a client cannot supply it."""
+        hosted rooms) keep the plain ``runtime_draining`` refusal and retry against the next
+        owner with their own stable request id; none of them reads a released waiter as queued."""
         self.authorize(actor, request.ref, 'session:submit')
         async with self.sessions[request.ref.session_id].mutation_lock:
             # Deletion can retire this session while the caller waits on its writer.
@@ -708,15 +700,13 @@ class SessionAuthority:
             from gateway.session_ingress_media import capture_lease
             with capture_lease():  # captured bytes are held from capture until commit or refusal
                 return await self._submit(actor, request, _authorize_write=_authorize_write,
-                                          queue_only=queue_while_restarting is True, _replay_guard=_replay_guard,
-                                          _kanban_card=_kanban_card)
+                                          queue_only=queue_while_restarting is True, _replay_guard=_replay_guard)
 
-    async def _submit(self, actor, request, *, _authorize_write=None, queue_only=False, _replay_guard=None,
-                      _kanban_card=None):
+    async def _submit(self, actor, request, *, _authorize_write=None, queue_only=False, _replay_guard=None):
         self._require_admission_open(queue_only=queue_only)
         if (request.intent != 'queue' or not {'text'} <= set(request.payload) <= {
-                'text', 'attachments', 'finite', 'unattended', 'surface', 'voice_context', 'interrupted',
-                'voice_turn', 'display_kind', 'title_preview', 'turn_author', 'api_text', 'model_override', 'clarify_batch'}
+                'text', 'attachments', 'finite', 'unattended', 'surface',
+                'display_kind', 'title_preview', 'turn_author', 'api_text', 'model_override', 'clarify_batch'}
                 or not isinstance(request.payload['text'], str)):
             raise RuntimeStoreError('invalid_params')
         from gateway.session_ingress_media import admit_attachments
@@ -734,8 +724,7 @@ class SessionAuthority:
         payload = {'text': request.payload['text'], **finite, **admit_surface(request.payload),
                    **admit_display(request.payload), **admit_cli_turn(request.payload),
                    **admit_attachments(request.payload.get('attachments'), admitted=admitted)}
-        if _kanban_card is not None:
-            payload['kanban_card_v1'] = _kanban_card
+
         source = self.sessions[request.ref.session_id].source
         from gateway.owner_identity import same_owner
         if source is not None and not same_owner(source.user_id, actor.subject):
@@ -864,8 +853,7 @@ class SessionAuthority:
         # A paused drain (preclaim refusal on this head) ended its task; the successors
         # need a fresh drain that revalidates them on their own merits.
         self._schedule(ref)
-        # Last: telemetry must never stand between a cancelled row and its waiter/successor drain.
-        busy_row_settled(admission_id, outcome)
+
 
     async def resolve_unknown(self, actor, ref, admission_id, generation):
         """Operator acknowledgement that an ``unknown`` turn will not finish; the paused FIFO behind
@@ -1472,8 +1460,6 @@ async def initialize_session_authority(runner, *, profile_id, instance_id, db=No
     await adopt_local_compressions(authority)
     if register:
         runner.session_authority = authority
-    from gateway.session_cron import bind_owner
-    bind_owner(authority)
     store = runner.session_store
     if register:
         store._local_authority_epoch = epoch

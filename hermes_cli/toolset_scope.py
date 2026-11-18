@@ -1,10 +1,6 @@
 """Platform scope rules for configured toolsets."""
 
-from typing import Set
-
-
-# Toolsets without a restriction entry are available on every platform.
-_TOOLSET_PLATFORM_RESTRICTIONS = {"discord": {"discord"}, "discord_admin": {"discord"}}
+from toolsets import TOOLSET_SESSION_PLATFORMS as _TOOLSET_PLATFORM_RESTRICTIONS
 
 
 def toolset_allowed_for_platform(ts_key: str, platform: str) -> bool:

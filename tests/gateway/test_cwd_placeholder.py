@@ -7,20 +7,15 @@ class TestResolvePlaceholderTerminalCwd:
     def test_local_placeholder_uses_messaging_cwd(self):
         assert resolve_placeholder_terminal_cwd(
             configured_cwd=".",
-            terminal_backend="local",
             messaging_cwd="/home/user/project",
-            docker_mount_cwd_to_workspace=False,
             home_fallback="/home/user",
         ) == "/home/user/project"
 
-
-    def test_docker_placeholder_mount_off_unset(self):
+    def test_local_placeholder_defaults_to_home(self):
         assert resolve_placeholder_terminal_cwd(
             configured_cwd=".",
-            terminal_backend="docker",
-            messaging_cwd="/home/user",
-            docker_mount_cwd_to_workspace=False,
+            messaging_cwd=None,
             home_fallback="/home/user",
-        ) is None
+        ) == "/home/user"
 
 

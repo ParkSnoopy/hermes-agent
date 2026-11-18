@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -48,8 +49,6 @@ def _arch_guard(store_dir: Path) -> list[str]:
         if binary is None or not binary.is_file():
             continue
         verdict = machine_matches_binary(binary, target)
-        # A package that declares this target as emulated (x64 binary run
-        # under Windows ARM64 built-in emulation) is fine with the x64 PE.
         if verdict is False and target not in package.emulated_arch_targets:
             problems.append(f"{name}: {binary.name} is not a {target} binary")
     return problems
@@ -70,7 +69,7 @@ def stage_uv_cache(source: Path, destination: Path) -> None:
     beside sdist metadata.msgpack shards) ship: without them an offline
     rebuild falls back to wanting the sdist download and fails closed.
 
-    On macOS and Linux, uv's wheel entries (``wheels-v*/pypi/<name>/<version>``,
+    On Linux, uv's wheel entries (``wheels-v*/pypi/<name>/<version>``,
     a hash directory deeper for URL, git and named-index sources) are relative
     symlinks into ``archive-v0/``, and they ship as links. Following them
     stored every unpacked wheel a second time and gave the seeded machine
@@ -107,6 +106,9 @@ def stage_pm_runtime(root: Path, python: Path, repo: Path, *, offline: bool = Fa
 def stage_native(args) -> int:
     """Isolate HOME and PM state, but retain the provider's reusable build cache."""
     from pm.packages import uv_cache_dir
+    from scripts.build.inputs import validate_target
+
+    validate_target(current_target())
 
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -115,10 +117,7 @@ def stage_native(args) -> int:
     # Resolve before HOME isolation so the build warms the cache CI saves.
     cache = Path(getattr(args, "cache", None) or os.environ.get("UV_CACHE_DIR") or uv_cache_dir()).resolve()
     base_env = dict(os.environ)
-    if current_target() == "win32-arm64":
-        from pm.native_build import prepare_windows_environment
 
-        base_env = prepare_windows_environment(source=root, state=out.parent / ".build-deps", env=base_env)
     # Rustup resolves its installed toolchain under HOME unless these are explicit.
     # Preserve the build host's compiler and Cargo cache before isolating app state.
     for key, directory in (("CARGO_HOME", ".cargo"), ("RUSTUP_HOME", ".rustup")):
@@ -166,6 +165,9 @@ def prepare_native(*, out: Path, ref: str, source: Path, cache: Path,
     wrapper provisions machine prerequisites and isolates HOME.
     """
     from scripts.bundles.native_prepared import preparation_lock, prepared_path
+    from scripts.build.inputs import validate_target
+
+    validate_target(current_target())
 
     out = Path(out).absolute()
     if out != out.resolve():
@@ -280,10 +282,6 @@ def _prepare_native(*, out: Path, ref: str, source: Path, cache: Path,
         print(f"✓ uv-cache (lock-scoped: pruned {pruned} stale entries; offline rebuilds resolve from shipped wheels)", flush=True)
     else:
         raise InstallError("uv-cache", "runtime dependency cache is missing")
-    if current_target().startswith("win32-"):
-        from scripts.bundles.msix_names import drop_msix_reserved_names
-        for tree in drop_msix_reserved_names(out):
-            print(f"✓ msix: dropped {tree.as_posix()} (holds a package-reserved name, never read at runtime)")
 
     bad = _arch_guard(store_dir)
     for line in bad:
@@ -318,12 +316,19 @@ def _prepare_native(*, out: Path, ref: str, source: Path, cache: Path,
 def finish_native(prepared: Path, frontends: dict[str, Path]) -> int:
     """Consume verified job-local paths. No dependency acquisition or repair."""
     from scripts.build.agent import assemble
-    from scripts.build.inputs import AgentInputs
+    from scripts.build.inputs import AgentInputs, validate_frontend_names, validate_target
     from scripts.bundles.native_prepared import load_prepared, preparation_lock
 
     prepared = Path(prepared).absolute()
     if not prepared.name.endswith(".prepared.json") or not prepared.is_file():
         raise ValueError("native preparation is missing or invalid; run preparation again")
+    validate_target(current_target())
+    validate_frontend_names(frontends)
+    try:
+        document = json.loads(prepared.read_text(encoding="utf-8-sig"))
+        validate_target(document["inputs"]["target"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(f"invalid native preparation; run preparation again: {exc}") from exc
     out = prepared.with_name(prepared.name.removesuffix(".prepared.json"))
     with preparation_lock(out):
         (out / "manifest.json").unlink(missing_ok=True)
@@ -362,9 +367,8 @@ def main() -> int:
     parser.add_argument("--ref", default="HEAD")
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--tui", type=Path)
-    parser.add_argument("--web", type=Path)
     args = parser.parse_args()
-    args.frontends = {name: path for name in ("tui", "web") if (path := getattr(args, name)) is not None}
+    args.frontends = {"tui": args.tui} if args.tui is not None else {}
     return _stage_native(args)
 
 

@@ -8,9 +8,8 @@ import json
 import re
 from pathlib import Path
 
-# The machine's saved-gateways list and its OAuth sign-ins (``hermes_cli.gateway_connections``), with
-# their ``.lock`` dir and ``.corrupt-<ms>`` sidecars: machine-wide root state every profile reads at the
-# root, holding plaintext session tokens. A copy in a clone is dead weight, and an export must not ship it.
+# Old saved-gateway stores and their ``.lock`` / ``.corrupt-<ms>`` sidecars can still hold plaintext
+# session tokens. Never carry these machine-wide files into a profile clone or export.
 GATEWAY_CONNECTION_STORES = ("gateway-connections.json", "gateway-connection-tokens.json")
 GATEWAY_CONNECTION_STORE_RE = re.compile(r"gateway-connections?(?:-tokens)?\.json(?:\..+)?")
 

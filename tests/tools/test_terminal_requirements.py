@@ -1,198 +1,90 @@
-import importlib
-import logging
+"""Only local terminal settings may enable or create an execution environment."""
+
+import json
+from unittest.mock import Mock
+
+import pytest
+
+from tools import terminal_tool as terminal
+from tools import terminal_tool_backends as backends
+from tools.terminal_scope import install_and_reset_profile_terminal_scope
 
 
-
-terminal_tool_module = importlib.import_module("tools.terminal_tool")
-
-
-def _clear_terminal_env(monkeypatch):
-    """Remove terminal env vars that could affect requirements checks."""
-    keys = [
-        "TERMINAL_ENV",
-        "TERMINAL_CONTAINER_CPU",
-        "TERMINAL_CONTAINER_DISK",
-        "TERMINAL_CONTAINER_MEMORY",
-        "TERMINAL_DOCKER_FORWARD_ENV",
-        "TERMINAL_DOCKER_VOLUMES",
-        "TERMINAL_LIFETIME_SECONDS",
-        "TERMINAL_MODAL_MODE",
-        "TERMINAL_SSH_HOST",
-        "TERMINAL_SSH_PORT",
-        "TERMINAL_SSH_USER",
-        "TERMINAL_TIMEOUT",
-        "TERMINAL_VERCEL_RUNTIME",
-        "MODAL_TOKEN_ID",
-        "MODAL_TOKEN_SECRET",
-        "VERCEL_OIDC_TOKEN",
-        "VERCEL_TOKEN",
-        "VERCEL_PROJECT_ID",
-        "VERCEL_TEAM_ID",
-        "HOME",
-        "USERPROFILE",
-    ]
-    for key in keys:
-        monkeypatch.delenv(key, raising=False)
-    # Default: no Nous subscription — patch both the terminal_tool local
-    # binding and tool_backend_helpers (used by resolve_modal_backend_state).
-    monkeypatch.setattr(terminal_tool_module, "managed_nous_tools_enabled", lambda: False)
-    import tools.tool_backend_helpers as _tbh
-    monkeypatch.setattr(_tbh, "managed_nous_tools_enabled", lambda: False)
-    monkeypatch.setattr("tools.terminal_tool_backends.managed_nous_tools_enabled", lambda: False)
-
-
-def test_local_terminal_requirements(monkeypatch, caplog):
-    """Local backend uses Hermes' own LocalEnvironment wrapper."""
-    _clear_terminal_env(monkeypatch)
+@pytest.fixture(autouse=True)
+def clean_terminal(monkeypatch):
+    monkeypatch.setattr(terminal, "_terminal_config_bridge_attempted", True)
     monkeypatch.setenv("TERMINAL_ENV", "local")
-
-    with caplog.at_level(logging.ERROR):
-        ok = terminal_tool_module.check_terminal_requirements()
-
-    assert ok is True
-    assert "Terminal requirements check failed" not in caplog.text
+    monkeypatch.setattr(backends, "_last_unavailable_reason", None)
 
 
-def test_unknown_terminal_env_logs_error_and_returns_false(monkeypatch, caplog):
-    _clear_terminal_env(monkeypatch)
-    monkeypatch.setenv("TERMINAL_ENV", "unknown-backend")
-
-    with caplog.at_level(logging.ERROR):
-        ok = terminal_tool_module.check_terminal_requirements()
-
-    assert ok is False
-    assert any(
-        "Unknown TERMINAL_ENV 'unknown-backend'" in record.getMessage()
-        for record in caplog.records
-    )
+def test_local_terminal_requirements():
+    assert terminal.check_terminal_requirements()
+    assert terminal.terminal_backend_unavailable_reason() is None
 
 
-def test_modal_backend_managed_mode_without_feature_flag_logs_clear_error(monkeypatch, caplog, tmp_path):
-    _clear_terminal_env(monkeypatch)
-    monkeypatch.setenv("TERMINAL_ENV", "modal")
-    monkeypatch.setenv("TERMINAL_MODAL_MODE", "managed")
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    monkeypatch.setattr("tools.terminal_tool_backends.is_managed_tool_gateway_ready", lambda _vendor: False)
-
-    with caplog.at_level(logging.ERROR):
-        ok = terminal_tool_module.check_terminal_requirements()
-
-    assert ok is False
-    assert any(
-        "Nous Tool Gateway access is not currently available" in record.getMessage()
-        for record in caplog.records
-    )
+@pytest.mark.parametrize("backend", ["docker", "ssh", "vercel_sandbox", "modal", "daytona", "managed_modal", "singularity", "plugin-sandbox", "unknown", ""])
+def test_nonlocal_selection_never_constructs_or_executes_on_host(monkeypatch, backend):
+    factory = Mock()
+    monkeypatch.setattr(backends, "LocalEnvironment", factory)
+    monkeypatch.setenv("TERMINAL_ENV", backend)
+    assert not terminal.check_terminal_requirements()
+    assert "Only 'local'" in terminal.terminal_backend_unavailable_reason()
+    result = json.loads(terminal.terminal_tool("echo must-not-run", force=True))
+    assert result["exit_code"] == -1
+    assert "Only 'local'" in result["error"]
+    with pytest.raises(ValueError, match="Only 'local'"):
+        backends._create_environment(backend, "/workspace", 10)
+    factory.assert_not_called()
 
 
-def test_vercel_backend_without_sdk_logs_specific_error(monkeypatch, caplog):
-    _clear_terminal_env(monkeypatch)
-    monkeypatch.setenv("TERMINAL_ENV", "vercel_sandbox")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: None)
-
-    with caplog.at_level(logging.ERROR):
-        ok = terminal_tool_module.check_terminal_requirements()
-
-    assert ok is False
-    assert any(
-        "vercel is required for the Vercel Sandbox terminal backend" in record.getMessage()
-        for record in caplog.records
-    )
+def test_local_factory_preserves_cwd_timeout_and_persistence(monkeypatch):
+    factory = Mock()
+    monkeypatch.setattr(backends, "LocalEnvironment", factory)
+    assert backends._create_environment("local", "/work", 42, {"persistent": False}) is factory.return_value
+    factory.assert_called_once_with(cwd="/work", timeout=42, persistent=False)
 
 
-def test_vercel_backend_without_auth_logs_specific_error(monkeypatch, caplog):
-    _clear_terminal_env(monkeypatch)
-    monkeypatch.setenv("TERMINAL_ENV", "vercel_sandbox")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
-
-    with caplog.at_level(logging.ERROR):
-        ok = terminal_tool_module.check_terminal_requirements()
-
-    assert ok is False
-    assert any(
-        "no supported auth configuration was found" in record.getMessage()
-        for record in caplog.records
-    )
+def test_task_override_refuses_nonlocal_without_replacing_workspace(monkeypatch):
+    monkeypatch.setattr(terminal, "_task_env_overrides", {})
+    monkeypatch.setattr(terminal, "_session_cwd", {})
+    terminal.register_task_env_overrides("task", {"cwd": "/original"})
+    with pytest.raises(ValueError, match="Only 'local'"):
+        terminal.register_task_env_overrides("task", {"env_type": "ssh", "cwd": "/other"})
+    assert terminal.resolve_task_overrides("task")["cwd"] == "/original"
+    assert terminal.get_session_cwd("task") == "/original"
 
 
-def test_vercel_backend_accepts_oidc_auth(monkeypatch):
-    _clear_terminal_env(monkeypatch)
-    monkeypatch.setenv("TERMINAL_ENV", "vercel_sandbox")
-    monkeypatch.setenv("VERCEL_OIDC_TOKEN", "oidc-token")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
-
-    assert terminal_tool_module.check_terminal_requirements() is True
-
-
-def test_vercel_backend_accepts_token_tuple_auth(monkeypatch):
-    _clear_terminal_env(monkeypatch)
-    monkeypatch.setenv("TERMINAL_ENV", "vercel_sandbox")
-    monkeypatch.setenv("VERCEL_TOKEN", "token")
-    monkeypatch.setenv("VERCEL_PROJECT_ID", "project")
-    monkeypatch.setenv("VERCEL_TEAM_ID", "team")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
-
-    assert terminal_tool_module.check_terminal_requirements() is True
+def test_retired_selector_in_turn_scope_cannot_borrow_local_process(monkeypatch):
+    factory = Mock()
+    monkeypatch.setattr(backends, "LocalEnvironment", factory)
+    with install_and_reset_profile_terminal_scope(None, prepared={"TERMINAL_ENV": "docker"}):
+        result = json.loads(terminal.terminal_tool("echo must-not-run"))
+    assert result["exit_code"] == -1
+    assert "Only 'local'" in result["error"]
+    factory.assert_not_called()
 
 
+def test_secondary_profile_lifecycle_never_borrows_or_closes_launch_shell(tmp_path, monkeypatch):
+    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+    from tools import terminal_tool_lifecycle as lifecycle
 
-
-def test_vercel_backend_accepts_blank_runtime(monkeypatch):
-    _clear_terminal_env(monkeypatch)
-    monkeypatch.setenv("TERMINAL_ENV", "vercel_sandbox")
-    monkeypatch.setenv("TERMINAL_VERCEL_RUNTIME", "   ")
-    monkeypatch.setenv("VERCEL_OIDC_TOKEN", "oidc-token")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
-
-    assert terminal_tool_module.check_terminal_requirements() is True
-
-
-def test_vercel_backend_rejects_unsupported_runtime(monkeypatch, caplog):
-    _clear_terminal_env(monkeypatch)
-    monkeypatch.setenv("TERMINAL_ENV", "vercel_sandbox")
-    monkeypatch.setenv("TERMINAL_VERCEL_RUNTIME", "node20")
-    monkeypatch.setenv("VERCEL_OIDC_TOKEN", "oidc-token")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
-
-    with caplog.at_level(logging.ERROR):
-        ok = terminal_tool_module.check_terminal_requirements()
-
-    assert ok is False
-    assert any(
-        "Vercel Sandbox runtime 'node20' is not supported" in record.getMessage()
-        for record in caplog.records
-    )
-
-
-def test_vercel_backend_rejects_nondefault_disk(monkeypatch, caplog):
-    _clear_terminal_env(monkeypatch)
-    monkeypatch.setenv("TERMINAL_ENV", "vercel_sandbox")
-    monkeypatch.setenv("TERMINAL_CONTAINER_DISK", "8192")
-    monkeypatch.setenv("VERCEL_OIDC_TOKEN", "oidc-token")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
-
-    with caplog.at_level(logging.ERROR):
-        ok = terminal_tool_module.check_terminal_requirements()
-
-    assert ok is False
-    assert any(
-        "does not support custom TERMINAL_CONTAINER_DISK=8192" in record.getMessage()
-        for record in caplog.records
-    )
-
-
-def test_vercel_backend_rejects_malformed_disk_without_raising(monkeypatch, caplog):
-    _clear_terminal_env(monkeypatch)
-    monkeypatch.setenv("TERMINAL_ENV", "vercel_sandbox")
-    monkeypatch.setenv("TERMINAL_CONTAINER_DISK", "large")
-    monkeypatch.setenv("VERCEL_OIDC_TOKEN", "oidc-token")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
-
-    with caplog.at_level(logging.ERROR):
-        ok = terminal_tool_module.check_terminal_requirements()
-
-    assert ok is False
-    assert any(
-        "Invalid value for TERMINAL_CONTAINER_DISK" in record.getMessage()
-        for record in caplog.records
-    )
+    launch_shell = Mock()
+    secondary_shell = Mock()
+    monkeypatch.setattr(terminal, "_active_environments", {"shared-task": launch_shell})
+    monkeypatch.setattr(terminal, "_last_activity", {})
+    monkeypatch.setattr(terminal, "_creation_locks", {})
+    monkeypatch.setattr(lifecycle, "_clear_file_ops_cache", lambda _: None)
+    token = set_hermes_home_override(str(tmp_path / "secondary"))
+    try:
+        assert lifecycle.get_active_env("shared-task") is None
+        lifecycle._evict_environment_for_task("shared-task")
+        launch_shell.cleanup.assert_not_called()
+        key = terminal._resolve_task_id("shared-task")
+        terminal._active_environments[key] = secondary_shell
+        lifecycle.cleanup_vm("shared-task")
+        assert key not in terminal._active_environments
+        secondary_shell.cleanup.assert_called_once_with()
+        assert terminal._active_environments["shared-task"] is launch_shell
+        launch_shell.cleanup.assert_not_called()
+    finally:
+        reset_hermes_home_override(token)

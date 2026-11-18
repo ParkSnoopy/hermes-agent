@@ -2,14 +2,14 @@
 
 from typing import Any
 
-from agent.portal_tags import get_affinity_scope, get_conversation_context, nous_portal_tags
+from agent.portal_tags import get_affinity_scope, get_conversation_context
 from agent.transports.codex import _cache_scope_from_session_id
 from providers import register_provider
 from providers.base import ProviderProfile
 
 
 class NousProfile(ProviderProfile):
-    """Nous Portal — product tags, reasoning with Nous-specific omission."""
+    """Nous Portal routing and reasoning with Nous-specific omission."""
 
     def resolve_aux_model(self, *, vision: bool = False) -> str:
         """Portal's tier-aware ``/api/nous/recommended-models`` pick (cached, offline-safe)."""
@@ -23,10 +23,10 @@ class NousProfile(ProviderProfile):
     def build_extra_body(
         self, *, session_id: str | None = None, data_use: frozenset[str] = frozenset(), **context,
     ) -> dict[str, Any]:
-        body: dict[str, Any] = {"tags": nous_portal_tags(session_id=session_id)}
+        body: dict[str, Any] = {}
         # Top-level session_id = sticky routing key, so Anthropic-style cache
-        # breakpoints stay warm on one upstream instance. Resolved like the
-        # ``conversation=`` tag: declared scope, then the ambient lineage ROOT
+        # breakpoints stay warm on one upstream instance. Resolve the declared
+        # scope, then the ambient lineage ROOT
         # (covers aux call sites that pass no session_id), then the explicit argument.
         sticky_key = _cache_scope_from_session_id(get_affinity_scope() or get_conversation_context() or session_id)
         if sticky_key:

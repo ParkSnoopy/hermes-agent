@@ -23,50 +23,24 @@ ANCHORS: dict[str, str | tuple[str, ...]] = {
     "firecrawl": "firecrawl",
     "parallel-web": "parallel",
     "ddgs": "ddgs",
-    "otlp": "opentelemetry.sdk",
-    "mistral": "mistralai",
-    "edge-tts": "edge_tts",
-    "neutts": "neutts",
-    "kittentts": ("kittentts", "soundfile"),
-    "piper": "piper",
-    "tts-premium": "elevenlabs",
-    "voice": "faster_whisper",
-    "stt-whisper": "faster_whisper",
-    "audio-io": ("sounddevice", "numpy"),
-    "silk": "pilk",
-    "wake": "pyopen_wakeword",
-    "wake-openwakeword": "pyopen_wakeword",
-    "wake-sherpa": "sherpa_onnx",
-    "wake-porcupine": "pvporcupine",
+
+
     "fal": "fal_client",
-    "messaging": "telegram",
-    "telegram": "telegram",
-    "discord": "discord",
-    "slack": "slack_bolt",
-    "matrix": ("mautrix", "asyncpg", "aiosqlite", "markdown", "aiohttp_socks"),
-    "dingtalk": "dingtalk_stream",
-    "feishu": "lark_oapi",
-    "wecom": "defusedxml",
+
     "keychain": "keyring",
-    "teams": "microsoft_teams.apps",
-    "modal": "modal",
-    "daytona": "daytona",
-    "vercel": "vercel",
+
     "google": ("googleapiclient", "google.auth", "google_auth_oauthlib.flow", "google_auth_httplib2"),
-    "google-chat": "google.cloud.pubsub_v1",
+
     "google-meet": ("playwright.sync_api", "websockets"),
     "youtube": "youtube_transcript_api",
     "acp": "acp",
-    "web": "fastapi",
+
     "doc-extract": "anydoc",
     "documents": ("docx", "openpyxl", "pptx", "reportlab", "pypdf"),
     "documents-pdf": ("pdfplumber", "pypdfium2"),
     "computer-use": "mcp",
     "trace-upload": "huggingface_hub",
-    # Pillow resize recovery for vision tools (the `vision` extra is a no-op
-    # back-compat alias — Pillow is core — but ensure_import("vision") must
-    # still resolve an anchor so availability checks work).
-    "vision": "PIL",
+
 }
 
 
@@ -477,7 +451,7 @@ def legacy_selection(project_root: Path) -> list[str]:
     carried = sorted(
         # An umbrella extra shares its anchor with one member; carrying it
         # would install every sibling the user never chose.
-        extra for extra in ANCHORS if extra not in {"messaging", "voice", "wake"} and extra not in refused
+        extra for extra in ANCHORS if extra != "messaging" and extra not in refused
         # PM refuses a gated extra outside its platform even if a hand-synced venv carried it.
         # Installed first: judging a gate may cost a PM-runtime subprocess.
         if any(all(_installed_in(tree, anchor) for anchor in _anchors(extra)) for tree in trees)

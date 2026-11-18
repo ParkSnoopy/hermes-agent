@@ -19,7 +19,7 @@ from utils import normalize_proxy_env_vars
 from agent.anthropic_credentials import _is_oauth_token, anthropic_route_is_oauth, is_native_anthropic_host
 from agent.anthropic_endpoints import (
     _base_url_needs_context_1m_beta, _is_azure_anthropic_endpoint, _is_kimi_coding_endpoint,
-    _is_minimax_anthropic_endpoint, _is_nous_portal_endpoint, _is_opencode_endpoint,
+    _is_minimax_anthropic_endpoint, _is_nous_portal_endpoint,
     _is_third_party_anthropic_endpoint, _model_name_is_kimi_family, _normalize_base_url_text,
     _requires_bearer_auth,
 )
@@ -28,7 +28,6 @@ from agent.anthropic_message_convert import (
 )
 from agent.errors import EmptyStreamError
 
-from hermes_cli.version_info import get_version_info
 
 
 # ``import anthropic`` is deliberately NOT at module top: the SDK costs ~220 ms of imports and
@@ -367,14 +366,6 @@ def _beta_header(betas: list) -> dict[str, str]:
     return {"anthropic-beta": ",".join(betas)} if betas else {}
 
 
-def _attribution_headers() -> dict[str, str]:
-    """Same client-attribution set sent to OpenRouter / Vercel AI Gateway / Fireworks."""
-    return {
-        "HTTP-Referer": "https://hermes-agent.nousresearch.com", "X-Title": "Hermes Agent",
-        "User-Agent": f"HermesAgent/{get_version_info().base_version}",
-    }
-
-
 def _client_timeout(timeout):
     """httpx.Timeout with the caller's read timeout (default 900s) and a 10s connect."""
     from httpx import Timeout
@@ -448,7 +439,7 @@ def _new_sdk_client(sdk, kwargs: dict[str, Any], headers: dict[str, str], route:
     elif "auth_token" in kwargs and "api_key" not in kwargs:
         merged["X-Api-Key"] = sdk.Omit()
     # Per-provider ``custom_providers[].extra_headers`` last: the most specific config level wins
-    # over the SDK User-Agent and the attribution/beta sets above, on every builder path (init,
+    # over the SDK User-Agent and beta headers above, on every builder path (init,
     # /model switch, rebuild, auxiliary) — the OpenAI-wire clients already do this (#24293, #9721).
     merged.update(_custom_provider_extra_headers(route or kwargs.get("base_url")))
     if merged:
@@ -508,15 +499,10 @@ def build_anthropic_client(api_key, base_url: str | None = None, timeout: float 
     kwargs["auth_token" if style in ("bearer", "oauth") else "api_key"] = api_key
     headers = _beta_header(common_betas + _OAUTH_ONLY_BETAS if style == "oauth" else common_betas)
     if style == "kimi":
-        headers = {**_attribution_headers(), **headers}
+        headers["User-Agent"] = "claude-code/0.1.0"
     elif style == "oauth":
         headers["user-agent"] = f"claude-code/{_get_claude_code_version()} (external, cli)"
         headers["x-app"] = "cli"
-    if _is_opencode_endpoint(base_url):
-        # OpenCode identifies clients by request headers (like OpenRouter). The OpenAI-wire paths
-        # get these from profile.default_headers, but this route never sees the profile.
-        for k, v in _attribution_headers().items():
-            headers.setdefault(k, v)
     return _new_sdk_client(sdk, kwargs, headers, route=base_url)
 
 

@@ -1,9 +1,7 @@
 """One config.yaml shape for a persisted model selection, whichever surface wrote it.
 
-``/model --global`` reaches config.yaml from four places (CLI mixin, gateway slash command, TUI
-gateway, dashboard main slot). Each used to hand-roll its own write; the TUI never touched
-``api_mode`` (stale wire protocol after a switch) and the dashboard wrote ``base_url: ""``. All
-four now go through ``hermes_cli.model_switch.persist_model_selection`` /
+``/model --global`` reaches config.yaml from the CLI mixin, gateway slash command, and TUI
+gateway. The retained surfaces go through ``hermes_cli.model_switch.persist_model_selection`` /
 ``apply_model_selection``, so the same ``ModelSwitchResult`` must land as the same ``model.*``
 keys on disk — including the api_mode clear and the route-changed context_length clear.
 """
@@ -70,13 +68,8 @@ def _via_tui(home):
         "sid", session, "claude-haiku --provider anthropic --global", confirm_expensive_model=True)
 
 
-def _via_dashboard(home):
-    from hermes_cli.web_server_config import _apply_model_assignment_sync
-    _apply_model_assignment_sync("main", "anthropic", "claude-haiku", "", "")
-
-
-@pytest.mark.parametrize("surface", [_via_cli, _via_gateway, _via_tui, _via_dashboard],
-                         ids=["cli", "gateway", "tui", "dashboard"])
+@pytest.mark.parametrize("surface", [_via_cli, _via_gateway, _via_tui],
+                         ids=["cli", "gateway", "tui"])
 def test_every_persist_surface_writes_the_same_model_block(seeded_home, monkeypatch, surface):
     monkeypatch.setattr("hermes_cli.model_switch.switch_model", lambda **_kw: _RESULT)
     monkeypatch.setattr("cli.HermesCLI._persist_model_switch_to_session", lambda *a, **k: None)
@@ -111,6 +104,28 @@ def test_same_route_repick_keeps_the_context_pin(seeded_home):
     block = _model_block(seeded_home)
     assert block["context_length"] == 32000
     assert block["api_key"] == "sk-stale"  # custom targets keep their inline key
+
+
+@pytest.mark.parametrize("key, value", [
+    ("api_key", "${CUSTOM_BOX_API_KEY}"),
+    ("key_env", "CUSTOM_BOX_API_KEY"),
+])
+def test_same_route_persistence_keeps_raw_credential_reference(seeded_home, monkeypatch, key, value):
+    from hermes_cli.config import load_config
+    from hermes_cli.model_switch import persist_model_selection
+
+    monkeypatch.setenv("CUSTOM_BOX_API_KEY", "synthetic-resolved-model-secret")
+    seed = _SEED.replace("  api_key: sk-stale\n", f"  {key}: {value}\n")
+    (seeded_home / "config.yaml").write_text(seed, encoding="utf-8")
+    loaded = load_config()["model"]
+    assert loaded[key] == ("synthetic-resolved-model-secret" if key == "api_key" else value)
+
+    persist_model_selection(ModelSwitchResult(
+        success=True, new_model="local-model", target_provider="custom",
+        base_url="http://localhost:1234/v1", api_mode="anthropic_messages", is_global=True))
+
+    assert _model_block(seeded_home)[key] == value
+    assert "synthetic-resolved-model-secret" not in (seeded_home / "config.yaml").read_text()
 
 
 def test_custom_to_other_custom_endpoint_drops_the_inline_key(seeded_home):
@@ -149,8 +164,7 @@ def test_provider_switch_drops_the_key_env_pointer_but_a_same_route_repick_keeps
     persist_model_selection(same_route)
     assert _model_block(seeded_home)["key_env"] == "CUSTOM_BOX_API_KEY"
 
-    # Registry providers get the pointer too (Desktop stores e.g. HERMES_CUSTOM_LMSTUDIO_API_KEY
-    # as model.key_env with provider lmstudio, #106336): a same-route model re-pick keeps it.
+    # Registry providers can also store a model.key_env pointer: a same-route re-pick keeps it.
     (seeded_home / "config.yaml").write_text(
         seed.replace("provider: custom\n", "provider: lmstudio\n")
             .replace("CUSTOM_BOX_API_KEY", "HERMES_CUSTOM_LMSTUDIO_API_KEY"), encoding="utf-8")

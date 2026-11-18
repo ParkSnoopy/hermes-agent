@@ -50,24 +50,7 @@
       "files": { "plugin.yaml": "name: titlebar-widget\nkind: standalone\n", "desktop/plugin.js": "export default {}\n" },
       "expect": { "agent": false, "desktop": true, "agent_name": null }
     },
-    {
-      "name": "a manifest-only language pack is an agent half",
-      "root": "lang-pack",
-      "files": { "plugin.yaml": "name: hermes-lang-xx\nprovides_locales:\n  - id: xx\n    endonym: Xx\n", "locales/xx.yaml": "common.save: Xx\n" },
-      "expect": { "agent": true, "desktop": false, "agent_name": "hermes-lang-xx" }
-    },
-    {
-      "name": "declared locales without a locales folder are not an agent half",
-      "root": "lang-no-folder",
-      "files": { "plugin.yaml": "name: lang-no-folder\nprovides_locales: [xx]\n" },
-      "expect": { "agent": false, "desktop": false, "agent_name": null }
-    },
-    {
-      "name": "an empty provides_locales declares no language pack",
-      "root": "lang-empty",
-      "files": { "plugin.yaml": "name: lang-empty\nprovides_locales: []\n", "locales/xx.yaml": "common.save: Xx\n" },
-      "expect": { "agent": false, "desktop": false, "agent_name": null }
-    },
+
     {
       "name": "a portable plugin.json is an agent half named by it",
       "root": "portable",

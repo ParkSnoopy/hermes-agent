@@ -143,7 +143,6 @@ Override this only when you need full control over widget ordering. Most extensi
 def _build_tui_layout_children(self, *, sudo_widget, secret_widget,
     approval_widget, clarify_widget, model_picker_widget=None,
     spinner_widget=None, spacer, status_bar, input_rule_top,
-    image_bar, input_area, input_rule_bot, voice_status_bar,
     completions_menu) -> list:
 ```
 
@@ -165,7 +164,6 @@ The default implementation returns (any `None` widgets are filtered out):
     image_bar,              # attached images indicator
     input_area,             # user text input
     input_rule_bot,         # ─── border below input
-    voice_status_bar,       # voice mode status (conditional)
     completions_menu,       # autocomplete dropdown
 ]
 ```

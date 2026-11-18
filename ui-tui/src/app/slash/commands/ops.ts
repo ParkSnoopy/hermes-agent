@@ -14,7 +14,8 @@ import type {
   ToolsConfigureResponse
 } from '@hermes/shared/gateway-types'
 
-import { t } from '../../../i18n/runtime.js'
+import { canonicalEn } from '../../../copy/canonical.js'
+import { slashCmdEn } from '../../../copy/slashCmd.js'
 import { appendTranscriptMessage } from '../../../lib/messages.js'
 import type { PanelSection } from '../../../types.js'
 import { applyDelegationStatus, getDelegationState } from '../../delegationStore.js'
@@ -92,7 +93,7 @@ export const opsCommands: SlashCommand[] = [
           ctx.guarded<ProcessStopResponse>(r => {
             const killed = Number(r.killed ?? 0)
             ctx.transcript.sys(
-              t(killed === 1 ? 'slashCmd.ops.stop.stoppedOne' : 'slashCmd.ops.stop.stoppedOther', String(killed))
+              (killed === 1 ? slashCmdEn.slashCmd.ops.stop.stoppedOne(String(killed)) : slashCmdEn.slashCmd.ops.stop.stoppedOther(String(killed)))
             )
           })
         )
@@ -120,8 +121,8 @@ export const opsCommands: SlashCommand[] = [
               ctx.transcript.sys(
                 r.message ||
                   (r.status === 'confirm_required'
-                    ? t('slashCmd.ops.reloadMcp.confirmRequired')
-                    : t('slashCmd.ops.reloadMcp.reloaded'))
+                    ? slashCmdEn.slashCmd.ops.reloadMcp.confirmRequired
+                    : slashCmdEn.slashCmd.ops.reloadMcp.reloaded)
               )
             )
           )
@@ -146,20 +147,20 @@ export const opsCommands: SlashCommand[] = [
         .then(
           ctx.guarded<ReloadMcpResponse>(r => {
             if (r.status === 'confirm_required') {
-              ctx.transcript.sys(r.message || t('slashCmd.ops.reloadMcp.confirmRequired'))
+              ctx.transcript.sys(r.message || slashCmdEn.slashCmd.ops.reloadMcp.confirmRequired)
 
               return
             }
 
             if (r.status === 'reloaded') {
               ctx.transcript.sys(
-                params.always ? t('slashCmd.ops.reloadMcp.reloadedAlways') : t('slashCmd.ops.reloadMcp.reloaded')
+                params.always ? slashCmdEn.slashCmd.ops.reloadMcp.reloadedAlways : slashCmdEn.slashCmd.ops.reloadMcp.reloaded
               )
 
               return
             }
 
-            ctx.transcript.sys(t('slashCmd.ops.reloadMcp.complete'))
+            ctx.transcript.sys(slashCmdEn.slashCmd.ops.reloadMcp.complete)
           })
         )
         .catch(ctx.guardedErr)
@@ -178,7 +179,7 @@ export const opsCommands: SlashCommand[] = [
             const n = Number(r.updated ?? 0)
 
             ctx.transcript.sys(
-              t(n === 1 ? 'slashCmd.ops.reloadEnv.reloadedOne' : 'slashCmd.ops.reloadEnv.reloadedOther', String(n))
+              (n === 1 ? slashCmdEn.slashCmd.ops.reloadEnv.reloadedOne(String(n)) : slashCmdEn.slashCmd.ops.reloadEnv.reloadedOther(String(n)))
             )
           })
         )
@@ -194,14 +195,14 @@ export const opsCommands: SlashCommand[] = [
       const action = rawAction.toLowerCase()
 
       if (!['connect', 'disconnect', 'status'].includes(action)) {
-        return ctx.transcript.sys(t('slashCmd.ops.browser.usage'))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.ops.browser.usage)
       }
 
       const sid = ctx.sid ?? null
       const url = action === 'connect' ? rest.join(' ').trim() || 'http://127.0.0.1:9222' : undefined
 
       if (url) {
-        ctx.transcript.sys(t('slashCmd.ops.browser.checking', url))
+        ctx.transcript.sys(slashCmdEn.slashCmd.ops.browser.checking(url))
       }
 
       ctx.gateway
@@ -221,19 +222,19 @@ export const opsCommands: SlashCommand[] = [
             if (action === 'status') {
               return ctx.transcript.sys(
                 r.connected
-                  ? t('slashCmd.ops.browser.connected', r.url || t('slashCmd.ops.browser.urlUnavailable'))
-                  : t('slashCmd.ops.browser.notConnected')
+                  ? slashCmdEn.slashCmd.ops.browser.connected(r.url || slashCmdEn.slashCmd.ops.browser.urlUnavailable)
+                  : slashCmdEn.slashCmd.ops.browser.notConnected
               )
             }
 
             if (action === 'disconnect') {
-              return ctx.transcript.sys(t('slashCmd.ops.browser.disconnected'))
+              return ctx.transcript.sys(slashCmdEn.slashCmd.ops.browser.disconnected)
             }
 
             if (r.connected) {
-              ctx.transcript.sys(t('slashCmd.ops.browser.connectedLive'))
-              ctx.transcript.sys(t('slashCmd.ops.browser.endpoint', r.url || t('slashCmd.ops.browser.urlUnavailable')))
-              ctx.transcript.sys(t('slashCmd.ops.browser.nextCallUsesEndpoint'))
+              ctx.transcript.sys(slashCmdEn.slashCmd.ops.browser.connectedLive)
+              ctx.transcript.sys(slashCmdEn.slashCmd.ops.browser.endpoint(r.url || slashCmdEn.slashCmd.ops.browser.urlUnavailable))
+              ctx.transcript.sys(slashCmdEn.slashCmd.ops.browser.nextCallUsesEndpoint)
             }
           })
         )
@@ -246,7 +247,7 @@ export const opsCommands: SlashCommand[] = [
     name: 'rollback',
     run: (arg, ctx) => {
       if (!ctx.sid) {
-        return ctx.transcript.sys(t('slashCmd.ops.rollback.noSession'))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.ops.rollback.noSession)
       }
 
       const trimmed = arg.trim()
@@ -259,20 +260,20 @@ export const opsCommands: SlashCommand[] = [
           .then(
             ctx.guarded<RollbackListResponse>(r => {
               if (!r.enabled) {
-                return ctx.transcript.sys(t('slashCmd.ops.rollback.notEnabled'))
+                return ctx.transcript.sys(slashCmdEn.slashCmd.ops.rollback.notEnabled)
               }
 
               const checkpoints = r.checkpoints ?? []
 
               if (!checkpoints.length) {
-                return ctx.transcript.sys(t('slashCmd.ops.rollback.noneFound'))
+                return ctx.transcript.sys(slashCmdEn.slashCmd.ops.rollback.noneFound)
               }
 
-              ctx.transcript.panel(t('slashCmd.ops.rollback.listTitle'), [
+              ctx.transcript.panel(slashCmdEn.slashCmd.ops.rollback.listTitle, [
                 {
                   rows: checkpoints.map((c, idx) => [
                     `${idx + 1}. ${c.hash.slice(0, 10)}`,
-                    [c.timestamp, c.message].filter(Boolean).join(' · ') || t('slashCmd.ops.rollback.noMetadata')
+                    [c.timestamp, c.message].filter(Boolean).join(' · ') || slashCmdEn.slashCmd.ops.rollback.noMetadata
                   ])
                 }
               ])
@@ -285,7 +286,7 @@ export const opsCommands: SlashCommand[] = [
         const hash = rest[0]
 
         if (!hash) {
-          return ctx.transcript.sys(t('slashCmd.ops.rollback.usageDiff'))
+          return ctx.transcript.sys(slashCmdEn.slashCmd.ops.rollback.usageDiff)
         }
 
         return ctx.gateway
@@ -295,11 +296,11 @@ export const opsCommands: SlashCommand[] = [
               const body = (r.rendered || r.diff || '').trim()
 
               if (!body && !r.stat) {
-                return ctx.transcript.sys(t('slashCmd.ops.rollback.noChanges'))
+                return ctx.transcript.sys(slashCmdEn.slashCmd.ops.rollback.noChanges)
               }
 
               const text = [r.stat || '', body].filter(Boolean).join('\n\n')
-              ctx.transcript.page(text, t('slashCmd.ops.rollback.diffTitle'))
+              ctx.transcript.page(text, slashCmdEn.slashCmd.ops.rollback.diffTitle)
             })
           )
           .catch(ctx.guardedErr)
@@ -327,17 +328,17 @@ export const opsCommands: SlashCommand[] = [
           ctx.guarded<RollbackRestoreResponse>(r => {
             if (!r.success) {
               return ctx.transcript.sys(
-                t('slashCmd.ops.rollback.failed', r.error || r.message || t('slashCmd.ops.rollback.unknownError'))
+                slashCmdEn.slashCmd.ops.rollback.failed(r.error || r.message || slashCmdEn.slashCmd.ops.rollback.unknownError)
               )
             }
 
-            const target = filePath || t('slashCmd.ops.rollback.workspaceTarget')
-            const detail = r.reason || r.message || r.restored_to || t('slashCmd.ops.rollback.restoredDetail')
-            ctx.transcript.sys(t('slashCmd.ops.rollback.restored', target, detail))
+            const target = filePath || slashCmdEn.slashCmd.ops.rollback.workspaceTarget
+            const detail = r.reason || r.message || r.restored_to || slashCmdEn.slashCmd.ops.rollback.restoredDetail
+            ctx.transcript.sys(slashCmdEn.slashCmd.ops.rollback.restored(target, detail))
 
             // What a safe whole-tree restore left alone, as main's CLI lists it: the first five paths.
             const summarize = (paths: string[]) =>
-              paths.slice(0, 5).join(', ') + (paths.length > 5 ? t('slashCmd.ops.rollback.morePaths', paths.length - 5) : '')
+              paths.slice(0, 5).join(', ') + (paths.length > 5 ? slashCmdEn.slashCmd.ops.rollback.morePaths(paths.length - 5) : '')
 
             for (const [key, paths] of [
               ['keptUserEdits', r.skipped_user_edits],
@@ -345,7 +346,7 @@ export const opsCommands: SlashCommand[] = [
               ['failedDeletes', r.failed_deletes]
             ] as const) {
               if (paths?.length) {
-                ctx.transcript.sys(t(`slashCmd.ops.rollback.${key}`, summarize(paths)))
+                ctx.transcript.sys(slashCmdEn.slashCmd.ops.rollback[key](summarize(paths)))
               }
             }
 
@@ -374,7 +375,7 @@ export const opsCommands: SlashCommand[] = [
           .request<DelegationPauseResponse>('delegation.pause', { paused })
           .then(r => {
             applyDelegationStatus({ paused: r?.paused })
-            ctx.transcript.sys(t(r?.paused ? 'slashCmd.ops.agents.paused' : 'slashCmd.ops.agents.resumed'))
+            ctx.transcript.sys((r?.paused ? slashCmdEn.slashCmd.ops.agents.paused : slashCmdEn.slashCmd.ops.agents.resumed))
           })
           .catch(ctx.guardedErr)
 
@@ -384,12 +385,7 @@ export const opsCommands: SlashCommand[] = [
       if (sub === 'status') {
         const d = getDelegationState()
         ctx.transcript.sys(
-          t(
-            'slashCmd.ops.agents.status',
-            t(d.paused ? 'slashCmd.ops.agents.statePaused' : 'slashCmd.ops.agents.stateActive'),
-            String(d.maxSpawnDepth ?? '?'),
-            String(d.maxConcurrentChildren ?? '?')
-          )
+          slashCmdEn.slashCmd.ops.agents.status((d.paused ? slashCmdEn.slashCmd.ops.agents.statePaused : slashCmdEn.slashCmd.ops.agents.stateActive), String(d.maxSpawnDepth ?? '?'), String(d.maxConcurrentChildren ?? '?'))
         )
 
         return
@@ -429,17 +425,17 @@ export const opsCommands: SlashCommand[] = [
               const entries = r.entries ?? []
 
               if (!entries.length) {
-                return ctx.transcript.sys(t('slashCmd.ops.replay.noneOnDisk'))
+                return ctx.transcript.sys(slashCmdEn.slashCmd.ops.replay.noneOnDisk)
               }
 
               const rows: [string, string][] = entries.map(e => {
                 const ts = e.finished_at ? new Date(e.finished_at * 1000).toLocaleString() : '?'
-                const label = e.label || t('slashCmd.ops.replay.subagentsLabel', String(e.count))
+                const label = e.label || slashCmdEn.slashCmd.ops.replay.subagentsLabel(String(e.count))
 
                 return [`${ts} · ${e.count}×`, `${label}\n  ${e.path}`]
               })
 
-              ctx.transcript.panel(t('slashCmd.ops.replay.archivedTitle'), [{ rows }])
+              ctx.transcript.panel(slashCmdEn.slashCmd.ops.replay.archivedTitle, [{ rows }])
             })
           )
           .catch(ctx.guardedErr)
@@ -452,7 +448,7 @@ export const opsCommands: SlashCommand[] = [
         const path = raw.slice(5).trim()
 
         if (!path) {
-          return ctx.transcript.sys(t('slashCmd.ops.replay.usageLoad'))
+          return ctx.transcript.sys(slashCmdEn.slashCmd.ops.replay.usageLoad)
         }
 
         ctx.gateway
@@ -460,7 +456,7 @@ export const opsCommands: SlashCommand[] = [
           .then(
             ctx.guarded<SpawnTreeLoadResponse>(r => {
               if (!r.subagents?.length) {
-                return ctx.transcript.sys(t('slashCmd.ops.replay.snapshotEmpty'))
+                return ctx.transcript.sys(slashCmdEn.slashCmd.ops.replay.snapshotEmpty)
               }
 
               // Push onto the in-memory history so the overlay picks it up
@@ -476,7 +472,7 @@ export const opsCommands: SlashCommand[] = [
 
       // ── In-memory nav (same-session) ─────────────────────────────
       if (!history.length) {
-        return ctx.transcript.sys(t('slashCmd.ops.replay.noneThisSession'))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.ops.replay.noneThisSession)
       }
 
       let index = 1
@@ -485,7 +481,7 @@ export const opsCommands: SlashCommand[] = [
         const parsed = parseInt(raw, 10)
 
         if (Number.isNaN(parsed) || parsed < 1 || parsed > history.length) {
-          return ctx.transcript.sys(t('slashCmd.ops.replay.indexOutOfRange', String(history.length)))
+          return ctx.transcript.sys(slashCmdEn.slashCmd.ops.replay.indexOutOfRange(String(history.length)))
         }
 
         index = parsed
@@ -502,7 +498,7 @@ export const opsCommands: SlashCommand[] = [
       const parts = arg.trim().split(/\s+/).filter(Boolean)
 
       if (parts.length !== 2) {
-        return ctx.transcript.sys(t('slashCmd.ops.replayDiff.usage'))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.ops.replayDiff.usage)
       }
 
       const [a, b] = parts
@@ -522,7 +518,7 @@ export const opsCommands: SlashCommand[] = [
       const candidate = resolve(b!)
 
       if (!baseline || !candidate) {
-        return ctx.transcript.sys(t('slashCmd.ops.replayDiff.unresolved', String(history.length)))
+        return ctx.transcript.sys(slashCmdEn.slashCmd.ops.replayDiff.unresolved(String(history.length)))
       }
 
       setDiffPair({ baseline, candidate })
@@ -544,8 +540,8 @@ export const opsCommands: SlashCommand[] = [
         .then(
           ctx.guarded<SkillsReloadResponse>(r => {
             ctx.transcript.page(
-              r.output || t('slashCmd.ops.reloadSkills.reloaded'),
-              t('slashCmd.ops.reloadSkills.pageTitle')
+              r.output || slashCmdEn.slashCmd.ops.reloadSkills.reloaded,
+              slashCmdEn.slashCmd.ops.reloadSkills.pageTitle
             )
             ctx.gateway
               .rpc<CommandsCatalogResponse>('commands.catalog', params)
@@ -594,12 +590,12 @@ export const opsCommands: SlashCommand[] = [
               return
             }
 
-            const body = r?.output || t('slashCmd.ops.slashWorker.skillsNoOutput')
-            const formatted = r?.warning ? `${t('slashCmd.ops.slashWorker.warning', r.warning)}\n${body}` : body
+            const body = r?.output || slashCmdEn.slashCmd.ops.slashWorker.skillsNoOutput
+            const formatted = r?.warning ? `${slashCmdEn.slashCmd.ops.slashWorker.warning(r.warning)}\n${body}` : body
             const long = formatted.length > 180 || formatted.split('\n').filter(Boolean).length > 2
 
             long
-              ? ctx.transcript.page(formatted, t('slashCmd.ops.slashWorker.skillsTitle'))
+              ? ctx.transcript.page(formatted, slashCmdEn.slashCmd.ops.slashWorker.skillsTitle)
               : ctx.transcript.sys(formatted)
           })
           .catch(ctx.guardedErr)
@@ -616,7 +612,7 @@ export const opsCommands: SlashCommand[] = [
               }
 
               panel(
-                t('slashCmd.ops.skills.listTitle'),
+                slashCmdEn.slashCmd.ops.skills.listTitle,
                 cats.map<PanelSection>(([title, items]) => ({ items, title }))
               )
             })
@@ -628,7 +624,7 @@ export const opsCommands: SlashCommand[] = [
 
       if (sub === 'inspect') {
         if (!query) {
-          return sys(t('slashCmd.ops.skills.usageInspect'))
+          return sys(slashCmdEn.slashCmd.ops.skills.usageInspect)
         }
 
         rpc<SkillsInspectResponse>('skills.manage', { action: 'inspect', query })
@@ -637,13 +633,13 @@ export const opsCommands: SlashCommand[] = [
               const info = r.info ?? {}
 
               if (!info.name) {
-                return sys(t('slashCmd.ops.skills.unknownSkill', query))
+                return sys(slashCmdEn.slashCmd.ops.skills.unknownSkill(query))
               }
 
               const rows: [string, string][] = [
-                [t('slashCmd.ops.skills.rowName'), String(info.name)],
-                [t('slashCmd.ops.skills.rowCategory'), String(info.category ?? '')],
-                [t('slashCmd.ops.skills.rowPath'), String(info.path ?? '')]
+                [slashCmdEn.slashCmd.ops.skills.rowName, String(info.name)],
+                [slashCmdEn.slashCmd.ops.skills.rowCategory, String(info.category ?? '')],
+                [slashCmdEn.slashCmd.ops.skills.rowPath, String(info.path ?? '')]
               ]
 
               const sections: PanelSection[] = [{ rows }]
@@ -652,7 +648,7 @@ export const opsCommands: SlashCommand[] = [
                 sections.push({ text: String(info.description) })
               }
 
-              panel(t('slashCmd.ops.skills.inspectTitle'), sections)
+              panel(slashCmdEn.slashCmd.ops.skills.inspectTitle, sections)
             })
           )
           .catch(ctx.guardedErr)
@@ -662,7 +658,7 @@ export const opsCommands: SlashCommand[] = [
 
       if (sub === 'search') {
         if (!query) {
-          return sys(t('slashCmd.ops.skills.usageSearch'))
+          return sys(slashCmdEn.slashCmd.ops.skills.usageSearch)
         }
 
         rpc<SkillsSearchResponse>('skills.manage', { action: 'search', query })
@@ -671,10 +667,10 @@ export const opsCommands: SlashCommand[] = [
               const results = r.results ?? []
 
               if (!results.length) {
-                return sys(t('slashCmd.ops.skills.noResults', query))
+                return sys(slashCmdEn.slashCmd.ops.skills.noResults(query))
               }
 
-              panel(t('slashCmd.ops.skills.searchTitle', query), [
+              panel(slashCmdEn.slashCmd.ops.skills.searchTitle(query), [
                 { rows: results.map(s => [s.name, s.description ?? '']) }
               ])
             })
@@ -686,18 +682,18 @@ export const opsCommands: SlashCommand[] = [
 
       if (sub === 'install') {
         if (!query) {
-          return sys(t('slashCmd.ops.skills.usageInstall'))
+          return sys(slashCmdEn.slashCmd.ops.skills.usageInstall)
         }
 
-        sys(t('slashCmd.ops.skills.installing', query))
+        sys(slashCmdEn.slashCmd.ops.skills.installing(query))
 
         rpc<SkillsInstallResponse>('skills.manage', { action: 'install', query })
           .then(
             ctx.guarded<SkillsInstallResponse>(r =>
               sys(
                 r.installed
-                  ? t('slashCmd.ops.skills.installed', r.name ?? query)
-                  : t('slashCmd.ops.skills.installFailed')
+                  ? slashCmdEn.slashCmd.ops.skills.installed(r.name ?? query)
+                  : slashCmdEn.slashCmd.ops.skills.installFailed
               )
             )
           )
@@ -710,10 +706,10 @@ export const opsCommands: SlashCommand[] = [
         const pageNum = query ? parseInt(query, 10) : 1
 
         if (Number.isNaN(pageNum) || pageNum < 1) {
-          return sys(t('slashCmd.ops.skills.usageBrowse'))
+          return sys(slashCmdEn.slashCmd.ops.skills.usageBrowse)
         }
 
-        sys(t('slashCmd.ops.skills.fetching'))
+        sys(slashCmdEn.slashCmd.ops.skills.fetching)
 
         rpc<SkillsBrowseResponse>('skills.manage', { action: 'browse', page: pageNum })
           .then(
@@ -723,8 +719,8 @@ export const opsCommands: SlashCommand[] = [
               if (!items.length) {
                 return sys(
                   r.total
-                    ? t('slashCmd.ops.skills.noneOnPageWithTotal', String(pageNum), String(r.total))
-                    : t('slashCmd.ops.skills.noneOnPage', String(pageNum))
+                    ? slashCmdEn.slashCmd.ops.skills.noneOnPageWithTotal(String(pageNum), String(r.total))
+                    : slashCmdEn.slashCmd.ops.skills.noneOnPage(String(pageNum))
                 )
               }
 
@@ -736,21 +732,21 @@ export const opsCommands: SlashCommand[] = [
               const footer: string[] = []
 
               if (r.page && r.total_pages) {
-                footer.push(t('slashCmd.ops.skills.pageOf', String(r.page), String(r.total_pages)))
+                footer.push(slashCmdEn.slashCmd.ops.skills.pageOf(String(r.page), String(r.total_pages)))
               }
 
               if (r.total) {
-                footer.push(t('slashCmd.ops.skills.skillsTotal', String(r.total)))
+                footer.push(slashCmdEn.slashCmd.ops.skills.skillsTotal(String(r.total)))
               }
 
               if (r.page && r.total_pages && r.page < r.total_pages) {
-                footer.push(t('slashCmd.ops.skills.browseMore', String(r.page + 1)))
+                footer.push(slashCmdEn.slashCmd.ops.skills.browseMore(String(r.page + 1)))
               }
 
               panel(
                 pageNum > 1
-                  ? t('slashCmd.ops.skills.browseTitlePage', String(pageNum))
-                  : t('slashCmd.ops.skills.browseTitle'),
+                  ? slashCmdEn.slashCmd.ops.skills.browseTitlePage(String(pageNum))
+                  : slashCmdEn.slashCmd.ops.skills.browseTitle,
                 [{ rows }, ...(footer.length ? [{ text: footer.join(' · ') }] : [])]
               )
             })
@@ -792,11 +788,11 @@ export const opsCommands: SlashCommand[] = [
             return
           }
 
-          const body = r?.output || t('slashCmd.ops.slashWorker.pluginsNoOutput')
-          const text = r?.warning ? `${t('slashCmd.ops.slashWorker.warning', r.warning)}\n${body}` : body
+          const body = r?.output || slashCmdEn.slashCmd.ops.slashWorker.pluginsNoOutput
+          const text = r?.warning ? `${slashCmdEn.slashCmd.ops.slashWorker.warning(r.warning)}\n${body}` : body
           const long = text.length > 180 || text.split('\n').filter(Boolean).length > 2
 
-          long ? ctx.transcript.page(text, t('slashCmd.ops.slashWorker.pluginsTitle')) : ctx.transcript.sys(text)
+          long ? ctx.transcript.page(text, slashCmdEn.slashCmd.ops.slashWorker.pluginsTitle) : ctx.transcript.sys(text)
         })
         .catch(ctx.guardedErr)
     }
@@ -812,7 +808,7 @@ export const opsCommands: SlashCommand[] = [
         // The shared gateway freezes a session's toolsets at launch (the classic CLI refuses the
         // same change): say so instead of answering enable/disable with the unchanged list.
         if (subcommand === 'disable' || subcommand === 'enable') {
-          return ctx.transcript.sys(t('canonical.controls.notAvailable', `tools ${subcommand}`))
+          return ctx.transcript.sys(canonicalEn.canonical.controls.notAvailable(`tools ${subcommand}`))
         }
 
         ctx.ran?.()
@@ -828,11 +824,11 @@ export const opsCommands: SlashCommand[] = [
               return
             }
 
-            const body = r?.output || t('slashCmd.ops.slashWorker.toolsNoOutput')
-            const text = r?.warning ? `${t('slashCmd.ops.slashWorker.warning', r.warning)}\n${body}` : body
+            const body = r?.output || slashCmdEn.slashCmd.ops.slashWorker.toolsNoOutput
+            const text = r?.warning ? `${slashCmdEn.slashCmd.ops.slashWorker.warning(r.warning)}\n${body}` : body
             const long = text.length > 180 || text.split('\n').filter(Boolean).length > 2
 
-            long ? ctx.transcript.page(text, t('slashCmd.ops.slashWorker.toolsTitle')) : ctx.transcript.sys(text)
+            long ? ctx.transcript.page(text, slashCmdEn.slashCmd.ops.slashWorker.toolsTitle) : ctx.transcript.sys(text)
           })
           .catch(ctx.guardedErr)
 
@@ -840,9 +836,9 @@ export const opsCommands: SlashCommand[] = [
       }
 
       if (!names.length) {
-        ctx.transcript.sys(t('slashCmd.ops.tools.usage', subcommand))
-        ctx.transcript.sys(t('slashCmd.ops.tools.builtinExample', subcommand))
-        ctx.transcript.sys(t('slashCmd.ops.tools.mcpExample', subcommand))
+        ctx.transcript.sys(slashCmdEn.slashCmd.ops.tools.usage(subcommand))
+        ctx.transcript.sys(slashCmdEn.slashCmd.ops.tools.builtinExample(subcommand))
+        ctx.transcript.sys(slashCmdEn.slashCmd.ops.tools.mcpExample(subcommand))
 
         return
       }
@@ -858,23 +854,20 @@ export const opsCommands: SlashCommand[] = [
 
             if (r.changed?.length) {
               ctx.transcript.sys(
-                t(
-                  subcommand === 'disable' ? 'slashCmd.ops.tools.disabled' : 'slashCmd.ops.tools.enabled',
-                  r.changed.join(', ')
-                )
+                (subcommand === 'disable' ? slashCmdEn.slashCmd.ops.tools.disabled(r.changed.join(', ')) : slashCmdEn.slashCmd.ops.tools.enabled(r.changed.join(', ')))
               )
             }
 
             if (r.unknown?.length) {
-              ctx.transcript.sys(t('slashCmd.ops.tools.unknownToolsets', r.unknown.join(', ')))
+              ctx.transcript.sys(slashCmdEn.slashCmd.ops.tools.unknownToolsets(r.unknown.join(', ')))
             }
 
             if (r.missing_servers?.length) {
-              ctx.transcript.sys(t('slashCmd.ops.tools.missingServers', r.missing_servers.join(', ')))
+              ctx.transcript.sys(slashCmdEn.slashCmd.ops.tools.missingServers(r.missing_servers.join(', ')))
             }
 
             if (r.reset) {
-              ctx.transcript.sys(t('slashCmd.ops.tools.sessionReset'))
+              ctx.transcript.sys(slashCmdEn.slashCmd.ops.tools.sessionReset)
             }
           })
         )

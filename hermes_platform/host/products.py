@@ -9,9 +9,8 @@ from typing import Literal
 
 from hermes_platform.host import facts
 
-NvidiaPlatform = Literal["rtx_spark", "dgx_spark", "discrete"]
+NvidiaPlatform = Literal["dgx_spark", "discrete"]
 
-_RTX_SPARK_CPU_MARKER = "N1X"
 _DGX_SPARK_MARKERS = ("GB10", "DGX SPARK")
 
 
@@ -24,17 +23,12 @@ def classify_nvidia_platform(*, os_family: str, native_arch: str, cpu_model: str
                              nvidia_gpus: tuple[facts.NvidiaGpu, ...]) -> NvidiaPlatform | None:
     """Return the NVIDIA platform the supplied host facts describe, or ``None`` without an NVIDIA GPU.
 
-    - ``rtx_spark``: Windows on arm64 whose CPU name carries the N1X marker or whose GPU is in
-      ``is_nvidia_n1x_pci_id``'s range, the same range the local catalog's measured row uses.
     - ``dgx_spark``: Linux on arm64 whose NVIDIA driver names a GB10 GPU, or whose CPU or
       device-tree model names GB10 or DGX Spark. Other arm64 NVIDIA servers are ``discrete``.
     - ``discrete``: any other host with an NVIDIA GPU.
     """
     cpu = cpu_model.replace("_", " ").upper()
-    if native_arch == "arm64" and os_family == "win32":
-        n1x_gpu = any(gpu.pci_id is not None and is_nvidia_n1x_pci_id(gpu.pci_id) for gpu in nvidia_gpus)
-        if n1x_gpu or _RTX_SPARK_CPU_MARKER in cpu:
-            return "rtx_spark"
+
     if native_arch == "arm64" and os_family.startswith("linux"):
         names = " ".join(gpu.name for gpu in nvidia_gpus).upper()
         if any(marker in names or marker in cpu for marker in _DGX_SPARK_MARKERS):
@@ -45,10 +39,8 @@ def classify_nvidia_platform(*, os_family: str, native_arch: str, cpu_model: str
 def nvidia_platform() -> NvidiaPlatform | None:
     """The NVIDIA platform of this host; ``classify_nvidia_platform`` holds the rules.
 
-    Reads only cached host facts (registry, sysfs, procfs, sysctl): no subprocess, no driver
-    library, no network. Verified on an N1X laptop (native arm64 and emulated x64 Python): the
-    registry CPU name carries the N1X marker, both GPUs are NVIDIA display adapters with PCI
-    devices 0x2E03 and 0x2E06 (inside the catalog's N1X range), and the answer is ``rtx_spark``.
+    Reads only cached host facts (sysfs and procfs): no subprocess, no driver
+    library, no network.
     Not verified on hardware: the GB10 model name in ``/proc/driver/nvidia/gpus/*/information``
     and the DGX Spark device-tree model.
     """

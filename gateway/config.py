@@ -6,7 +6,7 @@ import contextlib
 import logging
 import math
 import os
-import re
+
 from pathlib import Path
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from typing import Dict, List, Optional, Any, Callable
@@ -215,8 +215,11 @@ def _bundled_platform_manifest_name(plugin_dir: Path) -> Optional[str]:
 
 
 class Platform(Enum):
-    """Supported messaging platforms. Plugin platforms are dynamic members created on
-    demand by ``_missing_`` and cached so ``Platform("irc") is Platform("irc")`` holds."""
+    """Transport identities, including retired values needed to read archived sessions.
+
+    Availability is determined by the platform registry, not enum membership. Plugin
+    identities are created on demand by ``_missing_`` only for registered adapters.
+    """
     LOCAL = "local"
     TELEGRAM = "telegram"
     DISCORD = "discord"
@@ -238,7 +241,7 @@ class Platform(Enum):
     WEIXIN = "weixin"
     BLUEBUBBLES = "bluebubbles"
     QQBOT = "qqbot"
-    RELAY = "relay"  # generic relay adapter fronted by the connector (EXPERIMENTAL)
+    RELAY = "relay"  # Archived provenance only; never an available transport.
 
     @classmethod
     def _missing_(cls, value):
@@ -298,23 +301,21 @@ class Platform(Enum):
 
 
 # Built-in values snapshotted before any dynamic _missing_ lookup.
-_BUILTIN_PLATFORM_VALUES = frozenset(m.value for m in Platform.__members__.values())
+_BUILTIN_PLATFORM_VALUES = frozenset({'local', 'api_server', 'webhook', 'msgraph_webhook'})
 
 # Platforms that bind a host TCP port. In a multiplexer only the default profile binds: a SECONDARY
 # profile's port-binder is built in shared-listener mode and served at /p/<profile>/<path> on the
 # default's listener (gateway/platforms/shared_ingress.py); api_server/webhook are mirrored there.
 PORT_BINDING_PLATFORM_VALUES = frozenset({
-    "webhook", "api_server", "msgraph_webhook", "feishu", "wecom_callback",
-    "bluebubbles", "sms", "whatsapp_cloud", "line", "teams",
+    "webhook", "api_server", "msgraph_webhook",
 })
-# Platforms that only bind in one connection mode (Feishu's default websocket mode is outbound).
-PORT_BINDING_CONDITIONAL_MODES: dict[str, str] = {"feishu": "webhook"}
+# Plugins may bind a port only in a particular connection mode.
+PORT_BINDING_CONDITIONAL_MODES: dict[str, str] = {}
 # Port-binders whose /p/<profile>/ surface is a MIRROR served by the default's own adapter; a secondary
 # never gets an instance of these (api_server: /p/<profile>/v1/..., webhook: profile-bound routes).
 SHARED_LISTENER_MIRROR_PLATFORMS = frozenset({"api_server", "webhook"})
-# Everything a served profile reads from the default's own entry: the listener mirrors plus Relay,
-# process-level shared ingress whose one adapter serves every profile (no per-profile URL).
-SERVED_PROFILE_MIRROR_PLATFORMS = SHARED_LISTENER_MIRROR_PLATFORMS | frozenset({"relay"})
+# Everything a served profile reads from the default's own entry.
+SERVED_PROFILE_MIRROR_PLATFORMS = SHARED_LISTENER_MIRROR_PLATFORMS
 # Path a client appends to ``<default listener>/p/<profile>`` to reach each mirror.
 SHARED_LISTENER_MIRROR_PATHS: dict[str, str] = {"api_server": "/v1", "webhook": "/webhooks/<route>"}
 
@@ -326,35 +327,17 @@ def platform_binds_port(platform_value: str, extra: Optional[dict] = None) -> bo
     expected_mode = PORT_BINDING_CONDITIONAL_MODES.get(platform_value)
     return expected_mode is None or str((extra or {}).get("connection_mode", "websocket")).strip().lower() == expected_mode
 
-_DISCORD_CHANNEL_LINK_RE = re.compile(
-    r"https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/channels/(?:[0-9]+|@me)/([0-9]+)/?")
-
-
-def discord_channel_id_from_link(value: str) -> Optional[str]:
-    """Channel id from a pasted Discord channel link (``https://discord.com/channels/<guild>/<channel>``),
-    else None. Message links (a third path segment) and anything that is not a channel link are
-    left alone so callers keep their own error path."""
-    match = _DISCORD_CHANNEL_LINK_RE.fullmatch(value)
-    return match.group(1) if match else None
-
-
 @dataclass
 class HomeChannel:
-    """Default destination for a platform (``deliver="telegram"`` without a chat ID);
-    ``thread_id`` routes the bare target to the topic where /sethome was run."""
+    """Default destination for a registered transport, with optional thread routing."""
     platform: Platform
     chat_id: str
     name: str
     thread_id: Optional[str] = None
-    # Authenticated logical-target provenance (relay egress re-attaches; connector stays the authz boundary).
+    # Preserve logical-target ownership when reading previously saved destinations.
     user_id: Optional[str] = None
     scope_id: Optional[str] = None
 
-    def __post_init__(self) -> None:
-        # Copy Link is next to Copy Channel ID in Discord. Normalize at the
-        # shared home boundary so env, YAML and plugin-seeded homes agree.
-        if self.platform == Platform.DISCORD and isinstance(self.chat_id, str):
-            self.chat_id = discord_channel_id_from_link(self.chat_id.strip()) or self.chat_id
 
     def to_dict(self) -> dict[str, Any]:
         optional = {k: v for k in ("thread_id", "user_id", "scope_id") if (v := getattr(self, k))}
@@ -367,7 +350,7 @@ class HomeChannel:
 
 
 def persist_home_channel(home: HomeChannel, *, enabled_if_new: bool = False) -> None:
-    """Persist a logical home without falsely enabling a Relay-fronted adapter."""
+    """Persist a default destination without enabling its transport unless requested."""
     from hermes_cli.config import load_config, save_config
     config = load_config()
     platform_config = _dict_slot(_dict_slot(config, "platforms"), home.platform.value)
@@ -398,33 +381,23 @@ class ChannelOverride:
 # authenticate another way and must never be skipped for a missing token.
 # Platforms absent from this map authenticate some other way (session files, port-bound webhooks,
 # api_key-only) and must never be skipped for a missing token. See #64674.
-PLATFORM_TOKEN_ENV_NAMES: dict[Platform, str] = {
-    Platform.TELEGRAM: "TELEGRAM_BOT_TOKEN",
-    Platform.DISCORD: "DISCORD_BOT_TOKEN",
-    Platform.SLACK: "SLACK_BOT_TOKEN",
-    Platform.MATTERMOST: "MATTERMOST_TOKEN",
-    Platform.MATRIX: "MATRIX_ACCESS_TOKEN",
-    Platform.WEIXIN: "WEIXIN_TOKEN",
-}
+PLATFORM_TOKEN_ENV_NAMES: dict[Platform, str] = {}
 
 
 @dataclass
 class PlatformConfig:
-    """Configuration for a single messaging platform."""
+    """Configuration for a single transport."""
     enabled: bool = False
     token: Optional[str] = None
     api_key: Optional[str] = None  # API key if different from token
     home_channel: Optional[HomeChannel] = None
     reply_to_mode: str = "first"  # "off" never threads, "first" only the first chunk, "all" every chunk
     gateway_restart_notification: bool = True  # "♻️ Gateway online/restarted" pings; noise on end-user platforms
-    typing_indicator: bool = True  # drives _keep_typing; False where unwanted (Slack setStatus blocks compose)
-    # Working-state text for text-rendering indicators (Slack status, Google Chat marker); None = platform default.
+    typing_indicator: bool = True  # Drives _keep_typing where the transport supports it.
+    # Working-state text for text-rendering indicators; None = transport default.
     typing_status_text: Optional[str] = None
     channel_overrides: dict[str, ChannelOverride] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)  # Platform-specific settings
-    # Runtime-only, never serialized: set when the GATEWAY_RELAY_URL relay-exclusive rule
-    # (config_env._relay) switched an enabled platform off, so surfaces can say why (#141175).
-    disabled_by_relay: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -493,18 +466,17 @@ DEFAULT_STREAMING_CURSOR: str = " ▉"
 class StreamingConfig:
     """Real-time token streaming to messaging platforms."""
     enabled: bool = False
-    # "auto" prefers native drafts (Telegram sendMessageDraft) with edit fallback (adapters without
+    # "auto" prefers adapter drafts with edit fallback (adapters without
     # draft support use the edit path unchanged); "draft" / "edit" force one; "off" disables.
     transport: str = "auto"
     edit_interval: float = DEFAULT_STREAMING_EDIT_INTERVAL
     buffer_threshold: int = DEFAULT_STREAMING_BUFFER_THRESHOLD
     cursor: str = DEFAULT_STREAMING_CURSOR
-    # >0: final edit becomes a fresh message once the preview was visible this long (Telegram only; 0 = off).
+    # >0: final edit becomes a fresh message once the preview was visible this long (0 = off).
     # Ported from openclaw/openclaw#72038. When >0, the final edit for a long-running streamed response is
     # delivered as a fresh message if the original preview has been visible for at least this many seconds,
     # so the platform's visible timestamp reflects completion time instead of the preview creation time.
-    # Currently applied to Telegram only (other platforms ignore the setting). Default 0 disables the
-    # fresh-message replacement path; set >0 to opt in.
+    # Default 0 disables fresh-message replacement; set >0 to opt in.
     fresh_final_after_seconds: float = 0.0
 
     @property
@@ -545,29 +517,6 @@ class StreamingConfig:
             cursor=data.get("cursor", DEFAULT_STREAMING_CURSOR),
             fresh_final_after_seconds=_coerce_float(data.get("fresh_final_after_seconds"), 0.0),
         )
-
-
-def _has_usable_api_server_key(key: object) -> bool:
-    """True when API_SERVER_KEY is strong enough for the adapter to start (mirrors the
-    ``has_usable_secret(min_length=16)`` guard in ``gateway/platforms/api_server.py``)."""
-    if not key:
-        return False
-    try:
-        from hermes_cli.auth import has_usable_secret
-        return has_usable_secret(key, min_length=16)
-    except ImportError:
-        return len(str(key).strip()) >= 16
-
-
-# Core-only "sufficiently configured?" checks (no plugin entry). Plugin platforms declare theirs as
-# ``PlatformEntry.config_connected_fn`` (or rely on the generic ``token or api_key`` check).
-_PLATFORM_CONNECTED_CHECKERS: dict[Platform, Callable[[PlatformConfig], bool]] = {
-    Platform.API_SERVER: lambda cfg: _has_usable_api_server_key(cfg.extra.get("key") if cfg else None),
-    Platform.WEBHOOK: lambda cfg: True,
-    Platform.MSGRAPH_WEBHOOK: lambda cfg: bool(str(cfg.extra.get("client_state") or "").strip()),
-    # Relay dials OUT: "connected" once an endpoint URL is configured. EXPERIMENTAL.
-    Platform.RELAY: lambda cfg: bool(cfg.extra.get("relay_url") or cfg.extra.get("url")),
-}
 
 
 def _discovered_registry_entry(platform: Platform):
@@ -675,18 +624,16 @@ class GatewayConfig:
         connected = [p for p, c in self.platforms.items() if c.enabled and self._is_platform_connected(p, c)]
         return sorted(connected, key=lambda p: str(p.value))
 
-    def _is_platform_connected(self, platform: Platform, config: PlatformConfig) -> bool:
-        checker = _PLATFORM_CONNECTED_CHECKERS.get(platform)
-        if checker is not None:
-            return bool(config.token or config.api_key) or checker(config)
-        entry = _discovered_registry_entry(platform)
-        # ``config_connected_fn`` owns the token shortcut (Weixin needs token AND account_id).
-        if entry is not None and entry.config_connected_fn is not None:
+    def _is_platform_connected(self, platform: Platform, config: PlatformConfig, *, registry_entry=None) -> bool:
+        """Check readiness, reusing an already-loaded entry when discovery is not appropriate."""
+        entry = registry_entry if registry_entry is not None else _discovered_registry_entry(platform)
+        if entry is None:
+            return False
+        # Plugin-specific configuration checks own the token shortcut.
+        if entry.config_connected_fn is not None:
             return entry.config_connected_fn(config)
         if config.token or config.api_key:
             return True
-        if entry is None:
-            return False
         check = entry.is_connected if entry.is_connected is not None else entry.validate_config
         try:
             return True if check is None else check(config)
@@ -815,12 +762,11 @@ class GatewayConfig:
         return None
 
     def get_unauthorized_dm_behavior(self, platform: Optional[Platform] = None) -> str:
-        """Effective unauthorized-DM behavior. Email is inbox-shaped so it defaults to ``"ignore"``
-        unless its own ``unauthorized_dm_behavior`` opts in (a global default does not)."""
+        """Effective unauthorized-DM behavior, with a platform override before the global default."""
         choice = self._extra_choice(platform, "unauthorized_dm_behavior", UNAUTHORIZED_DM_BEHAVIORS, self.unauthorized_dm_behavior)
         if choice is not None:
             return choice
-        return "ignore" if platform == Platform.EMAIL else self.unauthorized_dm_behavior
+        return self.unauthorized_dm_behavior
 
     def get_notice_delivery(self, platform: Optional[Platform] = None) -> str:
         """Effective notice-delivery mode ("public"/"private") for a platform."""
@@ -829,24 +775,16 @@ class GatewayConfig:
 
 
 def load_gateway_config() -> GatewayConfig:
-    """Load gateway configuration. Priority: env > ~/.hermes/config.yaml > legacy gateway.json > defaults."""
+    """Load gateway configuration. Priority: env > config.yaml > defaults."""
     from gateway import config_loader
 
     _home = get_hermes_home()
-    gw_data = config_loader.load_legacy_gateway_json(_home)
+    gw_data = {}
     try:
         config_loader.load_yaml_layer(_home, gw_data)
     except Exception as e:
         logger.warning(
-            # DingTalk settings → env vars: migrated to the dingtalk plugin's apply_yaml_config_fn hook
-            # (plugins/platforms/dingtalk/adapter.py). #41112 / #3823.
-            # Mattermost config bridge moved into plugins/platforms/mattermost/
-            # adapter.py::_apply_yaml_config — see #25443 (apply_yaml_config_fn).
-            # Matrix settings → env vars: migrated to the matrix plugin's apply_yaml_config_fn hook
-            # (plugins/platforms/matrix/adapter.py). #41112 / #3823.
-            # Feishu settings → env vars: migrated to the feishu plugin's apply_yaml_config_fn hook
-            # (plugins/platforms/feishu/adapter.py). #41112 / #3823.
-            "Failed to process config.yaml — falling back to .env / gateway.json values. "
+            "Failed to process config.yaml — falling back to environment values. "
             "Check %s for syntax errors. Error: %s",
             _home / "config.yaml", e,
         )

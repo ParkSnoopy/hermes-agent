@@ -161,11 +161,7 @@
       "stimulus": "Deliver old REST snapshot after new completion",
       "required_observation": "New state not rolled back; row IDs/admission identity win."
     },
-    {
-      "name": "native-final-stream",
-      "stimulus": "Messaging native stream with interim/media/final",
-      "required_observation": "One correct final artifact, prefix-stable draft, edit reconciliation."
-    },
+
     {
       "name": "view-is-not-delivery",
       "stimulus": "Open chat on another UI/route",
@@ -211,11 +207,7 @@
       "stimulus": "API session receives async completion",
       "required_observation": "No newly autonomous model turn by accident."
     },
-    {
-      "name": "kanban-session",
-      "stimulus": "Dispatcher starts scoped worktree worker",
-      "required_observation": "Board/profile/cwd/claim preserved, shared session observable."
-    },
+
     {
       "name": "profile-secrets",
       "stimulus": "Concurrent default and secondary with distinct harmless secrets",

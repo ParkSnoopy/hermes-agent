@@ -1,11 +1,7 @@
 """Shared magic-byte audio/AV container detection — the ONE sniffer for the codebase.
 
-Outbound (``tools/tts_tool.py``): TTS backends silently ignore the requested
-format (Edge emits MP3, Piper WAV), so the file is sniffed and its ``.ogg``
-extension repaired. Inbound (``gateway/platforms/base.py`` cache_audio_*,
-``plugins/platforms/signal/adapter.py``): adapters pass wrong/guessed voice-note
-extensions (Telegram ``.oga``, iOS M4A-branded MP4), so the cache sniffs the
-real container for STT and players. Only audio/AV containers are claimed:
+Inbound caches may receive wrong or guessed audio extensions, so they sniff the
+real container for players. Only audio/AV containers are claimed:
 RIFF/WEBP and other images return ``None`` so callers check images first.
 """
 
@@ -48,7 +44,7 @@ def sniff_container(data: bytes) -> Optional[str]:
 def sniff_audio_ext(data: bytes, fallback_ext: str = ".ogg") -> str:
     """Return a container-matching extension, or ``fallback_ext`` when unknown.
     Callers *claim* audio, so generic MP4 maps to ``.m4a`` (payload is AAC regardless
-    of brand; STT accepts both but voice-bubble routing keys off audio extensions)."""
+    of brand; media routing keys off audio extensions)."""
     fallback = fallback_ext if fallback_ext.startswith(".") else f".{fallback_ext}"
     container = sniff_container(data)
     if container is None:

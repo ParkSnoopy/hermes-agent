@@ -66,7 +66,7 @@ def _purge_locked(now: float, agent: Any = None) -> None:
 
 def is_unattended_turn(agent: Any) -> bool:
     """A turn nobody is waiting on: a persistence-detached fork, a cron run, a delegated child."""
-    return (getattr(agent, "_persist_disabled", False) or getattr(agent, "platform", None) == "cron"
+    return (getattr(agent, "_persist_disabled", False)
             or getattr(agent, "_delegate_depth", 0) > 0)
 
 

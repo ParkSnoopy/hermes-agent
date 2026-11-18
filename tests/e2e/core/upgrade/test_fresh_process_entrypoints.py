@@ -71,21 +71,19 @@ TRACEBACK = "Traceback (most recent call last)"
 # requirement whose environment marker excludes this platform) — the table is re-validated
 # against pyproject.toml, so it cannot be used to hide a missing core dependency.
 _OPTIONAL_IMPORTS = {
-    "acp": "agent-client-protocol", "aiohttp": "aiohttp", "aiohttp_socks": "aiohttp-socks",
-    "aiosqlite": "aiosqlite", "alibabacloud_dingtalk": "alibabacloud-dingtalk", "anthropic": "anthropic",
-    "asyncpg": "asyncpg", "azure": "azure-identity", "boto3": "boto3", "botocore": "boto3",
-    "brotlicffi": "brotlicffi", "daytona": "daytona", "defusedxml": "defusedxml",
-    "dingtalk_stream": "dingtalk-stream", "discord": "discord.py", "edge_tts": "edge-tts",
+    "acp": "agent-client-protocol", "anthropic": "anthropic",
+    "azure": "azure-identity", "boto3": "boto3", "botocore": "boto3",
+
+    "edge_tts": "edge-tts",
     "elevenlabs": "elevenlabs", "exa_py": "exa-py", "fal_client": "fal-client",
     "faster_whisper": "faster-whisper", "firecrawl": "firecrawl-py", "google": "google-auth",
     "google_auth_oauthlib": "google-auth-oauthlib", "googleapiclient": "google-api-python-client",
-    "httplib2": "httplib2", "lark_oapi": "lark-oapi", "mautrix": "mautrix",
-    "mcp": "mcp", "microsoft_teams": "microsoft-teams-apps", "mistralai": "mistralai",
-    "modal": "modal", "numpy": "numpy", "pyopen_wakeword": "pyopen-wakeword",
-    "opentelemetry": "opentelemetry-sdk", "parallel": "parallel-web", "pvporcupine": "pvporcupine",
-    "pyasn1": "pyasn1", "qrcode": "qrcode", "sentencepiece": "sentencepiece", "sherpa_onnx": "sherpa-onnx",
-    "slack_bolt": "slack-bolt", "slack_sdk": "slack-sdk", "sounddevice": "sounddevice",
-    "telegram": "python-telegram-bot", "uvloop": "uvloop",
+    "httplib2": "httplib2",
+    "mcp": "mcp", "mistralai": "mistralai",
+    "numpy": "numpy", "pyopen_wakeword": "pyopen-wakeword",
+    "parallel": "parallel-web", "pvporcupine": "pvporcupine",
+    "pyasn1": "pyasn1", "sentencepiece": "sentencepiece", "sherpa_onnx": "sherpa-onnx",
+    "sounddevice": "sounddevice", "uvloop": "uvloop",
     "vercel": "vercel", "youtube_transcript_api": "youtube-transcript-api",
     # Windows-only core requirements (their markers exclude Linux).
     "pywintypes": "pywin32", "win32api": "pywin32", "win32con": "pywin32", "win32event": "pywin32",
@@ -102,14 +100,14 @@ _PLATFORM_ALLOWLIST: dict[str, str] = {}
 _PRELOAD = (
     "openai", "httpx", "pydantic", "rich", "prompt_toolkit", "yaml", "ruamel.yaml", "requests", "jinja2",
     "fastapi", "starlette", "uvicorn", "anthropic", "cryptography", "psutil", "websockets", "dotenv",
-    "fire", "croniter", "markdown", "jwt", "packaging", "PIL",
+    "fire", "markdown", "jwt", "packaging", "PIL",
 )
 
 # Import sites the pre-hand-off updater (v2026.9.14 update_cmd_fleet/_maint) reaches AFTER
 # its purge in the pre-pull interpreter: the restart phase (``hermes_cli.gateway`` and what
 # it pulls), the maintenance/summary steps, and the atexit browser cleanup that re-imports
 # ``tools.browser_tool`` -> ``hermes_cli.config`` (#112522). Entry points that only ever start
-# in a NEW process (gateway.run, tui_gateway.entry, cron.scheduler) are covered by the
+# in a NEW process (gateway.run, tui_gateway.entry) are covered by the
 # fresh-interpreter smoke instead.
 _POST_PURGE_IMPORTS = (
     "hermes_cli.config", "hermes_cli.managed_scope", "hermes_cli.gateway", "gateway.status",

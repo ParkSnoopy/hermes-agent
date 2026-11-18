@@ -157,10 +157,10 @@ def _get_model_and_provider(config: dict) -> tuple[str, str]:
 _INTERESTING_PATHS = (
     ("agent", "max_turns"), ("agent", "gateway_timeout"), ("agent", "session_stall_timeout"),
     ("agent", "sanitizer_heal_escalation_threshold"), ("agent", "tool_use_enforcement"),
-    ("agent", "execution_guidance"), ("terminal", "backend"), ("terminal", "docker_image"),
-    ("terminal", "persistent_shell"), ("browser", "allow_private_urls"), ("compression", "enabled"),
+    ("agent", "execution_guidance"), ("terminal", "backend"),
+    ("terminal", "local_persistent"), ("browser", "allow_private_urls"), ("compression", "enabled"),
     ("compression", "threshold"), ("compression", "in_place"), ("display", "streaming"),
-    ("display", "skin"), ("display", "show_reasoning"), ("privacy", "redact_pii"), ("tts", "provider"),
+    ("display", "skin"), ("display", "show_reasoning"), ("privacy", "redact_pii"),
 )
 
 
@@ -239,7 +239,7 @@ _API_KEYS = [
     ("OPENCODE_GO_API_KEY", "opencode_go"), ("COMMANDCODE_API_KEY", "commandcode"),
     ("KILOCODE_API_KEY", "kilocode"), ("FIRECRAWL_API_KEY", "firecrawl"), ("TAVILY_API_KEY", "tavily"), ("PERPLEXITY_API_KEY", "perplexity"),
     ("KEENABLE_API_KEY", "keenable"), ("BROWSERBASE_API_KEY", "browserbase"), ("FAL_KEY", "fal"),
-    ("ELEVENLABS_API_KEY", "elevenlabs"), ("GITHUB_TOKEN", "github"),
+    ("GITHUB_TOKEN", "github"),
 ]
 
 

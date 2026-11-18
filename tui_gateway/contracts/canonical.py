@@ -19,7 +19,7 @@ from .events import SkinPayload
 from .groups_bot_relay import (
     GroupsPeerInviteResult, GroupsPeerRegisterResult, GroupsPeerRevokeResult, RoomParams, RoomTaskReceipt,
 )
-from .prompt_voice import ClarifyLockParams, ClarifyLockResult
+from .prompt import ClarifyLockParams, ClarifyLockResult
 from .registry import canonical_method, canonical_namespace, method
 
 # ── admissions ────────────────────────────────────────────────────────────────────────────────
@@ -404,72 +404,6 @@ canonical_method("clarify.respond", params=ClarifyRespondParams, result=PromptRe
 canonical_method("clarify.lock", params=ClarifyLockParams, result=ClarifyLockResult,
                  doc="Lock one answer of the owner's batch clarify request (editable until every question is "
                      "locked); only a viewer attached to that session with session:respond may lock.")
-
-
-# ── cron / kanban / a2a producers ─────────────────────────────────────────────────────────────
-
-
-class CronRunParams(Params):
-    job_id: str
-    request_id: str
-    extra_prompt: str | None
-
-
-class CronSubmitResult(Result):
-    session_id: str
-    admission_id: str
-
-
-canonical_method("cron.submit", params=CronRunParams, result=CronSubmitResult,
-                 doc="Admit one cron firing into the owning profile's durable FIFO.")
-
-
-class CronStatusResult(OpenModel):
-    """``result`` is the ``run_job`` tuple once terminal; ``recover`` adds the frozen ``job`` and
-    answers ``status='missing'`` for a firing that was never admitted."""
-
-    status: str
-    result: list[JsonValue] | None
-    job_flags: dict[str, JsonValue] | None = None
-    job: dict[str, JsonValue] | None = None
-
-
-canonical_method("cron.recover", params=CronRunParams, result=CronStatusResult,
-                 doc="Re-observe a firing after a scheduler restart (same request identity).")
-
-
-class CronAdmissionParams(Params):
-    session_id: str
-    admission_id: str
-
-
-canonical_method("cron.status", params=CronAdmissionParams, result=CronStatusResult,
-                 doc="Status and, once terminal, the result of one cron admission.")
-
-
-class CronCancelResult(Result):
-    ok: bool
-
-
-canonical_method("cron.cancel", params=CronAdmissionParams, result=CronCancelResult,
-                 doc="Cancel a queued cron admission or latch cancellation on a started one.")
-
-
-class KanbanRunParams(Params):
-    board: str
-    task_id: str
-    run_id: int
-    claim_lock: str
-    db: str | None = None
-
-
-class KanbanRunResult(Result):
-    session_id: str
-    receipt: AdmissionStatus
-
-
-canonical_method("kanban.run", params=KanbanRunParams, result=KanbanRunResult,
-                 doc="Native-owner only: admit the dispatcher's current claim on a kanban task.")
 
 
 class A2aForwardParams(Params):

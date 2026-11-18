@@ -49,7 +49,7 @@ def test_oneshot_marker_does_not_relabel_subagents(monkeypatch):
     assert session_source_for("subagent") == "subagent"
 
 
-@pytest.mark.parametrize("inherited", ["kanban", "tool", "a2a"])
+@pytest.mark.parametrize("inherited", ["tool", "a2a"])
 def test_oneshot_child_keeps_inherited_automation_source(monkeypatch, inherited):
     monkeypatch.setenv("HERMES_SESSION_SOURCE", inherited)
     monkeypatch.setenv("HERMES_SINGLE_QUERY_SESSION", "1")

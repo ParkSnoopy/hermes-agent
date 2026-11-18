@@ -13,7 +13,7 @@ Thank you for contributing to Hermes Agent! This guide covers setting up your de
 We value contributions in this order:
 
 1. **Bug fixes** — crashes, incorrect behavior, data loss
-2. **Cross-platform compatibility** — macOS, different Linux distros, WSL2
+2. **Linux compatibility** — different Linux distributions
 3. **Security hardening** — shell injection, prompt injection, path traversal
 4. **Performance and robustness** — retry logic, error handling, graceful degradation
 5. **New skills** — broadly useful ones (see [Creating Skills](creating-skills.md))
@@ -122,8 +122,8 @@ Choose the highest (least-footprint) rung that correctly solves the problem:
 
 1. **Extend existing code** — a variation of something that exists. Zero new surface.
 2. **CLI command + skill** — config/state/infra expressible as shell commands; the agent runs
-   `hermes <subcommand>` guided by a skill. Default for subscriptions, scheduled tasks,
-   service setup (`hermes webhook`, `hermes cron`, `hermes tools`).
+   `hermes <subcommand>` guided by a skill. Default for subscriptions,
+   service setup (`hermes webhook`, `hermes tools`).
 3. **Service-gated tool (`check_fn`)** — needs structured params/returns AND only appears when
    a prerequisite is configured (Home Assistant tools, memory-provider tools). This rung gates
    reachability/opt-in process-wide; a capability that varies per SESSION (who is watching) is
@@ -171,12 +171,6 @@ source ./activate
 hermes --version
 ```
 
-PowerShell:
-
-```powershell
-. .\activate.ps1
-hermes --version
-```
 
 Run `hermes` for this checkout. Activation defines it as a function for this
 worktree, so it hides a global `hermes` alias and refuses outside the worktree.
@@ -191,7 +185,7 @@ script or tool in this repository, so the commands below also work without
 
 | Recipe | Runs |
 |---|---|
-| `just setup` | `setup-hermes.sh --runtime-only --test-environment` (PowerShell: `setup-hermes.ps1 -RuntimeOnly`) |
+| `just setup` | `setup-hermes.sh --runtime-only --test-environment` |
 | `just check` | `scripts/check`, every blocking lint check; `just check --only health` selects checks |
 | `just fix` | the pinned ruff with `--fix`, then `pnpm -r fix` |
 | `just test <paths>` | `scripts/run_tests.sh <paths>`; refuses to start without a path, even with flags |
@@ -214,8 +208,7 @@ a shell that was never activated. A new developer command is a script under
 Use the [PM developer workflow](../reference/package-management.md#developer-workflow) to prepare Python 3.14 first.
 Run these commands from that checkout with its prepared Python. Keep the same
 development `HERMES_HOME`. PM must be able to start before it can build another
-environment. On Windows, initialize the native C++ build environment for your
-architecture before building source dependencies.
+environment.
 
 Build an independent interpreter for tests and editor tools:
 
@@ -236,13 +229,12 @@ Do not run raw pip or uv commands to change a PM-built environment.
 To keep the test environment outside the checkout, replace `.venv` with a fresh absolute
 path. Set `HERMES_PYTHON` to that environment's interpreter:
 
-- POSIX: `export HERMES_PYTHON="/absolute/path/to/hermes-dev/bin/python"`
-- PowerShell: `$env:HERMES_PYTHON = 'C:\absolute\path\to\hermes-dev\Scripts\python.exe'`
+`export HERMES_PYTHON="/absolute/path/to/hermes-dev/bin/python"`
 
 The canonical runner discovers repository `.venv` automatically. It clears
 `PYTHONPATH`, so pytest must be installed in the interpreter's own environment.
 This test environment does not replace PM's application selection or tool
-store. Do not point a bundled app at it or install into an MSIX payload.
+store.
 
 For an isolated development instance, select a disposable `HERMES_HOME` before
 starting the source command. Use `hermes setup` to configure it rather
@@ -252,7 +244,7 @@ than copying production credentials into the checkout.
 
 From the repository root, run `pnpm install --frozen-lockfile` (`just js-install`) for the desktop,
 TUI, dashboard, and shared JS workspaces. `pm/lock.json` pins pnpm
-(`source ./activate`, or `. .\activate.ps1` in PowerShell, provides that exact
+(`source ./activate` provides that exact
 version). An install that runs lifecycle scripts refuses any other pnpm, a direct or
 filtered `pnpm install` included: the root `preinstall` script requires the
 `pm/lock.json` pnpm (and refuses `npm install`), and pnpm 10 and 11 also refuse the
@@ -302,7 +294,7 @@ just test tests/agent/ -v
 Both recipes call `scripts/run_tests.sh`; `just test` refuses to start
 without a path, and `just test-all` runs the full suite.
 
-On Windows, run the script through Bash. When no local `.venv` or `venv`
+When no local `.venv` or `venv`
 contains pytest, the runner accepts the explicit `HERMES_PYTHON` above. It
 clears credentials, isolates `HERMES_HOME`, and runs each test file in a separate
 subprocess through `scripts/run_tests_parallel.py`. It does not use xdist.
@@ -321,18 +313,16 @@ See [Package management](../reference/package-management.md) for PM commands and
 - **PEP 8** with practical exceptions (no strict line length enforcement)
 - **Comments**: Only when explaining non-obvious intent, trade-offs, or API quirks
 - **Error handling**: Catch specific exceptions. Use `logger.warning()`/`logger.error()` with `exc_info=True` for unexpected errors
-- **Cross-platform**: Never assume Unix (see below)
+- **Linux**: Account for differences between distributions
 - **Profile-safe paths**: Never hardcode `~/.hermes` — use `get_hermes_home()` from `hermes_constants` for code paths and `display_hermes_home()` for user-facing messages. See [AGENTS.md](https://github.com/NousResearch/hermes-agent/blob/main/AGENTS.md#profiles-multi-instance-support) for full rules.
 
-## Cross-Platform Compatibility
+## Linux Compatibility
 
-See **[Platform Support](../getting-started/platform-support.md)**. Native Windows uses Git Bash (from [Git for Windows](https://git-scm.com/download/win)) for shell commands. The dashboard uses POSIX PTYs on Unix and the `pywinpty`/ConPTY bridge on Windows. Availability depends on that host's native dependency support. If you're doing Windows-heavy dev, run the Windows-footgun lint (`scripts/check-windows-footguns.py`) before pushing.
+See **[Platform Support](../getting-started/platform-support.md)**.
 
 When contributing code, keep these rules in mind:
 
-- **Don't add unguarded `signal.SIGKILL` references.** It's not defined on Windows. Either route through `gateway.status.terminate_pid(pid, force=True)` (the centralized primitive that does `taskkill /T /F` on Windows and SIGKILL on POSIX), or fall back with `getattr(signal, "SIGKILL", signal.SIGTERM)`.
-- **Use `psutil.pid_exists()` for process liveness.** Do not use `os.kill(pid, 0)` on Windows; it is not a safe probe.
-- **Don't force the terminal to POSIX semantics.** `os.setsid`, `os.killpg`, `os.getpgid`, `os.fork` all raise on Windows — gate them with `if sys.platform != "win32":` or `if os.name != "nt":`.
+- **Use `psutil.pid_exists()` for process liveness.**
 - **Use explicit text encodings.** User-authored UTF-8 reads use `utf-8-sig` to accept a leading BOM. Writes use `utf-8` without adding a BOM.
 - **Use `pathlib.Path` / `os.path.join` — never manually concat with `/`.** This matters less for strings the OS gives us back and more for strings we construct to hand to subprocesses.
 
@@ -349,17 +339,7 @@ except UnicodeDecodeError:
     load_dotenv(env_path, encoding="latin-1")
 ```
 
-### 2. Process management
-
-`os.setsid()`, `os.killpg()`, and signal handling differ across platforms:
-
-```python
-import platform
-if platform.system() != "Windows":
-    kwargs["preexec_fn"] = os.setsid
-```
-
-### 3. Path separators
+### 2. Paths
 
 Use `pathlib.Path` instead of string concatenation with `/`.
 
@@ -373,7 +353,6 @@ Hermes has terminal access. Security matters.
 | ------------------------------- | --------------------------------------------------------------------------- |
 | **Sudo password piping**        | Uses `shlex.quote()` to prevent shell injection                             |
 | **Dangerous command detection** | Regex patterns in `tools/approval.py` with user approval flow               |
-| **Cron prompt injection**       | Scanner blocks instruction-override patterns                                |
 | **Write deny list**             | Protected paths resolved via `os.path.realpath()` to prevent symlink bypass |
 | **Skills guard**                | Security scanner for hub-installed skills                                   |
 | **Code execution sandbox**      | Child process runs with API keys stripped                                   |
@@ -403,7 +382,7 @@ refactor/description   # Code restructuring
 
 1. **Run tests**: `scripts/run_tests.sh` for CI-parity. Use direct `python -m pytest ...` only when the wrapper is unavailable or you are intentionally debugging outside the wrapper.
 2. **Test manually**: Run `hermes` and exercise the code path you changed
-3. **Check cross-platform impact**: Consider macOS, Linux, WSL2, and native Windows. If you touch file I/O, process management, terminal handling, subprocesses, or signals, run `scripts/check-windows-footguns.py`.
+3. **Check Linux impact**: Consider supported distributions when touching file I/O, process management, terminal handling, subprocesses, or signals.
 4. **Keep PRs focused**: One logical change per PR
 5. **Prompt or tool-schema changes**: if `tests/ci/test_prompt_surface.py` fails, your change alters the system prompt or a tool schema that every session sends. Regenerate with `scripts/run-in-hermes-env python scripts/ci/prompt_surface.py render` and commit the snapshot. Changes there need a maintainer approval (see [Prompt Assembly](./prompt-assembly.md#reviewing-changes-to-the-prompt-surface)).
 6. **New config keys or slash commands**: if `tests/ci/test_docs_drift.py` fails, a `DEFAULT_CONFIG` key or slash command you added has no docs. Mention the dotted key (`agent.max_turns`) or show it in a YAML example under `website/docs/` (usually `user-guide/configuration.md`), and add slash commands to `reference/slash-commands.md`. If a key really should stay undocumented, `python scripts/ci/check_docs_drift.py --update` adds it to `scripts/ci/docs_drift_baseline.json` where reviewers see it. Keys that were undocumented when the check landed are already baselined; documenting one never fails.

@@ -7,18 +7,9 @@ chat_completions reasoning translations (GLM-5.2, Kimi K2, DeepSeek, Ox Alpha).
 from typing import Any
 
 from agent import reasoning_effort as re_
-from hermes_cli.version_info import hermes_user_agent
 from providers import register_provider
-from providers.base import LazyHeaders, ProviderProfile
+from providers.base import ProviderProfile
 from datetime import UTC
-
-# Attribution headers (same values as OpenRouter / Vercel / Fireworks); via
-# default_headers so they survive model switches and credential rotation.
-_ATTRIBUTION_HEADERS = {
-    "HTTP-Referer": "https://hermes-agent.nousresearch.com",
-    "X-Title": "Hermes Agent",
-    "User-Agent": lambda: hermes_user_agent("HermesAgent"),
-}
 
 
 def _flat_model_name(model: str | None) -> str:
@@ -129,14 +120,12 @@ class OpenCodeZenProfile(ProviderProfile):
 
 opencode_zen = OpenCodeZenProfile(
     name="opencode-zen", aliases=("opencode", "opencode_zen", "zen"), env_vars=("OPENCODE_ZEN_API_KEY",),
-    base_url="https://opencode.ai/zen/v1", default_headers=LazyHeaders(_ATTRIBUTION_HEADERS),
-    default_aux_model="gemini-3-flash",
+    base_url="https://opencode.ai/zen/v1", default_aux_model="gemini-3-flash",
 )
 
 opencode_go = OpenCodeGoProfile(
     name="opencode-go", aliases=("opencode_go", "go", "opencode-go-sub"), env_vars=("OPENCODE_GO_API_KEY",),
-    base_url="https://opencode.ai/zen/go/v1", default_headers=LazyHeaders(_ATTRIBUTION_HEADERS),
-    default_aux_model="glm-5", classify_api_error=_classify_go_error,
+    base_url="https://opencode.ai/zen/go/v1", default_aux_model="glm-5", classify_api_error=_classify_go_error,
     # The Go relay's upstream validates tool content as a strict string: list-type tool
     # content (native vision embeds) 422s with ``messages.N.tool.content.str Input should
     # be a valid string`` (Console Go, #104731) or 400s ``text is not set`` (MiMo, #47026),

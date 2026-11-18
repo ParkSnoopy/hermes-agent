@@ -83,13 +83,12 @@ def test_inline_marker_on_same_or_previous_line_allows_one_hit():
     )
     assert _hits(src, ".md") == [4]
 
-def test_scan_skips_tests_lockfiles_ci_and_translations(tmp_path):
+def test_scan_skips_tests_lockfiles_and_ci(tmp_path):
     mod = _load()
     files = {
         "tools/a.py": 'X = "/tmp/a"\n',
         "skills/x/SKILL.md": "save to /tmp/out\n",
         "website/docs/guide.md": "cd /tmp\n",
-        "website/i18n/zh/guide.md": "cd /tmp\n",
         "tests/test_a.py": 'X = "/tmp/a"\n',
         "tools/test_inline.py": 'X = "/tmp/a"\n',
         "tools/conftest.py": 'X = "/tmp/a"\n',

@@ -401,14 +401,9 @@ class ACPClient:
                 + self.unsupported_transport_hint
             )
         try:
-            from hermes_cli._subprocess_compat import windows_hide_flags  # hide the Windows console flash (#56747); pipes intact for the ACP wire
-
-            # Hide the console the CLI child would otherwise flash on Windows (#56747). Hide-only — stdio
-            # pipes stay intact for the ACP wire.
             proc = subprocess.Popen(
                 [self._acp_command] + self._acp_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, encoding='utf-8', errors='replace', bufsize=1, cwd=self._acp_cwd, env=_build_subprocess_env(),
-                creationflags=windows_hide_flags(),
             )
         except FileNotFoundError as exc:
             raise RuntimeError(

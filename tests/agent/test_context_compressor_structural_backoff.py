@@ -44,8 +44,6 @@ def test_insufficient_messages_backs_off_without_strike():
     assert result == messages
     assert compressor._ineffective_compression_count == 0
     assert compressor._structural_no_op_backoff_until > 0.0
-    telemetry = compressor._last_compression_telemetry or {}
-    assert telemetry.get("failure_class") == "insufficient_messages"
 
 
 def test_no_compressible_window_backs_off_without_strike():
@@ -68,8 +66,6 @@ def test_no_compressible_window_backs_off_without_strike():
     assert result == messages
     assert compressor._ineffective_compression_count == 0
     assert compressor._structural_no_op_backoff_until > 0.0
-    telemetry = compressor._last_compression_telemetry or {}
-    assert telemetry.get("failure_class") == "no_compressible_window"
 
 
 def test_gate_blocked_during_backoff_then_resumes():

@@ -134,6 +134,38 @@ def _server_name(servers, name):
     return name[4:] if name.startswith('mcp-') and name not in servers else name
 
 
+def follow_bot_chat(authority, session_id, policy, live, picked=()):
+    """Follow the profile on opening a frozen native Bot Chat, without rewriting its creation request.
+
+    Only canonical receipt lineages reach this refresh. Explicit freeze/bypass choices stay frozen;
+    native route and reasoning picks keep their provenance, not retired composer metadata.
+    """
+    from gateway.session_policy import (FOLLOW_ADOPTED, SESSION_PINS, _without_auto_pick,
+                                        present_sections, profile_target)
+    from hermes_state_local import local_conversation_ids
+    request = json.loads(policy.request_json)
+    if policy.follows_profile or policy.ignore_user_config or 'follow_profile_config' in request:
+        return policy
+    db = authority.db
+    row = db.get_session(session_id) or {}
+    if str(row.get('title') or '').strip() != 'Bot Chat':
+        titled = db.get_session_by_title('Bot Chat')
+        if titled is None:
+            return policy
+        with db._read_ctx() as conn:
+            if titled['id'] not in local_conversation_ids(conn, session_id):
+                return policy
+    config = json.loads(policy.config_json)
+    model = config.get('model') if isinstance(config.get('model'), dict) else {}
+    route_pick = {'model', 'provider', 'base_url'} & _without_auto_pick(request).keys()
+    if (route_pick or 'model' in picked) and model.get('selection_profile') is None:
+        config.setdefault('model', {})['selection_profile'] = list(profile_target(present_sections(live)))
+    pins = config.get(SESSION_PINS) if isinstance(config.get(SESSION_PINS), dict) else {}
+    if 'reasoning' in picked and not isinstance(pins.get('reasoning'), bool):
+        config[SESSION_PINS] = {**pins, 'reasoning': True}
+    return replace(policy, config_json=json.dumps({**config, FOLLOW_ADOPTED: True}))
+
+
 def _prepare(authority, session_id, mcp_only=False, adopt_only=False):
     """Off the owner loop: the stored policy, its refresh from this profile home's files, and the generation
     it was derived at. None when the session takes no refresh or nothing moved. *adopt_only*: the adoption
@@ -152,11 +184,7 @@ def _prepare(authority, session_id, mcp_only=False, adopt_only=False):
     home = Path(authority.db.db_path).resolve().parent
     terminal = {} if mcp_only or adopt_only else build_profile_terminal_scope(home)
     live, picked = load_profile_config(home), policy_picks(authority.db, session_id)
-    base = old
-    if not mcp_only:
-        # Opening a Bot Chat an earlier build froze adopts it: it follows its profile from now on.
-        from gateway.session_local_migration import follow_bot_chat
-        base = follow_bot_chat(authority, session_id, old, live, picked)
+    base = old if mcp_only else follow_bot_chat(authority, session_id, old, live, picked)
     if adopt_only:
         return None if base is old else (stored, old, base, {}, set(), generation)
     policy, secrets, replaced = refreshed_policy(base, live, terminal, picked=picked, mcp_only=mcp_only)
@@ -270,12 +298,9 @@ def drop_session_terminal(authority, ref):
     from tools.terminal_tool_lifecycle import cleanup_vm
     ids = {ref.session_id, local_receipt(authority.db, ref.session_id)['entry']['session_id']}
     route = authority.sessions[ref.session_id].route
-    from gateway.session_policy import unbind_turn_workspace
     with owner_scope(authority):
         keys = {_qualify_task_key(key) for key in (f'session:{route}', *ids)}
         for key in (route, *ids):
-            # The turn's workspace binding goes with them: it wins over the new binding's cwd too.
-            unbind_turn_workspace(key)
             clear_session_cwd(key)
     for key in keys:
         cleanup_vm(key)

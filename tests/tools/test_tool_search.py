@@ -397,8 +397,7 @@ class TestBridgeDispatch:
     def test_resolve_underlying_call_parses_object_args(self):
         from tools.tool_search import resolve_underlying_call
         _name, _args, err = resolve_underlying_call({
-            "name": "unknown_xxx",
-            "arguments": {"foo": "bar"},
+            "calls": [{"name": "unknown_xxx", "arguments": {"foo": "bar"}}],
         })
         # Will fail classification because unknown_xxx isn't deferrable.
         assert err is not None
@@ -408,8 +407,7 @@ class TestBridgeDispatch:
         """tool_call cannot invoke tool_call itself."""
         from tools.tool_search import resolve_underlying_call, TOOL_CALL_NAME
         _name, _args, err = resolve_underlying_call({
-            "name": TOOL_CALL_NAME,
-            "arguments": {},
+            "calls": [{"name": TOOL_CALL_NAME, "arguments": {}}],
         })
         assert err is not None
 
@@ -493,8 +491,7 @@ class TestRegression_OpenClawCron84141:
         we reject the call and tell the model to use it directly."""
         from tools.tool_search import resolve_underlying_call
         _, _, err = resolve_underlying_call({
-            "name": "terminal",
-            "arguments": {"command": "echo hi"},
+            "calls": [{"name": "terminal", "arguments": {"command": "echo hi"}}],
         })
         assert err is not None
 
@@ -753,8 +750,8 @@ class TestDeferredCallSchemaProbe:
         self._register("mcp_probe_valid_op", "mcp-probe-valid")
         result = json.loads(model_tools.handle_function_call(
             function_name="tool_call",
-            function_args={"name": "mcp_probe_valid_op",
-                           "arguments": {"document_id": "abc"}},
+            function_args={"calls": [{"name": "mcp_probe_valid_op",
+                                      "arguments": {"document_id": "abc"}}]},
             enabled_toolsets=["mcp-probe-valid"],
         ))
         assert result.get("ok") is True
@@ -776,7 +773,7 @@ class TestDeferredCallSchemaProbe:
 
         result = json.loads(model_tools.handle_function_call(
             function_name="tool_call",
-            function_args={"name": name, "arguments": {"priority": "urgent"}},
+            function_args={"calls": [{"name": name, "arguments": {"priority": "urgent"}}]},
             enabled_toolsets=[toolset],
         ))
 
@@ -846,7 +843,7 @@ class TestDeferredCallSchemaProbe:
 
         result = json.loads(model_tools.handle_function_call(
             function_name="tool_call",
-            function_args={"name": name, "arguments": {"count": "42"}},
+            function_args={"calls": [{"name": name, "arguments": {"count": "42"}}]},
             enabled_toolsets=[toolset],
         ))
 
@@ -867,7 +864,7 @@ class TestDeferredCallSchemaProbe:
 
         result = json.loads(model_tools.handle_function_call(
             function_name="tool_call",
-            function_args={"name": name, "arguments": {"value": None}},
+            function_args={"calls": [{"name": name, "arguments": {"value": None}}]},
             enabled_toolsets=[toolset],
         ))
 
@@ -901,7 +898,7 @@ class TestDeferredCallSchemaProbe:
 
         result = json.loads(model_tools.handle_function_call(
             function_name="tool_call",
-            function_args={"name": name, "arguments": {"value": "kept"}},
+            function_args={"calls": [{"name": name, "arguments": {"value": "kept"}}]},
             enabled_toolsets=[toolset],
         ))
 

@@ -297,14 +297,12 @@ def recovery_closure_verified(closure: Path, pre: str) -> bool:
 
 
 def _git_executable(recorded_by_updater: str = "") -> str:
-    """The git ``hermes update`` runs (``_subprocess_compat.expose_pm_git``), without installing it.
+    """The Git ``hermes update`` runs, without installing it.
 
     The absolute git the killed updater recorded in its marker first: finding PM's copy needs
     ``pm``, which imports ``hermes_constants``, and a merge killed while writing that module (or
-    anything else ``pm`` imports) leaves only this path to the repair. Then PATH's git. A Windows install whose only git is the one install.ps1 staged in PM's store
-    has none on PATH until the updater exposes it, so this falls back to that copy: PM's recorded
-    entry, or the lockfile's pinned entry the installer extracted without recording it. A bare
-    ``git`` there dies with WinError 2 and the torn tree this repair exists for stays torn.
+    anything else ``pm`` imports) leaves only this path to the repair. Then PATH's Git,
+    followed by PM's existing recorded or lockfile-pinned store entry.
     """
     import shutil
 
@@ -313,7 +311,7 @@ def _git_executable(recorded_by_updater: str = "") -> str:
     found = shutil.which("git")
     if found:
         return found
-    with contextlib.suppress(Exception):  # no PM, no store, no Windows git package: PATH's answer stands
+    with contextlib.suppress(Exception):  # no PM or stored Git: PATH's answer stands
         import pm
         from pm import paths
         from pm.lock import Lockfile

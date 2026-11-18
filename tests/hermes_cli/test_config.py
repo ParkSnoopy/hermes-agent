@@ -913,7 +913,7 @@ class TestConfigSupportFloor:
     # ── Parity fixtures ──────────────────────────────────────────────
     # Expected outputs captured by running migrate_config from origin/main
     # (commit 28524adb0e, pre-floor) in a subprocess against these exact
-    # fixtures. The floor must not change behavior for v12+ configs.
+    # fixtures. Retired speech settings are now preserved without migration.
 
     _V12_FIXTURE = {
         "_config_version": 12,
@@ -946,7 +946,7 @@ class TestConfigSupportFloor:
         # the shipped ttl_minutes (20) applies.
         "model_catalog": {},
         "plugins": {"enabled": []},
-        "stt": {"provider": "local"},
+        "stt": {"model": "base", "provider": "local"},
     }
 
     _V20_FIXTURE = {
@@ -1219,7 +1219,7 @@ class TestInterimAssistantMessageConfig:
 
 
 
-class TestDiscordChannelPromptsConfig:
+class TestMigrationPreservesCustomProviders:
 
 
     def test_migrate_preserves_custom_providers_and_no_defaults_dump(self, tmp_path):
@@ -1261,7 +1261,7 @@ class TestDiscordChannelPromptsConfig:
         # File must NOT be a defaults dump — assert specific DEFAULT_CONFIG
         # top-level keys are absent (they should only appear via load_config's
         # deep-merge, not be written to the user's file by migration).
-        for default_key in ("tts", "compression", "security", "whatsapp", "bedrock"):
+        for default_key in ("compression", "security", "bedrock"):
             assert default_key not in raw, (
                 f"{default_key} should not be in migrated config file — "
                 f"migration should use read_raw_config() to avoid defaults dump"
@@ -1546,7 +1546,7 @@ class TestMigrationWriteInvariant:
         # No default-only top-level section the user never wrote lands on disk —
         # neither from per-version seeds nor the catch-all finalizer.
         for default_key in (
-            "timezone", "curator", "auxiliary", "tts", "compression",
+            "timezone", "curator", "auxiliary", "compression",
             "whatsapp", "bedrock",
         ):
             assert default_key not in raw, (
@@ -1833,33 +1833,26 @@ class TestProviderEnabledRuntimeGate:
 
 
 # ---------------------------------------------------------------------------
-# DEFAULT_CONFIG must not carry a duplicate "kanban" key
+# DEFAULT_CONFIG must not carry duplicate top-level keys
 # ---------------------------------------------------------------------------
 
-def test_default_config_kanban_block_not_dropped_by_duplicate_key():
-    """DEFAULT_CONFIG previously declared ``"kanban"`` twice, so Python kept
-    only the second literal and silently dropped the first — losing the
-    ``auto_subscribe_on_create`` default. Both sets of defaults must survive.
-    """
-    kanban = DEFAULT_CONFIG["kanban"]
-    # From the first (dropped) block:
-    assert kanban.get("auto_subscribe_on_create") is True
-    # From the second block:
-    assert "dispatch_in_gateway" in kanban
-    assert "auto_decompose" in kanban
+def test_default_config_does_not_expose_retired_integrations():
+    assert not {"kanban", "telegram", "discord", "slack", "whatsapp", "matrix"} & DEFAULT_CONFIG.keys()
+    assert "kanban_decomposer" not in DEFAULT_CONFIG["auxiliary"]
+    assert "triage_specifier" not in DEFAULT_CONFIG["auxiliary"]
 
 
 def test_default_config_has_no_duplicate_top_level_keys():
     """Guard against any duplicate key silently shadowing a default."""
     import ast
-    import hermes_cli.config as cfg_mod
+    import hermes_cli.config_defaults as cfg_mod
 
     src = open(cfg_mod.__file__, encoding="utf-8").read()
     tree = ast.parse(src)
     for node in ast.walk(tree):
         if isinstance(node, ast.Dict):
             keys = [k.value for k in node.keys if isinstance(k, ast.Constant)]
-            if "model" in keys and "kanban" in keys:  # the DEFAULT_CONFIG literal
+            if "model" in keys and "gateway" in keys:  # the DEFAULT_CONFIG literal
                 dupes = {k for k in keys if keys.count(k) > 1}
                 assert not dupes, f"duplicate DEFAULT_CONFIG keys: {sorted(dupes)}"
 

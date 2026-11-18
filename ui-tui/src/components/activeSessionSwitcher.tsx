@@ -4,10 +4,9 @@ import type { SessionActiveItem, SessionActiveListResponse, SessionCloseResponse
 import { sessionScopedModelArg } from '@hermes/shared/slash-input'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { pickersEn } from '../copy/pickers.js'
 import type { GatewayClient } from '../gatewayClient.js'
 import { useSessionDelete } from '../hooks/useSessionDelete.js'
-import { messages } from '../i18n/runtime.js'
-import { useT } from '../i18n/useT.js'
 import { asRpcResult, rpcErrorMessage } from '../lib/rpc.js'
 import type { Theme } from '../theme.js'
 
@@ -28,26 +27,25 @@ const STATUS_GLYPH: Record<string, string> = {
   working: '▶'
 }
 
-/** Human label for a live-session status value; unknown statuses render as-is.
- *  Resolved at call time so it follows the active language. */
+/** Human label for a live-session status value; unknown statuses render as-is. */
 export const sessionStatusLabel = (status: string): string => {
-  const labels: Record<string, string | undefined> = messages().pickers.session.status
+  const labels: Record<string, string | undefined> = pickersEn.pickers.session.status
 
   return labels[status] ?? status
 }
 
 const CTRL_OFFSET = 96
 
-const shortModel = (model = '') => model.replace(/^.*\//, '') || messages().pickers.session.modelUnknown
+const shortModel = (model = '') => model.replace(/^.*\//, '') || pickersEn.pickers.session.modelUnknown
 const ctrlChar = (letter: string) => String.fromCharCode(letter.charCodeAt(0) - CTRL_OFFSET)
 
 export const fixedSessionColumnStyle = () => ({ flexShrink: 0 })
 
 export const activeSessionCountLabel = (count: number) =>
-  count === 1 ? messages().pickers.session.liveSessionsOne(1) : messages().pickers.session.liveSessionsOther(count)
+  count === 1 ? pickersEn.pickers.session.liveSessionsOne(1) : pickersEn.pickers.session.liveSessionsOther(count)
 
 export const sessionsCountLabel = (liveCount: number, resumableCount: number) =>
-  messages().pickers.session.counts(liveCount, resumableCount)
+  pickersEn.pickers.session.counts(liveCount, resumableCount)
 
 export type SessionRowKind = 'history' | 'live' | 'new'
 
@@ -71,7 +69,7 @@ export const relativeSessionAge = (ts?: number) => {
 
   const days = (Date.now() / 1000 - ts) / 86400
 
-  const age = messages().pickers.session.age
+  const age = pickersEn.pickers.session.age
 
   if (days < 1) {
     return age.today
@@ -91,10 +89,9 @@ export const resumableHistory = (history: readonly SessionListRow[], live: reado
   return history.filter(h => !liveIds.has(h.id))
 }
 
-// Hint segment tables are functions (not module constants) so their text
-// fragments resolve against the active language at render time.
+// Hint segment tables for the resume picker.
 export const resumeRowContextHintSegments = (): OrchestratorHintSegment[] => {
-  const h = messages().pickers.session.hint
+  const h = pickersEn.pickers.session.hint
 
   return [
     { role: 'label', text: h.resumableLabel },
@@ -114,7 +111,7 @@ export interface OrchestratorHintSegment {
 }
 
 export const orchestratorContextHintSegments = (newSelected: boolean): OrchestratorHintSegment[] => {
-  const h = messages().pickers.session.hint
+  const h = pickersEn.pickers.session.hint
 
   return newSelected
     ? [
@@ -136,7 +133,7 @@ export const orchestratorContextHintSegments = (newSelected: boolean): Orchestra
 }
 
 export const orchestratorGlobalHotkeyHintSegments = (): OrchestratorHintSegment[] => {
-  const h = messages().pickers.session.hint
+  const h = pickersEn.pickers.session.hint
 
   return [
     { role: 'hotkey', text: '↑↓' },
@@ -252,7 +249,7 @@ export const draftModelNameFromArg = (value: string) => {
 export const draftModelDisplayLabel = (value: string) => {
   const modelName = draftModelNameFromArg(value)
 
-  return modelName ? shortModel(modelName) : messages().pickers.session.currentOrDefault
+  return modelName ? shortModel(modelName) : pickersEn.pickers.session.currentOrDefault
 }
 
 export type OrchestratorRowClickAction = { action: 'activate'; sessionId: string } | { action: 'select-new' }
@@ -326,7 +323,7 @@ export function ActiveSessionSwitcher({
   // the 1.5s live-status poll re-indexing rows can't redirect the delete to a
   // different session. Any other key cancels the prompt.
   const [confirmDelete, setConfirmDelete] = useState<null | string>(null)
-  const T = useT()
+  const T = pickersEn
   const S = T.pickers.session
   const C = T.pickers.common
   const initialSelectionAppliedRef = useRef(false)
@@ -395,7 +392,7 @@ export function ActiveSessionSwitcher({
         const r = liveRes.status === 'fulfilled' ? asRpcResult<SessionActiveListResponse>(liveRes.value) : null
 
         if (!r) {
-          setErr(messages().pickers.common.invalidResponse('session.active_list'))
+          setErr(pickersEn.pickers.common.invalidResponse('session.active_list'))
           setLoading(false)
 
           return []
@@ -415,10 +412,10 @@ export function ActiveSessionSwitcher({
             if (parsedHist) {
               rawHistoryRef.current = parsedHist.sessions ?? []
             } else {
-              histError = messages().pickers.common.invalidResponse('session.list')
+              histError = pickersEn.pickers.common.invalidResponse('session.list')
             }
           } else {
-            histError = messages().pickers.session.errors.couldNotLoadResumable
+            histError = pickersEn.pickers.session.errors.couldNotLoadResumable
           }
         }
 
@@ -517,8 +514,8 @@ export function ActiveSessionSwitcher({
         // that main refused one. Only a receipt can say the session was already closed.
         setActionErr(
           gw.isCanonical && result === null
-            ? messages().pickers.session.errors.notAttached
-            : messages().pickers.session.errors.alreadyClosed
+            ? pickersEn.pickers.session.errors.notAttached
+            : pickersEn.pickers.session.errors.alreadyClosed
         )
 
         return

@@ -8,8 +8,8 @@ import re
 from .method_ctx import bind_module
 from agent.prompt_builder import STEER_DISPLAY_KIND
 
-# Discord routing note (gateway/run_inbound.py::discord_triggering_note) persisted as user
-# ``content`` by gateways before the authored-text fix; presentation-only heal for those rows.
+# Retired Discord routing notes persisted as user ``content`` before the authored-text fix;
+# presentation-only cleanup for those legacy rows, not an active inbound instruction.
 _DISCORD_TRIGGERING_NOTE_RE = re.compile(
     r"(^|\n)\[Triggering message id: `[^`\n]*` — use as `message_id` for reply/react/pin via the discord tools\.\]\n*"
 )
@@ -184,10 +184,10 @@ def _user_image_display_text(content: Any) -> str | None:
 
     import base64
     import binascii
+    import stat
     from pathlib import Path
-    from fastapi import HTTPException
-    from hermes_cli.web_routers.files import _fs_regular_file
-    from hermes_cli.web_server import _FS_DATA_URL_MAX_BYTES
+    from agent.file_safety import is_sensitive_file_path
+    from hermes_constants import WEBAPP_ATTACHMENT_MAX_BYTES
     image_parts = content[1:1 + len(paths)]
     if len(image_parts) != len(paths) or len(content) not in (1 + len(paths), 2 + len(paths)):
         return None
@@ -200,13 +200,16 @@ def _user_image_display_text(content: Any) -> str | None:
         if not Path(path).is_absolute() or not isinstance(part, dict) or part.get("type") != "image_url":
             return None
         match = _IMAGE_DATA_RE.fullmatch(_history_part_image_url(part))
-        if not match or len(match[1]) > ((_FS_DATA_URL_MAX_BYTES + 2) // 3) * 4:
+        if not match or len(match[1]) > ((WEBAPP_ATTACHMENT_MAX_BYTES + 2) // 3) * 4:
             return None
         try:
-            target, st = _fs_regular_file(Path(path))
-            if st.st_size > _FS_DATA_URL_MAX_BYTES or target.read_bytes() != base64.b64decode(match[1], validate=True):
+            target = Path(path).resolve()
+            st = target.stat()
+            if (not stat.S_ISREG(st.st_mode) or is_sensitive_file_path(target)
+                    or st.st_size > WEBAPP_ATTACHMENT_MAX_BYTES
+                    or target.read_bytes() != base64.b64decode(match[1], validate=True)):
                 return None
-        except (OSError, ValueError, binascii.Error, HTTPException):
+        except (OSError, ValueError, binascii.Error):
             return None
     return projected
 

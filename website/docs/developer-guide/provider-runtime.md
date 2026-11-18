@@ -10,7 +10,6 @@ Hermes has a shared provider runtime resolver used across:
 
 - CLI
 - gateway
-- cron jobs
 - ACP
 - auxiliary model calls
 
@@ -105,7 +104,6 @@ This resolver is the main reason Hermes can share auth/runtime logic between:
 
 - `hermes chat`
 - gateway message handling
-- cron jobs running in fresh sessions
 - ACP editor sessions
 - auxiliary model tasks
 
@@ -210,7 +208,6 @@ Hermes supports a configured fallback provider chain — a list of `(provider, m
 - **Subagent delegation** (`tools/delegate_tool.py`): subagents inherit the parent's provider but not the fallback config
 - **Auxiliary tasks**: use their own independent provider auto-detection chain (see Auxiliary model routing above)
 
-Unpinned cron jobs **do** support fallback: `run_job()` reads `fallback_providers` (or legacy `fallback_model`) from `config.yaml` and passes it to `AIAgent(fallback_model=...)`, matching the gateway's `_load_fallback_model()` pattern. A job with its own `provider` / `model` / `base_url` gets no chain, the same rule as a pinned delegation child. See [Cron Internals](./cron-internals.md).
 
 ### Test coverage
 

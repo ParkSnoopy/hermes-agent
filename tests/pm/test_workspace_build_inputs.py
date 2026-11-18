@@ -290,13 +290,13 @@ def test_tool_store_inside_a_package_stays_out_of_the_snapshot(tmp_path):
     core = tmp_path / "core"
     tools = core / "tools"
     (tools / "environments").mkdir(parents=True)
-    (tools / "wakewords").mkdir()
+    (tools / "assets").mkdir()
     for entry in ("python-3.14.7-linux-x64", "chromium-1208", "fetch-abc123"):
         (tools / entry / "bin").mkdir(parents=True)
         (tools / entry / "bin" / "payload").write_text("BINARY\n", encoding="utf-8")
     (tools / "__init__.py").write_text("", encoding="utf-8")
     (tools / "environments" / "__init__.py").write_text("", encoding="utf-8")
-    (tools / "wakewords" / "hey.onnx").write_text("DATA\n", encoding="utf-8")
+    (tools / "assets" / "catalog.json").write_text("DATA\n", encoding="utf-8")
     (tools / "facts.json").write_text(json.dumps({"packages": {
         "python": {"entry": "python-3.14.7-linux-x64"}, "chromium": {"entry": "chromium-1208"},
         "venv": {"entry": None}, "escape": {"entry": "../environments"}}}), encoding="utf-8")
@@ -310,7 +310,7 @@ def test_tool_store_inside_a_package_stays_out_of_the_snapshot(tmp_path):
     workspace._copy_core_inputs(core, destination)
 
     assert (destination / "tools/environments/__init__.py").is_file()
-    assert (destination / "tools/wakewords/hey.onnx").read_text(encoding="utf-8") == "DATA\n"
+    assert (destination / "tools/assets/catalog.json").read_text(encoding="utf-8") == "DATA\n"
     for entry in ("python-3.14.7-linux-x64", "chromium-1208", "fetch-abc123"):
         assert not (destination / "tools" / entry).exists(), f"store entry {entry} copied into the snapshot"
 

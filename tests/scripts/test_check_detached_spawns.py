@@ -29,8 +29,7 @@ def _load():
         "subprocess.Popen(argv, preexec_fn=os.setsid)",
         "subprocess.Popen(argv, preexec_fn=lambda: os.setpgid(0, 0))",
         "os.setpgrp()",
-        "subprocess.Popen(argv, **windows_detach_popen_kwargs())",
-        "subprocess.Popen(argv, **_subprocess_compat.windows_detach_popen_kwargs())",
+
     ],
 )
 def test_detached_shapes_are_flagged(src):

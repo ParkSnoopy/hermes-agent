@@ -735,7 +735,7 @@ def register_worker_execution(db, *, epoch: int, execution_id: str, session_id: 
                               generation: int, kind: str, adoption_secret: str, require_idle: bool = False) -> dict:
     for value in (execution_id, session_id):
         _text(value)
-    if kind not in ('cron', 'child', 'compute', 'kanban'):
+    if kind not in ('cron', 'child', 'compute'):
         raise RuntimeStoreError('invalid_params')
     digest = _secret_digest(adoption_secret)
     def write(conn):

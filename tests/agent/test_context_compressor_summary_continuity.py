@@ -457,8 +457,6 @@ def test_empty_post_handoff_window_noops_without_summary_call():
     assert compressor._last_summary_dropped_count == 0
     assert compressor._last_summary_fallback_used is False
     assert compressor._last_compress_aborted is False
-    telemetry = compressor._last_compression_telemetry or {}
-    assert telemetry.get("failure_class") == "empty_post_handoff_window"
 
 
 def _turns(tag: str, n: int = 6):

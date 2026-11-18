@@ -2,7 +2,7 @@
 <!--
   Quiet shim page for the desktop update hand-off (Windows + POSIX).
 
-  Served over loopback by the orchestrator (windows.ps1 / posix.sh) into a
+  Served over loopback by the orchestrator (posix.sh) into a
   chromeless browser app window. Pure veneer: polls /progress for the current
   hand-off stage or a terminal event and reacts; owns nothing (relaunch,
   result file, marker hygiene all live in the orchestrator, which runs

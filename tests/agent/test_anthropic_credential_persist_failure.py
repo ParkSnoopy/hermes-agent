@@ -105,7 +105,6 @@ def claude_credentials(tmp_path, monkeypatch):
     monkeypatch.setattr(AA, "claude_code_credentials_path", lambda: cred_path)
     # The Keychain reader shadows the file on macOS; keep the file the only
     # source so this suite behaves identically on every platform.
-    monkeypatch.setattr(AA, "_read_claude_code_credentials_from_keychain", lambda: None)
     return cred_path
 
 
@@ -308,7 +307,6 @@ def test_reauthentication_clears_the_persist_failure_quarantine(
         "hermes_cli.auth.is_provider_explicitly_configured", lambda pid: True
     )
     monkeypatch.setattr(AA, "claude_code_credentials_path", lambda: claude_credentials)
-    monkeypatch.setattr(AA, "_read_claude_code_credentials_from_keychain", lambda: None)
     claude_credentials.write_text(
         json.dumps(
             {

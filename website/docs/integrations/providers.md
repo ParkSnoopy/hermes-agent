@@ -71,7 +71,7 @@ In the `model:` config section, you can use either `default:` or `model:` as the
 
 ### Nous Portal
 
-[Nous Portal](https://portal.nousresearch.com) is Nous Research's unified subscription gateway and **the recommended way to run Hermes Agent**. One OAuth login covers 300+ frontier agentic models (Claude, GPT, Gemini, DeepSeek, Qwen, Kimi, GLM, MiniMax, Grok, ...) plus the [Tool Gateway](../user-guide/features/tool-gateway.md) (web search, image generation, TTS, browser automation) — billed against your Nous subscription instead of separate per-provider accounts.
+[Nous Portal](https://portal.nousresearch.com) is Nous Research's unified subscription gateway and **the recommended way to run Hermes Agent**. One OAuth login covers 300+ frontier agentic models (Claude, GPT, Gemini, DeepSeek, Qwen, Kimi, GLM, MiniMax, Grok, ...) plus the [Tool Gateway](../user-guide/features/tool-gateway.md) (web search, image generation, browser automation) — billed against your Nous subscription instead of separate per-provider accounts.
 
 ```bash
 hermes setup --portal     # fresh install — OAuth + provider + gateway in one command
@@ -83,7 +83,6 @@ Don't have a subscription yet? Get one at [portal.nousresearch.com/manage-subscr
 
 **For full details:** see the dedicated [Nous Portal integration page](./nous-portal.md) (what's in the subscription, model catalog, troubleshooting) and the step-by-step [Run Hermes Agent with Nous Portal guide](../guides/run-hermes-with-nous-portal.md).
 
-**Client identification.** Every Portal request from Hermes Agent carries a `client=hermes-client-v<version>` tag (e.g. `client=hermes-client-v0.13.0`) auto-aligned to your installed release. This is sent on all Portal pathways — main chat loop, auxiliary calls, compression summarizer, web extraction — and lets Portal-side telemetry distinguish Hermes traffic from other clients. No config required; the tag updates automatically when you `hermes update`.
 
 **JWT auth (automatic).** Hermes prefers scoped `inference:invoke` JWTs for Portal requests with the legacy opaque session-key path as a fallback. No configuration is required — credentials are managed by the OAuth flow and rotate transparently. Revoked refresh tokens are quarantined to avoid replay loops.
 
@@ -114,7 +113,7 @@ Even when using Nous Portal, Codex, or a custom endpoint, some features (vision,
 :::
 
 :::tip Nous Tool Gateway
-Paid Nous Portal subscribers also get access to the **[Tool Gateway](../user-guide/features/tool-gateway.md)** — web search, image generation, TTS, and browser automation routed through your subscription. No extra API keys needed. On a fresh install, `hermes setup --portal` logs you in, sets Nous as your provider, and turns the gateway on in one command. Existing users can enable it from `hermes model` or per-tool from `hermes tools`. Inspect routing at any time with `hermes portal info`.
+Paid Nous Portal subscribers also get access to the **[Tool Gateway](../user-guide/features/tool-gateway.md)** — web search, image generation, and browser automation routed through your subscription. No extra API keys needed. On a fresh install, `hermes setup --portal` logs you in, sets Nous as your provider, and turns the gateway on in one command. Existing users can enable it from `hermes model` or per-tool from `hermes tools`. Inspect routing at any time with `hermes portal info`.
 :::
 
 ### Two Commands for Model Management
@@ -147,7 +146,7 @@ Several providers let you sign in to Hermes with a **consumer subscription** (Cl
 
 **OpenAI Codex.** Hermes authenticates via ChatGPT device-code OAuth, stores credentials in `~/.hermes/auth.json`, and can import existing Codex CLI credentials from `~/.codex/auth.json`. Which ChatGPT plan tiers are eligible, and how Hermes usage counts against your plan's Codex limits, are **not currently documented** — the Codex note under [Nous Portal](#nous-portal) covers authentication and token-refresh behavior only.
 
-**xAI (SuperGrok / X Premium+).** Browser OAuth works with either an active SuperGrok subscription or an X Premium+ subscription on the linked X account, and the same bearer token is reused by direct-to-xAI tools (TTS, image gen, video gen, transcription, X Search). If inference returns `HTTP 403` after a successful login, that's a tier/entitlement restriction on xAI's side, not a stale token — the workaround is switching to an `XAI_API_KEY`. See [xAI (Grok)](#xai-grok--responses-api--prompt-caching) below and the [xAI Grok OAuth guide](../guides/xai-grok-oauth.md).
+**xAI (SuperGrok / X Premium+).** Browser OAuth works with either an active SuperGrok subscription or an X Premium+ subscription on the linked X account, and the same bearer token is reused by direct-to-xAI tools (image gen, video gen, X Search). If inference returns `HTTP 403` after a successful login, that's a tier/entitlement restriction on xAI's side, not a stale token — the workaround is switching to an `XAI_API_KEY`. See [xAI (Grok)](#xai-grok--responses-api--prompt-caching) below and the [xAI Grok OAuth guide](../guides/xai-grok-oauth.md).
 
 **Google Gemini.** There is currently no way to sign in to Hermes with a consumer Gemini subscription — the `gemini` provider takes an API key, and [Google Vertex AI](#google-vertex-ai) bills to your GCP project. A billing-enabled Google Cloud project is recommended for agent use; free-tier quotas are too small for long-running agent sessions. See the [Google Gemini guide](../guides/google-gemini.md).
 
@@ -313,13 +312,12 @@ When using the Z.AI / GLM provider, Hermes automatically probes multiple endpoin
 
 xAI is wired through the Responses API (`codex_responses` transport) for automatic reasoning support on Grok 4 models — no `reasoning_effort` parameter needed, the server reasons by default. Set `XAI_API_KEY` in `~/.hermes/.env` and pick xAI in `hermes model`, or drop `grok` as a shortcut into `/model grok-4-fast-reasoning`.
 
-SuperGrok and X Premium+ subscribers can sign in with browser OAuth instead of using an API key — pick **xAI Grok OAuth (SuperGrok / Premium+)** in `hermes model`, or run `hermes auth add xai-oauth`. The same OAuth bearer token is automatically reused by direct-to-xAI tools (TTS, image gen, video gen, transcription). See the [xAI Grok OAuth guide](../guides/xai-grok-oauth.md) for the full flow — and if Hermes runs on a remote host, also see [OAuth over SSH / Remote Hosts](../guides/oauth-over-ssh.md) for the required `ssh -L` tunnel.
+SuperGrok and X Premium+ subscribers can sign in with browser OAuth instead of using an API key — pick **xAI Grok OAuth (SuperGrok / Premium+)** in `hermes model`, or run `hermes auth add xai-oauth`. The same OAuth bearer token is automatically reused by direct-to-xAI tools (image gen, video gen). See the [xAI Grok OAuth guide](../guides/xai-grok-oauth.md) for the full flow — and if Hermes runs on a remote host, also see [OAuth over SSH / Remote Hosts](../guides/oauth-over-ssh.md) for the required `ssh -L` tunnel.
 
 When using xAI as a provider (any base URL containing `x.ai`), Hermes automatically enables prompt caching by sending the `x-grok-conv-id` header with every API request. This routes requests to the same server within a conversation session, allowing xAI's infrastructure to reuse cached system prompts and conversation history.
 
 No configuration is needed — caching activates automatically when an xAI endpoint is detected and a session ID is available. This reduces latency and cost for multi-turn conversations.
 
-xAI also ships a dedicated TTS endpoint (`/v1/tts`). Select **xAI TTS** in `hermes tools` → Voice & TTS, or see the [Voice & TTS](../user-guide/features/tts.md#text-to-speech) page for config.
 
 **Retired xAI model migration (May 15, 2026):** xAI is retiring `grok-4*`, `grok-3`, `grok-code-fast-1`, and `grok-imagine-image-pro` on 2026-05-15. `hermes doctor` and `hermes chat` startup both detect any config still pointing at a retired ref and print the recommended replacement. Use `hermes migrate xai` for a one-shot config rewrite — dry-run by default, add `--apply` to write changes (a timestamped copy of the previous config lands in `backups/config/` first).
 
@@ -968,124 +966,9 @@ hermes config set model.lmstudio_load_mode explicit
 
 ---
 
-### WSL2 Networking (Windows Users)
-
-Since Hermes Agent requires a Unix environment, Windows users run it inside WSL2. If your model server (Ollama, LM Studio, etc.) runs on the **Windows host**, you need to bridge the network gap — WSL2 uses a virtual network adapter with its own subnet, so `localhost` inside WSL2 refers to the Linux VM, **not** the Windows host.
-
-:::tip Both in WSL2? No problem.
-If your model server also runs inside WSL2 (common for vLLM, SGLang, and llama-server), `localhost` works as expected — they share the same network namespace. Skip this section.
-:::
-
-#### Option 1: Mirrored Networking Mode (Recommended)
-
-Available on **Windows 11 22H2+**, mirrored mode makes `localhost` work bidirectionally between Windows and WSL2 — the simplest fix.
-
-1. Create or edit `%USERPROFILE%\.wslconfig` (e.g., `C:\Users\YourName\.wslconfig`):
-   ```ini
-   [wsl2]
-   networkingMode=mirrored
-   ```
-
-2. Restart WSL from PowerShell:
-   ```powershell
-   wsl --shutdown
-   ```
-
-3. Reopen your WSL2 terminal. `localhost` now reaches Windows services:
-   ```bash
-   curl http://localhost:11434/v1/models   # Ollama on Windows — works
-   ```
-
-:::note Hyper-V Firewall
-On some Windows 11 builds, the Hyper-V firewall blocks mirrored connections by default. If `localhost` still doesn't work after enabling mirrored mode, run this in an **Admin PowerShell**:
-```powershell
-Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -DefaultInboundAction Allow
-```
-:::
-
-#### Option 2: Use the Windows Host IP (Windows 10 / older builds)
-
-If you can't use mirrored mode, find the Windows host IP from inside WSL2 and use that instead of `localhost`:
-
-```bash
-# Get the Windows host IP (the default gateway of WSL2's virtual network)
-ip route show | grep -i default | awk '{ print $3 }'
-# Example output: 172.29.192.1
-```
-
-Use that IP in your Hermes config:
-
-```yaml
-model:
-  default: qwen2.5-coder:32b
-  provider: custom
-  base_url: http://172.29.192.1:11434/v1   # Windows host IP, not localhost
-```
-
-:::tip Dynamic helper
-The host IP can change on WSL2 restart. You can grab it dynamically in your shell:
-```bash
-export WSL_HOST=$(ip route show | grep -i default | awk '{ print $3 }')
-echo "Windows host at: $WSL_HOST"
-curl http://$WSL_HOST:11434/v1/models   # Test Ollama
-```
-
-Or use your machine's mDNS name (requires `libnss-mdns` in WSL2):
-```bash
-sudo apt install libnss-mdns
-curl http://$(hostname).local:11434/v1/models
-```
-:::
-
-#### Server Bind Address (Required for NAT Mode)
-
-If you're using **Option 2** (NAT mode with the host IP), the model server on Windows must accept connections from outside `127.0.0.1`. By default, most servers only listen on localhost — WSL2 connections in NAT mode come from a different virtual subnet and will be refused. In mirrored mode, `localhost` maps directly so the default `127.0.0.1` binding works fine.
-
-| Server | Default bind | How to fix |
-|--------|-------------|------------|
-| **Ollama** | `127.0.0.1` | Set `OLLAMA_HOST=0.0.0.0` environment variable before starting Ollama (System Settings → Environment Variables on Windows, or edit the Ollama service) |
-| **LM Studio** | `127.0.0.1` | Enable **"Serve on Network"** in the Developer tab → Server settings |
-| **llama-server** | `127.0.0.1` | Add `--host 0.0.0.0` to the startup command |
-| **vLLM** | `0.0.0.0` | Already binds to all interfaces by default |
-| **SGLang** | `127.0.0.1` | Add `--host 0.0.0.0` to the startup command |
-
-**Ollama on Windows (detailed):** Ollama runs as a Windows service. To set `OLLAMA_HOST`:
-1. Open **System Properties** → **Environment Variables**
-2. Add a new **System variable**: `OLLAMA_HOST` = `0.0.0.0`
-3. Restart the Ollama service (or reboot)
-
-#### Windows Firewall
-
-Windows Firewall treats WSL2 as a separate network (in both NAT and mirrored mode). If connections still fail after the steps above, add a firewall rule for your model server's port:
-
-```powershell
-# Run in Admin PowerShell — replace PORT with your server's port
-New-NetFirewallRule -DisplayName "Allow WSL2 to Model Server" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 11434
-```
-
-Common ports: Ollama `11434`, vLLM `8000`, SGLang `30000`, llama-server `8080`, LM Studio `1234`.
-
-#### Quick Verification
-
-From inside WSL2, test that you can reach your model server:
-
-```bash
-# Replace URL with your server's address and port
-curl http://localhost:11434/v1/models          # Mirrored mode
-curl http://172.29.192.1:11434/v1/models       # NAT mode (use your actual host IP)
-```
-
-If you get a JSON response listing your models, you're good. Use that same URL as the `base_url` in your Hermes config.
-
----
-
 ### Troubleshooting Local Models
 
 These issues affect **all** local inference servers when used with Hermes.
-
-#### "Connection refused" from WSL2 to a Windows-hosted model server
-
-If you're running Hermes inside WSL2 and your model server on the Windows host, `http://localhost:<port>` won't work in WSL2's default NAT networking mode. See [WSL2 Networking](#wsl2-networking-windows-users) above for the fix.
 
 #### Tool calls appear as text instead of executing
 
@@ -1575,9 +1458,6 @@ You can switch between providers at any time with `hermes model` — no restart 
 | Web scraping | [Firecrawl](https://firecrawl.dev/) | `FIRECRAWL_API_KEY`, `FIRECRAWL_API_URL` |
 | Browser automation | [Browserbase](https://browserbase.com/) | `BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID` |
 | Image generation | [FAL](https://fal.ai/) | `FAL_KEY` |
-| Premium TTS voices | [ElevenLabs](https://elevenlabs.io/) | `ELEVENLABS_API_KEY` |
-| OpenAI TTS + voice transcription | [OpenAI](https://platform.openai.com/api-keys) | `VOICE_TOOLS_OPENAI_KEY` |
-| Mistral TTS + voice transcription | [Mistral](https://console.mistral.ai/) | `MISTRAL_API_KEY` |
 | Cross-session user modeling | [Honcho](https://honcho.dev/) | `HONCHO_API_KEY` |
 | Semantic long-term memory | [Supermemory](https://supermemory.ai) | `SUPERMEMORY_API_KEY` |
 

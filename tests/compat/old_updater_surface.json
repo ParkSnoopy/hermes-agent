@@ -1236,7 +1236,7 @@
     "hermes_cli.moa_config::apply_user_moa_presets",
     "hermes_cli.model_catalog::seed_cache_from_checkout",
     "hermes_cli.npm_engine::maybe_repair_npm_engine",
-    "hermes_cli.observability.shared_metrics_update::record_update_receipt",
+
     "hermes_cli.plugin_capabilities::CAPABILITY_REGISTRY",
     "hermes_cli.plugin_capabilities::declared_set_changed",
     "hermes_cli.plugin_capabilities::parse_declared_capabilities",

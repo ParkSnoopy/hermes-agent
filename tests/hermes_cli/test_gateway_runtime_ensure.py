@@ -12,17 +12,52 @@ import pytest
 
 from hermes_cli.gateway_runtime_service import remaining
 
+def test_discovery_reports_control_permission_refusal(tmp_path, monkeypatch):
+    from hermes_cli import gateway_runtime as runtime, gateway_runtime_discovery as discovery
+
+    def refuse(*args, **kwargs):
+        raise PermissionError("not authorized")
+
+    monkeypatch.setattr(discovery, "query_identify", refuse)
+    verdict = runtime.discover_gateway_endpoint(tmp_path)
+    assert verdict.state == "inaccessible"
+    assert verdict.reason_code == "authorization"
+
+
+def test_control_connection_rejects_foreign_uid(tmp_path, monkeypatch):
+    from hermes_cli import gateway_runtime_discovery as discovery
+
+    class Peer:
+        closed = False
+
+        def settimeout(self, timeout):
+            pass
+
+        def connect(self, path):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    peer = Peer()
+    monkeypatch.setattr(discovery, "_socket_path", lambda home: home / "gateway.sock")
+    monkeypatch.setattr(discovery.socket, "socket", lambda *args: peer)
+    monkeypatch.setattr(discovery, "socket_peer_uid", lambda sock: os.getuid() + 1)
+    with pytest.raises(discovery.DiscoveryError, match="unsafe_control_peer"):
+        discovery.connect_private(tmp_path, 1)
+    assert peer.closed
+
+
 def test_unmanaged_runtime_drops_session_config_bypass_flags(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from hermes_cli import gateway_runtime_start as start
-    from hermes_cli import gateway_windows
+
 
     flags = ('HERMES_SAFE_MODE', 'HERMES_IGNORE_USER_CONFIG')
     for key in flags:
         monkeypatch.setenv(key, '1')
     monkeypatch.setenv('RUNTIME_TEST_SENTINEL', 'retained')
-    monkeypatch.setattr(gateway_windows, 'windowless_gateway_restart_spec',
-                        lambda command: (command, None, {'RUNTIME_TEST_OVERLAY': '1'}))
+
     captured = {}
     child = SimpleNamespace(pid=123)
     def spawn(command, **kwargs):
@@ -284,58 +319,10 @@ def test_reserved_profile_without_pid_or_control_is_never_absent(tmp_path):
     assert discover_gateway_endpoint(home).state == "absent"
 
 
-@pytest.mark.platforms("windows")
-def test_native_windows_discovery_uses_same_user_pipe(tmp_path):
-    from gateway.runtime_bootstrap_windows import NativeControlServer
-    from hermes_cli.gateway_runtime import discover_gateway_endpoint
-    home = tmp_path.resolve()
-    def handle(raw, subject):
-        assert subject.startswith("sid:")
-        request = json.loads(raw)
-        assert request["verb"] == "identify"
-        return json.dumps({"protocol": 1, "id": 1, "ok": True, "result": {
-            "runtime_protocol": 1, "state": "starting", "instance_id": "native-peer",
-            "served_profiles": [{"home": str(home), "profile_id": str(home)}]
-        }}).encode() + b"\n"
-    server = NativeControlServer(home, handle)
-    server.start()
-    try:
-        assert discover_gateway_endpoint(home, timeout=2).state == "starting"
-    finally:
-        server.close()
 
 
-@pytest.mark.platforms("windows")
-def test_native_windows_spawn_never_retries_without_breakaway(tmp_path, monkeypatch):
-    from hermes_cli import gateway_runtime_start as start
-    from hermes_cli.gateway_runtime_service import RuntimeStartError
-    from hermes_cli._subprocess_compat import windows_detach_flags
-    calls = []
-    def denied(argv, **kwargs):
-        calls.append(kwargs)
-        raise PermissionError("job forbids breakaway")
-    monkeypatch.setattr(start.subprocess, "Popen", denied)
-    with pytest.raises(RuntimeStartError, match="windows_breakaway_unavailable"):
-        start.spawn_unmanaged_gateway(tmp_path, deadline=time.monotonic()+5)
-    assert len(calls) == 1
-    assert calls[0]["creationflags"] == windows_detach_flags()
 
 
-@pytest.mark.platforms("macos")
-def test_native_launchd_ambiguous_domains_cannot_start(tmp_path, monkeypatch):
-    from hermes_cli.gateway_runtime_service import discover_existing_gateway_service, RuntimeStartError
-    peer = tmp_path / "inert_launchd.py"
-    peer.write_text("print('state = not running')\n", encoding="utf-8")
-    actual = subprocess.run
-    calls = []
-    def boundary(argv, **kwargs):
-        assert argv[0] == "launchctl"
-        calls.append(argv)
-        return actual([sys.executable, str(peer), *argv[1:]], **kwargs)
-    monkeypatch.setattr(subprocess, "run", boundary)
-    with pytest.raises(RuntimeStartError, match="service_scope_conflict"):
-        discover_existing_gateway_service(tmp_path.resolve(), deadline=time.monotonic()+5)
-    assert len(calls) == 2 and all(argv[1] == "print" for argv in calls)
 
 
 @pytest.mark.platforms("linux")

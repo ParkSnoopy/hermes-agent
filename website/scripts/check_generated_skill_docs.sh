@@ -11,7 +11,7 @@
 # to `git diff`) out of the real index.
 set -euo pipefail
 
-paths=(website/docs website/sidebars.ts website/i18n)
+paths=(website/docs website/sidebars.ts)
 index="$(mktemp)"
 trap 'rm -f "$index"' EXIT
 cp "$(git rev-parse --git-path index)" "$index"

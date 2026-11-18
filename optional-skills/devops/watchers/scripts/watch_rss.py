@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 """Watch an RSS 2.0 or Atom feed; print new items to stdout, silent on empty.
 
-Usage (via cron with --no-agent):
-
-    hermes cron create my-feed \\
-      --schedule "*/15 * * * *" --no-agent \\
-      --script "$HERMES_HOME/skills/devops/watchers/scripts/watch_rss.py" \\
-      --script-args "--name hn --url https://news.ycombinator.com/rss"
-
 First run records a baseline (emits nothing).  Subsequent runs emit only
 items whose <guid> / <id> isn't in the watermark.
 """
@@ -113,7 +106,7 @@ def main() -> int:
     output = format_items_as_markdown(new_items, body_key=body_key)
     if output:
         sys.stdout.write(output)
-    # Empty stdout on no-new — cron treats that as silent.
+    # Empty stdout on no-new; the caller decides how to handle it.
     return 0
 
 

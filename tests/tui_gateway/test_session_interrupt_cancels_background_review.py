@@ -72,7 +72,6 @@ def test_stop_interrupts_a_review_running_after_the_turn_finished(server, monkey
     review_fork.hard_interrupt = MagicMock()
     session = _session_with_finished_turn_and_live_review(review_fork)
 
-    monkeypatch.setattr(server, "_tts_stream_stop", lambda: None)
     monkeypatch.setattr(server, "_sess_nowait", lambda _params, _rid: (session, None))
     monkeypatch.setattr(server, "_sess", lambda _params, _rid: (session, None))
     monkeypatch.setattr(server, "_session_uses_compute_host", lambda _session: False)
@@ -120,7 +119,6 @@ def test_stop_without_a_review_is_unaffected(server, monkeypatch):
         "_run_thread": None,
     }
 
-    monkeypatch.setattr(server, "_tts_stream_stop", lambda: None)
     monkeypatch.setattr(server, "_sess_nowait", lambda _params, _rid: (session, None))
     monkeypatch.setattr(server, "_sess", lambda _params, _rid: (session, None))
     monkeypatch.setattr(server, "_session_uses_compute_host", lambda _session: False)

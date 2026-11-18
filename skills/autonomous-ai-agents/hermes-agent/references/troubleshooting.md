@@ -1,10 +1,5 @@
 # Troubleshooting
 
-### Voice not working
-1. Check `stt.enabled: true` in config.yaml
-2. Verify provider: `python -c "import pm; pm.sync_venv(['stt-whisper'], explicit=True)"` or set API key
-3. In gateway: `/restart`. In CLI: exit and relaunch.
-
 ### Tool not available
 1. `hermes tools` — check if toolset is enabled for your platform
 2. Some tools need env vars (check `.env`)
@@ -63,11 +58,6 @@ Common gateway problems:
 - **Gateway dies on SSH logout**: Enable linger: `sudo loginctl enable-linger $USER`
 - **Gateway dies on WSL2 close**: WSL2 requires `systemd=true` in `/etc/wsl.conf` for systemd services to work. Without it, gateway falls back to `nohup` (dies when session closes).
 - **Gateway crash loop**: Reset the failed state: `systemctl --user reset-failed hermes-gateway`
-
-### Platform-specific issues
-- **Discord bot silent**: Must enable **Message Content Intent** in Bot → Privileged Gateway Intents.
-- **Slack bot only works in DMs**: Must subscribe to `message.channels` event. Without it, the bot ignores public channels.
-- **Windows-specific issues** (`Alt+Enter` newline, WinError 10106, UTF-8 BOM config, line endings): see `references/windows-quirks.md`.
 
 ### Auxiliary models not working
 If `auxiliary` tasks (vision, compression, session_search) fail silently, the `auto` provider can't find a backend. Either set `OPENROUTER_API_KEY` or `GOOGLE_API_KEY`, or explicitly configure each auxiliary task's provider:

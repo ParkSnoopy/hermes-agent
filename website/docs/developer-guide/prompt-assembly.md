@@ -169,14 +169,6 @@ platform_hints:
   unmodified default, so a bad config value can never break prompt
   assembly or leak across platforms.
 
-Cron jobs run as platform `cron`, but their final response lands on the
-job's `deliver` channel, so a cron agent's prompt also carries that
-channel's hint (built-in text plus its `platform_hints.<channel>`
-override) under a `Delivery destination (<channel>):` line. A
-`platform_hints.slack.append` therefore reaches Slack-delivered scheduled
-jobs as well as live Slack chats; `platform_hints.cron` still governs the
-cron paragraph itself.
-
 The override is resolved when the system prompt is built (session start,
 and again on compaction since that rebuilds the prompt). It produces a
 byte-stable hint for a fixed config, so it lives in the **stable** tier
@@ -330,7 +322,7 @@ In other words:
 
 The **prompt surface** is what a stock install sends before the first user message: the system prompt and the `tools[]` array. A one-line code change can rewrite either without the diff showing it. A guidance constant can move tiers, a toolset can gain a tool, or a schema rewriter can edit a description. So the rendered surface is committed and reviewed like code:
 
-- `scripts/ci/prompt_surface.py render` builds the surface through the production assembly code (`build_system_prompt_parts` and the agent's own `tools[]`) and writes it to `tests/fixtures/prompt_surface/`. It renders nine surfaces: `cli` with four model families (the model name gates guidance and the patch dialect), `cli` inside a code workspace, `desktop`, `telegram`, `discord` and `cron`. The render uses a fresh home. The clock, host OS, network, tool availability and machine paths are pinned, so a laptop and CI produce the same bytes. Every registered tool counts as available, so credential-gated schemas get reviewed too.
+- `scripts/ci/prompt_surface.py render` builds the surface through the production assembly code (`build_system_prompt_parts` and the agent's own `tools[]`) and writes it to `tests/fixtures/prompt_surface/`. It renders eight surfaces: `cli` with four model families (the model name gates guidance and the patch dialect), `cli` inside a code workspace, `desktop`, `telegram`, and `discord`. The render uses a fresh home. The clock, host OS, network, tool availability and machine paths are pinned, so a laptop and CI produce the same bytes. Every registered tool counts as available, so credential-gated schemas get reviewed too.
 - `tests/ci/test_prompt_surface.py` fails when the committed snapshot is stale. A PR that changes the surface carries the regenerated snapshot, and reviewers read the real prompt text and schemas in the Files tab.
 - The **Prompt surface diff** CI job posts a per-surface summary to the PR review comment: token deltas, prompt hunks, and added or removed tools and parameters.
 - Changes under `tests/fixtures/prompt_surface/` need **an approval from hermes-agent-core** before they can merge.

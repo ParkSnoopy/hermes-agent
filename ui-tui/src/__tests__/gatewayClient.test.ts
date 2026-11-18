@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { libTextEn } from '../copy/libText.js'
+
 interface ListenerEntry {
   callback: (event: any) => void
   once: boolean
@@ -109,7 +111,6 @@ import {
 } from '@hermes/shared/gateway-client'
 
 import { GatewayClient } from '../gatewayClient.js'
-import { applyLocale, resetLocale, t } from '../i18n/runtime.js'
 
 describe('GatewayClient websocket attach mode', () => {
   const originalWebSocket = globalThis.WebSocket
@@ -143,37 +144,6 @@ describe('GatewayClient websocket attach mode', () => {
     } else {
       delete (globalThis as { WebSocket?: unknown }).WebSocket
     }
-  })
-
-  it("hands Ink's locale pack and crash-log breadcrumbs to the shared client", async () => {
-    vi.useFakeTimers()
-    delete process.env.HERMES_TUI_GATEWAY_URL
-    delete process.env.HERMES_TUI_SIDECAR_URL
-    const gw = new GatewayClient(async () => ({ url: 'ws://gateway.test/api/ws', protocols: [], instance_id: 'owner', profile_id: 'fixture' }))
-
-    try {
-      gw.start(); gw.drain()
-      await vi.advanceTimersByTimeAsync(0)
-      const socket = FakeWebSocket.instances[0]!
-      socket.open()
-      await vi.advanceTimersByTimeAsync(0)
-
-      const request = socket.sent.map(text => JSON.parse(text) as { id: number; method: string })
-        .find(frame => frame.method === 'runtime.describe')!
-
-      socket.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {
-        session_create: { sources: ['tui'], parameters: ['source', 'request_id'] } } }))
-      await vi.advanceTimersByTimeAsync(0)
-      expect(lifecycle.some(line => line.startsWith('[lifecycle] attached shared gateway '))).toBe(true)
-
-      applyLocale('xx', { lang: 'xx', surface: 'tui', messages: {
-        'canonical.launch.unsupportedOptions': 'XX-launch {0}', 'libText.gateway.closed': 'XX-closed' } })
-      await expect(gw.request('session.create', { yolo: true })).rejects.toThrow('XX-launch yolo')
-      const pending = gw.request('session.list', {})
-      await vi.advanceTimersByTimeAsync(0)
-      gw.kill()
-      await expect(pending).rejects.toThrow('XX-closed')
-    } finally { gw.kill(); resetLocale(); vi.useRealTimers() }
   })
 
   // Pins Ink's launch on the shared client: the exact session.create params (no client name, even to an
@@ -809,7 +779,7 @@ describe('GatewayClient websocket attach mode', () => {
     process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway-new.test/api/ws?token=xyz'
     const next = gw.request('session.create', {})
 
-    await expect(stale).rejects.toThrow(t('libText.gateway.attachUrlChanged'))
+    await expect(stale).rejects.toThrow(libTextEn.libText.gateway.attachUrlChanged)
     await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
 
     const secondSocket = FakeWebSocket.instances[1]!

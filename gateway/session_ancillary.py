@@ -98,7 +98,8 @@ async def show_tools(connection, ref, params):
                 desc = str(tool['function'].get('description', '') or '').split('\n')[0]
                 if '. ' in desc:
                     desc = desc[:desc.index('. ') + 1]
-                sections.setdefault(model_tools.get_toolset_for_tool(name) or 'unknown', []).append(
+                from tools.registry import registry
+                sections.setdefault(registry.get_toolset_for_tool(name) or 'unknown', []).append(
                     {'name': name, 'description': desc})
         return {'sections': [{'name': n, 'tools': rows} for n, rows in sorted(sections.items())],
                 'total': len(tools or [])}

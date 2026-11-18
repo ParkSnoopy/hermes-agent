@@ -27,12 +27,10 @@ _connection_profile_home: contextvars.ContextVar[str | None] = contextvars.Conte
 # namespaces would write the same state.db behind its receipts and revision fence (a legacy
 # ``session.delete`` dropped a row the authority still held live; ``session.branch_stored`` built a
 # second, legacy-owned runtime; ``session.workspace.move`` rewrote only the row, never the frozen
-# policy: Desktop sends ``session.mutate operation=workspace``). Kept: store-wide reads and
-# foreign-history import (new rows only).
+# policy: Desktop sends ``session.mutate operation=workspace``). Kept: store-wide reads.
 _SESSION_NAMESPACES = ("session.", "prompt.", "message.")
 _SESSION_FALLBACK_ALLOWED = frozenset({
     "session.most_recent", "session.active_list", "session.events.stats",
-    "session.foreign.list", "session.foreign.preview", "session.foreign.import",
 })
 # Sidecar verbs whose handler acts on PROCESS-global state. In a TUI's own sidecar that state was
 # that TUI's alone; on the shared owner it is every chat's, Desktop window's and served profile's:

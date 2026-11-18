@@ -47,10 +47,6 @@ def _print_skill_rows(title: str, rows: list) -> None:
     for r in rows:
         print(
             f"  {r['name']:40s}  "
-            f"activity={r.get('activity_count', 0):3d}  "
-            f"use={r.get('use_count', 0):3d}  "
-            f"view={r.get('view_count', 0):3d}  "
-            f"patches={r.get('patch_count', 0):3d}  "
             f"last_activity={_fmt_ts(r.get('last_activity_at'))}")
 
 
@@ -125,9 +121,7 @@ def _cmd_status(args) -> int:
     if pinned:
         print(f"\npinned ({len(pinned)}): {', '.join(pinned)}")
     _print_unmanaged_summary()  # the curation blind spot matters on the managed path too
-    # Views and edits count as activity: a skill must not read as "never used" right after
-    # skill_view()/skill_manage() touched it. Recency (last_activity_at) and frequency
-    # (activity_count) are different signals, so both top-5s are shown.
+    # Recency is the input to the automatic inactivity policy.
     active_all = by_state.get("active", [])
     if not active_all:
         return 0
@@ -135,13 +129,6 @@ def _cmd_status(args) -> int:
         active_all, key=lambda r: r.get("last_activity_at") or r.get("created_at") or "")
     _print_skill_rows("least recently active (top 5)", recency[:5])
 
-    def _freq(r):
-        return (r.get("activity_count") or 0, r.get("last_activity_at") or "")
-
-    most_active = sorted(active_all, key=_freq, reverse=True)[:5]
-    if (most_active[0].get("activity_count") or 0) > 0:
-        _print_skill_rows("most active (top 5)", most_active)
-    _print_skill_rows("least active (top 5)", sorted(active_all, key=_freq)[:5])
     return 0
 
 
@@ -281,7 +268,7 @@ def _cmd_list_unmanaged(args) -> int:
     for r in sorted(rows, key=lambda x: x["name"]):
         why = f"created_by:{r.get('created_by') or 'null'}" if r.get("has_provenance_key") else "no marker"
         print(
-            f"  {r['name']:44s} activity={r.get('activity_count', 0):4d}  "
+            f"  {r['name']:44s} "
             f"last_activity={_fmt_ts(r.get('last_activity_at')):14s}  ({why})")
     print("\nadopt one with `hermes curator adopt <name>`, "
           "or all with `hermes curator adopt --all-unmanaged`")
@@ -598,50 +585,6 @@ def _cmd_list_archived(args) -> int:
     return 0
 
 
-_USAGE_SORTS = {
-    "name": (lambda r: r["name"], False),
-    "recent": (lambda r: r.get("last_activity_at") or "", True),
-    "activity": (lambda r: r.get("activity_count", 0), True)}
-
-
-def _cmd_usage(args) -> int:
-    """Usage telemetry for ALL skills on disk (bundled + hub included), with provenance."""
-    import json as _json
-    from tools import skill_usage
-    rows = skill_usage.usage_report()
-    prov_filter = getattr(args, "provenance", None)
-    if prov_filter:
-        rows = [r for r in rows if r.get("provenance") == prov_filter]
-    # name: alphabetical; recent: most-recently-active first (never-active sinks); activity
-    # (default): most-used first.
-    key, reverse = _USAGE_SORTS.get(getattr(args, "sort", "activity"), _USAGE_SORTS["activity"])
-    rows.sort(key=key, reverse=reverse)
-    if getattr(args, "json", False):
-        print(_json.dumps(rows, indent=2, ensure_ascii=False))
-        return 0
-    if not rows:
-        print("curator: no skills found")
-        return 0
-    provenance = [r.get("provenance", "agent") for r in rows]
-    counts = {k: provenance.count(k) for k in ("agent", "bundled", "hub", "external")}
-    print(
-        f"skills: {len(rows)} total  "
-        f"(agent={counts['agent']}  bundled={counts['bundled']}  hub={counts['hub']}  external={counts['external']})\n")
-    print(
-        f"  {'skill':40s}  {'origin':8s}  "
-        f"{'use':>4s}  {'view':>4s}  {'patch':>5s}  {'act':>4s}  last_activity")
-    for r in rows:
-        print(
-            f"  {r['name'][:40]:40s}  "
-            f"{r.get('provenance', 'agent'):8s}  "
-            f"{r.get('use_count', 0):>4d}  "
-            f"{r.get('view_count', 0):>4d}  "
-            f"{r.get('patch_count', 0):>5d}  "
-            f"{r.get('activity_count', 0):>4d}  "
-            f"{_fmt_ts(r.get('last_activity_at'))}")
-    return 0
-
-
 def _arg(*flags, **kwargs):
     return flags, kwargs
 
@@ -652,16 +595,8 @@ _STORE_TRUE = dict(action="store_true")
 
 # argparse wiring: (name, help, handler, *(flags, add_argument kwargs))
 _SUBCOMMANDS = (
-    ("status", "Show curator status and skill stats", _cmd_status),
-    (
-        "usage", "Show usage telemetry for ALL skills (built-in, hub, agent) with provenance",
-        _cmd_usage,
-        _arg("--sort", choices=("activity", "recent", "name"), default="activity",
-             help="Sort order: activity (most-used first, default), recent "
-                  "(most-recently-active first), or name (alphabetical)"),
-        _arg("--provenance", choices=("agent", "bundled", "hub", "external"), default=None,
-             help="Only show skills of this origin"),
-        _arg("--json", **_STORE_TRUE, help="Emit the full report as JSON instead of a table")),
+    ("status", "Show curator status", _cmd_status),
+
     (
         "run", "Trigger a curator review now", _cmd_run,
         _arg("--sync", "--synchronous", dest="synchronous", **_STORE_TRUE,

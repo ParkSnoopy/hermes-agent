@@ -1,10 +1,9 @@
 /**
- * Minimal OpenAI-compatible mock inference server for E2E tests and the
- * dev:mock dev flow.
+ * Minimal OpenAI-compatible mock inference server for E2E tests.
  *
- * Implements just enough of the /v1/* surface for `hermes serve` to resolve a
- * provider, list models, and stream a canned chat completion back to the
- * desktop app — without any real LLM.
+ * Implements just enough of the /v1/* surface for a native gateway to resolve
+ * a provider, list models, and stream a canned chat completion without any
+ * real LLM.
  *
  * Endpoints:
  *   GET  /v1/models             → { data: [{ id, ... }] }
@@ -12,26 +11,19 @@
  *
  * The canned response is a short, deterministic assistant message. Tool-call
  * requests are not simulated — the E2E tests only need the chat surface to
- * prove the full boot → gateway → inference → renderer chain works.
+ * prove the boot → gateway → inference chain works.
  *
- * Import the module to get the server as a library (the Playwright E2E
- * suite). Run the file directly to also write an isolated mock config and
- * launch the built Electron app against it (`pnpm run dev:mock`).
+ * Import the module as a library. The installer driver owns server startup,
+ * profile configuration, and cleanup.
  */
 
-import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
 import type { ServerResponse } from 'node:http'
 import os from 'node:os'
 import nodePath from 'node:path'
-import { pathToFileURL } from 'node:url'
 
 import { z } from 'zod'
-
-import { resolveElectronBinary } from '../../apps/desktop/e2e/electron-binary.ts'
-
-import { writeEnvFile, writeMockProviderConfig } from './mock-provider-config.ts'
 
 /** A canned assistant reply used for every chat completion request. */
 export const MOCK_REPLY = 'Hello from the mock inference server! The full boot chain is working.'
@@ -1421,103 +1413,3 @@ export const SIDEBAR_CROSS_TEXTS = {
   /** The subagent's goal. */
   subagentGoal: 'Analyze cross-session state',
 } as const
-
-// ─── Dev launcher ──────────────────────────────────────────────────────
-//
-// Running this file directly (`node tests-js/scripts/mock-server.ts`)
-// starts the server, writes an isolated config.yaml + .env that point at
-// it, and launches the built Electron app against them — the `dev:mock`
-// flow. Importing the module never runs this block: the Playwright E2E
-// suite imports the server as a library instead.
-
-interface DevSandbox {
-  root: string
-  hermesHome: string
-  userDataDir: string
-  cleanup: () => void
-}
-
-/** Create an isolated HERMES_HOME + Electron user-data dir in the OS temp dir. */
-function createDevSandbox(): DevSandbox {
-  const root = fs.mkdtempSync(nodePath.join(os.tmpdir(), `hermes-dev-mock-${Date.now()}`))
-  const hermesHome = nodePath.join(root, 'hermes-home')
-  const userDataDir = nodePath.join(root, 'electron-user-data')
-  fs.mkdirSync(hermesHome, { recursive: true })
-  fs.mkdirSync(userDataDir, { recursive: true })
-
-  return {
-    root,
-    hermesHome,
-    userDataDir,
-    cleanup: () => {
-      try {
-        fs.rmSync(root, { recursive: true, force: true })
-      } catch {
-        // best-effort
-      }
-    },
-  }
-}
-
-/** Fail fast with a clear message when the desktop dist/ is missing. */
-function assertDistBuilt(desktopRoot: string): void {
-  const electronMain = nodePath.join(desktopRoot, 'dist', 'electron-main.mjs')
-  const indexHtml = nodePath.join(desktopRoot, 'dist', 'index.html')
-
-  if (!fs.existsSync(electronMain) || !fs.existsSync(indexHtml)) {
-    throw new Error(
-      `Desktop dist not built. Run 'cd apps/desktop && pnpm run build' first.\n` +
-        `Missing: ${electronMain}`,
-    )
-  }
-}
-
-/** Start the mock, write the sandbox, and launch the built Electron app. */
-async function runDevLaunch(): Promise<void> {
-  const desktopRoot = nodePath.resolve(import.meta.dirname, '..', '..', 'apps', 'desktop')
-  const repoRoot = nodePath.resolve(desktopRoot, '..', '..')
-
-  assertDistBuilt(desktopRoot)
-
-  console.log('Starting mock inference server...')
-  const mock = await startMockServer()
-  console.log(`  Mock server: ${mock.url}`)
-
-  const sandbox = createDevSandbox()
-  writeMockProviderConfig(sandbox.hermesHome, mock.url)
-  writeEnvFile(sandbox.hermesHome)
-  console.log(`  HERMES_HOME: ${sandbox.hermesHome}`)
-
-  const electronBin = resolveElectronBinary([desktopRoot, repoRoot])
-
-  const env: Record<string, string> = {
-    ...process.env,
-    HERMES_HOME: sandbox.hermesHome,
-    HERMES_DESKTOP_USER_DATA_DIR: sandbox.userDataDir,
-    HERMES_DESKTOP_IGNORE_EXISTING: '1',
-    HERMES_DESKTOP_HERMES_ROOT: repoRoot,
-    HERMES_DESKTOP_APP_NAME: `HermesDevMock-${Date.now()}`,
-  }
-
-  console.log('Launching Electron...')
-
-  const child = spawn(electronBin, [desktopRoot, '--disable-gpu', '--no-sandbox'], {
-    env,
-    cwd: desktopRoot,
-    stdio: 'inherit',
-  })
-
-  child.on('exit', (code: number | null) => {
-    void mock.close()
-    sandbox.cleanup()
-    process.exit(code ?? 0)
-  })
-}
-
-// Only run the dev launcher when this file is executed directly.
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  runDevLaunch().catch((err: unknown) => {
-    console.error(err)
-    process.exit(1)
-  })
-}

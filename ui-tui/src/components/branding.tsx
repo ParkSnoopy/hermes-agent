@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import unicodeSpinners from 'unicode-animations'
 
 import { artWidth, caduceus, CADUCEUS_WIDTH, logo, LOGO_WIDTH } from '../banner.js'
-import { useT } from '../i18n/useT.js'
+import { chatBitsEn } from '../copy/chatBits.js'
 import { flat } from '../lib/text.js'
 import type { Theme } from '../theme.js'
 import type { PanelSection } from '../types.js'
@@ -81,7 +81,7 @@ const ruleIn = (label: string, w: number) => {
 }
 
 function CompactBanner({ cols, t }: { cols: number; t: Theme }) {
-  const T = useT().chatBits.branding
+  const T = chatBitsEn.chatBits.branding
   // -4 keeps a margin so exact-edge rows don't trip terminal pending-wrap.
   const w = Math.max(28, cols - 4)
 
@@ -104,7 +104,7 @@ function CompactBanner({ cols, t }: { cols: number; t: Theme }) {
 }
 
 export function Banner({ maxWidth, t }: { maxWidth?: number; t: Theme }) {
-  const T = useT().chatBits.branding
+  const T = chatBitsEn.chatBits.branding
   const term = useStdout().stdout?.columns ?? 80
   const cols = Math.max(1, Math.min(term, maxWidth ?? term))
 
@@ -214,7 +214,7 @@ const SKILLS_MAX = 8
 const TOOLSETS_MAX = 8
 
 export function SessionPanel({ info, maxWidth, sid, t }: SessionPanelProps) {
-  const T = useT().chatBits.branding
+  const T = chatBitsEn.chatBits.branding
   const term = useStdout().stdout?.columns ?? 100
   const cols = Math.max(20, Math.min(term, maxWidth ?? term))
   const heroLines = caduceus(t.color, t.bannerHero || undefined)

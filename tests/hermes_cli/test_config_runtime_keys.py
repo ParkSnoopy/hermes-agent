@@ -59,9 +59,27 @@ def test_config_get_browser_selection_keys_print_value_without_notice(hermes_hom
 @pytest.mark.parametrize("key,value", [
     ("browser.cloud_provider", "browserbase"),   # core: tools.tool_backend_helpers.read_selection
     ("web.use_gateway", "true"),                 # core: legacy managed-gateway flag, every category
-    ("dashboard.kanban.default_tenant", "t1"),   # core: bundled kanban dashboard preferences
+
 ])
 def test_config_set_runtime_read_key_is_silent(key, value, hermes_home, capsys):
+    assert not _set_notice(key, value, capsys)
+
+
+@pytest.mark.parametrize("key,value", [
+    ("display.reasoning_style", "blockquote"),
+    ("display.tool_progress_grouping", "separate"),
+    ("display.status_phrases.mode", "replace"),
+    ("streaming.enabled", "true"),
+    ("streaming.edit_interval", "1.0"),
+    ("gateway.message_timestamps.enabled", "true"),
+    ("gateway.bot_loop_guard.enabled", "false"),
+    ("gateway.bot_loop_guard.max_events", "8"),
+    ("gateway.bot_loop_guard.window_seconds", "60"),
+    ("gateway.bot_loop_guard.cooldown_seconds", "30"),
+    ("gateway.bot_loop_guard.max_hops", "2"),
+    ("gateway.bot_loop_guard.bot_replies_expect_reply", "true"),
+])
+def test_retained_gateway_display_keys_are_recognized(key, value, hermes_home, capsys):
     assert not _set_notice(key, value, capsys)
 
 
@@ -127,7 +145,7 @@ def test_every_selection_category_key_set_is_what_read_selection_returns(hermes_
         section, key = dotted.split(".")
         name_keys.setdefault(section, set()).add(key)
     # Every `hermes tools` / Tool Gateway category read_selection serves.
-    assert {"web", "image_gen", "video_gen", "tts", "stt", "browser"} <= set(name_keys)
+    assert {"web", "image_gen", "video_gen", "browser"} <= set(name_keys)
     for section, keys in name_keys.items():
         key = next(k for k in ("cloud_provider", "backend", "provider") if k in keys)
         _write_config(hermes_home, {})

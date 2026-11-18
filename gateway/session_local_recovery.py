@@ -117,8 +117,7 @@ def owned_receipt(authority, sid):
     store that moved with its profile (another machine, a moved home) still owns its rows. Its
     owner is this store; the route namespace binds the profile."""
     receipt = local_receipt(authority.db, sid)
-    chat_id = (receipt['legacy_session_id'] if 'legacy_session_id' in receipt else
-               local_identity(receipt['profile_id'], receipt['principal_id'], receipt['request_id']))
+    chat_id = local_identity(receipt['profile_id'], receipt['principal_id'], receipt['request_id'])
     if receipt['session_id'] != sid or sid != chat_id:
         raise ValueError('identity mismatch')
     source = local_source(authority, chat_id, receipt['principal_id'])

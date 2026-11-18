@@ -1,4 +1,4 @@
-"""Agent-facing subcommand handlers: memory, acp, tools, insights, monitoring, skills (+trust).
+"""Agent-facing subcommand handlers: memory, acp, tools, insights, skills (+trust).
 
 Split out of ``hermes_cli/main.py``. Names that still live in main (``PROJECT_ROOT``, ...)
 are imported lazily inside the functions that use them (avoids an import cycle).
@@ -125,8 +125,7 @@ def cmd_insights(args):
         from hermes_cli.config import get_hermes_home
         path = get_hermes_home() / "state.db"
         if not path.exists():
-            from agent.i18n import t
-            print(f"  {t('cli.insights.no_session_data')}")
+            print(f"  {'No session data yet.'}")
             return
         db = SessionDB(db_path=path, read_only=True)
         engine = InsightsEngine(db)
@@ -134,55 +133,13 @@ def cmd_insights(args):
         print(engine.format_terminal(report))
     except Exception as e:
         # Interactive /insights delegates here, so keep main's localized error line.
-        from agent.i18n import t
-        print(t("gateway.insights.error", error=str(e)))
+        print(f'Error generating insights: {e!s}')
     finally:
         if db is not None:
             try:
                 db.close()
             except Exception:
                 pass
-
-
-def _dict_or_empty(value) -> dict:
-    return value if isinstance(value, dict) else {}
-
-
-def cmd_monitoring(args):
-    """Gateway monitoring status: health & diagnostics export posture."""
-    from hermes_cli.config import load_config
-    action = getattr(args, "monitoring_action", None) or "status"
-    mon = _dict_or_empty(load_config().get("monitoring"))
-
-    if action == "status":
-        from agent.monitoring import otlp_exporter
-        gh = _dict_or_empty(mon.get("gateway_health_export"))
-        otlp = _dict_or_empty(_dict_or_empty(mon.get("export")).get("otlp"))
-
-        print("Gateway monitoring")
-        print(f"  Health export:  {'enabled' if gh.get('enabled') else 'disabled'} "
-              f"(monitoring.gateway_health_export.enabled)")
-        if gh.get("enabled"):
-            print(f"    Metrics:            {'on' if gh.get('metrics_enabled', True) else 'off'} "
-                  f"(interval {gh.get('export_interval_seconds', 60)}s)")
-            print(f"    Diagnostic events:  {'on' if gh.get('diagnostic_events_enabled', True) else 'off'}")
-            print(f"    Warning/error logs: {'on' if gh.get('warning_error_events_enabled', True) else 'off'} "
-                  f"(interval {gh.get('logs_export_interval_seconds', 5)}s)")
-            print("    Content safety:     always on "
-                  "(rendered messages are never exported; not configurable)")
-        endpoint = otlp.get("endpoint") or ""
-        if otlp.get("enabled") and endpoint:
-            print(f"  OTLP endpoint:  {endpoint}")
-        else:
-            print("  OTLP endpoint:  not configured (monitoring.export.otlp)")
-        print(f"  OTel SDK:       {'installed' if otlp_exporter.is_available() else 'not installed'} "
-              f"(optional extra: hermes-agent[otlp])")
-        print("\n  Scope: gateway service health + redacted diagnostics only.")
-        print("  No prompts, messages, tool args/results, usage analytics, or traces.")
-        return
-
-    print(f"Unknown monitoring action: {action}", file=sys.stderr)
-    sys.exit(2)
 
 
 def cmd_skills(args):

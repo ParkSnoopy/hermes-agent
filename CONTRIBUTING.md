@@ -9,7 +9,7 @@ Thank you for contributing to Hermes Agent! This guide covers everything you nee
 We value contributions in this order:
 
 1. **Bug fixes** — crashes, incorrect behavior, data loss. Always top priority.
-2. **Cross-platform compatibility** — macOS, different Linux distros, and WSL2 on Windows. We want Hermes to work everywhere.
+2. **Linux compatibility** — support different Linux distributions.
 3. **Security hardening** — shell injection, prompt injection, path traversal, privilege escalation. See [Security](#security-considerations).
 4. **Performance and robustness** — retry logic, error handling, graceful degradation.
 5. **New skills** — but only broadly useful ones. See [Should it be a Skill or a Tool?](#should-it-be-a-skill-or-a-tool)
@@ -106,7 +106,7 @@ A well-built third-party-product plugin can clear automated review and still be 
 
 A standalone plugin reaches users through the [plugin catalog](https://hermes-agent.nousresearch.com/docs/plugins): a PR to this repo adding one `plugin-catalog/<name>.yaml` file that pins your repo at an exact commit. Read **[Submitting to the plugin catalog](https://hermes-agent.nousresearch.com/docs/developer-guide/plugins/catalog-submission)** before opening one. It covers what to check first (`hermes plugins validate --install-deps`), how review works, and every admission rule. The canonical rules live in [`plugin-catalog/README.md`](plugin-catalog/README.md); if you change them, change the mirrored block in the docs page in the same PR (a test keeps the two identical).
 
-The rules that most often send a submission back: the plugin must extend Hermes only through public hooks, `ctx.register_*` APIs and the Desktop SDK (no patching core code or Desktop markup at runtime), must not update itself, must declare the capabilities it registers, and must disclose risky behaviour.
+The rules that most often send a submission back: the plugin must extend Hermes only through public hooks and `ctx.register_*` APIs (no patching core code at runtime), must not update itself, must declare the capabilities it registers, and must disclose risky behaviour.
 
 ---
 
@@ -144,15 +144,9 @@ source ./activate.fish
 hermes --version
 ```
 
-PowerShell:
-
-```powershell
-. .\activate.ps1
-hermes --version
-```
 
 Run `hermes` for this checkout. Activation defines it as a function for this
-worktree, so it hides a global `hermes` command or MSIX alias and refuses
+worktree, so it hides a global `hermes` command and refuses
 outside the worktree. PM activation
 syncs tools and Python dependencies before adding them to the shell. It does not
 install JS workspaces or rewrite launchers and shell configuration. `deactivate`
@@ -169,19 +163,19 @@ script or tool in this repository, so the commands below also work without
 
 | Recipe | Runs |
 |---|---|
-| `just setup` | `setup-hermes.sh --runtime-only --test-environment` (PowerShell: `setup-hermes.ps1 -RuntimeOnly`) |
+| `just setup` | `setup-hermes.sh --runtime-only --test-environment` |
 | `just check` | `scripts/check`, every blocking lint check; `just check --only health` selects checks |
 | `just fix` | the pinned ruff with `--fix`, then `pnpm -r fix` |
 | `just test <paths>` | `scripts/run_tests.sh <paths>`; refuses to start without a path, even with flags |
 | `just test-all` | the full Python suite |
 | `just js-install`, `just check-js`, `just test-js` | `pnpm install --frozen-lockfile`, `pnpm -r check`, `pnpm -r test` (after building `@hermes/ink`) |
-| `just desktop`, `just tui` | the desktop and TUI dev servers |
+| `just tui` | the TUI development entry point |
 | `just docs-install`, `just docs-build` | the website's `npm ci` and `build:fast` |
 | `just docs-generate`, `just docs-check` | regenerate the skill docs pages; then every docs check CI runs (committed pages match, links, diagrams) |
 | `just lock` | `scripts/relock.sh`: refreshes `uv.lock` after a `pyproject.toml` change, then re-syncs |
 | `just check-repo-guards`, `just check-uv-lock` | the repo-guards history, contributor and supply-chain steps, and the `uv.lock` check, through `scripts/ci/local_step.sh` against the merge base with `origin/main` |
 | `just check-icons`, `just lint-docker`, `just check-plugin-catalog`, `just check-nix` | the committed-icons check, hadolint and shellcheck on the container inputs, the catalog validator, `nix flake check` |
-| `just test-catalog`, `just test-whatsapp-bridge`, `just test-rust` | the plugin-catalog tests, the WhatsApp bridge's node tests (after `just js-install-whatsapp-bridge`), the bootstrap installer's `cargo test --lib` |
+| `just test-catalog`, `just test-rust` | the plugin-catalog tests and the bootstrap installer's `cargo test --lib` |
 
 Recipes that run Python go through `scripts/run-in-hermes-env`, so they work in
 a shell that was never activated. A new developer command is a script under
@@ -192,8 +186,7 @@ a shell that was never activated. A new developer command is a script under
 Use the [PM developer workflow](website/docs/reference/package-management.md#developer-workflow) to prepare Python 3.14 (`>=3.14,<3.15`) first.
 Run these commands from that checkout with its prepared Python. Keep the same
 development `HERMES_HOME`. PM must be able to start before it can build another
-environment. On Windows, initialize the native C++ build environment for your
-architecture before building source dependencies.
+environment.
 
 Build an independent interpreter for tests and editor tools:
 
@@ -214,13 +207,12 @@ Do not run raw pip or uv commands to change a PM-built environment.
 To keep the test environment outside the checkout, replace `.venv` with a fresh absolute
 path. Set `HERMES_PYTHON` to that environment's interpreter:
 
-- POSIX: `export HERMES_PYTHON="/absolute/path/to/hermes-dev/bin/python"`
-- PowerShell: `$env:HERMES_PYTHON = 'C:\absolute\path\to\hermes-dev\Scripts\python.exe'`
+`export HERMES_PYTHON="/absolute/path/to/hermes-dev/bin/python"`
 
 The canonical runner discovers repository `.venv` automatically. It clears
 `PYTHONPATH`, so pytest must be installed in the interpreter's own environment.
 This test environment does not replace PM's application selection or tool
-store. Do not point a bundled app at it or install into an MSIX payload.
+store.
 
 For an isolated development instance, select a disposable `HERMES_HOME` before
 starting the source command. Use `hermes setup` to configure it rather
@@ -228,9 +220,9 @@ than copying production credentials into the checkout.
 
 ### JavaScript workspaces and website
 
-From the repository root, run `pnpm install --frozen-lockfile` (`just js-install`) for the desktop,
-TUI, dashboard, and shared JS workspaces. `pm/lock.json` pins pnpm
-(`source ./activate`, or `. .\activate.ps1` in PowerShell, provides that exact
+From the repository root, run `pnpm install --frozen-lockfile` (`just js-install`) for the
+TUI and shared JS workspaces. `pm/lock.json` pins pnpm
+(`source ./activate` provides that exact
 version). An install that runs lifecycle scripts refuses any other pnpm, a direct or
 filtered `pnpm install` included: the root `preinstall` script requires the
 `pm/lock.json` pnpm (and refuses `npm install`), and pnpm 10 and 11 also refuse the
@@ -261,7 +253,7 @@ when it or any non-optional dependency it pulls in declares `engines` the curren
 or npm does not satisfy, where it would only warn outside the checkout.
 
 Use a Node version accepted by the corresponding `package.json` engines.
-Native desktop dependencies can also require the platform build toolchain.
+
 
 Logos and icons are generated from `assets/nous-girl-*.svg` and
 `assets/backgrounds/`. `node scripts/generate-icons.mjs` (`just icons`) renders them with the
@@ -281,7 +273,7 @@ just test tests/agent/ -v
 Both recipes call `scripts/run_tests.sh`; `just test` refuses to start
 without a path, and `just test-all` runs the full suite.
 
-On Windows, run the script through Bash. When no local `.venv` or `venv`
+When no local `.venv` or `venv`
 contains pytest, the runner accepts the explicit `HERMES_PYTHON` above. It
 clears credentials, isolates `HERMES_HOME`, and runs each test file in a separate
 subprocess through `scripts/run_tests_parallel.py`. It does not use xdist.
@@ -299,7 +291,7 @@ hermes-agent/
 ├── run_agent.py              # AIAgent facade (~1.5k LOC) — the turn loop lives in agent/conversation_loop.py + agent/turn_*.py
 ├── cli.py                    # HermesCLI class — interactive CLI orchestrator (~4.6k LOC + hermes_cli/cli_*_mixin.py)
 ├── model_tools.py            # Tool orchestration (thin layer over tools/registry.py)
-├── toolsets.py               # Tool groupings and presets (hermes-cli, hermes-telegram, etc.)
+├── toolsets.py               # Tool groupings and presets
 ├── hermes_state.py           # SessionDB facade (~1.4k LOC); implementation in hermes_state_*.py (21 siblings) — FTS5 search, session titles
 ├── batch_runner.py           # Parallel batch processing for trajectory generation
 │
@@ -327,8 +319,7 @@ hermes-agent/
 │   ├── doctor.py                 # Diagnostics
 │   ├── skills_hub.py             # Skills Hub CLI + /skills slash command
 │   ├── skin_engine.py            # Skin/theme engine — data-driven CLI visual customization
-│   ├── web_server.py             # Dashboard server (facade + web_server_*.py siblings)
-│   └── web_routers/              # Dashboard FastAPI routers (one file per surface)
+
 │
 ├── tools/                    # Tool implementations (self-registering)
 │   ├── registry.py               # Central tool registry (schemas, handlers, dispatch)
@@ -342,24 +333,20 @@ hermes-agent/
 │   ├── mcp_tool.py               # MCP client (facade + mcp_tool_*.py siblings: config, discovery, transport, ...)
 │   ├── browser_use_cli.py        # browser_exec (Python over CDP); sessions in browser_session*.py, launcher in browser_launcher.py
 │   ├── session_search_tool.py    # Search past conversations with FTS5 + anchored windows
-│   ├── cronjob_tools.py          # Scheduled task management
 │   ├── skill_tools.py            # Skill search, load, manage
 │   └── environments/             # Terminal execution backends
 │       ├── base.py                   # BaseEnvironment ABC
-│       ├── local.py, docker.py, ssh.py, modal.py, daytona.py
+│       ├── local.py
 │
-├── gateway/                  # Messaging gateway
+├── gateway/                  # Gateway runtime
 │   ├── run.py                    # GatewayRunner facade (~5.5k LOC); phases in run_*.py (startup, inbound, turn, busy, ...)
 │   ├── slash_commands_*.py       # Gateway slash command handler mixins
 │   ├── config.py                 # Platform configuration resolution
 │   ├── session.py                # Session store, context prompts, explicit resets (+ session_*.py siblings)
-│   └── platforms/                # Platform adapters
-│       ├── telegram.py, discord_adapter.py, slack.py, whatsapp.py
+│   └── platforms/                # Shared platform interfaces
 │
-├── scripts/                  # Installer and bridge scripts
-│   ├── install.sh                # Linux/macOS installer
-│   ├── install.ps1               # Windows PowerShell installer
-│   └── whatsapp-bridge/          # Node.js WhatsApp bridge (Baileys)
+├── scripts/                  # Installer and maintenance scripts
+│   └── install.sh                # Linux installer
 │
 ├── skills/                   # Bundled skills (copied to ~/.hermes/skills/ on install)
 ├── optional-skills/          # Official optional skills (discoverable via hub, not activated by default)
@@ -381,8 +368,7 @@ hermes-agent/
 | `~/.hermes/memories/` | Persistent memory (MEMORY.md, USER.md) |
 | `~/.hermes/state.db` | SQLite session database |
 | `~/.hermes/sessions/` | Gateway routing index (`sessions.json`), request-dump breadcrumbs, gateway `*.jsonl` transcripts, and explicit `/save` exports. Automatic per-session JSON snapshots are no longer written; state.db is canonical. |
-| `~/.hermes/cron/` | Scheduled job data |
-| `~/.hermes/whatsapp/session/` | WhatsApp bridge credentials |
+
 
 ---
 
@@ -524,8 +510,7 @@ description: Brief description (shown in skill search results)
 version: 1.0.0
 author: Your Name
 license: MIT
-platforms: [macos, linux]          # Optional — restrict to specific OS platforms
-                                   #   Valid: macos, linux, windows
+platforms: [linux]                 # Optional — restrict to Linux
                                    #   Omit to load on all platforms (default)
 required_environment_variables:    # Optional — secure setup-on-load metadata
   - name: MY_API_KEY
@@ -574,12 +559,10 @@ How the agent confirms it worked.
 Skills can declare which OS platforms they support via the `platforms` frontmatter field. Skills with this field are automatically hidden from the system prompt, `skills_list()`, and slash commands on incompatible platforms.
 
 ```yaml
-platforms: [macos]            # macOS only (e.g., iMessage, Apple Reminders)
-platforms: [macos, linux]     # macOS and Linux
-platforms: [windows]          # Windows only
+platforms: [linux]            # Linux-specific dependencies
 ```
 
-If the field is omitted or empty, the skill loads on all platforms (backward compatible). See `skills/apple/` for examples of macOS-only skills.
+If the field is omitted or empty, the skill loads on all platforms.
 
 ### Conditional skill activation
 
@@ -645,7 +628,7 @@ prerequisites:
   commands: [curl, jq]            # Advisory CLI checks
 ```
 
-Gateway and messaging sessions never collect secrets in-band; they instruct the user to run `hermes setup` or update `~/.hermes/.env` locally.
+Non-interactive sessions must not collect secrets in-band; configure them locally with `hermes setup` or `~/.hermes/.env`.
 
 **When to declare required environment variables:**
 - The skill uses an API key or token that should be collected securely at load time
@@ -673,7 +656,7 @@ Every new or modernized skill — bundled, optional, or contributed — must mee
    Good: `Search arXiv papers by keyword, author, category, or ID.`
    Bad: `A powerful and comprehensive skill that allows the agent to search arXiv for relevant academic papers using various criteria including keywords, authors, and categories.`
 
-2. **Tools referenced in SKILL.md prose must be native Hermes tools or MCP servers the skill explicitly expects.** When the skill needs a capability, point at the proper tool by name in backticks: `` `terminal` ``, `` `web_extract` ``, `` `web_search` ``, `` `read_file` ``, `` `write_file` ``, `` `patch` ``, `` `search_files` ``, `` `vision_analyze` ``, `` `browser_exec` ``, `` `delegate_task` ``, `` `image_generate` ``, `` `text_to_speech` ``, `` `cronjob` ``, `` `memory` ``, `` `skill_view` ``, `` `todo` ``, `` `execute_code` ``.
+2. **Tools referenced in SKILL.md prose must be native Hermes tools or MCP servers the skill explicitly expects.** When the skill needs a capability, point at the proper tool by name in backticks: `` `terminal` ``, `` `web_extract` ``, `` `web_search` ``, `` `read_file` ``, `` `write_file` ``, `` `patch` ``, `` `search_files` ``, `` `vision_analyze` ``, `` `browser_exec` ``, `` `delegate_task` ``, `` `image_generate` ``, `` `text_to_speech` ``, `` `memory` ``, `` `skill_view` ``, `` `todo` ``, `` `execute_code` ``.
 
    Do NOT name shell utilities the agent already has wrapped:
 
@@ -768,182 +751,6 @@ See `hermes_cli/skin_engine.py` for the full schema and existing skins as exampl
 
 ---
 
-## Cross-Platform Compatibility
-
-Hermes runs on Linux, macOS, and native Windows (plus WSL2). When writing code
-that touches the OS, assume *any* platform can hit your code path.
-
-> **Before you PR:** run `scripts/check-windows-footguns.py` to catch the
-> common Windows-unsafe patterns in your diff. It's grep-based and cheap;
-> CI runs it on every PR too.
-
-### Critical rules
-
-1. **Never call `os.kill(pid, 0)` for liveness checks.** `os.kill(pid, 0)`
-   is a standard POSIX idiom to check "is this PID alive" — the signal 0
-   is a no-op permission check. **On Windows it is NOT a no-op.** Python's
-   Windows `os.kill` maps `sig=0` to `CTRL_C_EVENT` (they collide at the
-   integer value 0) and routes it through `GenerateConsoleCtrlEvent(0, pid)`,
-   which broadcasts Ctrl+C to the **entire console process group** containing
-   the target PID. "Probe if alive" silently becomes "kill the target and
-   often unrelated processes sharing its console." See [bpo-14484](https://bugs.python.org/issue14484)
-   (open since 2012 — will never be fixed for compat reasons).
-
-   **Preferred:** use `psutil` (a core dependency — always available):
-
-   ```python
-   import psutil
-   if psutil.pid_exists(pid):
-       # process is alive — safe on every platform
-       ...
-   ```
-
-   If you specifically need the hermes wrapper (it has a stdlib fallback
-   for scaffold-phase imports before PM finishes dependency preparation), use
-   `gateway.status._pid_exists(pid)`. It calls `psutil.pid_exists` first
-   and falls back to a hand-rolled `OpenProcess + WaitForSingleObject`
-   dance on Windows only when psutil is somehow missing.
-
-   Audit grep for new callsites: `rg "os\.kill\([^,]+,\s*0\s*\)"`. Any hit
-   in non-test code is presumptively a Windows silent-kill bug.
-
-2. **Use `shutil.which()` before shelling out — don't assume Windows has
-   tools Linux has.** `wmic` was removed in Windows 10 21H1 and later. `ps`,
-   `kill`, `grep`, `awk`, `fuser`, `lsof`, `pgrep`, and most POSIX CLI tools
-   simply don't exist on Windows. Test availability with
-   `shutil.which("tool")` and fall back to a Windows-native equivalent —
-   usually PowerShell via `subprocess.run(["powershell", "-NoProfile",
-   "-Command", ...])`.
-
-   For process enumeration: PowerShell's `Get-CimInstance Win32_Process` is
-   the modern replacement for `wmic process`. See
-   `hermes_cli/gateway.py::_scan_gateway_pids` for the pattern.
-   ```
-
-3. **File encoding.** Windows may save `.env` files in `cp1252`. Always
-   handle encoding errors:
-   ```python
-   try:
-       load_dotenv(env_path)
-   except UnicodeDecodeError:
-       load_dotenv(env_path, encoding="latin-1")
-   ```
-   Config files (`config.yaml`) may be saved with a UTF-8 BOM by Notepad and
-   similar editors — use `encoding="utf-8-sig"` when reading files that
-   could have been touched by a Windows GUI editor.
-
-4. **Process management.** `os.setsid()`, `os.killpg()`, `os.fork()`,
-   `os.getuid()`, and POSIX signal handling differ on Windows. Guard with
-   `platform.system()`, `sys.platform`, or `hasattr(os, "setsid")`:
-   ```python
-   if platform.system() != "Windows":
-       kwargs["preexec_fn"] = os.setsid
-   else:
-       kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-   ```
-
-   **Preferred:** for killing a process AND its children (what `os.killpg`
-   does on POSIX), use `psutil` — it works on every platform:
-   ```python
-   import psutil
-   try:
-       parent = psutil.Process(pid)
-       # Kill children first (leaf-up), then the parent.
-       for child in parent.children(recursive=True):
-           child.kill()
-       parent.kill()
-   except psutil.NoSuchProcess:
-       pass
-   ```
-
-5. **Signals that don't exist on Windows: `SIGALRM`, `SIGCHLD`, `SIGHUP`,
-   `SIGUSR1`, `SIGUSR2`, `SIGPIPE`, `SIGQUIT`, `SIGKILL`.** Python's
-   `signal` module raises `AttributeError` at import time if you reference
-   them on Windows. Use `getattr(signal, "SIGKILL", signal.SIGTERM)` or
-   gate the whole block behind a platform check. `loop.add_signal_handler`
-   raises `NotImplementedError` on Windows — always catch it.
-
-6. **Path separators.** Use `pathlib.Path` instead of string concatenation
-   with `/`. Forward slashes work almost everywhere on Windows, but
-   `subprocess.run(["cmd.exe", "/c", ...])` and other shell contexts can
-   require backslashes — convert with `str(path)` at the subprocess boundary,
-   not inside Python logic.
-
-7. **Symlinks need elevated privileges on Windows** (unless Developer Mode is
-   on). Tests that create symlinks need `@pytest.mark.skipif(sys.platform ==
-   "win32", reason="Symlinks require elevated privileges on Windows")`.
-
-8. **POSIX file modes (0o600, 0o644, etc.) are NOT enforced on NTFS** by
-   default. Tests that assert on `stat().st_mode & 0o777` must skip on
-   Windows — the concept doesn't translate. Use ACLs (`icacls`, `pywin32`)
-   for Windows secret-file protection if needed.
-
-9. **Detached background daemons on Windows need `pythonw.exe`, NOT
-    `python.exe`.** `python.exe` always allocates or attaches to a console,
-    which makes it vulnerable to `CTRL_C_EVENT` broadcasts from any sibling
-    process. `pythonw.exe` is the no-console variant. Combine with
-    `CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP |
-    CREATE_BREAKAWAY_FROM_JOB` in `subprocess.Popen(creationflags=...)`.
-    See `hermes_cli/gateway_windows.py::_spawn_detached` for the reference
-    implementation.
-
-10. **`subprocess.Popen` with `.cmd` or `.bat` shims needs `shutil.which`
-    to resolve.** Passing `"npm"` to `Popen` on Windows finds the
-    extensionless POSIX shebang shim next to `npm.cmd`, which
-    `CreateProcessW` can't execute — you'll get `WinError 193 "not a valid
-    Win32 application"`. Use `shutil.which("npm", path=node_bin)`
-    which honors PATHEXT and picks the `.CMD` variant on Windows.
-
-11. **Don't use shell shebangs as a way to run Python.** `#!/usr/bin/env
-    python` only works when the file is executed through a Unix shell.
-    `subprocess.run(["./myscript.py"])` on Windows fails even if the file
-    has a shebang line. Always invoke Python explicitly:
-    `[sys.executable, "myscript.py"]`.
-
-12. **Shell commands in installers.** If you change `scripts/install.sh`,
-    make the equivalent change in `scripts/install.ps1`. The two scripts
-    are the canonical example of "works on Linux does not mean works on
-    Windows" and have drifted multiple times — keep them in lockstep.
-
-13. **Known paths that are OneDrive-redirected on Windows:** Desktop,
-    Documents, Pictures, Videos. The "real" path when OneDrive Backup is
-    enabled is `%USERPROFILE%\OneDrive\Desktop` (etc.), NOT
-    `%USERPROFILE%\Desktop` (which exists as an empty husk). Resolve the
-    real location via `ctypes` + `SHGetKnownFolderPath` or by reading the
-    `Shell Folders` registry key — never assume `~/Desktop`.
-
-14. **CRLF vs LF in generated scripts.** Windows `cmd.exe` and `schtasks`
-    parse line-by-line; mixed or LF-only line endings can break multi-line
-    `.cmd` / `.bat` files. Use `open(path, "w", encoding="utf-8",
-    newline="\r\n")` — or `open(path, "wb")` + explicit bytes — when
-    generating scripts Windows will execute.
-
-15. **Two different quoting schemes in one command line.** `subprocess.run
-    (["schtasks", "/TR", some_cmd])` → schtasks itself parses `/TR`, AND
-    the `some_cmd` string is re-parsed by `cmd.exe` when the task fires.
-    Different parsers, different escape rules. Use two separate quoting
-    helpers and never cross them. See `hermes_cli/gateway_windows.py::
-    _quote_cmd_script_arg` and `_quote_schtasks_arg` for the reference
-    pair.
-
-### Testing cross-platform
-
-Tests of host-specific behavior must run on that host. Apply one `platforms`
-marker to each test, rather than changing `sys.platform`:
-
-```python
-@pytest.mark.platforms("windows", arch="arm64")
-def test_native_windows_arm64_behavior():
-    ...
-```
-
-For several supported hosts, use one marker with multiple arguments, such as
-`@pytest.mark.platforms("linux", "macos")`. Do not stack host markers.
-Tests of pure functions that accept a platform as data need no host marker.
-See [AGENTS.md](AGENTS.md#dont-fake-the-host-os) for the complete contract.
-
----
-
 ## Security Considerations
 
 Hermes has terminal access. Security matters.
@@ -954,7 +761,6 @@ Hermes has terminal access. Security matters.
 |-------|---------------|
 | **Sudo password piping** | Uses `shlex.quote()` to prevent shell injection |
 | **Dangerous command detection** | Regex patterns in `tools/approval.py` with user approval flow |
-| **Cron prompt injection** | Scanner in `tools/cronjob_tools.py` blocks instruction-override patterns |
 | **Write deny list** | Protected paths (`~/.ssh/authorized_keys`, `/etc/shadow`) resolved via `os.path.realpath()` to prevent symlink bypass |
 | **Skills guard** | Security scanner for hub-installed skills (`tools/skills_guard.py`) |
 | **Code execution sandbox** | `execute_code` child process runs with API keys stripped from environment |
@@ -1030,7 +836,7 @@ refactor/description   # Code restructuring
 1. **Run tests**: `just test <paths>` (scripts/run_tests.sh) for the same environment and per-file isolation as CI.
 2. **Run the lint checks**: `just check` (the blocking lint lane, locally).
 3. **Test manually**: Run `hermes` and exercise the code path you changed
-4. **Check cross-platform impact**: If you touch file I/O, process management, or terminal handling, consider macOS, Linux, and WSL2
+4. **Check cross-platform impact**: If you touch file I/O, process management, or terminal handling, consider supported Linux environments
 5. **Keep PRs focused**: One logical change per PR. Don't mix a bug fix with a refactor with a new feature.
 
 ### PR description
@@ -1058,12 +864,12 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 | `refactor` | Code restructuring (no behavior change) |
 | `chore` | Build, CI, dependency updates |
 
-Scopes: `cli`, `gateway`, `tools`, `skills`, `agent`, `install`, `whatsapp`, `security`, etc.
+Scopes: `cli`, `gateway`, `tools`, `skills`, `agent`, `install`, `security`, etc.
 
 Examples:
 ```
 fix(cli): prevent crash in save_config_value when model is a string
-feat(gateway): add WhatsApp multi-user session isolation
+feat(gateway): improve session isolation
 fix(security): prevent shell injection in sudo password piping
 test(tools): add unit tests for file_operations
 ```

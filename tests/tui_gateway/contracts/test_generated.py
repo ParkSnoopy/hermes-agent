@@ -33,9 +33,34 @@ def test_generated_files_are_current(gen):
     assert not stale, f"stale generated contract files {stale}: run scripts/gen_gateway_contracts.py"
 
 
+@pytest.mark.parametrize("name, extra", [
+    ("DisplayStatus", {}),
+    ("DisplayStopResult", {"stopped": True}),
+    ("DisplayObserveResult", {"ticket": "test-ticket", "path": "/api/display/ws", "viewer_id": "test-viewer"}),
+    ("DisplayStatusPayload", {}),
+])
+@pytest.mark.parametrize("placement", ["gateway", "terminal:ssh"])
+def test_display_contracts_reject_retired_placement(name, extra, placement):
+    from pydantic import ValidationError
+    from tui_gateway.contracts import display
+
+    model = getattr(display, name)
+    payload = {
+        "profile": "default", "profile_key": "test-profile", "supported": True,
+        "installed": False, "missing": [], "running": False, "geometry": "1280x720",
+        "lease": {"holder": "agent", "since": 0.0, "epoch": 0}, **extra,
+    }
+    assert model.model_validate(payload).profile_key == payload["profile_key"]
+    with pytest.raises(ValidationError) as rejected:
+        model.model_validate({**payload, "placement": placement})
+    assert [(error["loc"], error["type"]) for error in rejected.value.errors()] == [
+        (("placement",), "extra_forbidden"),
+    ]
+
+
 # The emitter inventory the old gateway-events.json scan used, kept as the completeness oracle:
 # names must come from CODE the gateway runs, never from the contract tables themselves.
-_EMIT_HELPERS = ("_emit", "_broadcast_global_event", "_voice_emit", "_pet_emit", "_emit_tool_lifecycle")
+_EMIT_HELPERS = ("_emit", "_broadcast_global_event", "_pet_emit", "_emit_tool_lifecycle")
 _LITERAL_EMIT = re.compile(r"\b(?:{})\(\s*\"([a-z_][a-z0-9_.]*)\"".format("|".join(_EMIT_HELPERS)))
 _REQUEST_HELPERS = ("server_requests\\.send", "server_requests\\.send_async", "_ask", "_read_block")
 _LITERAL_REQUEST = re.compile(r"\b(?:{})\(\s*\"([a-z_][a-z0-9_.]*)\"".format("|".join(_REQUEST_HELPERS)))
@@ -92,3 +117,22 @@ def test_catalog_covers_the_whole_wire():
     from tui_gateway.contracts import registry
 
     registry.assert_complete(server._methods, emitted_event_names(), sent_server_requests())
+
+
+def test_retired_methods_are_absent():
+    from tui_gateway import server
+    from tui_gateway.contracts import registry
+
+    retired = {"handoff.request", "handoff.state", "handoff.fail", "i18n.catalog", "i18n.languages",
+               "shared_metrics.status", "shared_metrics.set", "shared_metrics.slash_command",
+               "shared_metrics.startup_latency", "shared_metrics.update_run", "shared_metrics.desktop_feature_use",
+               "shared_metrics.desktop_friction", "shared_metrics.desktop_onboarding", "shared_metrics.desktop_dislike",
+               "shared_metrics.desktop_daily"}
+    assert retired.isdisjoint(server._methods)
+    assert retired.isdisjoint(registry.METHODS)
+    assert retired.isdisjoint(registry.CANONICAL_METHODS)
+    for method in retired:
+        reply = server.handle_request({"jsonrpc": "2.0", "id": "retired", "method": method, "params": {}})
+        assert reply["error"]["code"] == -32601, reply
+    assert "message.react" in registry.METHODS
+    assert "message.reaction" in registry.EVENTS

@@ -126,37 +126,19 @@ class _CatalogBackend:
     def start_install_oauth(self, name: str, env: dict[str, str]) -> Any:
         """Install an OAuth entry through the card's flow. The configuration is built in memory and
         lands, together with the setup values, only when ``initialize`` accepts the token."""
-        from hermes_cli.mcp_catalog import card_install_config, is_installed, record_mcp_install
+        from hermes_cli.mcp_catalog import card_install_config
         from tools.connectors import mcp_oauth
-
-        fresh = not is_installed(name)
 
         def commit() -> None:
             _save_env(env)
-            if fresh:
-                record_mcp_install("catalog", name, "success")
-
-        try:
-            entry = _catalog_entry(name)
-            _check_declared(name, entry, env)
-            return mcp_oauth.start(name, cfg=card_install_config(entry), env=env, on_commit=commit)
-        except Exception as exc:
-            # An abandoned browser authorization is a cancel, not a failed install: only a flow
-            # that cannot start is counted here.
-            if fresh:
-                record_mcp_install("catalog", name, "failed", error=exc)
-            raise
+        entry = _catalog_entry(name)
+        _check_declared(name, entry, env)
+        return mcp_oauth.start(name, cfg=card_install_config(entry), env=env, on_commit=commit)
 
     def install(self, name: str, env: dict[str, str]) -> list[str]:
         """Probe the entry's in-memory configuration with ephemeral credentials; save both only
         after the server answered. A failure writes nothing, so a failed reinstall keeps the
-        previous configuration. A first install is recorded once as an extension install."""
-        from hermes_cli.mcp_catalog import recorded_catalog_install
-
-        with recorded_catalog_install(name):
-            return self._install(name, env)
-
-    def _install(self, name: str, env: dict[str, str]) -> list[str]:
+        previous configuration."""
         from agent.secret_scope import (
             current_secret_scope, current_secret_scope_home, reset_secret_scope, set_secret_scope)
         from hermes_cli.mcp_catalog import _inline_non_secret_value, card_install_config
@@ -188,19 +170,33 @@ class _CatalogBackend:
         return tools
 
     def enable(self, name: str) -> None:
-        """Flip ``enabled`` under the scope and lock the dashboard's toggle route uses
-        (``PUT /api/mcp/servers/{name}/enabled``): the two read-modify-write paths run in one
-        process, so an unserialised write here drops whichever landed first."""
-        from hermes_cli.config import load_config, save_config
-        from hermes_cli.web_routers._common import config_write_scope
+        """Enable a configured server in the current profile as one config mutation."""
+        from agent.secret_scope import build_profile_secret_scope, reset_secret_scope, set_secret_scope
+        from hermes_cli.config import _CONFIG_LOCK, load_config, save_config
+        from hermes_cli.env_loader import hydrate_profile_secret_sources
+        from hermes_constants import get_hermes_home, get_hermes_home_override, get_process_hermes_home
+        from tui_gateway.launch_profile_policy import activate_multi_profile_hosting, launch_secret_scope
 
-        with config_write_scope(None):
-            config = load_config()
-            servers = config.get("mcp_servers")
-            if not isinstance(servers, dict) or not isinstance(servers.get(name), dict):
-                raise ValueError(f"'{name}' is not a configured MCP server")
-            servers[name]["enabled"] = True
-            save_config(config)
+        process_home = get_process_hermes_home()
+        profile_dir = get_hermes_home() if get_hermes_home_override() else None
+        scoped = profile_dir is not None and profile_dir.resolve() != process_home.resolve()
+        if scoped:
+            activate_multi_profile_hosting()
+            hydrate_profile_secret_sources(profile_dir)
+            secrets = build_profile_secret_scope(profile_dir)
+        else:
+            secrets = launch_secret_scope(process_home)
+        token = set_secret_scope(secrets, profile_home=str(profile_dir or process_home))
+        try:
+            with _CONFIG_LOCK:
+                config = load_config()
+                servers = config.get("mcp_servers")
+                if not isinstance(servers, dict) or not isinstance(servers.get(name), dict):
+                    raise ValueError(f"'{name}' is not a configured MCP server")
+                servers[name]["enabled"] = True
+                save_config(config)
+        finally:
+            reset_secret_scope(token)
 
 
 def _check_declared(name: str, entry: Any, env: dict[str, str]) -> None:

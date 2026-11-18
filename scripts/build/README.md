@@ -2,7 +2,7 @@
 
 These modules compile frontends and assemble a runnable agent from prepared
 inputs. They do not replace pnpm, uv, PM, or Nix.
-[Shared bundle builds](../../docs/shared-bundle-builds.md) describes the
+[Shared bundle builds](../../website/docs/developer-guide/shared-bundle-builds.md) describes the
 providers and distribution adapters.
 
 This reference describes the current interfaces, not completed artifact
@@ -14,45 +14,12 @@ build or a target-native runtime.
 | Layer | Owns | Examples |
 |---|---|---|
 | Dependency provider | Tools, locked dependencies, native libraries and build environments | `node-deps.mjs`, PM Python operations, Nix `fetchPnpmDeps`/uv2nix, Termux wheelhouse |
-| Product builder | Compilation or application assembly from prepared inputs | `tui.mjs`, `web.mjs`, `desktop.mjs`, `agent.py`, `../generate_icons.py` |
+| Product builder | Compilation or application assembly from prepared inputs | `tui.mjs`, `agent.py`, `../generate_icons.py` |
 | Distribution adapter | Product selection, target preparation, package layout, signing and publication | `../bundles/`, `../../Dockerfile`, `../../nix/`, `../termux/` |
 
 `node-deps.mjs` and `pm.build_environment` prepare dependencies. Unlike the product
 builders, they can access package registries. There is no universal installer,
 all-products dispatcher, or cross-platform Python environment.
-
-## Complete desktop preparation
-
-`../bundles/desktop.py` composes these providers for local and CI packaging:
-
-```sh
-python scripts/bundles/desktop.py --tag vX.Y.Z --variant bundled --prepare-only \
-  --work "$PWD/.build/desktop-job" --cache "$PWD/.cache/desktop-inputs"
-python scripts/bundles/desktop.py --prepared "$PWD/.build/desktop-job/prepared.json"
-```
-
-Start from a clean checkout at that tag (or use `--commit FULL_SHA`). A host
-Python and Git bootstrap preparation; PM selects the pinned tools. Native
-compiler/SDK prerequisites are still platform-specific. Omitting `--prepare-only`
-runs both phases. Defaults use the same `.build/desktop-job` and
-`.cache/desktop-inputs` roots. Do not pre-create the work directory: preparation
-claims it and publishes its job-local path selection only after success.
-
-Preparation covers the exact workspace union, icon Python environment, runtime
-and independent PM dependencies, Electron-native bindings, Electron archive and
-selected packaging utilities. Light omits the runtime and TUI/web union.
-Compilation and packaging consume those inputs, refusing missing/stale inputs
-rather than acquiring replacements. The result is tied to this source revision,
-target and absolute paths; it must not be restored as an authoritative CI cache.
-Stable bundled/Store variants can share it. Product compilation still reruns.
-
-The desktop cache action derives reusable paths from provider declarations and
-saves them after preparation, before compilation/signing. It excludes job-local
-environments and products. Native wheel reuse additionally depends on measured
-compiler/SDK inputs. Signing-result caches remain separate. Strict dependency
-consumption is not offline signing: timestamps, notarization and publication can
-still require network access. Native unsigned network-denied packaging and final
-signed launch acceptance are distinct verification gates.
 
 ## Prepared JavaScript workspace
 
@@ -61,11 +28,11 @@ build-owned paths.
 
 ```sh
 node scripts/build/node-deps.mjs --source /work/source \
-  --workspace ui-tui --workspace web
+  --workspace ui-tui
 ```
 
 `--source` and at least one `--workspace` are required. A workspace is its
-importer path in `pnpm-lock.yaml` (`ui-tui`, `apps/desktop`); an unknown path
+importer path in `pnpm-lock.yaml` (`ui-tui`); an unknown path
 fails. The provider deduplicates the selection and runs one root
 `pnpm install --frozen-lockfile --trust-lockfile --prod=false` filtered to the
 selected workspaces and their workspace dependencies. The root project is always
@@ -77,7 +44,7 @@ build scripts only for the packages `allowBuilds` in `pnpm-workspace.yaml` names
 here: the `minimumReleaseAge` policy is verified in CI, where it is written.
 Every install starts from empty trees, which also clears a `node_modules` tree that
 npm installed. The previous trees are moved to `.cache/node-deps-previous` and deleted
-only once the install and the Electron preparation succeed; a failed install puts them
+only once the install succeeds; a failed install puts them
 back, and the run after a killed one recovers them. Both generations are on disk while
 pnpm runs. A tree that cannot be moved (a mount point, or a `.cache` on another
 filesystem) is deleted in place as before and cannot be restored. Runs in one checkout
@@ -86,8 +53,8 @@ watcher and relay programs beside it). Its owner refreshes the lock's mtime ever
 second (a failed refresh is retried on the next beat), and a lock that nobody has
 refreshed for 30 s is broken, whatever pid, host or PID namespace it names; the run that
 breaks it replaces it in one rename and waits 2 s before touching the trees. An owner
-stopped for longer (Ctrl-Z) loses the lock. pnpm and Electron's installer run under a
-watcher outside the job (a session of its own; on Windows, `taskkill /T /F`) that re-reads
+stopped for longer (Ctrl-Z) loses the lock. pnpm runs under a
+watcher outside the job (a session of its own) that re-reads
 the lock every 250 ms and kills the child's process tree once the lock is no longer its
 run's, so a stopped pnpm is killed while still stopped and never resumes into the new
 owner's trees; pnpm itself stays in the job, so Ctrl-C and Ctrl-Z reach it as before, and
@@ -102,7 +69,7 @@ node-deps, its relay and the watcher are all SIGKILLed at once (`pkill -9 node`)
 keeps writing into whatever tree the next owner certifies. `hermes update`, or
 deleting `node_modules`, repairs a tree left that way. A live owner is waited for at most
 10 minutes; then the run fails. Downloads retry with pnpm's defaults, except for a source
-launch (`hermes --tui`, the dashboard), which retries once unless the user set a count
+launch (`hermes --tui`), which retries once unless the user set a count
 where pnpm 12 reads one (`pnpm_config_fetch_retries`, or `fetchRetries` in pnpm's
 `config.yaml` or `pnpm-workspace.yaml`; pnpm 12 ignores `fetch-retries` in an npmrc and
 `npm_config_fetch_retries`), so an unreachable registry fails it in about 10 s instead of 70 s.
@@ -122,8 +89,7 @@ remove dependencies that another product needs. This provider modifies the
 prepared workspace. It does not build a frontend.
 Nix supplies dependencies through `fetchPnpmDeps` (its fixed-output hash is `nix/pnpm-deps-hash`) instead of this command.
 
-`--reuse` opts into reusing a completed dependency install. Desktop bundles use
-this with CI's cached `node_modules` tree. The receipt lives inside that tree
+`--reuse` opts into reusing a completed dependency install. The receipt lives inside that tree
 and matches the lockfile, `pnpm-workspace.yaml`, local package manifests,
 project `.npmrc`, `pnpm_config_*`/`npm_config_*` settings, Node/pnpm versions,
 OS/architecture, and the install arguments (the exact workspace union). It also
@@ -140,161 +106,50 @@ The receipt does not validate arbitrary edits inside installed packages and
 never skips product compilation. CI saves the prepared tree before packaging
 can mutate it, and before unrelated build/signing failures can discard it.
 
-## Frontend products
+## TUI product
 
 ```sh
 node scripts/build/tui.mjs --source /work/source --out /work/products/tui
-node scripts/build/web.mjs --source /work/source \
-  --icons /work/products/icons --out /work/products/web
-node scripts/build/desktop.mjs --source /work/source \
-  --icons /work/products/icons --stamp /work/install-stamp.json \
-  --native-deps /work/native-deps --out /work/products/desktop
-```
-
-| Builder | Required CLI arguments | Additional CLI arguments | Product contents |
-|---|---|---|---|
-| `tui.mjs` | `--source`, `--out` | None | `dist/entry.js`, gateway/clipboard Python helpers in `dist/scripts/`, and `package.json` with `type: module` |
-| `web.mjs` | `--source`, `--out`, `--icons` | None | `index.html`, Vite assets, and public assets |
-| `desktop.mjs` | `--source`, `--out`, `--icons`, `--stamp`, `--native-deps` | `--typecheck`, `--platform` | Renderer assets, `electron-main.mjs`, `electron-preload.js`, and native `node_modules` |
-
-Each output is the product directory itself. The desktop output is a `dist`
-directory, not an application package. The exported functions are `buildTui`,
-`buildWeb`, and `buildDesktop`. They return output paths and publish the build-input
-receipt described below.
-
-Each compiler publishes `hermes-build.json` inside its output (inside `dist/`
-for TUI). `freshness.mjs` owns this receipt and all source input selection.
-TUI inputs are its source tree, the Ink source alias, shared sources, their
-manifests and TypeScript configuration, dependency locks, and its compiler and
-shared compiler helpers, plus the shipped Python runtime helpers. Tests, workspace documentation, dependency-provider
-recipes, and other products' compiler recipes do not invalidate the TUI.
-It records product/host identity, content hashes of workspace/shared sources and
-build inputs, and the exact supplied icon directory, desktop install stamp, and
-native-dependency tree. The desktop stamp is hashed as its provenance identity
-rather than its raw bytes: `write-build-stamp.mjs` rewrites the `builtAt` clock on
-every build, so hashing it byte-for-byte let a second build racing this one kill
-it with "inputs changed" for a difference the build machinery itself made
-(#123308). The clock is not dropped, only excluded from that comparison: the
-receipt records it as `stampClock`, the value the bake actually embedded, because
-packaging copies the live stamp file into the bundle *after* the receipt is
-written. A product whose packaged clock disagrees with the clock baked into its
-main process must not be reported current — `detectBundleSwap` would otherwise
-offer a relaunch for a bundle that was never replaced. A receipt predating the
-field is compared by hash alone until the next build rewrites it. Inputs are
-checked again before publication: a concurrent provenance change fails the build
-and preserves the previous output. Output validation
-checks renderer/main/preload/public bytes and the native file inventory; native
-bytes may change through signing after compilation. Native ABI verification remains
-with the native provider and desktop compiler.
-
-Source launchers query this owner without provisioning tools:
-
-```sh
-node scripts/build/freshness.mjs --source /work/source --product web --out /work/products/web
 node scripts/build/freshness.mjs --source /work/source --product tui --out /work/products/tui/dist
 ```
 
-The result is a JSON boolean. Missing receipts, changed inputs (including supplied
-inputs outside source), missing prepared trees, or damaged outputs are stale.
-Receipts describe a source build, not a portable dependency cache; immutable
-distributions use their existing prebuilt launch path instead. They replace the
-old Python per-profile hashes and TUI mtime lists, not PM's dependency receipts.
+The TUI builder requires `--source` and `--out`.  
+Its output contains `dist/entry.js`, gateway/clipboard Python helpers in `dist/scripts/`, and module-mode `package.json` metadata.  
+The exported function is `buildTui`.  
+Source development can use `pnpm --dir ui-tui run build` with existing workspace dependencies.  
 
-The compilers resolve modules from the supplied workspace. They do not run
-pnpm, uv, PM installation, or icon preparation. TypeScript/Vite scratch files
-stay outside source inputs. Compilation uses a private output directory next
-to the destination. A successful compile replaces the destination. A failed
-compile leaves the previous product in place and reports failure. Its presence
-alone does not prove that the latest build succeeded.
+The compiler resolves dependencies from the supplied workspace and does not install tools or dependencies.  
+It writes `hermes-build.json` inside `dist/` with the source/build input identity and output inventory.  
+`freshness.mjs` validates this receipt without provisioning dependencies and returns a JSON boolean.  
+Missing receipts, changed inputs, missing dependencies, and damaged outputs are stale.  
+Dependency-provider receipts and product receipts have separate owners.  
 
-Existing arbitrary output directories require the builder's `.hermes-product`
-marker. Files, symlinks, and source directories are rejected. The exact pnpm
-destinations (`ui-tui/dist`, `hermes_cli/web_dist`, `apps/desktop/dist`, and
-`apps/desktop/build/native-deps`) remain rebuildable without a prior marker.
-Other in-tree products live beneath `.build/` or `apps/desktop/build/products/`.
-`frontend-common.mjs` classifies these destinations independently of which source
-children already exist, so a warm desktop rebuild uses the same rule as a fresh
-build. Explicit stamp, icon, native-tree and dependency inputs remain protected,
-even when they live beneath a generated destination.
+Compilation uses a private output directory next to the destination.  
+A successful build replaces the destination.  
+A failed build preserves the previous output and reports failure.  
+The previous output's presence does not prove that the latest build succeeded.  
+Arbitrary existing outputs require the `.hermes-product` marker.  
+Files, symlinks, and protected source/input paths are rejected.  
 
-### Icons and native inputs
+### Icons
 
-`--icons` names the generator's output root, not a directory of loose icons.
-The web builder reads `web/public/` beneath it and requires `favicon.ico`.
-The desktop builder reads `apps/desktop/public/` beneath it and requires
-`apple-touch-icon.png`.
-
-Run the generator with a Hermes runtime Python (Pillow and resvg-py are core
-dependencies):
+The artwork generator remains available for website and other retained asset consumers:  
 
 ```sh
 python scripts/generate_icons.py --source /work/source --out /work/products/icons
 python scripts/generate_icons.py --source /work/source --out /work/products/icons --check
 ```
 
-The generator reads artwork from `SOURCE/assets` and writes its declared paths
-beneath `OUT`. These paths also include desktop packaging, website, and
-bootstrap-installer assets. `--check` regenerates targets in memory and checks
-output image properties. It does not compare output bytes with regenerated bytes.
-The generator writes targets directly, not through the frontend
-publication helper.
-
-The convenience wrapper runs the same generator on `HERMES_PYTHON` (else
-`python` on PATH) and never installs anything:
-
-```sh
-node scripts/generate-icons.mjs --source /work/source --out /work/products/icons
-```
-
-Both icon commands accept `--check`. Without explicit paths, they use the
-source checkout as the output root. Builders without a runtime environment
-prepare one with `scripts/build/icon_environment.py`.
-
-The desktop native tree contains prepared packages, including `node-pty` with
-its compiled binding. `get-windows` is optional: when staging degraded it away
-the app ships without window enumeration, but a staged copy on macOS must include
-its `main` helper. The provider owns
-the architecture and Electron ABI match. `--platform` defaults to the running
-Node platform and controls native-file checks. It does not cross-compile a
-binding. `--typecheck` enables the desktop renderer TypeScript check and defaults
-to false. The web builder always runs its TypeScript project check.
-
-The supplied install stamp controls the desktop main/preload build identity.
-The compiler does not create an install stamp, build the dashboard, package
-Electron, or sign native files.
-
-### Source-development entrypoints
-
-Existing workspace scripts use these recipes:
-
-```sh
-pnpm --dir ui-tui run build
-pnpm --dir web run build
-pnpm --dir apps/desktop run build
-```
-
-| Command | Output | Preparation outside the product compiler |
-|---|---|---|
-| TUI build | `ui-tui/dist/entry.js` | Existing installed workspace dependencies |
-| Web build | `hermes_cli/web_dist/` | npm `prebuild` prepares icons |
-| Desktop build | `apps/desktop/dist/` | Icons, root-install assertion, install stamp, and native-dependency staging |
-
-Compositions prepare icons once and pass `pnpm run build --icons /prepared/root`
-to the desktop's source-development driver. It copies prepared packaging artwork
-and passes the same root to the compiler. A standalone `pnpm run build` still
-prepares its own icons. Source desktop launch runs the already-prepared Electron
-binary directly; `--skip-build` does not provision Node, pnpm, or Electron.
-
-TUI and web scripts support a no-argument development mode. Explicit product
-mode requires the arguments in the earlier table. The desktop product script
-has no no-argument mode. The Node product parsers expose no `--help` flag.
+Use a runtime Python with the generator's dependencies.  
+The generator reads artwork from `SOURCE/assets` and writes declared paths beneath `OUT`.  
+`--check` regenerates targets in memory and validates image properties, not byte-for-byte equality.  
 
 ## Python dependency provider
 
 ```sh
 python -m pm.build_env --source /work/source \
   --python /work/tools/python --out /work/venv --sealed \
-  --extra all --extra messaging
+  --extra all
 ```
 
 | Argument | Contract |
@@ -337,28 +192,7 @@ selects the persistent cache explicitly. Direct staging also accepts the
 provider's `UV_CACHE_DIR`; otherwise it uses the output parent's `.uv-cache`.
 The PM runtime and application dependency builds receive this same cache.
 General PM staging uses `setup-pm`, which restores and saves it automatically on
-success. Desktop composition
-instead prepares the full dependency set before its single dependency snapshot
-save. The packaged `uv-cache/` is a copy, not the writable build cache.
-
-### Windows ARM64 build prerequisites
-
-`scripts/windows-build-deps.ps1` owns Visual Studio ARM64, Clang, Rust, and
-static OpenSSL preparation. PM calls it through `pm/native_build.py` before any
-dependency build from a checkout, so every source install path gets it. Native
-build adapters use the same `scripts/build/windows-deps.ps1` entrypoint through
-`pm.native_build`, before
-isolating HOME or compiling Node/Python dependencies. CI uses the same script
-through `setup-windows-build-deps`, with an OpenSSL cache outside the product.
-The product compilers and assembler do not install these prerequisites.
-
-The PowerShell entrypoint accepts `-StateRoot` for persistent build-tool state
-and `-EnvironmentFile` for its prepared environment. The Python adapter passes
-that environment only to build children. Rust's original toolchain homes stay
-explicit, so temporary HOME isolation cannot hide an initialized toolchain.
-General CI setup exports that compiler environment to later steps. Desktop
-preparation keeps it child-scoped and records native cache identity there.
-Warm OpenSSL reuse validates both static libraries and its development header.
+success. The packaged `uv-cache/` is a copy, not the writable build cache.
 
 ## Runnable agent assembly
 
@@ -381,7 +215,7 @@ All supplied filesystem input paths must be absolute and exist. `repo` and
 | `code` | Yes | Prepared source tree, or installed code root for reference placement |
 | `repo` | Yes | Code/resource location beneath `OUT`, such as `hermes-agent`, `.`, or `share/hermes-agent` |
 | `placement` | Yes | `contained`, `fixed`, or `references` |
-| `target` | Yes | `linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, `win32-x64`, `win32-arm64`, or `linux-arm64-bionic` |
+| `target` | Yes | Linux targets: `linux-x64`, `linux-arm64`, their `-musl` variants, or `linux-arm64-bionic` |
 | `python` | Yes | Prepared target interpreter file |
 | `site_packages` | Yes | Prepared application dependency directory |
 | `environment` | Yes | Prepared application environment root |
@@ -390,16 +224,16 @@ All supplied filesystem input paths must be absolute and exist. `repo` and
 | `tools` | No | Prepared runtime tool directory. The manifest defaults to `tools` if omitted |
 | `command_dir` | For `references` | Directory of prepared commands declared by the project |
 | `resources` | No | Resource-name to directory mapping |
-| `frontends` | No | `tui` and/or `web` product paths |
+| `frontends` | No | `tui` product path |
 | `ref` | No | Source identity copied to the completion manifest |
 | `stamp` | No | Prepared install stamp copied to `OUT/repo/install-stamp.json` |
 | `features` | No | Prepared feature inventory copied to `OUT/enabled-features.json` |
 | `env` | No | Additional environment values in the reference-placement command map |
 
-Recognized resource names are `skills`, `optional-skills`, `plugins`, `locales`,
+Recognized resource names are `skills`, `optional-skills`, `plugins`,
 and `optional-mcps`. Distribution adapters supply the required resources.
 The generic assembler does not infer a missing resource mapping. TUI inputs
-require `dist/entry.js` and `package.json`. Web inputs require `index.html`.
+require `dist/entry.js` and `package.json`.
 
 The PM marker supplies `python` and `sitePackages` paths relative to its runtime
 directory, or absolute store references. These paths must resolve to real
@@ -425,14 +259,11 @@ code path. Source-layout placement therefore requires an output-owned dependency
 directory, including in `fixed` mode. Reference placement does not write this file.
 
 Commands derive from `[project.scripts]`, not a second command
-list. POSIX launchers use the supplied runtime paths. Windows launcher minting
-runs the target interpreter and therefore needs a runnable native environment.
+list. Linux launchers use the supplied runtime paths.
 A target label alone does not prove ABI compatibility.
 
-For copied frontends, the assembler places TUI files at
-`OUT/repo/hermes_cli/tui_dist/` and web files at
-`OUT/repo/hermes_cli/web_dist/`. Reference placement links TUI at `OUT/ui-tui`
-and web at `OUT/repo/web_dist` and records their environment bindings.
+For copied frontends, the assembler places TUI files at `OUT/repo/hermes_cli/tui_dist/`.
+Reference placement links TUI at `OUT/ui-tui` and records its environment binding.
 
 After structural assembly, `manifest.json` records `schema`, `target`, `repo`,
 `venv`, `store`, `launchers`, and `runtime`, plus `ref` when supplied. Its
@@ -454,14 +285,12 @@ These locations define the interfaces described here:
 |---|---|
 | Frontend arguments and publication | `frontend-common.mjs:31–79` |
 | TUI product and development output | `tui.mjs:25–103` |
-| Web inputs and TypeScript check | `web.mjs:8–71` |
-| Desktop inputs and native checks | `desktop.mjs:11–69` |
 | Locked workspace union | `node-deps.mjs` (`dependencyInputs`, `prepareNodeDependencies`) |
 | Checkout lock and child supervision | `node-deps-lock.mjs`, `node-deps-heartbeat.mjs`, `node-deps-watcher.mjs`, `node-deps-relay.mjs` |
 | Python provider | `../../pm/operations.py`, `../../pm/environment.py` |
 | Agent input fields and checks | `inputs.py:30–115` |
 | Agent assembly and outputs | `agent.py:76–168` |
-| Launcher implementation | `launchers.py`, `launcher_wrapper.py`, `mint_launchers.py` |
+| Launcher implementation | `launchers.py` |
 
 ## Verification still required
 
@@ -470,8 +299,7 @@ They do not establish offline compilation, cache reuse, or runtime success.
 Artifact acceptance still needs these checks:
 
 - Real frontend builds from immutable prepared inputs without network access.
-- Standalone TUI interaction and dashboard assets/backend behavior.
-- Native Electron bindings under the packaged Electron version.
+- Standalone TUI interaction.
 - Agent CLI, ACP, plugins, and catalogs from an unrelated working directory.
 - Native payload relocation and offline mutable-environment reconstruction.
 - Docker runtime probes as its non-root user and layer-content inspection.

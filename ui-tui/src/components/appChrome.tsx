@@ -12,9 +12,10 @@ import { useTurnSelector } from '../app/turnStore.js'
 import { DEV_CREDITS_MODE } from '../config/env.js'
 import { faces } from '../content/faces.js'
 import { VERBS } from '../content/verbs.js'
+import { chromeEn } from '../copy/chrome.js'
+import { contentEn } from '../copy/content.js'
 import { fmtDuration } from '../domain/messages.js'
 import { stickyPromptFromViewport } from '../domain/viewport.js'
-import { messages, t as tr } from '../i18n/runtime.js'
 import { buildSubagentTree, treeTotals, widthByDepth } from '../lib/subagentTree.js'
 import { useScrollbarSnapshot, useViewportSnapshot } from '../lib/viewportStore.js'
 import type { Theme } from '../theme.js'
@@ -90,7 +91,7 @@ const EMOJI_FRAME_WIDTH = EMOJI_FRAMES.reduce((max, f) => Math.max(max, stringWi
 let kaomojiWidthCache: { table: unknown; width: number } | null = null
 
 const kaomojiFrameWidth = (): number => {
-  const table = messages().content.faces
+  const table = contentEn.content.faces
 
   if (kaomojiWidthCache?.table !== table) {
     kaomojiWidthCache = { table, width: Object.values(table).reduce((max, f) => Math.max(max, stringWidth(f)), 1) }
@@ -230,13 +231,13 @@ function ctxBarColor(pct: number | undefined, t: Theme) {
 }
 
 function statusSessionCountLabel(count: number) {
-  return tr('status.sessionCount', count)
+  return chromeEn.status.sessionCount(count)
 }
 
 // State values the app layer compares against ('ready', 'running…') are shown
 // through the catalog; anything else (a live verb, a slash reply) passes through.
 export function displayStatus(status: string): string {
-  const s = messages().status
+  const s = chromeEn.status
 
   if (status === 'ready') {
     return s.ready
@@ -335,7 +336,7 @@ export function statusRuleWidths(cols: number, cwdLabel: string, minLeftContent 
 
 // Progressive disclosure for the status rule's lower-priority tail segments.
 // As the terminal narrows we shed the least important pieces first (cost →
-// bg → voice → compressions → duration → context bar), and below the bar
+// bg → compressions → duration → context bar), and below the bar
 // breakpoint the context read-out collapses to a bare token count. Status and
 // model are never gated here — they're guaranteed room by `statusRuleWidths`.
 export interface StatusBarSegments {
@@ -348,7 +349,6 @@ export interface StatusBarSegments {
   latency: boolean
   subagents: boolean
   tps: boolean
-  voice: boolean
 }
 
 export function statusBarSegments(cols: number): StatusBarSegments {
@@ -359,7 +359,6 @@ export function statusBarSegments(cols: number): StatusBarSegments {
     bar: w >= 72,
     duration: w >= 76,
     compressions: w >= 80,
-    voice: w >= 84,
     bg: w >= 88,
     subagents: w >= 92,
     cacheHit: w >= 96,
@@ -401,7 +400,7 @@ function SpawnHud({ t }: { t: Theme }) {
   const pieces: string[] = []
 
   if (delegation.paused) {
-    pieces.push(tr('status.paused'))
+    pieces.push(chromeEn.status.paused)
   }
 
   if (totals.descendantCount > 0) {
@@ -503,7 +502,7 @@ const shortModelLabel = (model: string) =>
     .trim()
 
 const modelLabel = (model: string, effort?: string, fast?: boolean, effortWire?: string) =>
-  [shortModelLabel(model), effortLabel(effort, effortWire), fast ? tr('status.fast') : ''].filter(Boolean).join(' ')
+  [shortModelLabel(model), effortLabel(effort, effortWire), fast ? chromeEn.status.fast : ''].filter(Boolean).join(' ')
 
 export function GoodVibesHeart({ tick, t }: { tick: number; t: Theme }) {
   const [active, setActive] = useState(false)
@@ -553,12 +552,11 @@ export function StatusRule({
   sessionTitle,
   sessionStartedAt,
   turnStartedAt,
-  voiceLabel,
   onSessionCountClick,
   t
 }: StatusRuleProps) {
   // Not a hook: tests call StatusRule as a plain function, and the rule re-renders on every tick anyway.
-  const T = messages()
+  const T = chromeEn
   const pct = usage.context_percent ?? undefined
   const contextMark = usage.context_estimated ? '~' : ''
   const barColor = ctxBarColor(pct, t)
@@ -626,7 +624,7 @@ export function StatusRule({
 
   // Whole-segment progressive disclosure for the tail: a segment renders only
   // if it fits in the space left after the pinned essentials, evaluated in
-  // descending priority order — bar, duration, compressions, voice, session
+  // descending priority order — bar, duration, compressions, session
   // count, bg, cost. Lower-priority segments drop first and nothing truncates
   // mid-segment, so status/model/context are never crushed.
   const SEP = stringWidth(' │ ')
@@ -679,7 +677,6 @@ export function StatusRule({
   const tpsText = typeof usage.avg_tps === 'number' ? `↑ ${Math.round(usage.avg_tps)} t/s` : ''
   const showTps = segs.tps && ok('tps') && !!tpsText && fits(SEP + stringWidth(tpsText))
 
-  const showVoice = segs.voice && ok('voice') && !!voiceLabel && fits(SEP + stringWidth(voiceLabel))
   const showSessionCount = !!sessionCountText && fits(SEP + stringWidth(sessionCountText))
   const showBg = segs.bg && ok('bg_tasks') && bgCount > 0 && fits(SEP + stringWidth(T.status.bgTasks(bgCount)))
   const subagentCount = typeof usage.active_subagents === 'number' ? usage.active_subagents : 0
@@ -834,17 +831,6 @@ export function StatusRule({
           <Text color={t.color.muted} wrap="truncate-end">
             {' │ '}
             {tpsText}
-          </Text>
-        ) : null}
-        {showVoice ? (
-          <Text
-            color={
-              voiceLabel!.startsWith('●') ? t.color.error : voiceLabel!.startsWith('◉') ? t.color.warn : t.color.muted
-            }
-            wrap="truncate-end"
-          >
-            {' │ '}
-            {voiceLabel}
           </Text>
         ) : null}
         {showSessionCount ? sessionCountNode : null}
@@ -1013,7 +999,6 @@ interface StatusRuleProps {
   t: Theme
   turnStartedAt?: null | number
   usage: Usage
-  voiceLabel?: string
   onSessionCountClick?: () => void
 }
 

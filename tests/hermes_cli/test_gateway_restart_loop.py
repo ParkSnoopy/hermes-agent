@@ -2,7 +2,6 @@
 
 Covers:
 - Defense 1: gateway stop/restart refuse when _HERMES_GATEWAY=1
-- Defense 2: cron create rejects prompts containing gateway lifecycle commands
 - _contains_gateway_lifecycle_command pattern matching
 """
 
@@ -12,8 +11,8 @@ from argparse import Namespace
 
 import pytest
 
-from cron.lifecycle_guard import contains_gateway_lifecycle_command as _contains_gateway_lifecycle_command
-from hermes_cli.cron import cron_command
+from tools.gateway_lifecycle_guard import contains_gateway_lifecycle_command as _contains_gateway_lifecycle_command
+
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +160,7 @@ class TestGatewayLifecyclePattern:
         # same choke point, where it collapses to `kickstart`. This is the
         # entry point terminal_tool.py calls in gateway sessions, so it is the
         # boundary that matters.
-        from cron.lifecycle_guard import (
+        from tools.gateway_lifecycle_guard import (
             contains_gateway_lifecycle_command_or_referenced_script,
         )
 
@@ -373,69 +372,13 @@ class TestProfileFlagGatewayLifecycle:
         # With no profile identity the guard cannot prove self-targeting, so
         # the profile-flag form is allowed rather than over-blocking siblings;
         # the adjacent form stays blocked unconditionally.
-        from cron import lifecycle_guard
+        from tools import gateway_lifecycle_guard as lifecycle_guard
 
         monkeypatch.setattr(lifecycle_guard, "_current_profile_name", lambda: None)
         assert not _contains_gateway_lifecycle_command("hermes -p zeus gateway restart")
         assert _contains_gateway_lifecycle_command("hermes gateway restart")
 
 
-class TestCronCreateLifecycleBlock:
-    """Verify cron create rejects gateway lifecycle prompts."""
-
-    @pytest.fixture(autouse=True)
-    def _setup_cron_dir(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-        monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-        monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
-
-    def test_block_hermes_gateway_restart(self, capsys):
-        args = Namespace(
-            cron_command="create",
-            schedule="30m",
-            prompt="Upgrade hermes then run hermes gateway restart",
-            name=None,
-            deliver=None,
-            repeat=None,
-            skill=None,
-            skills=None,
-            script=None,
-            workdir=None,
-            profile=None,
-            no_agent=False,
-        )
-        rc = cron_command(args)
-        assert rc == 1
-        out = capsys.readouterr().out
-        assert "Blocked" in out
-
-
-    def test_block_script_with_lifecycle_command(self, tmp_path, capsys, monkeypatch):
-        # A no_agent job whose script IS the job (the issue's real abuse path:
-        # restart_hermes_gateway_once.sh). The script must live under
-        # HERMES_HOME/scripts so the scheduler — and the guard — resolve it.
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-        scripts_dir = tmp_path / ".hermes" / "scripts"
-        scripts_dir.mkdir(parents=True)
-        (scripts_dir / "restart.sh").write_text("#!/usr/bin/env bash\nhermes gateway restart\n", encoding="utf-8")
-        args = Namespace(
-            cron_command="create",
-            schedule="1h",
-            prompt=None,
-            name=None,
-            deliver=None,
-            repeat=None,
-            skill=None,
-            skills=None,
-            script="restart.sh",
-            workdir=None,
-            profile=None,
-            no_agent=True,
-        )
-        rc = cron_command(args)
-        assert rc == 1
-        out = capsys.readouterr().out
-        assert "Blocked" in out
 
 
 
@@ -582,7 +525,7 @@ class TestTerminalToolGatewayLifecycleGuard:
     ):
         """#78398: an over-budget root must never reach shlex — not even via
         the launchctl pre-scan that runs before the full guard."""
-        from cron import lifecycle_guard
+        from tools import gateway_lifecycle_guard as lifecycle_guard
         import tools.terminal_tool as tt
 
         self._patch_env(monkeypatch, self._make_fake_env(), inside_gateway=True)
@@ -872,11 +815,32 @@ class TestTerminalToolGatewayLifecycleGuard:
 
 
 # ---------------------------------------------------------------------------
-# cron.lifecycle_guard module — the shared checker create_job/CLI/terminal use
+# Shared lifecycle scanner
 # ---------------------------------------------------------------------------
 
 class TestLifecycleGuardModule:
-    """Direct tests for cron.lifecycle_guard.check_gateway_lifecycle."""
+    """Direct tests for the retained lifecycle scanner."""
+
+    def test_executed_script_with_lifecycle_command_is_blocked(self, tmp_path):
+        from tools.gateway_lifecycle_guard import scan_gateway_lifecycle
+
+        script = tmp_path / "restart.sh"
+        script.write_text("#!/bin/sh\nhermes gateway restart\n", encoding="utf-8")
+        assert scan_gateway_lifecycle(f"bash {script}") == (True, None)
+
+    def test_executed_script_walks_nested_relative_script(self, tmp_path):
+        from tools.gateway_lifecycle_guard import scan_gateway_lifecycle
+
+        (tmp_path / "wrapper.sh").write_text("#!/bin/sh\n./deploy.sh\n", encoding="utf-8")
+        (tmp_path / "deploy.sh").write_text("#!/bin/sh\nhermes gateway stop\n", encoding="utf-8")
+        assert scan_gateway_lifecycle("bash wrapper.sh", cwd=str(tmp_path)) == (True, None)
+
+    def test_executed_non_utf8_script_still_scanned(self, tmp_path):
+        from tools.gateway_lifecycle_guard import scan_gateway_lifecycle
+
+        script = tmp_path / "weird.sh"
+        script.write_bytes(b"\xfehermes gateway restart\xff")
+        assert scan_gateway_lifecycle(f"bash {script}") == (True, None)
 
 
     def test_nul_padded_script_is_still_scanned(self, tmp_path):
@@ -887,7 +851,7 @@ class TestLifecycleGuardModule:
         past an embedded NUL, so one pad byte bypassed the guard entirely while
         the script still ran its lifecycle command.
         """
-        from cron.lifecycle_guard import (
+        from tools.gateway_lifecycle_guard import (
             contains_gateway_lifecycle_command_or_referenced_script,
         )
         script = tmp_path / "padded.sh"
@@ -905,7 +869,7 @@ class TestLifecycleGuardModule:
         Keying the fix on a leading ``#!`` alone is insufficient: a shebang-less
         file with a NUL on any line but the first executes normally.
         """
-        from cron.lifecycle_guard import (
+        from tools.gateway_lifecycle_guard import (
             contains_gateway_lifecycle_command_or_referenced_script,
         )
         script = tmp_path / "padded_noshebang.sh"
@@ -918,7 +882,7 @@ class TestLifecycleGuardModule:
 
     def test_macho_binary_is_not_scanned_as_script(self, tmp_path):
         """Same for Mach-O, including the universal/fat signature (macOS)."""
-        from cron.lifecycle_guard import (
+        from tools.gateway_lifecycle_guard import (
             contains_gateway_lifecycle_command_or_referenced_script,
         )
         for name, magic in (
@@ -940,7 +904,7 @@ class TestLifecycleGuardModule:
         Stripping NULs must not let a too-large file skip the size guard — the
         binary check runs first, the size check still applies afterwards.
         """
-        from cron.lifecycle_guard import (
+        from tools.gateway_lifecycle_guard import (
             contains_gateway_lifecycle_command_or_referenced_script,
         )
         script = tmp_path / "huge.sh"
@@ -951,132 +915,21 @@ class TestLifecycleGuardModule:
         )
 
 
-    def test_prompt_with_command_raises(self):
-        from cron.lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
-        with pytest.raises(GatewayLifecycleBlocked):
-            check_gateway_lifecycle("please run hermes gateway restart", None)
-
-
-    def test_script_with_command_raises(self, tmp_path, monkeypatch):
-        from cron.lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
-        script = tmp_path / "restart.sh"
-        script.write_text("#!/usr/bin/env bash\nhermes gateway restart\n", encoding="utf-8")
-        with pytest.raises(GatewayLifecycleBlocked):
-            check_gateway_lifecycle("clean prompt", str(script))
-
-
-    @pytest.mark.parametrize("line", [
-        # #62891: neutral labels defeat any label-anchored regex, so cron
-        # scripts get the same label-independent submit/bootstrap block.
-        "launchctl submit -l com.foo -- /path/gateway",
-        "launchctl bootstrap gui/501 /tmp/com.foo.plist",
-    ])
-    def test_script_with_neutral_label_submit_or_bootstrap_raises(
-        self, tmp_path, line
-    ):
-        from cron.lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
-        script = tmp_path / "persistent.sh"
-        script.write_text(f"#!/usr/bin/env bash\n{line}\n", encoding="utf-8")
-        with pytest.raises(GatewayLifecycleBlocked):
-            check_gateway_lifecycle("clean prompt", str(script))
-
-
-    def test_binary_script_does_not_silently_bypass(self, tmp_path):
-        """Non-UTF-8 bytes used to be swallowed by UnicodeDecodeError; now we
-        decode with errors='replace' so the scan always sees the command."""
-        from cron.lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
-        script = tmp_path / "weird.bin"
-        script.write_bytes(b"\xfehermes gateway restart\xff")
-        with pytest.raises(GatewayLifecycleBlocked):
-            check_gateway_lifecycle("", str(script))
-
-
-    def test_relative_script_resolved_under_scripts_dir(self, tmp_path, monkeypatch):
-        """A bare/relative script name resolves under HERMES_HOME/scripts (the
-        same place the scheduler runs it from) — otherwise the guard would read
-        a nonexistent relative path and scan prompt-only content."""
-        from cron.lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-        scripts_dir = tmp_path / ".hermes" / "scripts"
-        scripts_dir.mkdir(parents=True)
-        (scripts_dir / "restart.sh").write_text(
-            "launchctl kickstart -k gui/501/ai.hermes.gateway\n"
-        )
-        with pytest.raises(GatewayLifecycleBlocked):
-            check_gateway_lifecycle("daily", "restart.sh")
-
-    def test_python_script_with_pathlib_division_not_blocked(self, tmp_path):
-        """#77131: a .py cron script using pathlib division (Path.home() /
-        ".hermes") must NOT be blocked.
-
-        Before the fix, the shell-script reference walk tokenized Python
-        sources and treated pathlib's bare "/" operator as an executable
-        path resolving to the filesystem root, which fails the
-        regular-file check and hard-blocks every innocent .py script.
-        Python is executed by the interpreter, never through a POSIX shell,
-        so the walk is skipped for .py and only the direct command regex
-        runs.
-        """
-        from cron.lifecycle_guard import check_gateway_lifecycle
-        script = tmp_path / "digest.py"
-        script.write_text(
-            "from pathlib import Path\n"
-            'ENV = Path.home() / ".hermes" / ".env"\n'
-            'print("digest ok")\n'
-        )
-        check_gateway_lifecycle("clean prompt", str(script))
-
-    def test_python_script_with_literal_lifecycle_command_still_blocked(
-        self, tmp_path
-    ):
-        """#77131: skipping the shell walk for .py must NOT weaken the guard —
-        a literal lifecycle command embedded in a .py script is still caught
-        by the direct regex scan."""
-        from cron.lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
-        script = tmp_path / "evil.py"
-        script.write_text('import os\nos.system("hermes gateway restart")\n', encoding="utf-8")
-        with pytest.raises(GatewayLifecycleBlocked):
-            check_gateway_lifecycle("clean prompt", str(script))
 
 
 
 
-    def test_remote_read_fallback_binary_does_not_crash_guard(self):
-        """#77703: in the gateway the referenced-script walk carries a
-        ``read_remote_script`` fallback (SSH/Modal/Daytona backends read the
-        script over the wire). When the referenced path is an ELF binary, that
-        fallback returned the binary's decoded bytes; the scanner then
-        tokenized machine code into bogus NUL-bearing paths and crashed with
-        ``ValueError: embedded null byte`` (the tool errored out, the command
-        never ran). The guard must tolerate binary content from the fallback
-        and return False without raising."""
-        from cron.lifecycle_guard import (
-            contains_gateway_lifecycle_command_or_referenced_script,
-        )
-        # Simulates the pre-fix _read_script_in_env handing back an ELF's
-        # decoded bytes (NUL preserved through errors="replace"). The newline
-        # puts a NUL-bearing absolute path in command position, exactly how the
-        # recursion re-tokenized machine code into a bogus script reference.
-        binary_blob = "\x7fELF\x01\x01\n/opt/bin/tool\x00\x01 --run\n"
 
-        def _remote_read(_path: str):
-            return binary_blob
 
-        result = contains_gateway_lifecycle_command_or_referenced_script(
-            "/home/zedi/venv/bin/python --version",
-            read_remote_script=_remote_read,
-        )
-        assert result is False
 
-    def test_shell_script_reference_walk_still_works(self, tmp_path):
-        """The referenced-script walk still applies to real shell scripts:
-        a .sh script that itself invokes a lifecycle command is caught."""
-        from cron.lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
-        script = tmp_path / "wrapper.sh"
-        script.write_text("#!/usr/bin/env bash\n./deploy.sh\n", encoding="utf-8")
-        (tmp_path / "deploy.sh").write_text("#!/usr/bin/env bash\nhermes gateway stop\n", encoding="utf-8")
-        with pytest.raises(GatewayLifecycleBlocked):
-            check_gateway_lifecycle("daily ops", str(script))
+
+
+
+
+
+
+
+
 
     def test_cloud_backed_symlink_fails_closed_without_opening_target(
         self, tmp_path, monkeypatch
@@ -1089,7 +942,7 @@ class TestLifecycleGuardModule:
         the resolved FileProvider path from local metadata and fail closed
         without opening it.
         """
-        from cron import lifecycle_guard
+        from tools import gateway_lifecycle_guard as lifecycle_guard
 
         cloud_dir = (
             tmp_path
@@ -1127,7 +980,7 @@ class TestLifecycleGuardModule:
         FileProvider hazard as iCloud's Mobile Documents: an evicted
         placeholder's open() can hang preflight. The guard must fail closed
         on the lexical path without opening the file."""
-        from cron import lifecycle_guard
+        from tools import gateway_lifecycle_guard as lifecycle_guard
 
         cloud_dir = (
             tmp_path
@@ -1154,101 +1007,18 @@ class TestLifecycleGuardModule:
         ) is True
 
 
-    def test_cron_script_scan_blocks_cloud_script_without_opening(
-        self, tmp_path, monkeypatch
-    ):
-        """The cron-script scan path (_read_script_for_scanning via
-        check_gateway_lifecycle) must also refuse a cloud-resident script
-        without opening it, and the surfaced reason must attribute the
-        refusal to the cloud-synced path — not to a lifecycle command."""
-        from cron import lifecycle_guard
-        from cron.lifecycle_guard import (
-            GatewayLifecycleBlocked,
-            check_gateway_lifecycle,
-        )
-
-        cloud_dir = (
-            tmp_path
-            / "Library"
-            / "Mobile Documents"
-            / "com~apple~CloudDocs"
-            / "scripts"
-        )
-        cloud_dir.mkdir(parents=True)
-        script = cloud_dir / "nightly.sh"
-        script.write_text("#!/bin/sh\necho safe\n", encoding="utf-8")
-
-        real_open = lifecycle_guard.os.open
-
-        def reject_cloud_open(path, flags, *args, **kwargs):
-            if str(path) == str(script):
-                pytest.fail("cron-script scan opened a cloud-resident script")
-            return real_open(path, flags, *args, **kwargs)
-
-        monkeypatch.setattr(lifecycle_guard.os, "open", reject_cloud_open)
-
-        with pytest.raises(GatewayLifecycleBlocked) as excinfo:
-            check_gateway_lifecycle("nightly job", str(script))
-        message = str(excinfo.value)
-        assert "cloud-synced" in message
-        assert "lifecycle command" not in message
 
     # -- Whole-class regression tests (tilllt's T1-T4 on PR #79454) --------
 
 
-    def test_tilde_nul_candidate_does_not_crash_cron_script_resolution(self):
-        """T2: the same ``expanduser`` crash via the cron ``script`` path
-        (``_resolve_script_path`` / ``check_gateway_lifecycle``)."""
-        from cron.lifecycle_guard import check_gateway_lifecycle
 
-        # Must neither raise ValueError nor block: an unresolvable script
-        # value has nothing to scan, and scheduler path validation reports
-        # the bad path separately.
-        check_gateway_lifecycle("daily ops", "~jenkins\x00broken/payload.sh")
 
-    def test_binary_from_remote_callback_never_false_positives(self):
-        """T3: a ``read_remote_script`` callback returning NUL-bearing binary
-        text that *happens to contain* a lifecycle-looking fragment must be
-        skipped as binary at the recursion boundary — not matched and
-        blocked. Hardening one callback (#79454) left every other current or
-        future callback exposed; the boundary sanitizer covers them all."""
-        from cron.lifecycle_guard import (
-            contains_gateway_lifecycle_command_or_referenced_script,
-        )
-
-        def _remote_read(_path: str):
-            return "MZ\x00\x00\x90\x00 hermes gateway restart \x00\x00junk"
-
-        result = contains_gateway_lifecycle_command_or_referenced_script(
-            "bash /nonexistent/dir/helper.sh",
-            cwd="/tmp",
-            read_remote_script=_remote_read,
-        )
-        assert result is False
-
-    def test_oversized_remote_callback_text_fails_closed(self):
-        """T4: >1 MiB of NUL-free text from a remote callback must follow the
-        local-read contract (oversized regular file → fail closed, #76762)
-        instead of being scanned unbounded — the 179 MiB case from #77729."""
-        from cron.lifecycle_guard import (
-            _MAX_REFERENCED_SCRIPT_BYTES,
-            contains_gateway_lifecycle_command_or_referenced_script,
-        )
-
-        big = "x" * (_MAX_REFERENCED_SCRIPT_BYTES + 1)
-
-        result = contains_gateway_lifecycle_command_or_referenced_script(
-            "bash /nonexistent/dir/big_helper.sh",
-            cwd="/tmp",
-            read_remote_script=lambda _path: big,
-        )
-        assert result is True
 
     def test_guard_is_total_against_adversarial_inputs(self, monkeypatch):
         """The public guard is a total function: no input may raise. Covers
         the residual class beyond the four named sites — including
         ``expanduser`` RuntimeError when HOME is unset under launchd."""
-        from cron.lifecycle_guard import (
+        from tools.gateway_lifecycle_guard import (
             contains_gateway_lifecycle_command_or_referenced_script,
         )
 
@@ -1273,7 +1043,7 @@ class TestLifecycleGuardModule:
         back to the direct-scan verdict instead of propagating — a guard
         crash breaks every terminal command until gateway restart (#77780),
         strictly worse than either verdict."""
-        import cron.lifecycle_guard as lg
+        import tools.gateway_lifecycle_guard as lg
 
         def _boom(*args, **kwargs):
             raise RuntimeError("sibling site nobody found yet")
@@ -1288,29 +1058,6 @@ class TestLifecycleGuardModule:
             "echo hello"
         ) is False
 
-    def test_cron_guard_total_when_home_unresolvable(self, monkeypatch):
-        """`get_hermes_home()` falls back to Path.home(), which raises
-        RuntimeError when neither HERMES_HOME nor HOME resolves
-        (arbitrary-UID containers, launchd). The cron entry point must
-        treat a relative script value as unresolvable — nothing to scan —
-        not crash."""
-        from pathlib import Path
-
-        from cron.lifecycle_guard import check_gateway_lifecycle
-
-        monkeypatch.delenv("HERMES_HOME", raising=False)
-        monkeypatch.delenv("HOME", raising=False)
-        monkeypatch.setattr(
-            Path,
-            "home",
-            classmethod(
-                lambda cls: (_ for _ in ()).throw(
-                    RuntimeError("Could not determine home directory")
-                )
-            ),
-        )
-        # Must not raise; relative script cannot resolve without a home.
-        check_gateway_lifecycle("daily ops", "relative-script.sh")
 
 
 # ---------------------------------------------------------------------------
@@ -1328,7 +1075,7 @@ class TestDotSourceIsScannedLikeSource:
     """
 
     def _scan(self, command, cwd):
-        from cron.lifecycle_guard import (
+        from tools.gateway_lifecycle_guard import (
             contains_gateway_lifecycle_command_or_referenced_script,
         )
 
@@ -1384,7 +1131,7 @@ class TestTransparentWrapperPrefixes:
     `bash ~/restart.sh`."""
 
     def _scan(self, command, cwd=None):
-        from cron.lifecycle_guard import (
+        from tools.gateway_lifecycle_guard import (
             contains_gateway_lifecycle_command_or_referenced_script,
         )
 
@@ -1418,7 +1165,7 @@ class TestTransparentWrapperPrefixes:
 
     @pytest.mark.parametrize("prefix", ["sudo", "env", "nohup", "setsid"])
     def test_wrapped_launchctl_submit_is_blocked(self, prefix):
-        from cron.lifecycle_guard import contains_launchctl_submit_command
+        from tools.gateway_lifecycle_guard import contains_launchctl_submit_command
 
         assert contains_launchctl_submit_command(
             f"{prefix} launchctl submit -l com.example.helper -- /usr/bin/true"
@@ -1507,7 +1254,7 @@ class TestRelativePathDoesNotDisableDataExemption:
     lifecycle string."""
 
     def _scan(self, command):
-        from cron.lifecycle_guard import (
+        from tools.gateway_lifecycle_guard import (
             contains_gateway_lifecycle_command_or_referenced_script,
         )
 
@@ -1542,41 +1289,6 @@ class TestRelativePathDoesNotDisableDataExemption:
 
 
 
-class TestCreateJobBlocksLifecycleCommands:
-    """The regression the CLI-layer-only guard could not catch: the agent's
-    `cronjob` model tool calls cron.jobs.create_job directly, bypassing
-    hermes_cli.cron.cron_create. Enforcing at create_job covers both."""
-
-    @pytest.fixture(autouse=True)
-    def _setup_cron_dir(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cron.jobs.CRON_DIR", tmp_path / "cron")
-        monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
-        monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
-
-    def test_create_job_blocks_prompt_command(self):
-        from cron.jobs import create_job
-        from cron.lifecycle_guard import GatewayLifecycleBlocked
-        with pytest.raises(GatewayLifecycleBlocked):
-            create_job(prompt="then run hermes gateway restart", schedule="30m")
-
-    def test_create_job_allows_benign_prompt(self):
-        from cron.jobs import create_job
-        job = create_job(prompt="summarize the API gateway logs and note restart events",
-                         schedule="30m")
-        assert job["id"]
-
-    def test_cronjob_tool_surfaces_block_as_error(self, tmp_path, monkeypatch):
-        """End-to-end through the model tool: the block comes back as
-        result['error'] with the #30719 hint, not an unhandled exception."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-        (tmp_path / ".hermes").mkdir(parents=True)
-        from tools.cronjob_tools import cronjob
-        result = json.loads(cronjob(
-            action="create", schedule="0 9 * * *",
-            prompt="please run hermes gateway restart nightly",
-        ))
-        assert result.get("success") is False
-        assert "#30719" in result.get("error", "")
 
 
 # ---------------------------------------------------------------------------
@@ -1658,7 +1370,7 @@ class TestRestartLoopGuard:
             assert rlg.check_and_record(0, 60, now=ts) is False
 
 class TestTerminalToolGatewayLifecycleGuardRemote:
-    """Remote-backend and two-session cwd regression coverage."""
+    """Local backend refusal coverage."""
 
     def _patch_env(self, monkeypatch, fake_env, *, inside_gateway: bool):
         import tools.terminal_tool as tt
@@ -1673,32 +1385,6 @@ class TestTerminalToolGatewayLifecycleGuardRemote:
             lambda: inside_gateway,
         )
 
-    def test_remote_backend_script_read_uses_env_execute(self, monkeypatch, tmp_path):
-        import tools.terminal_tool as tt
-
-        # Path only exists on the remote backend; locally it is absent, so the
-        # guard must fall back to a bounded env.execute('head -c ...') read.
-        script = "/remote/workspace/remote.sh"
-        calls = []
-
-        class _RemoteEnv:
-            env = {}
-            cwd = str(tmp_path)
-            def execute(self, command, **kwargs):
-                calls.append(command)
-                if "head -c" in command and "/remote/workspace/remote.sh" in command:
-                    return {"output": "#!/usr/bin/env bash\nhermes gateway restart\n", "returncode": 0}
-                return {"output": "", "returncode": 0}
-
-        fake_env = _RemoteEnv()
-        fake_env.cwd = "/remote/workspace"
-        self._patch_env(monkeypatch, fake_env, inside_gateway=True)
-
-        result = json.loads(tt.terminal_tool(command=f"/bin/bash {script}"))
-
-        assert result["exit_code"] == 1
-        assert "referenced script" in result["error"]
-        assert any("head -c" in c for c in calls)
 
 
     def test_unscannable_executed_script_names_the_reason(self, monkeypatch, tmp_path):
@@ -1735,7 +1421,7 @@ class TestLifecycleGuardDataArgumentExemption:
     text and a grep for the lifecycle string in syslog."""
 
     def _scan(self, command, **kwargs):
-        from cron.lifecycle_guard import (
+        from tools.gateway_lifecycle_guard import (
             contains_gateway_lifecycle_command_or_referenced_script,
         )
         return contains_gateway_lifecycle_command_or_referenced_script(
@@ -1778,22 +1464,6 @@ class TestLifecycleGuardDataArgumentExemption:
     def test_command_position_lifecycle_still_blocked(self, command):
         assert self._scan(command) is True
 
-    def test_python_script_branch_gets_the_same_exemption(self, tmp_path):
-        """check_gateway_lifecycle's .py branch scans the combined
-        prompt+script text with the direct regex; a shell-shaped diagnostic
-        command in the PROMPT (the live false-positive shape) must not block
-        a job that runs a clean .py script. Note the exemption is
-        fail-closed: the same SQL buried in non-shell-shaped Python source
-        (e.g. inside a subprocess.run list literal) stays blocked because
-        the masker cannot prove it is data."""
-        from cron.lifecycle_guard import check_gateway_lifecycle
-        script = tmp_path / "report.py"
-        script.write_text("print('nightly report')\n", encoding="utf-8")
-        prompt = (
-            'sqlite3 db "SELECT msg FROM log '
-            "WHERE msg LIKE '%systemctl restart hermes-gateway%'\""
-        )
-        check_gateway_lifecycle(prompt, str(script))
 
 
 class TestLifecycleGuardNeverRaises:
@@ -1802,7 +1472,7 @@ class TestLifecycleGuardNeverRaises:
     never crash (the live 'ValueError: embedded null byte' class)."""
 
     def _scan(self, command, **kwargs):
-        from cron.lifecycle_guard import (
+        from tools.gateway_lifecycle_guard import (
             contains_gateway_lifecycle_command_or_referenced_script,
         )
         return contains_gateway_lifecycle_command_or_referenced_script(
@@ -1857,7 +1527,7 @@ class TestLifecycleGuardNeverRaises:
     def test_magic_prefix_binaries_skipped_without_full_read(self, tmp_path):
         """Executable magic (ELF/PE/Mach-O) short-circuits the read: the
         guard must not treat compiled binaries as scripts at all."""
-        from cron.lifecycle_guard import _read_referenced_script
+        from tools.gateway_lifecycle_guard import _read_referenced_script
         for name, magic in [
             ("elf", b"\x7fELF"),
             ("pe", b"MZ"),
@@ -1871,17 +1541,3 @@ class TestLifecycleGuardNeverRaises:
             assert text is None, name
             assert unsafe is False, name
 
-    def test_check_gateway_lifecycle_adversarial_script_values(self, tmp_path):
-        """check_gateway_lifecycle must never raise anything but the
-        documented GatewayLifecycleBlocked for junk script values."""
-        from cron.lifecycle_guard import (
-            GatewayLifecycleBlocked,
-            check_gateway_lifecycle,
-        )
-        binary = tmp_path / "prog"
-        binary.write_bytes(b"\x7fELF" + bytes(128))
-        for value in ("nul\x00byte.sh", str(binary), "/nonexistent/x.sh", str(tmp_path)):
-            check_gateway_lifecycle("clean prompt", value)  # must not raise
-        if os.name != "nt":
-            with pytest.raises(GatewayLifecycleBlocked):
-                check_gateway_lifecycle("clean prompt", "/dev/null")

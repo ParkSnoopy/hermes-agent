@@ -28,16 +28,14 @@ High-level categories:
 | **X Search** | `x_search` | Search X (Twitter) posts and threads via xAI's built-in `x_search` Responses tool — gated on xAI credentials (SuperGrok OAuth or `XAI_API_KEY`); off by default, opt in via `hermes tools` → 🐦 X (Twitter) Search. |
 | **Terminal & Files** | `terminal`, `process`, `read_file`, `patch` | Execute commands and manipulate files. |
 | **Browser** | `browser_exec`, `browser_cdp`, `browser_dialog`, `browser_vault` | Browser automation: `browser_exec` drives Chromium with Python over CDP (screenshots included). The Camofox browser is a separate catalog plugin (`hermes plugins install camofox`). |
-| **Media** | `vision_analyze`, `image_generate`, `text_to_speech` | Multimodal analysis and generation. |
 | **Agent orchestration** | `todo`, `clarify`, `execute_code`, `delegate_task` | Planning, clarification, code execution, and subagent delegation. |
 | **Memory & recall** | `memory`, `session_search` | Persistent memory and session search. |
-| **Automation** | `cronjob` | Scheduled tasks with create/list/update/pause/resume/run/remove actions. Outbound delivery is handled by cron's own delivery, the `hermes send` CLI, and the gateway notifier — not by an agent-callable tool. |
-| **Integrations** | MCP server tools, plugin tools | MCP and plugin integrations, e.g. Home Assistant (`ha_*`, from the [`homeassistant` catalog plugin](../messaging/homeassistant.md)). |
+| **Integrations** | MCP server tools, plugin tools | MCP and plugin integrations, e.g. Home Assistant (`ha_*`, from the `homeassistant` catalog plugin). |
 
 For the authoritative code-derived registry, see [Built-in Tools Reference](../../reference/tools-reference.md) and [Toolsets Reference](../../reference/toolsets-reference.md).
 
 :::tip Nous Tool Gateway
-Paid [Nous Portal](https://portal.nousresearch.com) subscribers can use web search, image generation, TTS, and browser automation through the **[Tool Gateway](tool-gateway.md)** — no separate API keys needed. Run `hermes model` to enable it, or configure individual tools with `hermes tools`.
+Paid [Nous Portal](https://portal.nousresearch.com) subscribers can use web search, image generation, and browser automation through the **[Tool Gateway](tool-gateway.md)** — no separate API keys needed. Run `hermes model` to enable it, or configure individual tools with `hermes tools`.
 :::
 
 ## Using Toolsets
@@ -53,7 +51,7 @@ hermes tools
 hermes tools
 ```
 
-Common toolsets include `web`, `search`, `terminal`, `file`, `browser`, `vision`, `image_gen`, `skills`, `tts`, `todo`, `memory`, `session_search`, `cronjob`, `code_execution`, `delegation`, `clarify`, `messaging`, `discord`, `discord_admin`, `debugging`, and `safe`.
+Common toolsets include `web`, `search`, `terminal`, `file`, `browser`, `vision`, `image_gen`, `skills`, `todo`, `memory`, `session_search`, `code_execution`, `delegation`, `clarify`, `messaging`, `discord`, `discord_admin`, `debugging`, and `safe`.
 
 See [Toolsets Reference](../../reference/toolsets-reference.md) for the full set, including platform presets such as `hermes-cli`, `hermes-telegram`, and dynamic MCP toolsets like `mcp-<server>`.
 
@@ -66,27 +64,13 @@ A few tool behaviors are worth knowing when you read agent transcripts:
 
 ## Terminal Backends
 
-The terminal tool can execute commands in different environments:
-
-| Backend | Description | Use Case |
-|---------|-------------|----------|
-| `local` | Run on your machine (default) | Development, trusted tasks |
-| `docker` | Isolated containers | Security, reproducibility |
-| `ssh` | Remote server | Sandboxing, keep agent away from its own code |
-| `singularity` (plugin) | HPC containers | Cluster computing, rootless |
-| `sprites` (plugin) | Stateful Fly.io cloud sandbox | Persistent cloud environments with checkpoint & restore |
-| `modal` | Cloud execution | Serverless, scale |
-| `daytona` | Cloud sandbox workspace | Persistent remote dev environments |
-| `vercel_sandbox` | Vercel Sandbox cloud microVM | Cloud execution with snapshot-backed filesystem persistence |
-
-### Configuration
+Terminal commands run locally as the Hermes process user, with that user’s filesystem permissions. They are not isolated by Hermes. Explicit nonlocal terminal selectors are refused; remove or correct old configuration before running. Running Hermes itself on a remote server or in a container is a separate deployment choice.
 
 ```yaml
-# In ~/.hermes/config.yaml
 terminal:
-  backend: local    # or: docker, ssh, modal, daytona, vercel_sandbox, or a plugin backend (singularity, sprites)
-  cwd: "."          # Working directory
-  timeout: 180      # Command timeout in seconds
+  backend: local
+  cwd: "."
+  timeout: 180
 ```
 
 ### Shell startup files and non-interactive commands
@@ -114,122 +98,6 @@ export NVM_DIR="$HOME/.nvm"
 Zsh users: put login-only setup in `.zprofile` and interactive-only setup in `.zshrc`; keep `.zshenv` minimal, since it runs for every shell including non-interactive ones. If the agent genuinely needs a tool that only your rc file puts on `PATH`, export the `PATH` change *above* the guard (path exports are cheap) or symlink the binary into `~/.local/bin`.
 
 If agent terminal commands hang or time out immediately after working in your own terminal, your shell init is the first suspect.
-
-### Docker Backend
-
-```yaml
-terminal:
-  backend: docker
-  docker_image: python:3.11-slim
-```
-
-**One persistent container, shared across the whole process.** Hermes starts a single long-lived container on first use (`docker run -d ... sleep infinity`) and routes every terminal, file, and `execute_code` call through `docker exec` into that same container. Working-directory changes, installed packages, environment tweaks, and files written to `/workspace` all carry over from one tool call to the next, across `/new`, `/reset`, and `delegate_task` subagents, for the lifetime of the Hermes process. The container is stopped and removed on shutdown.
-
-This means the Docker backend behaves like a persistent sandbox VM, not a fresh container per command. If you `pip install foo` once, it's there for the rest of the session. If you `cd /workspace/project`, subsequent `ls` calls see that directory. See [Configuration → Docker Backend](../configuration.md#docker-backend) for the full lifecycle details and the `container_persistent` flag that controls whether `/workspace` and `/root` survive across Hermes restarts.
-
-### SSH Backend
-
-Recommended for security — agent can't modify its own code:
-
-```yaml
-terminal:
-  backend: ssh
-```
-```bash
-# Set credentials in ~/.hermes/.env
-TERMINAL_SSH_HOST=my-server.example.com
-TERMINAL_SSH_USER=myuser
-TERMINAL_SSH_KEY=~/.ssh/id_rsa
-```
-
-### Singularity/Apptainer
-
-An official plugin ([`singularity`](https://github.com/NousResearch/hermes-official-plugins/tree/main/singularity)), formerly built in; `hermes update` installs it for profiles that already use it.
-
-```bash
-hermes plugins install singularity
-
-# Pre-build SIF for parallel workers
-apptainer build ~/python.sif docker://python:3.11-slim
-
-# Configure
-hermes config set terminal.backend singularity
-hermes config set terminal.singularity_image ~/python.sif
-```
-
-### Sprites
-
-A plugin ([`sprites`](https://github.com/NousResearch/hermes-plugin-sprites)) that runs commands in a stateful [Sprite](https://fly.io/sprites) on Fly.io. See [Sprites Backend](../configuration.md#sprites-backend).
-
-```bash
-hermes plugins install NousResearch/hermes-plugin-sprites --enable
-hermes config set terminal.backend sprites
-# Add SPRITES_TOKEN to ~/.hermes/.env
-```
-
-### Modal (Serverless Cloud)
-
-```bash
-python -c "import pm; pm.sync_venv(['modal'], explicit=True)"
-modal setup
-hermes config set terminal.backend modal
-```
-
-### Vercel Sandbox
-
-```bash
-python -c "import pm; pm.sync_venv(['vercel'], explicit=True)"
-hermes config set terminal.backend vercel_sandbox
-hermes config set terminal.vercel_image vercel/sandbox/universal:latest
-```
-
-Authenticate with all three of `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`, and `VERCEL_TEAM_ID`. This access-token setup is the supported path for deployments and normal long-running Hermes processes on Render, Railway, Docker, and similar hosts. Fresh sandboxes start from `terminal.vercel_image` (default `vercel/sandbox/universal:latest`; the legacy `vercel_runtime` presets are deprecated by Vercel); Hermes defaults to `/vercel/sandbox` as the remote workspace root.
-
-For one-off local development, Hermes also accepts short-lived Vercel OIDC tokens:
-
-```bash
-VERCEL_OIDC_TOKEN="$(vc project token <project-name>)" hermes chat
-```
-
-From a linked Vercel project directory:
-
-```bash
-VERCEL_OIDC_TOKEN="$(vc project token)" hermes chat
-```
-
-With `container_persistent: true`, Hermes uses Vercel snapshots to preserve filesystem state across sandbox recreation for the same task. This can include Hermes-synced credentials, skills, and cache files inside the sandbox. Snapshots do not preserve live processes, PID space, or the same live sandbox identity.
-
-Background terminal commands use Hermes' generic non-local process flow: spawn, poll, wait, log, and kill work through the normal process tool while the sandbox is alive, but Hermes does not provide native Vercel detached-process recovery after cleanup or restart.
-
-Leave `container_disk` unset or at the shared default `51200`; custom disk sizing is unsupported for Vercel Sandbox and will fail diagnostics/backend creation.
-
-### Container Resources
-
-Configure CPU, memory, disk, and persistence for all container backends:
-
-```yaml
-terminal:
-  backend: docker  # or modal, daytona, vercel_sandbox, singularity (plugin)
-  container_cpu: 1              # CPU cores (default: 1)
-  container_memory: 5120        # Memory in MB (default: 5GB)
-  container_disk: 51200         # Disk in MB (default: 50GB)
-  container_persistent: true    # Persist filesystem across sessions (default: true)
-```
-
-When `container_persistent: true`, installed packages, files, and config survive across sessions.
-
-### Container Security
-
-All container backends run with security hardening:
-
-- Read-only root filesystem (Docker)
-- All Linux capabilities dropped
-- No privilege escalation
-- PID limits (256 processes)
-- Full namespace isolation
-- Persistent workspace via volumes, not writable root layer
-
-Docker can optionally receive an explicit env allowlist via `terminal.docker_forward_env`, but forwarded variables are visible to commands inside the container and should be treated as exposed to that session.
 
 ## Background Process Management
 
@@ -271,7 +139,7 @@ action on that process resets the count.
 
 This applies where a completion can reach the agent: the interactive CLI (including interactive
 `hermes chat -q`), the TUI and desktop app, and messaging chats. Non-interactive `hermes chat -q`,
-one-shot `hermes -z`, cron jobs, Kanban workers, stateless API requests and delegated subagents keep the
+one-shot `hermes -z`, Kanban workers, stateless API requests and delegated subagents keep the
 previous behaviour because they cannot receive a later completion, as does any profile with
 `display.background_process_notifications: off` (completions never start an agent turn there). Checking
 a process whose completion goes to someone else (another session's process, or a subagent's process

@@ -3,13 +3,13 @@
 
 Usage:
     hermes                     # Interactive chat (default)
-    hermes chat / gateway / setup / status / cron / doctor / update / ...
+    hermes chat / gateway / setup / status / doctor / update / ...
     hermes --version           # Show version and update status
     hermes <cmd> --help        # Per-command help
 """
 
-# hermes_bootstrap must be the very first import — it sets up UTF-8 stdio on
-# Windows (no-op on POSIX). Guarded: after a ``git pull`` / interrupted
+# hermes_bootstrap must be the very first import for Linux host admission and
+# runtime activation. Guarded: after a ``git pull`` / interrupted
 # ``hermes update`` the editable install's ``.pth`` may not list it yet; crashing
 # here would block ``hermes update``.
 try:
@@ -28,12 +28,6 @@ from hermes_cli import _early_recovery as _early_recovery_mod
 if _early_recovery_mod.restore_interrupted_pull():
     _early_recovery_mod.relaunch_after_restore()
 
-# Windows: neutralize CPython's ``platform._syscmd_ver`` before anything else
-# imports — it shells out ``cmd /c ver`` and flashes a console when this
-# process is windowless (pythonw gateway, kanban workers). No-op on POSIX.
-from hermes_cli._subprocess_compat import suppress_platform_ver_console
-
-suppress_platform_ver_console()
 
 import os
 import re
@@ -125,9 +119,8 @@ def _warn_if_unsupervised_pid1(pid: int | None = None) -> None:
 def _set_process_title() -> None:
     """Cosmetic: show 'hermes' instead of 'python3.xx' in ps/top/htop.
 
-    Order: opt-in ``setproctitle`` dep; ctypes ``prctl(PR_SET_NAME)`` (Linux,
-    15-char limit); ``pthread_setname_np`` (macOS — lldb/top only, not ``ps
-    aux``); no-op on Windows (the .exe is already ``hermes.exe``). Never fatal.
+    Use the optional ``setproctitle`` dependency, then Linux ``prctl(PR_SET_NAME)``
+    with its 15-character limit. Never fatal.
     """
     try:
         import setproctitle  # type: ignore[import-untyped]
@@ -138,16 +131,9 @@ def _set_process_title() -> None:
         pass
 
     import ctypes
-    import platform
-
     try:
-        system = platform.system()
-        if system == "Linux":
-            libc = ctypes.CDLL("libc.so.6", use_errno=True)
-            libc.prctl(15, b"hermes", 0, 0, 0)  # PR_SET_NAME = 15
-        elif system == "Darwin":
-            libc = ctypes.CDLL("libc.dylib", use_errno=True)
-            libc.pthread_setname_np(b"hermes")
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        libc.prctl(15, b"hermes", 0, 0, 0)  # PR_SET_NAME = 15
     except Exception:
         pass
 
@@ -198,7 +184,7 @@ def _wants_tui_early(argv: list[str] | None = None) -> bool:
 
     Precedence: ``--cli`` wins, then ``--tui``/``HERMES_TUI=1``, then a
     real-TTY gate, then ``display.interface``. The TTY gate is load-bearing
-    for headless spawners (kanban workers, cron, pipes running ``chat -q``):
+    for headless spawners (kanban workers, pipes running ``chat -q``):
     a ``display.interface: tui`` default used to boot the TUI here, whose
     no-TTY bail-out exits 0 without doing the task. An explicit ``--tui``
     still reaches that informative bail-out.
@@ -259,20 +245,18 @@ from pathlib import Path
 from typing import Optional
 
 
-from hermes_cli.subcommands.cron import build_cron_parser
+
 from hermes_cli.subcommands.gateway import build_gateway_parser
 from hermes_cli.subcommands.profile import build_profile_parser
 from hermes_cli.subcommands.model import build_model_parser
 from hermes_cli.subcommands.setup import build_setup_parser
 
-from hermes_cli.subcommands.whatsapp import build_whatsapp_parser, build_whatsapp_cloud_parser
-from hermes_cli.subcommands.slack import build_slack_parser
+
 from hermes_cli.subcommands.login import build_login_parser
 from hermes_cli.subcommands.logout import build_logout_parser
 from hermes_cli.subcommands.auth import build_auth_parser
 from hermes_cli.subcommands.status import build_status_parser
 from hermes_cli.subcommands.pause import build_pause_parser
-from hermes_cli.subcommands.webhook import build_webhook_parser
 from hermes_cli.subcommands.hooks import build_hooks_parser
 from hermes_cli.subcommands.doctor import build_doctor_parser
 from hermes_cli.subcommands.verify import build_verify_parser
@@ -287,9 +271,6 @@ from hermes_cli.subcommands.skin import build_skin_parser
 from hermes_cli.subcommands.console import build_console_parser
 from hermes_cli.subcommands.update import build_update_parser
 from hermes_cli.subcommands.uninstall import build_uninstall_parser
-from hermes_cli.subcommands.dashboard import build_dashboard_parser, build_serve_parser
-from hermes_cli.subcommands.webapp import build_webapp_parser
-from hermes_cli.subcommands.gui import build_gui_parser
 from hermes_cli.subcommands.logs import build_logs_parser
 from hermes_cli.subcommands.prompt_size import build_prompt_size_parser
 from hermes_cli.subcommands.memory import build_memory_parser
@@ -297,7 +278,7 @@ from hermes_cli.subcommands.acp import build_acp_parser
 from hermes_cli.subcommands.tools import build_tools_parser
 from hermes_cli.subcommands.insights import build_insights_parser
 from hermes_cli.subcommands.usage import build_usage_parser
-from hermes_cli.subcommands.monitoring import build_monitoring_parser
+
 from hermes_cli.subcommands.skills import build_skills_parser
 from hermes_cli.subcommands.pairing import build_pairing_parser
 from hermes_cli.subcommands.plugins import build_plugins_parser
@@ -597,22 +578,6 @@ if sys.argv[1:2] == ["pm"]:
 
     raise SystemExit(_pm_main(sys.argv[2:]))
 
-# Windows launcher self-heal: the ``hermes`` command is a COPY of the venv console script staged into
-# the managed bin dir, outside the checkout because ``hermes update``'s autostash (``git stash push
-# --include-untracked``) once swept ``<checkout>\bin`` copies off disk, the desktop updater's
-# ``--keep-stash`` never restored them, and ``hermes`` stopped resolving (venv\Scripts must stay off
-# PATH: it shadows the user's ``python``, #83797). Re-staging at process start reaches already-broken
-# installs via the desktop app's ``python -m hermes_cli.main`` spawn. Sits AFTER the profile override
-# on purpose (no hermes module may import before profiles resolve); the helper anchors on the DEFAULT
-# root, so profile sessions heal the same shared dir. A few stat calls when healthy; gates fail toward
-# inaction so source checkouts are untouched.
-if sys.platform == "win32":
-    try:
-        from hermes_cli import _install_repair as _install_repair_mod
-
-        _install_repair_mod.ensure_windows_bin_launchers(_bootstrap_root)
-    except Exception:
-        pass
 
 # Load .env from ~/.hermes/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
@@ -659,18 +624,10 @@ if server_process_argv(sys.argv[1:]):
     apply_malloc_arena_max()
 
 # Centralized file logging for every subcommand (agent.log + errors.log).
-# Dashboard entrypoints use GUI mode so gui.log captures pre-dispatch failures.
 try:
     from hermes_logging import setup_logging as _setup_logging
 
-    _setup_logging(
-        mode=(
-            "gui"
-            if next((arg for arg in sys.argv[1:] if not arg.startswith("-")), "")
-            in {"dashboard", "serve", "gui", "desktop"}
-            else "cli"
-        )
-    )
+    _setup_logging(mode="cli")
 except Exception:
     pass  # best-effort — don't crash the CLI if logging setup fails
 
@@ -715,28 +672,14 @@ from hermes_cli.main_agent_cmds import (
     cmd_acp,
     cmd_insights,
     cmd_memory,
-    cmd_monitoring,
+
     cmd_skills,
     cmd_tools,
 )
-from hermes_cli.main_platform_setup import (
-    cmd_slack,
-    cmd_whatsapp,
-    cmd_whatsapp_cloud,
-)
-from hermes_cli.process_identity import is_desktop_owned_backend as _is_desktop_owned_backend
+
 from hermes_cli.main_dashboard import (
-    _attach_to_host_backend,
     _finalize_update_output,
-    _find_stale_dashboard_pids,
     _install_hangup_protection,
-    _is_electron_packaged_web_dist,
-    _maybe_setup_dashboard_auth_interactively,
-    _dashboard_validate_serve_args,
-    _read_ssh_session_token_file,
-    _report_dashboard_status,
-    _resolve_dashboard_web_dist,
-    _route_named_profile_dashboard,
 )
 from hermes_cli.main_dashboard import (  # frozen updater surface: update_cmd*.py resolve these via _m()
     _respawn_dashboard_processes,
@@ -783,7 +726,7 @@ from hermes_cli.old_updater_main import (
     _windows_shim_in_process_chain,
     _write_web_ui_build_stamp,
 )
-from hermes_cli.main_install_repair import _cleanup_quarantined_exes, _recover_update_debts_on_startup
+from hermes_cli.main_install_repair import _recover_update_debts_on_startup
 from hermes_cli.main_install_repair import (  # frozen updater surface: update_cmd*.py resolve these via _m()
     _UPDATE_REEXEC_ENV,
     _clear_lazy_refresh_incomplete_marker,
@@ -800,17 +743,6 @@ from hermes_cli.main_install_repair import (  # frozen updater surface: update_c
     _update_marker_path,
     _venv_scripts_dir,
 )
-from hermes_cli.main_desktop import (
-    cmd_gui,
-)
-from hermes_cli.main_desktop import (  # frozen updater surface: update_cmd*.py resolve these via _m()
-    _desktop_build_needed,
-    _desktop_dist_exists,
-    _desktop_macos_relaunchable_fixup,
-    _desktop_packaged_executable,
-    _install_rebuilt_desktop_app,
-    _installed_desktop_apps,
-)
 from hermes_cli.main_web_build import (
     _sweep_stale_bytecode_if_checkout_changed,
 )
@@ -823,7 +755,7 @@ from hermes_cli.main_web_build import (  # frozen updater surface: update_cmd*.p
 from hermes_cli.main_tui_launch import (
     _bypass_chat_launch,
     _launch_tui,
-    _pin_kanban_board_env,
+
     _refuse_unforwarded_tui_flags,
     _resolve_use_tui,
     _sync_bundled_skills_quietly,
@@ -1398,11 +1330,7 @@ def _apply_in_dir(args) -> None:
     in_dir = getattr(args, "in_dir", None)
     if not in_dir:
         return
-    # Git Bash / MSYS hands us POSIX-style paths (`--in ~` → `/c/Users/x`);
-    # translate drive-root spellings to native Windows form. No-op elsewhere.
-    from tools.environments.local import _msys_to_windows_path
-
-    _target_dir = os.path.abspath(os.path.expanduser(_msys_to_windows_path(in_dir)))
+    _target_dir = os.path.abspath(os.path.expanduser(in_dir))
     if not os.path.isdir(_target_dir):
         print(f"Error: --in directory not found: {in_dir}")
         sys.exit(1)
@@ -1416,8 +1344,7 @@ def _apply_in_dir(args) -> None:
     # cwd, so a value inherited from a parent surface, the shell or .env outlives
     # this chdir and re-homes the session in the old directory (#106220). Refresh
     # it. An unset variable stays unset: the backends then derive from the new
-    # process cwd (local exports it at cli import, docker mounts it, ssh and
-    # container backends keep their own remote/sandbox default).
+    # process cwd through the local execution environment.
     if os.environ.get("TERMINAL_CWD", "").strip():
         os.environ["TERMINAL_CWD"] = _target_dir
     args.no_restore_cwd = True
@@ -1429,7 +1356,7 @@ def _resolve_chat_session_args(args, use_tui: bool) -> None:
     Order matters: ``--in DIR`` chdirs first so workspace-scoped "latest"/-c
     lookups key off DIR (and pins the session there, skipping cwd restore);
     then ``--resume latest`` → MRU id, ``--continue`` → ``--resume``,
-    ``--resume @claude/@codex`` → imported session id, title → id; finally
+    title → id; finally
     cd back into a resumed session's recorded cwd (best-effort, opt-out via
     --no-restore-cwd, skipped under --worktree).
     """
@@ -1450,8 +1377,7 @@ def _resolve_chat_session_args(args, use_tui: bool) -> None:
 
     _resolve_continue_arg(args, use_tui=use_tui)
 
-    from hermes_cli.main_resume_args import import_foreign_resume, recreate_resumed_tui_worktree
-    import_foreign_resume(args)
+    from hermes_cli.main_resume_args import recreate_resumed_tui_worktree
 
     resume_val = getattr(args, "resume", None)
     if resume_val:
@@ -1639,13 +1565,8 @@ def cmd_chat(args):
         # runs must keep it (see agent.session_source.session_source_for).
         os.environ["HERMES_SESSION_SOURCE_EXPLICIT"] = "1"
 
-    _pin_kanban_board_env()
-    from hermes_cli.observability.shared_metrics_consent import offer_consent_before_chat
 
-    # Not before setup: a blank install meets "Setup Required" first. The offer stays
-    # undecided, so it is asked on the first launch with a provider.
-    if provider_configured:
-        offer_consent_before_chat(args)
+
     _confirm_startup_expensive_model_override(args)
 
     passthrough = {k: getattr(args, k, d) for k, d in _CHAT_PASSTHROUGH}
@@ -1680,9 +1601,7 @@ def cmd_chat(args):
 
     try:
         from cli import main as cli_main
-        from hermes_cli.observability.shared_metrics_process import begin_process
 
-        begin_process("cli")
         cli_main(**kwargs)
     except ValueError as e:
         print(f"Error: {e}")
@@ -1744,9 +1663,7 @@ cmd_login = _forward_command("cmd_login", "hermes_cli.auth", "login_command", do
 cmd_logout = _forward_command("cmd_logout", "hermes_cli.auth", "logout_command", doc='Clear provider authentication.')
 cmd_auth = _forward_command("cmd_auth", "hermes_cli.auth_commands", "auth_command", doc='Manage pooled credentials.')
 cmd_status = _forward_command("cmd_status", "hermes_cli.status", "show_status", doc='Show status of all components.')
-cmd_cron = _forward_command("cmd_cron", "hermes_cli.cron", "cron_command", forward_return=True, doc='Cron job management.')
-cmd_webhook = _forward_command("cmd_webhook", "hermes_cli.webhook", "webhook_command", forward_return=True, doc='Webhook subscription management.')
-cmd_kanban = _forward_command("cmd_kanban", "hermes_cli.kanban", "kanban_command", forward_return=True, doc='Multi-profile collaboration board.')
+
 cmd_project = _forward_command("cmd_project", "hermes_cli.projects_cmd", "projects_command", forward_return=True, doc='Manage projects (named, multi-folder workspaces).')
 cmd_hooks = _forward_command("cmd_hooks", "hermes_cli.hooks", "hooks_command", doc='Shell-hook inspection and management.')
 cmd_doctor = _forward_command("cmd_doctor", "hermes_cli.doctor", "run_doctor", forward_return=True, doc='Check configuration and dependencies.')
@@ -1754,9 +1671,6 @@ cmd_dump = _forward_command("cmd_dump", "hermes_cli.dump", "run_dump", doc='Dump
 cmd_debug = _forward_command("cmd_debug", "hermes_cli.debug", "run_debug", doc='Debug tools (share report, etc.).')
 cmd_skin = _forward_command("cmd_skin", "hermes_cli.skin_cmd", "skin_command", doc='Skin management (list / use / set).')
 cmd_import = _forward_command("cmd_import", "hermes_cli.backup", "run_import", forward_return=True, doc='Restore a Hermes backup from a zip file.')
-cmd_dashboard_register = _forward_command("cmd_dashboard_register", "hermes_cli.dashboard_register", "cmd_dashboard_register", doc='Register a self-hosted dashboard OAuth client with Nous Portal.')
-cmd_webapp = _forward_command("cmd_webapp", "hermes_cli.webapp_launcher", "cmd_webapp", forward_return=True, doc='Open the browser-hosted Desktop the gateway serves.')
-cmd_gateway_enroll = _forward_command("cmd_gateway_enroll", "hermes_cli.gateway_enroll", "cmd_gateway_enroll", doc='Enroll a self-hosted gateway with a relay connector.')
 cmd_prompt_size = _forward_command("cmd_prompt_size", "hermes_cli.prompt_size", "cmd_prompt_size", doc='Show a byte/char breakdown of the system prompt + tool schemas.')
 cmd_pairing = _forward_command("cmd_pairing", "hermes_cli.pairing", "pairing_command")
 cmd_plugins = _forward_command("cmd_plugins", "hermes_cli.plugins_cmd", "plugins_command")
@@ -1773,13 +1687,11 @@ def cmd_model(args):
             print("  Cleared model picker cache.")
         except Exception:
             pass
-    from hermes_cli.observability.shared_metrics_setup import provider_setup_surface
     from hermes_cli.setup import run_setup_action_with_navigation
 
-    with provider_setup_surface("cli_model"):
-        run_setup_action_with_navigation(
-            "Model & Provider", lambda: select_provider_and_model(args=args), cancelled_message="No change.",
-        )
+    run_setup_action_with_navigation(
+        "Model & Provider", lambda: select_provider_and_model(args=args), cancelled_message="No change.",
+    )
 
 
 # Provider id -> flow(config, current_model, args). Lambdas resolve the
@@ -1948,34 +1860,32 @@ def select_provider_and_model(args=None):
     # _model_flow_* names at call time so test monkeypatches on
     # hermes_cli.main keep intercepting.
     saves_before = _model_choice_save_count()
-    from hermes_cli.observability.shared_metrics_setup import cli_provider_setup
-    with cli_provider_setup(selected_provider):
-        # Bespoke core flow, else the profile's own (``model_setup_flow``), else the generic one.
-        flow = _PROVIDER_MODEL_FLOWS.get(selected_provider) or _profile_model_setup_flow(selected_provider)
-        if flow is None and _is_profile_plugin_flow_provider(selected_provider):
-            # Registered plugin profile with no bespoke flow: the generic one, keyed by its auth_type.
-            flow = lambda c, m, a: _model_flow_plugin_provider(c, selected_provider, m)
-        if flow is not None:
-            flow(config, current_model, args)
-        elif (
-            selected_provider.startswith("custom:")
-            or selected_provider in _custom_provider_map
-        ):
-            provider_info = _named_custom_provider_map(load_config()).get(selected_provider)
-            if provider_info is None:
-                print(
-                    "Warning: the selected saved custom provider is no longer available. "
-                    "It may have been removed from config.yaml. No change."
-                )
-                return
-            _model_flow_named_custom(config, provider_info)
-        elif selected_provider == "remove-custom":
-            _remove_custom_provider(config)
-        elif (
-            selected_provider in _GENERIC_API_KEY_PROVIDERS
-            or _is_profile_api_key_provider(selected_provider)
-        ):
-            _model_flow_api_key_provider(config, selected_provider, current_model)
+    # Bespoke core flow, else the profile's own (``model_setup_flow``), else the generic one.
+    flow = _PROVIDER_MODEL_FLOWS.get(selected_provider) or _profile_model_setup_flow(selected_provider)
+    if flow is None and _is_profile_plugin_flow_provider(selected_provider):
+        # Registered plugin profile with no bespoke flow: the generic one, keyed by its auth_type.
+        flow = lambda c, m, a: _model_flow_plugin_provider(c, selected_provider, m)
+    if flow is not None:
+        flow(config, current_model, args)
+    elif (
+        selected_provider.startswith("custom:")
+        or selected_provider in _custom_provider_map
+    ):
+        provider_info = _named_custom_provider_map(load_config()).get(selected_provider)
+        if provider_info is None:
+            print(
+                "Warning: the selected saved custom provider is no longer available. "
+                "It may have been removed from config.yaml. No change."
+            )
+            return
+        _model_flow_named_custom(config, provider_info)
+    elif selected_provider == "remove-custom":
+        _remove_custom_provider(config)
+    elif (
+        selected_provider in _GENERIC_API_KEY_PROVIDERS
+        or _is_profile_api_key_provider(selected_provider)
+    ):
+        _model_flow_api_key_provider(config, selected_provider, current_model)
 
     _offer_reasoning_after_pick(current_model, saves_before)
 
@@ -1992,7 +1902,6 @@ def select_provider_and_model(args=None):
 
 def _detect_venv_python_processes(*, exclude_pids: set[int] | None = None) -> list[tuple[int, str, str]]:
     # Shim to stop the old updater doing work until relaunch. Do not scan or kill.
-    # Current Windows checks use the real detector in update_cmd_windows instead.
     return []
 
 
@@ -2006,17 +1915,15 @@ def _detect_venv_python_processes(*, exclude_pids: set[int] | None = None) -> li
 _FROZEN_UPDATER_SURFACE: dict[str, tuple[str, ...]] = {
     "hermes_cli.update_cmd": (
         "_assess_parked_branch_switch",
-        "_cold_start_windows_gateway_after_update", "_discard_stashed_changes",
+        "_discard_stashed_changes",
         "_filter_non_gateway_concurrent_instances", "_fleet_probe_expected_runtimes",
         "_get_origin_url", "_park_stashed_changes",
-        "_pause_windows_gateways_for_update", "_print_parked_branch_kept_notice",
+        "_print_parked_branch_kept_notice",
         "_print_parked_branch_skip_warning",
-        "_refresh_bootstrap_cache_scripts", "_refresh_windows_gateway_launchers",
         "_restore_stashed_changes",
-        "_resume_windows_gateways_after_update", "_run_logged_subprocess", "_run_pre_update_backup",
+        "_run_logged_subprocess", "_run_pre_update_backup",
         "_stash_local_changes_if_needed", "_sync_with_upstream_if_needed",
-        "_venv_launcher_ancestors",
-        "_wait_for_windows_update_gateway_exit", "_warn_orphaned_update_autostashes",
+        "_warn_orphaned_update_autostashes",
     ),
     "hermes_cli.old_updater_deps": (
         "_capture_active_lazy_features", "_handoff_reapable_backend_pids",
@@ -2027,10 +1934,8 @@ _FROZEN_UPDATER_SURFACE: dict[str, tuple[str, ...]] = {
         "_stop_process_trees",
     ),
     "hermes_cli.update_cmd_maint": (
+        "_refresh_bootstrap_cache_scripts",
         "_purge_stale_hermes_modules", "_reload_updated_runtime_modules",
-    ),
-    "hermes_cli.dashboard_procs": (
-        "_detect_concurrent_hermes_instances", "_kill_stale_dashboard_processes",
     ),
 }
 _FROZEN_ATTR_SOURCES: dict[str, str] = {
@@ -2117,17 +2022,9 @@ def cmd_version(args):
 
 
 def cmd_uninstall(args):
-    """Uninstall Hermes Agent (or just the Chat GUI with --gui).
-
-    ``--yes`` paths run from the desktop app's non-interactive cleanup scripts,
-    so the TTY gate applies only when we actually need to prompt.
-    """
-    # Machine-readable snapshot for the desktop uninstall UI; before any TTY gate.
-    if getattr(args, "gui_summary", False):
-        from hermes_cli.gui_uninstall import gui_install_summary
-
-        print(json.dumps(gui_install_summary()))
-        return
+    """Uninstall Hermes Agent or its data."""
+    if getattr(args, "gui", False) or getattr(args, "gui_summary", False):
+        raise SystemExit("Desktop uninstall is no longer supported.")
 
     if getattr(args, "data", False):
         if not getattr(args, "yes", False) and not getattr(args, "dry_run", False):
@@ -2137,13 +2034,6 @@ def cmd_uninstall(args):
         run_data_uninstall(args)
         return
 
-    if getattr(args, "gui", False):
-        if not getattr(args, "yes", False) and not getattr(args, "dry_run", False):
-            _require_tty("uninstall --gui")
-        from hermes_cli.uninstall import run_gui_uninstall
-
-        run_gui_uninstall(args)
-        return
 
     if not getattr(args, "yes", False) and not getattr(args, "dry_run", False):
         _require_tty("uninstall")
@@ -2192,14 +2082,11 @@ def _update_preflight_handled(args) -> bool:
     """Managed-install refusal, --plan, admission gate, --check. True = nothing more to do."""
     from hermes_cli.config import is_managed, managed_error
     from hermes_cli.update_channel import handle_metadata_args
-    from hermes_cli.update_cmd_common import _record_stop
 
     if handle_metadata_args(args, PROJECT_ROOT):
         sys.exit(0)
     if is_managed():
         managed_error("update Hermes Agent")
-        if not any(getattr(args, flag, False) for flag in ("plan", "check", "list_venv_holders")):
-            _record_stop("managed_install", without_receipt="refused")  # an update attempt: a metrics row only
         return True
 
     # --plan is read-only and deployment-kind aware, so it runs BEFORE the
@@ -2216,18 +2103,6 @@ def _update_preflight_handled(args) -> bool:
         print_update_plan(collect_runtime_inventory())
         return True
 
-    if getattr(args, "list_venv_holders", False):
-        # Read-only twin of the Windows venv-holder refusal (#117246): same scan and classifiers,
-        # machine-readable, exit 3 when holders remain so automation can stop those PIDs and retry.
-        import json
-
-        from hermes_cli.update_cmd_windows import VENV_HOLDERS_EXIT, list_venv_holders
-
-        holders = list_venv_holders()
-        print(json.dumps(holders, indent=2))
-        if holders:
-            sys.exit(VENV_HOLDERS_EXIT)
-        return True
 
     # Image/package-managed admission gate (#91277 Phase 3): baked provenance marker first (fail-closed
     # on malformed), then docker/nix/apt heuristics; one shared decision for every mutation surface, so
@@ -2289,24 +2164,16 @@ def cmd_update(args):
     if not _update_lock.acquire():
         print(describe_holder(_update_lock.holder))
         _finalize_update_output(_update_io_state)
-        from hermes_cli.update_cmd_common import _record_stop
-        _record_stop("lock_held", without_receipt="refused")  # no receipt: latest.json is the holder's
         sys.exit(UPDATE_EXIT_CONCURRENT)
 
     from hermes_cli.update_cmd import _cmd_update_impl
     from pm import InstallError
 
-    def _custody_refusal() -> str | None:
-        # m2: readers swallow an OSError, so a refused update child can end the run as a misleading
-        # downstream error; the refusal is what stopped it. Never on POSIX (nothing refuses there).
-        custody = sys.modules.get("hermes_cli.update_custody")
-        return custody.refusal_notice() if custody is not None else None
 
     try:
         _cmd_update_impl(args, gateway_mode=gateway_mode)
     except (InstallError, OSError, subprocess.SubprocessError) as exc:
-        refusal = _custody_refusal()
-        print(refusal or f"✗ Update failed: {exc}")
+        print(f"✗ Update failed: {exc}")
         _finalize_update_receipt(1, f"{type(exc).__name__}: {exc}")
         if gateway_mode:
             from hermes_cli.update_cmd_fleet import _write_gateway_update_exit_code
@@ -2318,8 +2185,7 @@ def cmd_update(args):
         # reach an inner finalize. Persist any still-open receipt with the real
         # exit code (no-op if already finalized), then let the exit proceed.
         _code = _update_exit.code if isinstance(_update_exit.code, int) else 1
-        if _code and (refusal := _custody_refusal()):
-            print(refusal)
+
         _finalize_update_receipt(_code, f"sys.exit({_code})")
         if gateway_mode and _code:
             from hermes_cli.update_cmd_fleet import _write_gateway_update_exit_code
@@ -2348,9 +2214,9 @@ def _coalesce_session_name_args(argv: list) -> list:
     Agent Dev`` → ``['-c', 'Pokemon Agent Dev']``, up to the next flag or known top-level subcommand."""
     _SUBCOMMANDS = {
         "chat", "model", "gateway", "setup", "whatsapp", "whatsapp-cloud", "login", "logout",
-        "auth", "status", "cron", "doctor", "config", "pairing", "skills", "tools", "mcp",
-        "sessions", "insights", "update", "uninstall", "profile", "dashboard", "serve", "webapp",
-        "desktop", "gui", "claw", "plugins", "security", "acp", "webhook", "peer",
+        "auth", "status", "doctor", "config", "pairing", "skills", "tools", "mcp",
+        "sessions", "insights", "update", "uninstall", "profile",
+        "plugins", "security", "acp", "webhook", "peer",
         "memory", "dump", "debug", "backup", "import", "completion", "logs", "usage",
     }
     _SESSION_FLAGS = {"-c", "--continue", "-r", "--resume"}
@@ -2384,221 +2250,14 @@ def _coalesce_session_name_args(argv: list) -> list:
 from hermes_cli.profile_cmd import cmd_profile
 
 
-def _dashboard_lifecycle_flags(args, token_file) -> None:
-    """--status / --stop: report or kill running dashboards and exit (no deps needed)."""
-    if token_file and (getattr(args, "status", False) or getattr(args, "stop", False)):
-        raise SystemExit("--ssh-session-token-file cannot be used with --status or --stop")
-    if getattr(args, "status", False):
-        _report_dashboard_status()
-        sys.exit(0)  # status is informational, always 0
-    if getattr(args, "stop", False):
-        # Scoped to the invoking home (`-p` applied by _apply_profile_override): another
-        # install's or profile's backend on this machine is never a target (#113978).
-        from hermes_constants import get_hermes_home
-
-        own_home = str(get_hermes_home())
-        if not _find_stale_dashboard_pids(scope_home=own_home):
-            print("No hermes dashboard processes running for this profile.")
-            sys.exit(0)
-        # Reuse the same SIGTERM-grace-SIGKILL path used after `hermes update`;
-        # it prints outcomes itself. Exit 1 only if a pid was unkillable — judged
-        # from the kill result, not a re-scan: a launchd KeepAlive job respawns
-        # its backend on a fresh PID, which is not a failed stop.
-        from hermes_cli.dashboard_procs import _kill_stale_dashboard_processes
-
-        result = _kill_stale_dashboard_processes(reason="requested via --stop", scope_home=own_home)
-        sys.exit(1 if result["failed"] else 0)
 
 
-def _dashboard_sanitize_desktop_env(headless_backend) -> None:
-    """Strip Desktop-inherited env that hijacks a standalone launch.
-
-    Desktop Electron spawns its backend with HERMES_DESKTOP=1 plus
-    HERMES_WEB_DIST=<packaged app.asar[/unpacked]/dist> (and often
-    HERMES_SERVE_HEADLESS=1). A shell inheriting those then running
-    `hermes dashboard` would serve the desktop renderer ("Desktop IPC bridge
-    is unavailable", #52945) or disable the SPA. Only Electron-packaged
-    WEB_DIST contamination is stripped from browser dashboards — caller-managed
-    overrides (dev / custom builds) must still work, while headless `serve`
-    keeps the packaged path used by the Desktop backend. Headless `serve`
-    re-sets HERMES_SERVE_HEADLESS itself.
-
-    The Desktop's legacy fallback spawn (`dashboard --no-open`, taken when the
-    `serve --help` probe times out on a cold host) is not headless yet must keep
-    its packaged dist: it is told apart by the per-spawn
-    HERMES_DASHBOARD_SESSION_TOKEN, which the terminal pane never receives and
-    the terminal tool's env policy strips from agent children.
-    """
-    desktop_owned_child = _is_desktop_owned_backend()
-    if (
-        not headless_backend
-        and not desktop_owned_child
-        and _is_electron_packaged_web_dist(os.environ.get("HERMES_WEB_DIST", ""))
-    ):
-        os.environ.pop("HERMES_WEB_DIST", None)
-    if not headless_backend:
-        os.environ.pop("HERMES_SERVE_HEADLESS", None)
 
 
-def _require_dashboard_web_deps() -> None:
-    """Exit with the right message when the dashboard's web-server packages can't import.
-
-    A plain missing-package ImportError gets the standard repair guidance; the
-    ``DLL load failed ... _ssl`` signature of Windows Smart App Control blocking the
-    embedded runtime gets the policy guidance instead, so users stop looping on
-    repair for a block repair can never lift (#63796)."""
-    try:
-        import fastapi
-        import uvicorn
-    except ImportError as e:
-        from hermes_cli.main_dep_hints import (
-            missing_optional_deps_message,
-            smart_app_control_block_message,
-        )
-
-        print(smart_app_control_block_message(e) or missing_optional_deps_message(
-            "dashboard", "its web-server packages (fastapi, uvicorn)", "all"))
-        print(f"Details: {e}")
-        sys.exit(1)
 
 
-def _dashboard_prepare_runtime(args, headless_backend) -> bool:
-    """Deps check, skills seed, terminal env bridge, plugins, MCP discovery.
-
-    Returns ``start_mcp_discovery_after_bind`` for start_server.
-    """
-    # Attach gui.log early so dashboard startup/build failures are captured in
-    # the same logs directory as every other Hermes surface.
-    try:
-        from hermes_logging import setup_logging as _setup_logging_gui
-        _setup_logging_gui(mode="gui")
-    except Exception:
-        pass
-
-    _require_dashboard_web_deps()
-
-    # Seed bundled skills on first dashboard launch so the desktop GUI's
-    # skills picker / agent skill discovery sees the bundled library.
-    _sync_bundled_skills_quietly()
-
-    # Bridge terminal.* config into TERMINAL_* env for THIS process, like the
-    # CLI (cli.py env_mappings) and gateway (_terminal_env_map) do. The
-    # dashboard/serve backend runs agents in-process (tui_gateway.ws →
-    # server._make_agent) and ticks cron itself when desktop-spawned; without
-    # this those consumers saw an unset TERMINAL_ENV and ran every command on
-    # the host even under `terminal.backend: docker` (#63141, #54449).
-    try:
-        # PTY chat spawns already bridge their child env copy; this covers the in-process consumers. See
-        # #61115, #65696.
-        from hermes_cli.config import apply_terminal_config_to_env
-
-        apply_terminal_config_to_env()
-    except Exception:
-        logger.debug("terminal config → env bridge failed for dashboard/serve",
-                     exc_info=True)
-
-    _resolve_dashboard_web_dist(args, headless_backend)
-    # Load plugins so any DashboardAuthProvider plugin registers BEFORE
-    # start_server's fail-closed gate check. Argparse setup skips discovery
-    # for built-in subcommands (~500ms), but the dashboard's server-side
-    # runtime depends on plugin-registered providers (image_gen, web,
-    # dashboard_auth, …).
-    try:
-        from hermes_cli.plugins import discover_plugins
-        discover_plugins()
-    except Exception as exc:
-        # Must not block startup; the gate's fail-closed branch surfaces a
-        # missing provider if it matters.
-        print(f"⚠ Plugin discovery failed: {exc}", file=sys.stderr)
-
-    # Desktop chat uses the in-process /api/ws gateway (tui_gateway.server
-    # ._make_agent), which only snapshots the tool registry and never starts
-    # MCP discovery — so configured MCP servers would never connect. Spawn
-    # discovery in the background here so a slow/dead server can't block
-    # startup. Desktop-spawned headless backends start it AFTER the socket
-    # binds instead (start_server's ready path): the thread's first act is the
-    # ~350ms `mcp` SDK import, which holds the GIL against the web_server
-    # import and delays the READY sentinel; _make_agent's bounded
-    # wait_for_mcp_discovery covers a server still connecting at first turn.
-    # A standalone (non-Desktop) dashboard may sit idle and unvisited for days
-    # (#58733): it arms discovery instead and the first /api/ws client fires it.
-    desktop = _is_desktop_owned_backend()
-    if headless_backend and desktop:
-        return True
-    try:
-        from hermes_cli.mcp_startup import (
-            defer_background_mcp_discovery,
-            start_background_mcp_discovery,
-        )
-
-        if desktop:
-            start_background_mcp_discovery(logger=logger, thread_name="dashboard-mcp-discovery")
-        else:
-            defer_background_mcp_discovery(logger=logger, thread_name="dashboard-mcp-discovery", delay=None)
-    except Exception:
-        logger.debug(
-            "Background MCP tool discovery failed at dashboard startup",
-            exc_info=True,
-        )
-    return False
 
 
-def cmd_dashboard(args):
-    """Start the web UI server, or (with --stop/--status) manage running ones."""
-    _token_file = getattr(args, "ssh_session_token_file", None)
-    _dashboard_lifecycle_flags(args, _token_file)
-
-    # `serve` is the headless backend: no UI build, no SPA mount, neutral
-    # ready sentinel. Resolved once and threaded through the re-exec, the
-    # build gate, and start_server.
-    _headless_backend = getattr(args, "headless_backend", False)
-    _ssh_owner_nonce = _dashboard_validate_serve_args(args, _headless_backend, _token_file)
-    _dashboard_sanitize_desktop_env(_headless_backend)
-
-    _attach_to_host_backend(args, _headless_backend)
-    _route_named_profile_dashboard(args, _headless_backend, _ssh_owner_nonce, _token_file)
-
-    # Apply the final process/profile policy after dashboard routing, but before
-    # importing the web server or opening dashboard state. Applying it before a
-    # named-profile re-exec could leak that profile's higher limit into the
-    # machine/default dashboard, whose lower policy intentionally cannot undo it.
-    # This also covers Desktop SSH's isolated `serve` child, which does not route.
-    from hermes_cli.resource_limits import apply_nofile_soft_limit
-
-    apply_nofile_soft_limit()
-
-    _ssh_session_token = _read_ssh_session_token_file(_token_file) if _token_file else None
-    _mcp_discovery_after_bind = _dashboard_prepare_runtime(args, _headless_backend)
-
-    from hermes_cli.dashboard_procs import BACKEND_LOCK_NAME
-    from hermes_cli.web_server import start_server
-
-    # Interactive auth setup: if this bind will engage the auth gate but no
-    # provider is registered yet, offer to configure one here (TTY only)
-    # instead of hard-failing inside start_server. Non-interactive callers
-    # (Docker/s6, CI, --no-open pipelines) fall through to start_server's
-    # fail-closed SystemExit unchanged.
-    _maybe_setup_dashboard_auth_interactively(args)
-    if _headless_backend:
-        from hermes_cli.observability.shared_metrics_process import begin_process
-        begin_process("serve")
-
-    # The in-browser Chat tab (embedded TUI over PTY/WebSocket) is always
-    # available — desktop and dashboard both rely on `/api/ws` + `/api/pty`.
-    start_server(
-        host=args.host,
-        port=args.port,
-        open_browser=not args.no_open,
-        allow_public=getattr(args, "insecure", False),
-        initial_profile=getattr(args, "open_profile", "") or "",
-        headless=_headless_backend,
-        isolated=getattr(args, "isolated", False),
-        ssh_session_token=_ssh_session_token,
-        ssh_owner_nonce=_ssh_owner_nonce,
-        start_mcp_discovery_after_bind=_mcp_discovery_after_bind,
-        # The validated token file lives in desktop-ssh/<ownershipId>/, next to the Desktop's lock.
-        ssh_lock_path=Path(_token_file).parent / BACKEND_LOCK_NAME if _token_file else None,
-    )
 
 
 def cmd_completion(args, parser=None):
@@ -2648,11 +2307,11 @@ _BUILTIN_SUBCOMMANDS = frozenset(
     {
         "acp", "approvals", "auth", "backup", "bundles", "checkpoints", "codex-runtime", "completion",
         "clipboard", "computer-use", "connectors",
-        "config", "console", "cron", "curator", "dashboard", "serve", "debug", "doctor",
+        "config", "console", "curator", "debug", "doctor",
         "dump", "egress", "fallback", "gateway", "hooks", "import", "insights",
-        "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
+        "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
         "journey", "memory-graph", "learning",
-        "model", "monitoring", "pairing", "pause", "peer", "pets", "plugins", "portal", "profile",
+        "model", "pairing", "pause", "peer", "pets", "plugins", "portal", "profile",
         "project", "proxy", "prompt-size", "resume", "send", "sessions", "setup",
         "skin", "skills", "slack", "status", "tools", "uninstall", "update",
         "usage", "vault",
@@ -2716,7 +2375,7 @@ def _resolve_deferred_platform_cli_command(command_name: str | None) -> None:
 
 
 _AGENT_COMMANDS = {None, "chat", "acp", "rl"}
-_AGENT_SUBCOMMANDS = {"cron": ("cron_command", {"run", "tick"}), "gateway": ("gateway_command", {"run"}),
+_AGENT_SUBCOMMANDS = {"gateway": ("gateway_command", {"run"}),
                       "curator": ("curator_command", {"run"})}  # curator run fires post_curator_run
 
 
@@ -2731,7 +2390,7 @@ def _is_tui_chat_launch(args) -> bool:
     # here, so the wrapper pre-warmed its own MCP discovery while the TUI
     # gateway (spawned moments later) ran a second one — an idle stdio MCP
     # server copy held dead for the whole session. Only chat commands can
-    # launch the TUI; other commands (gateway, acp, cron) keep
+    # launch the TUI; other commands (gateway, acp) keep
     # their own discovery behavior untouched.
     if getattr(args, "command", None) not in {None, "chat"}:
         return False
@@ -2739,7 +2398,7 @@ def _is_tui_chat_launch(args) -> bool:
 
 
 def _agent_subcommand_selected(args) -> bool:
-    """True for ``cron run/tick``, ``gateway run``, ``curator run`` (see _AGENT_SUBCOMMANDS)."""
+    """True for ``gateway run`` and ``curator run`` (see _AGENT_SUBCOMMANDS)."""
     _sub_attr, _sub_set = _AGENT_SUBCOMMANDS.get(args.command, (None, None))
     return bool(_sub_attr and getattr(args, _sub_attr, None) in _sub_set)
 
@@ -2803,7 +2462,7 @@ def _prepare_agent_startup(args) -> None:
     except Exception:
         logger.debug("MCP server filter setup failed", exc_info=True)
 
-    # TUI launches background MCP discovery with a bounded join; acp/gateway/cron do their own.
+    # TUI launches background MCP discovery with a bounded join; acp/gateway do their own.
     if _chat_runs_at_gateway(args):  # chat turns run in the gateway: it owns MCP, hooks, webhooks
         if _accept_hooks:  # rides session.create (env_launch_flags) and the classic CLI's consent check
             os.environ["HERMES_ACCEPT_HOOKS"] = "1"
@@ -2824,14 +2483,12 @@ def _prepare_agent_startup(args) -> None:
     try:
         from hermes_cli.config import load_config
         from agent.shell_hooks import register_from_config
-        from agent.outbound_webhooks import register_from_config as register_outbound_webhooks
 
         _hooks_cfg = load_config()
         register_from_config(_hooks_cfg, accept_hooks=_accept_hooks, interactive=args.command in {None, "chat", "rl"})
         if _accept_hooks and args.command == "gateway":  # every session-open re-sync keeps honouring it
             from agent.shell_hooks import accept_for_process
             accept_for_process()
-        register_outbound_webhooks(_hooks_cfg)
     except Exception:
         logger.debug(
             "shell-hook registration failed at CLI startup",
@@ -2929,45 +2586,6 @@ def _promote_top_level_resume(args) -> None:
     """Top-level --resume/--continue with no subcommand is a chat shortcut."""
     if (args.resume or args.continue_last) and args.command is None:
         args.command = "chat"
-
-
-def _try_fast_serve_launch() -> bool:
-    """Dispatch an unambiguous built-in ``serve`` without the full CLI tree.
-
-    Desktop runs this on every cold start; building every other parser costs
-    thousands of filesystem-backed lookups on Windows. Unknown or global
-    arguments fall back to normal parsing so error reporting is unchanged.
-    """
-    if os.environ.get("HERMES_DISABLE_FAST_SERVE_LAUNCH") == "1":
-        return False
-
-    argv = sys.argv[1:]
-    if not argv or argv[0] != "serve" or "-h" in argv or "--help" in argv:
-        return False
-
-    # Container routing is top-level policy and must run before host dispatch.
-    try:
-        from hermes_cli.config import get_container_exec_info
-
-        if get_container_exec_info():
-            return False
-    except Exception:
-        return False
-
-    parser = build_serve_parser(
-        cmd_dashboard=cmd_dashboard,
-        add_help=False,
-        exit_on_error=False,
-    )
-    try:
-        args, unknown = parser.parse_known_args(argv[1:])
-    except (argparse.ArgumentError, ValueError):
-        return False
-    if unknown:
-        return False
-
-    cmd_dashboard(args)
-    return True
 
 
 def _try_fast_chat_launch() -> bool:
@@ -3154,9 +2772,7 @@ def _register_plugin_cli_commands(subparsers) -> None:
     try:
         from plugins.memory import discover_plugin_cli_commands
         from hermes_cli.plugins import discover_plugins, get_plugin_manager
-        from hermes_cli.left_core_migration import recover_for_command
 
-        recover_for_command(_first_positional_argv())
         seen_plugin_commands = set()
         for cmd_info in discover_plugin_cli_commands():
             _attach_plugin_cli_command(subparsers, cmd_info)
@@ -3197,7 +2813,7 @@ def _build_cli_parser():
     build_migrate_parser(subparsers)
     build_codex_runtime_parser(subparsers)
     build_gateway_parser(
-        subparsers, cmd_gateway=cmd_gateway, cmd_proxy=cmd_proxy, cmd_gateway_enroll=cmd_gateway_enroll
+        subparsers, cmd_gateway=cmd_gateway, cmd_proxy=cmd_proxy
     )
 
     # LSP is optional — a registration failure must not break the CLI.
@@ -3208,20 +2824,15 @@ def _build_cli_parser():
         logger.debug("LSP CLI registration failed: %s", _lsp_err)
 
     build_setup_parser(subparsers, cmd_setup=cmd_setup)
-    build_whatsapp_parser(subparsers, cmd_whatsapp=cmd_whatsapp)
-    build_whatsapp_cloud_parser(subparsers, cmd_whatsapp_cloud=cmd_whatsapp_cloud)
-    build_slack_parser(subparsers, cmd_slack=cmd_slack)
 
-    from hermes_cli.send_cmd import register_send_subparser
-    register_send_subparser(subparsers)
+
 
     build_login_parser(subparsers, cmd_login=cmd_login)
     build_logout_parser(subparsers, cmd_logout=cmd_logout)
     build_auth_parser(subparsers, cmd_auth=cmd_auth)
     build_status_parser(subparsers, cmd_status=cmd_status)
     build_pause_parser(subparsers)
-    build_cron_parser(subparsers, cmd_cron=cmd_cron)
-    build_webhook_parser(subparsers, cmd_webhook=cmd_webhook)
+
 
     from hermes_cli.subcommands.peer import build_peer_parser
     build_peer_parser(subparsers)
@@ -3229,8 +2840,6 @@ def _build_cli_parser():
     from hermes_cli.portal_cli import add_parser as _add_portal_parser
     _add_portal_parser(subparsers)
 
-    from hermes_cli.kanban import build_parser as _build_kanban_parser
-    _build_kanban_parser(subparsers).set_defaults(func=cmd_kanban)
 
     from hermes_cli.projects_cmd import build_parser as _build_project_parser
     _build_project_parser(subparsers).set_defaults(func=cmd_project)
@@ -3248,7 +2857,7 @@ def _build_cli_parser():
     build_config_parser(subparsers, cmd_config=cmd_config)
     build_skin_parser(subparsers, cmd_skin=cmd_skin)
     build_console_parser(subparsers, cmd_console=cmd_console)
-    build_pairing_parser(subparsers, cmd_pairing=cmd_pairing)
+
     build_skills_parser(subparsers, cmd_skills=cmd_skills)
     build_bundles_parser(subparsers)
     build_plugins_parser(subparsers, cmd_plugins=cmd_plugins)
@@ -3267,19 +2876,13 @@ def _build_cli_parser():
     build_sessions_parser(subparsers, cmd_sessions=cmd_sessions_lazy)
     build_insights_parser(subparsers, cmd_insights=cmd_insights)
     build_usage_parser(subparsers)
-    build_monitoring_parser(subparsers, cmd_monitoring=cmd_monitoring)
+
     build_vault_parser(subparsers)
     build_update_parser(subparsers, cmd_update=cmd_update)
     build_uninstall_parser(subparsers, cmd_uninstall=cmd_uninstall)
     build_acp_parser(subparsers, cmd_acp=cmd_acp)
     build_profile_parser(subparsers, cmd_profile=cmd_profile)
     build_completion_parser(subparsers, cmd_completion=cmd_completion, parser=parser)
-    build_dashboard_parser(
-        subparsers, cmd_dashboard=cmd_dashboard, cmd_dashboard_register=cmd_dashboard_register)
-    build_webapp_parser(subparsers, cmd_webapp=cmd_webapp)
-    # "desktop" is canonical (Hermes-Setup.exe tells users to run it, so it
-    # must be the name --help shows); "gui" is a deprecated alias.
-    build_gui_parser(subparsers, cmd_gui=cmd_gui)
     build_logs_parser(subparsers, cmd_logs=cmd_logs)
     build_prompt_size_parser(subparsers, cmd_prompt_size=cmd_prompt_size)
     return parser, subparsers
@@ -3338,12 +2941,7 @@ def main():
     _warn_if_unsupervised_pid1()
     _advertise_agent_env()
 
-    # Force UTF-8 stdio on Windows before anything prints.  No-op elsewhere.
-    try:
-        from hermes_cli.stdio import configure_windows_stdio
-        configure_windows_stdio()
-    except Exception:
-        pass
+
     # A non-UTF-8 locale that the package import had to repair would crash Python children the
     # same way. Only on that host, so a healthy UTF-8 locale keeps its children untouched.
     from hermes_cli import _stdio_repaired
@@ -3357,12 +2955,6 @@ def main():
 
     install_truststore()
 
-    # Sweep stale ``hermes.exe.old.*`` quarantine files from previous Windows
-    # updates. No-op elsewhere.
-    try:
-        _cleanup_quarantined_exes()
-    except Exception:
-        pass
 
     # Checkout changed since last launch → sweep stale __pycache__ once so no
     # process resolves fresh source against old bytecode. Never raises.
@@ -3391,8 +2983,6 @@ def main():
     if _try_termux_fast_tui_launch():
         return
     if _try_termux_fast_cli_launch():
-        return
-    if _try_fast_serve_launch():
         return
     if _try_fast_chat_launch():
         return
@@ -3424,15 +3014,14 @@ def main():
         os.environ["HERMES_YOLO_MODE"] = "1"
 
     # Plugin discovery + shell hooks once, gated so introspection commands
-    # (hooks list, cron list, gateway status, ...) pay no discovery cost and
+    # (hooks list, gateway status, ...) pay no discovery cost and
     # trigger no consent prompts for hooks the user is still inspecting.
     _prepare_agent_startup(args)
 
     if getattr(args, "oneshot", None):
         _run_oneshot_from_args(args)
 
-    from hermes_cli.observability.shared_metrics_disabled import set_process_surface
-    set_process_surface(args.command)
+
     # No subcommand (optionally with top-level --resume / --continue) → chat.
     if args.command is None:
         _default_to_chat(args)

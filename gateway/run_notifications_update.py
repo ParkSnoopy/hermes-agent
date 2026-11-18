@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from agent.i18n import t
+
 from gateway.config import Platform
 from gateway.run_shutdown import _log_suppressed
 
@@ -26,7 +26,7 @@ logger = logging.getLogger("gateway.run")
 # A failed /update leaves the previous version running; the full pip/git log stays on the host
 # (`hermes update` re-runs it in the terminal) and only a short tail is quoted in chat.
 def _update_failed_notice() -> str:
-    return t("gateway.update.failed_notice")
+    return '❌ Hermes update failed; the previous version is still running. Run `hermes update` on the host to see the full error, or try /update again later.'
 
 # An update's completion notice waits for its target platform adapter to (re)connect before it
 # can be delivered. Nothing bounds that wait, so a marker naming a platform that is not
@@ -213,9 +213,9 @@ class GatewayUpdateNotificationsMixin:
                 )
                 sent_buttons = True
         if not sent_buttons:
-            default_hint = t("gateway.update.prompt_default", default=default) if default else ""
+            default_hint = (f' (default: {default})') if default else ""
             _p = getattr(adapter, "typed_command_prefix", "/")
-            await target.send(t("gateway.update.prompt", prompt=prompt_text, default_hint=default_hint, prefix=_p))
+            await target.send(f'☤ **Update needs your input:**\n\n{prompt_text}{default_hint}\n\nReply `{_p}approve` (yes) or `{_p}deny` (no), or type your answer directly.')
         # Keep the prompt marker on disk until answered so a restarted watcher can re-forward it.
         self._session_state(target.session_key).persistent.update_prompt_pending = True
         logger.info("Forwarded update prompt to %s: %s", target.session_key, prompt_text[:80])
@@ -267,7 +267,7 @@ class GatewayUpdateNotificationsMixin:
                 with _log_suppressed(logging.WARNING, "Update final notification failed: %s"):
                     exit_code = self._update_exit_code(paths)
                     await target.send(
-                        t("gateway.update.finished") if exit_code == 0 else _update_failed_notice()
+                        '✅ Hermes update finished.' if exit_code == 0 else _update_failed_notice()
                     )
                     logger.info("Update finished (exit=%s), notified %s", exit_code, session_key)
                 self._clear_update_markers(paths, session_key)
@@ -294,7 +294,7 @@ class GatewayUpdateNotificationsMixin:
             paths.exit_code.write_text("124", encoding="utf-8")
             await _flush_buffer()
             with suppress(Exception):
-                await target.send(t("gateway.update.timed_out"))
+                await target.send('❌ Hermes update timed out after 30 minutes.')
             self._clear_update_markers(paths, session_key)
 
     async def _send_update_notification(self) -> bool:
@@ -356,13 +356,13 @@ class GatewayUpdateNotificationsMixin:
                 from tools.ansi_strip import strip_ansi
                 output = strip_ansi(output).strip()
                 if exit_code == 0:
-                    msg = t("gateway.update.finished_success")
+                    msg = '✅ Hermes update finished successfully.'
                     if output:
                         msg = f"{msg}\n\n```\n{_update_output_tail(output, 3500)}\n```"
                 else:
                     msg = _update_failed_notice()
                     if output:
-                        msg = t("gateway.update.last_lines", msg=msg, tail=_update_output_tail(output, 800))
+                        msg = (f'{msg}\n\nLast lines:\n```\n{_update_output_tail(output, 800)}\n```')
                 await adapter.send(chat_id, msg, metadata=_non_conversational_metadata(metadata, platform=platform))
                 logger.info("Sent post-update notification to %s:%s (exit=%s)", platform_str, chat_id, exit_code)
         except Exception as e:

@@ -58,10 +58,8 @@ _AUX_TASKS: list[tuple[str, str, str]] = [
     ("title_generation", "Title generation", "session titles"),
     ("review", "Review", "/review reviewer subagent"),
     ("memory_query_rewrite", "Memory query rewrite", "memory retrieval queries"),
-    ("tts_audio_tags", "TTS audio tags", "Gemini TTS tag insertion"),
-    ("voice_chat", "Voice chat", "spoken voice-mode replies"),
-    ("triage_specifier", "Triage specifier", "kanban spec fleshing"),
-    ("kanban_decomposer", "Kanban decomposer", "task decomposition"),
+
+
     ("profile_describer", "Profile describer", "auto profile descriptions"),
     ("curator", "Curator", "skill-usage review pass"),
     ("group_router", "Group router", "who answers in auto-routed Group Chats")]
@@ -211,7 +209,7 @@ def _reset_aux_to_auto() -> int:
             entry["provider"] = auto
             changed = True
         for field in ("model", "base_url", "api_key", "reasoning_effort"):
-            # Reset = the shipped default: "" everywhere except a slot that ships one (voice_chat: none).
+            # Reset routing fields to their shipped defaults.
             default = str((defaults.get(task) or {}).get(field) or "") if isinstance(defaults.get(task), dict) else ""
             if (entry.get(field) or entry.get(field) is False or default) and entry.get(field) != default:
                 entry[field] = default

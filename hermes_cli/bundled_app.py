@@ -164,8 +164,6 @@ def launch_detached(
     null device, because the terminal that ran ``hermes desktop`` is free
     to close the moment this call returns.
     """
-    from hermes_cli._subprocess_compat import windows_detach_popen_kwargs
-
     child = subprocess.Popen(
         argv,
         cwd=str(cwd) if cwd is not None else None,
@@ -175,6 +173,6 @@ def launch_detached(
         stderr=subprocess.DEVNULL,
         close_fds=True,
         # detached-spawn: ok — the desktop app launch, meant to outlive the CLI that opens it
-        **windows_detach_popen_kwargs(),
+        start_new_session=True,
     )
     return child.pid

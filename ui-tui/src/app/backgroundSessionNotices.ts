@@ -1,7 +1,7 @@
 import type { SessionActiveListResponse } from '@hermes/shared/gateway-types'
 
+import { sessionEn } from '../copy/session.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { t } from '../i18n/runtime.js'
 import { asRpcResult } from '../lib/rpc.js'
 
 import { getUiState } from './uiStore.js'
@@ -81,9 +81,9 @@ export function createBackgroundSessionWatch() {
         }
 
         if (phase === 'waiting') {
-          notices.push(t('session.lifecycle.backgroundWaiting', label(id, row.title)))
+          notices.push(sessionEn.session.lifecycle.backgroundWaiting(label(id, row.title)))
         } else if (phase === 'idle' && before === 'busy') {
-          notices.push(t('session.lifecycle.backgroundFinished', label(id, row.title)))
+          notices.push(sessionEn.session.lifecycle.backgroundFinished(label(id, row.title)))
         }
       }
 

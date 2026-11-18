@@ -108,7 +108,7 @@ Cards and addresses work the same way as logins: saved once (**Settings →
 Passwords & Logins → Add**, or `hermes vault add`), bound to the checkout site,
 and filled by the agent on that site only. **Every card fill asks you first**,
 with the same approval prompt as a dangerous command; declining writes nothing.
-Headless sessions (cron, webhooks, the API server) cannot confirm and are
+Headless sessions (webhooks, the API server) cannot confirm and are
 refused, so a prompt injection that reaches a checkout page can ask, but it
 cannot spend. Address fills need no confirmation.
 
@@ -165,8 +165,7 @@ What changes in keychain mode:
   `hermes vault key migrate --to file`.
 - **The keychain may ask.** macOS can ask whether Hermes may use the entry
   (for example after an update replaces Hermes' Python), and a locked Linux
-  keyring asks to be unlocked. Cron jobs that run while you are logged out
-  cannot read the key, so their local logins fail with a clear error.
+  keyring asks to be unlocked. Unattended processes cannot read a locked keyring.
 - **A lost entry means lost items.** If the keychain entry is deleted, the
   vault cannot be opened and Hermes says so instead of creating a new key over
   it. Restore the entry from a keychain backup, or delete `vault.json.enc` to
@@ -176,7 +175,7 @@ That is why keychain storage is opt-in rather than the default.
 
 ## Headless sessions
 
-Cron jobs, webhooks, the API server and `hermes chat -q` have nobody to answer a
+Webhooks, the API server and `hermes chat -q` have nobody to answer a
 prompt. Saved local logins keep working there; a locked password manager reports
 `unavailable_in_this_session` and a missing login reports `prompt_unavailable`.
 Unlock or save from an interactive session first, or give 1Password a service

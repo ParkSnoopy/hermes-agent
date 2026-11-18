@@ -46,10 +46,7 @@ _CAPABILITY_ROWS = (
      "task lanes"),
     ("llm.side_question", (),
      "Ask your agent a short question after each turn. It sees the "
-     "whole session, including memory, and spends your main model's tokens."),
-    ("gateway.platform_actions", ("allow_platform_actions",),
-     "Act on connected chat platforms as the gateway bot "
-     "(add reactions, rename threads) via ctx.platform_actions"))
+     "whole session, including memory, and spends your main model's tokens."))
 CAPABILITY_REGISTRY: dict[str, CapabilitySpec] = {
     cid: CapabilitySpec(cid, path, desc) for cid, path, desc in _CAPABILITY_ROWS
 }

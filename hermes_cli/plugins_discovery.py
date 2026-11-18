@@ -206,7 +206,7 @@ def collect_directory_manifests() -> list[PluginManifest]:
     repo_plugins = _origin.get_bundled_plugins_dir()
     logger.debug("Scanning bundled plugins: %s", repo_plugins)
     _scan("bundled (top-level)", repo_plugins, "bundled",
-          {"memory", "context_engine", "model-providers", "cron_providers", "computer_use", "config_backends"})
+          {"memory", "context_engine", "model-providers", "computer_use", "config_backends"})
     user_dir = get_hermes_home() / "plugins"
     logger.debug("Scanning user plugins: %s", user_dir)
     _scan("user", user_dir, "user")
@@ -273,9 +273,7 @@ def gate_manifest(
     category-owned kinds (exclusive / model-provider), bundled auto-loads (backend now, platform deferred),
     then ``plugins.enabled`` opt-in (path-derived key or legacy bare name)."""
     lookup_key = manifest_key(manifest)
-    from hermes_cli.left_core_migration import legacy_plugin_keys
-    # A bundled key that left core (``observability/langfuse``) keeps selecting its catalog plugin.
-    names = {lookup_key, manifest.name, *legacy_plugin_keys(lookup_key)}
+    names = {lookup_key, manifest.name}
 
     def _placeholder(error: Optional[str], level: int, message: str, *args, enabled: bool = False) -> ManifestGate:
         return ManifestGate("placeholder", enabled=enabled, error=error, log=(level, message, lookup_key, *args))

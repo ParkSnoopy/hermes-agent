@@ -55,41 +55,31 @@ def test_served_secondary_uses_multiplexer_control_home(monkeypatch, tmp_path):
         },
     }).encode() + b"\n"
 
-    if module.os.name == "nt":
-        import gateway.runtime_bootstrap_windows as windows_bootstrap
+    import hermes_cli.gateway_runtime_discovery as discovery
 
-        def query_runtime_control(home, request, timeout):
-            seen["control_home"] = Path(home).resolve()
+    stream = io.BytesIO(reply)
+
+    class FakeSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def sendall(self, request):
             seen["request"] = json.loads(request)
-            return reply
 
-        monkeypatch.setattr(windows_bootstrap, "query_runtime_control", query_runtime_control)
-    else:
-        import hermes_cli.gateway_runtime_discovery as discovery
+        def settimeout(self, _timeout):
+            pass
 
-        stream = io.BytesIO(reply)
+        def recv(self, size):
+            return stream.read(size)
 
-        class FakeSocket:
-            def __enter__(self):
-                return self
+    def connect_private(home, timeout):
+        seen["control_home"] = Path(home).resolve()
+        return FakeSocket()
 
-            def __exit__(self, *args):
-                return False
-
-            def sendall(self, request):
-                seen["request"] = json.loads(request)
-
-            def settimeout(self, _timeout):
-                pass
-
-            def recv(self, size):
-                return stream.read(size)
-
-        def connect_private(home, timeout):
-            seen["control_home"] = Path(home).resolve()
-            return FakeSocket()
-
-        monkeypatch.setattr(discovery, "connect_private", connect_private)
+    monkeypatch.setattr(discovery, "connect_private", connect_private)
 
     result = module.bootstrap(False)
 
@@ -122,7 +112,7 @@ def _bootstrap_failure(monkeypatch, root, error):
     return str(failed.value)
 
 
-@pytest.mark.platforms("posix")  # the mint dials connect_private; Windows uses the named pipe
+@pytest.mark.platforms("posix")
 def test_a_refused_mint_prints_its_repair_command(monkeypatch, tmp_path):
     """The control home's refusal reaches the TUI as the verdict `hermes gateway attach` prints: each
     line a `gateway inaccessible:` verdict Ink echoes inline, the last ending in the repair command."""

@@ -6,7 +6,7 @@ import os
 from urllib.parse import urlparse
 
 from hermes_cli.browser_connect import DEFAULT_BROWSER_CDP_URL
-from hermes_cli.cli_commands_session_tools import _say_block, _t
+from hermes_cli.cli_commands_session_tools import _say_block
 
 
 def _gateway_is_remote() -> bool:
@@ -27,14 +27,14 @@ def gateway_browser(cli, connection, word: str, rest: str) -> None:
     them to this session's profile."""
     from hermes_cli.gateway_client import GatewayClientError
     if word in {"connect", "disconnect"} and _gateway_is_remote():
-        return _say_block(_t("browser.remote_gateway"))
+        return _say_block('/browser connect and /browser disconnect manage a Chromium-family browser on the gateway host — only available when connected to a local gateway.')
     params = {"action": word, "session_id": cli.session_id}
     if word == "connect":
         normalized = _normalize_cdp_url(rest or DEFAULT_BROWSER_CDP_URL)
         if normalized is None:
             return
         params["url"] = normalized[0]
-        print(f"   {_t('browser.checking', url=params['url'])}")
+        print(f"   {('Checking Chromium-family browser remote debugging at {url}...').format(url=params['url'])}")
     try:
         result = connection.call("browser.manage", **params) or {}
     except GatewayClientError as exc:
@@ -42,15 +42,15 @@ def gateway_browser(cli, connection, word: str, rest: str) -> None:
     for message in result.get("messages") or ():
         print(f"   {message}")
     if word == "disconnect":
-        return _say_block(_t("browser.disconnected"), f"   {_t('browser.reverted')}")
+        return _say_block('🌐 Browser disconnected from live Chromium-family browser', f"   {'Browser tools reverted to default mode (local headless or cloud provider)'}")
     if word == "connect":
         if not result.get("connected"):
-            return _say_block(_t("browser.not_connected"))
-        return _say_block(_t("browser.connected"), f"   {_t('browser.endpoint', url=result.get('url') or '')}")
+            return _say_block('Browser not connected — start a Chromium-family browser with remote debugging and retry /browser connect')
+        return _say_block('🌐 Browser connected to live Chromium-family browser via CDP', f"   {('Endpoint: {url}').format(url=result.get('url') or '')}")
     if result.get("connected"):
-        return _say_block(_t("browser.status_connected"), f"   {_t('browser.endpoint', url=result.get('url') or '')}")
-    _say_block(_t("browser.status_gateway_default"),
-               f"   {_t('browser.status_connect_hint')}", f"   {_t('browser.status_disconnect_hint')}")
+        return _say_block('🌐 Browser: connected to live Chromium-family browser via CDP', f"   {('Endpoint: {url}').format(url=result.get('url') or '')}")
+    _say_block("🌐 Browser: the gateway's default browser backend (no live CDP connection)",
+               f"   {'/browser connect      — connect to your live Chromium-family browser'}", f"   {'/browser disconnect   — revert to default'}")
 
 
 def _normalize_cdp_url(cdp_url: str):
@@ -58,15 +58,15 @@ def _normalize_cdp_url(cdp_url: str):
     A ``/devtools/browser/<id>`` path is kept verbatim; anything else is reduced to the origin."""
     parsed = urlparse(cdp_url if "://" in cdp_url else f"http://{cdp_url}")
     if parsed.scheme not in {"http", "https", "ws", "wss"}:
-        _say_block(f"   {_t('browser.unsupported_scheme', scheme=parsed.scheme or _t('browser.scheme_missing'))}")
+        _say_block(f"   {('⚠ Unsupported browser url scheme: {scheme} (expected one of: http, https, ws, wss)').format(scheme=parsed.scheme or '(missing)')}")
         return None
     try:
         port = parsed.port or (443 if parsed.scheme in {"https", "wss"} else 80)
     except ValueError:
-        _say_block(f"   {_t('browser.invalid_port', url=cdp_url)}")
+        _say_block(f"   {(f'⚠ Invalid port in browser url: {cdp_url}')}")
         return None
     if not parsed.hostname:
-        _say_block(f"   {_t('browser.missing_host', url=cdp_url)}")
+        _say_block(f"   {(f'⚠ Missing host in browser url: {cdp_url}')}")
         return None
     if parsed.path.startswith("/devtools/browser/"):
         return parsed.geturl(), port

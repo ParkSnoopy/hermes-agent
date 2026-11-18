@@ -2,7 +2,7 @@ name: inbox
 repo: https://github.com/NousResearch/hermes-labs-plugins
 sha: 4987918a068fcf4b3efbb584db5dd05e5f57c669
 subdir: inbox
-description: "hermes inbox: one read-only view of everything in flight for the active profile: failed or paused cron jobs, stalled or dropped delegations, orphaned background processes, blocked kanban tasks, running work, undelivered delegation results, upcoming cron runs and open chat sessions, with --json for scripts. A Hermes Labs plugin: built by Nous Research, not supported. Disclosure — reads processes.json, cron/jobs.json, runtime/active_sessions.json and state.db (SQLite read-only) in the profile's home, plus the shared kanban board's kanban.db (read-only); it never writes, repairs or prunes them, adds no model tools or hooks, and sends nothing anywhere."
+description: "Read-only hermes inbox view for stalled/dropped delegations, orphaned background processes, blocked kanban tasks, running work, undelivered delegation results and open sessions, with JSON output. Disclosure — reads processes.json, runtime/active_sessions.json and state.db in the active profile and the shared kanban.db in read-only mode. It never repairs, prunes or writes these stores, adds no model tools or hooks and sends nothing anywhere."
 maintainer: NousResearch
 tier: community
 category: general
@@ -13,3 +13,4 @@ capabilities:
   provides_hooks: []
   provides_middleware: []
   requires_env: []
+known_issues: ["The pinned upstream inventory also reads the removed scheduled-job store. Its job sections are unavailable; missing-store handling has not been runtime-tested against this fork."]

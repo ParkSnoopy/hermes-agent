@@ -119,21 +119,6 @@ def test_backend_initial_profile_is_not_its_write_scope(layout, profile):
     assert all(path.exists() for path in data)
 
 
-@pytest.mark.parametrize("terminal", [False, True])
-def test_detached_cron_attempt_must_finish_before_data_removal(layout, monkeypatch, terminal):
-    from cron import executions
-
-    _, _, data = layout
-    monkeypatch.setattr(executions, "_emit_execution_state", lambda *args, **kwargs: None)
-    record = executions.create_execution("temporary-job", source="manual")
-    if terminal:
-        executions.finish_execution(record["id"], success=True)
-        uninstall.run_data_uninstall(SimpleNamespace(yes=True))
-        assert all(not path.exists() for path in data)
-    else:
-        with pytest.raises(SystemExit):
-            uninstall.run_data_uninstall(SimpleNamespace(yes=True))
-        assert all(path.exists() for path in data)
 
 
 def test_named_profile_cannot_delete_data_served_by_the_default_multiplexer(layout, monkeypatch):

@@ -30,11 +30,7 @@ def model_override_conflict(params: dict, build_scope) -> dict | None:
 
 
 def create_overrides(params: dict) -> tuple:
-    """PER-SESSION (model, reasoning, service_tier) overrides from the composer — never a global config
-    write. An explicit ``service_tier`` wins over legacy ``fast`` (an unknown word raises ``ValueError``);
-    ``fast`` presence: omitted inherits, true pins priority, false pins normal (\"\")."""
-    from utils import is_truthy_value
-
+    """Read per-session model, reasoning and service-tier overrides without changing config."""
     model = str(params.get("model") or "").strip()
     model_override = {"model": model, "provider": str(params.get("provider") or "").strip() or None} if model else None
     reasoning_override = None
@@ -46,6 +42,5 @@ def create_overrides(params: dict) -> tuple:
     if params.get("service_tier") is not None:
         from agent.fast_mode import parse_exact_service_tier
         service_tier_override = parse_exact_service_tier(params["service_tier"])
-    elif "fast" in params:
-        service_tier_override = "priority" if is_truthy_value(params.get("fast")) else ""
+
     return model_override, reasoning_override, service_tier_override

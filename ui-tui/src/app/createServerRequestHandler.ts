@@ -1,6 +1,6 @@
 import type { ServerRequest } from '@hermes/shared/json-rpc-channel'
 
-import { t } from '../i18n/runtime.js'
+import { sessionEn } from '../copy/session.js'
 import type { ClarifyQuestion } from '../types.js'
 
 import { patchOverlayState } from './overlayStore.js'
@@ -34,10 +34,8 @@ const strList = (v: unknown): null | string[] =>
  * The Ink TUI's answer to the backend's server→client requests
  * (`tui_gateway/server_requests.py`). Each method opens its overlay card;
  * the card's answer path resolves the request through `serverRequestStore`.
- * Methods the terminal cannot answer (desktop GUI bridges: `preview.*`,
- * `window.read`, `tour`, `mcp.setup`, `terminal.read`) return `false` so the
- * channel answers `-32601` and the tool fails fast instead of waiting out its
- * deadline.
+ * Unhandled methods return `false` so the channel answers `-32601` instead of
+ * waiting out the request deadline.
  */
 export function createServerRequestHandler(ctx: ServerRequestHandlerContext): (request: ServerRequest) => boolean {
   const { focusedSessionId = () => getUiState().sid, ringPromptBell, setStatus } = ctx
@@ -99,7 +97,7 @@ export function createServerRequestHandler(ctx: ServerRequestHandlerContext): (r
             : {}
 
         patchOverlayState({ clarify: { answers, questions, requestId: request.id } })
-        open(request, t('session.status.waitingForInput'))
+        open(request, sessionEn.session.status.waitingForInput)
 
         return true
       }
@@ -111,25 +109,25 @@ export function createServerRequestHandler(ctx: ServerRequestHandlerContext): (r
             allowPermanent: p.allow_permanent !== false,
             choices: strList(p.choices) ?? undefined,
             command: str(p.command),
-            description: str(p.description) || t('session.request.dangerousCommand'),
+            description: str(p.description) || sessionEn.session.request.dangerousCommand,
             requestId: request.id,
             smartDenied: p.smart_denied === true
           }
         })
-        open(request, t('session.status.approvalNeeded'))
+        open(request, sessionEn.session.status.approvalNeeded)
 
         return true
       }
 
       case 'sudo':
         patchOverlayState({ sudo: { requestId: request.id } })
-        open(request, t('session.status.sudoPasswordNeeded'))
+        open(request, sessionEn.session.status.sudoPasswordNeeded)
 
         return true
 
       case 'secret':
         patchOverlayState({ secret: { envVar: str(p.env_var), prompt: str(p.prompt), requestId: request.id } })
-        open(request, t('session.status.secretInputNeeded'))
+        open(request, sessionEn.session.status.secretInputNeeded)
 
         return true
 
@@ -137,14 +135,14 @@ export function createServerRequestHandler(ctx: ServerRequestHandlerContext): (r
         patchOverlayState({
           vaultUnlock: { backend: str(p.backend), displayName: str(p.display_name), requestId: request.id }
         })
-        open(request, t('session.status.unlockVault', str(p.display_name)))
+        open(request, sessionEn.session.status.unlockVault(str(p.display_name)))
 
         return true
       case 'vault.save_login': {
         const site = str(p.site) || str(p.origin)
 
         patchOverlayState({ vaultSaveLogin: { origin: str(p.origin), requestId: request.id, site } })
-        open(request, t('session.status.saveLogin', site))
+        open(request, sessionEn.session.status.saveLogin(site))
 
         return true
       }
@@ -153,7 +151,7 @@ export function createServerRequestHandler(ctx: ServerRequestHandlerContext): (r
         const site = str(p.site)
 
         patchOverlayState({ vaultCode: { hint: str(p.hint), requestId: request.id, site } })
-        open(request, t('session.status.verificationCode', site))
+        open(request, sessionEn.session.status.verificationCode(site))
 
         return true
       }

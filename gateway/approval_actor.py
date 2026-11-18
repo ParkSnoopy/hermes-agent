@@ -86,8 +86,7 @@ def approval_refusal(session_key: str, actor_id: Any, *, admin_ids: Iterable[str
 
 
 def refusal_text(requester: str) -> str:
-    from agent.i18n import t
 
     if requester == _NO_REQUESTER:
-        return t("gateway.exec_approval.not_requester_admins_only")
-    return t("gateway.exec_approval.not_requester", requester=requester)
+        return 'Only an admin or a listed approver can answer this approval.'
+    return (f'Only {requester} can answer this approval.')

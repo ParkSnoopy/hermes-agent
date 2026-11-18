@@ -12,16 +12,20 @@ RESOURCE_ENV = {
     "skills": "HERMES_BUNDLED_SKILLS",
     "optional-skills": "HERMES_OPTIONAL_SKILLS",
     "plugins": "HERMES_BUNDLED_PLUGINS",
-    "locales": "HERMES_BUNDLED_LOCALES",
     "optional-mcps": "HERMES_OPTIONAL_MCPS",
 }
 
 
+def validate_target(target: str) -> None:
+    if not re.fullmatch(r"linux-(?:(?:x64|arm64)(?:-musl)?|arm64-bionic)", target):
+        raise ValueError(f"unsupported target: {target}")
+
+
 def dependency_site(environment: Path, python_version: str, target: str) -> Path:
     """Providers know the target pin; the builder's interpreter is irrelevant."""
+    validate_target(target)
     minor = python_version.split("+")[0].rsplit(".", 1)[0]
-    return environment / ("Lib/site-packages" if target.startswith("win32") else
-                          f"lib/python{minor}/site-packages")
+    return environment / f"lib/python{minor}/site-packages"
 
 
 def project_entries(project: Path) -> dict[str, str]:
@@ -70,8 +74,7 @@ class AgentInputs:
         return cls(**values)
 
     def validate(self, out: Path) -> None:
-        if not re.fullmatch(r"(?:(?:linux|darwin|win32)-(?:x64|arm64)|linux-(?:x64|arm64)-musl|linux-arm64-bionic)", self.target):
-            raise ValueError(f"unsupported target: {self.target}")
+        validate_target(self.target)
         if self.placement not in ("contained", "fixed", "references"):
             raise ValueError(f"unknown placement: {self.placement}")
         if Path(self.repo).is_absolute() or ".." in Path(self.repo).parts:
@@ -80,8 +83,7 @@ class AgentInputs:
             raise ValueError("bin_dir must be one output-relative directory")
         if self.resources.keys() - RESOURCE_ENV.keys():
             raise ValueError("unknown resource names")
-        if self.frontends.keys() - {"tui", "web", "webapp"}:
-            raise ValueError("unknown frontend names")
+        validate_frontend_names(self.frontends)
         paths = [self.project, self.code, self.python, self.site_packages, self.environment,
                  self.pm_runtime, *self.resources.values(), *self.frontends.values()]
         paths += [p for p in (self.tools, self.command_dir, self.stamp, self.features) if p is not None]
@@ -114,9 +116,15 @@ class AgentInputs:
         validate_frontends(self.frontends)
 
 
+def validate_frontend_names(frontends: dict[str, Path]) -> None:
+    if frontends.keys() - {"tui"}:
+        raise ValueError("unknown frontend names")
+
+
 def validate_frontends(frontends: dict[str, Path]) -> None:
+    validate_frontend_names(frontends)
     for name, path in frontends.items():
-        required = ("dist/entry.js", "package.json") if name == "tui" else ("index.html",)
+        required = ("dist/entry.js", "package.json")
         for entry in required:
             if not (path / entry).is_file():
                 raise FileNotFoundError(path / entry)

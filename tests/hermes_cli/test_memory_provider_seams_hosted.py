@@ -1,6 +1,4 @@
-"""plugins.isolation: host — the memory-provider seams cross the plugin host: a refused panel save
-(``json.JSONDecodeError`` raised in the host) is a 400 with no secret saved, a profile hook runs in
-the host with the new profile's home, and a host started only for that hook does not outlive it."""
+"""Memory-provider profile hooks run in, and respect the lifetime of, their plugin host."""
 
 import json
 import os
@@ -107,22 +105,6 @@ def hosted_home(request, tmp_path, monkeypatch):
             host.shutdown()
     plugins_mod._reset_plugin_managers_for_tests()
 
-
-@pytest.mark.platforms("any")  # the host is a child process
-def test_a_refused_save_crosses_the_host_as_a_400_with_no_secret_saved(hosted_home):
-    from starlette.testclient import TestClient
-    from hermes_cli.config import load_env
-    from hermes_cli.web_server import _SESSION_HEADER_NAME, _SESSION_TOKEN, app
-
-    (hosted_home / "hostedprov.json").write_text("{not json", encoding="utf-8")
-    client = TestClient(app, headers={_SESSION_HEADER_NAME: _SESSION_TOKEN})
-
-    resp = client.put("/api/memory/providers/hostedprov/config?surface=declared",
-                      json={"values": {"workspace": "w", "apiKey": "hp-key"}})
-
-    assert resp.status_code == 400
-    assert "HOSTEDPROV_API_KEY" not in load_env()
-    assert (hosted_home / "hostedprov.json").read_text(encoding="utf-8") == "{not json"
 
 
 @pytest.mark.platforms("any")

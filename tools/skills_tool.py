@@ -20,7 +20,7 @@ from agent.skill_utils import (
     EXCLUDED_SKILL_DIRS as _EXCLUDED_SKILL_DIRS, is_skill_support_path as _is_skill_support_path)
 from tools.skills_tool_setup import (
     SkillReadinessStatus, _build_setup_note, _capture_required_environment_variables,
-    _get_required_environment_variables, _is_env_var_persisted, _is_remote_env_backend)
+    _get_required_environment_variables, _is_env_var_persisted)
 from tools.skills_tool_plugin import (
     MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH, _INJECTION_PATTERNS, _fail, _json,
     _mark_background_review_read, _preprocess_skill, _read_skill_text, _safe_frontmatter,
@@ -241,7 +241,7 @@ def _skill_catalog(*, skip_disabled: bool = False, include_hidden: bool = False)
     cached = _SKILLS_CACHE.get(cache_key)
     if cached is not None and cached[0] == signature and (now - cached[1]) < _SKILLS_CACHE_TTL_SECONDS:
         # Shallow copies: callers mutate the returned dicts (web_server annotates
-        # s["enabled"]/s["usage"]); handing out cached objects would poison the cache.
+        # s["enabled"]/s["locked"]); handing out cached objects would poison the cache.
         return [dict(s) for s in cached[2]]
     scanned = []
     for tier, scan_dir in roots:  # project dirs go through the quarantine chokepoint
@@ -467,13 +467,38 @@ def _skill_linked_files(skill_dir: Optional[Path]) -> dict:
     return files
 
 
+def _missing_skill_credential_files(entries: object) -> list[str]:
+    """Check declared profile-relative files without exposing protected stores."""
+    from hermes_constants import get_hermes_home
+    from tools.path_security import validate_within_dir
+
+    if not isinstance(entries, list):
+        return []
+    home = get_hermes_home()
+    missing = []
+    for entry in entries:
+        if isinstance(entry, dict):
+            entry = entry.get("path") or entry.get("name") or ""
+        if not isinstance(entry, str) or not (rel := entry.strip()):
+            continue
+        try:
+            from agent.file_safety import get_read_block_error
+            path = home / rel
+            denied = (Path(rel).is_absolute() or validate_within_dir(path, home)
+                      or not path.is_file() or get_read_block_error(str(path.resolve())))
+        except Exception:
+            logger.exception("Could not check skill credential file %r", rel)
+            denied = True
+        if denied:
+            missing.append(rel)
+    return missing
+
+
 def _skill_readiness(frontmatter: dict[str, Any], skill_name: str) -> tuple[dict, dict]:
     """Resolve required env vars / credential files (prompting for secrets where the surface
-    allows) and register what's available for sandboxes. Returns ``(fields, extras)``: fields go
+    allows) and register available variables for execution. Returns ``(fields, extras)``: fields go
     before the readiness extras in the skill_view result — key order is tool output."""
     required_env_vars = _get_required_environment_variables(frontmatter)
-    from tools.terminal_scope import terminal_env
-    backend = str(terminal_env("TERMINAL_ENV", "local")).strip().lower() or "local"
     env_snapshot = load_env()
     missing_required_env_vars = [
         e for e in required_env_vars
@@ -486,24 +511,17 @@ def _skill_readiness(frontmatter: dict[str, Any], skill_name: str) -> tuple[dict
         e["name"] for e in required_env_vars if not e.get("optional")
         and (e["name"] in still_missing or not _is_env_var_persisted(e["name"], env_snapshot))]
     setup_needed = bool(remaining)
-    # Only vars actually set pass through to sandboxed execution (execute_code, terminal).
+    # Only vars actually set pass through to execution (execute_code, terminal).
     if available_env_names := [e["name"] for e in required_env_vars if e["name"] not in remaining]:
         try:
             from tools.env_passthrough import register_env_passthrough
             register_env_passthrough(available_env_names)
         except Exception:
             logger.debug("Could not register env passthrough for skill %s", skill_name, exc_info=True)
-    # Credential files for remote sandboxes: existing host files are registered,
-    # missing ones flag setup_needed.
+    # Check skill-declared files locally, without forwarding credentials elsewhere.
     required_cred_files_raw = frontmatter.get("required_credential_files", [])
-    missing_cred_files: list = []
-    if isinstance(required_cred_files_raw, list) and required_cred_files_raw:
-        try:
-            from tools.credential_files import register_credential_files
-            missing_cred_files = register_credential_files(required_cred_files_raw)
-            setup_needed = setup_needed or bool(missing_cred_files)
-        except Exception:
-            logger.debug("Could not register credential files for skill %s", skill_name, exc_info=True)
+    missing_cred_files = _missing_skill_credential_files(required_cred_files_raw)
+    setup_needed = setup_needed or bool(missing_cred_files)
     status = SkillReadinessStatus.SETUP_NEEDED if setup_needed else SkillReadinessStatus.AVAILABLE
     fields = {
         "required_environment_variables": required_env_vars, "required_commands": [],
@@ -518,8 +536,6 @@ def _skill_readiness(frontmatter: dict[str, Any], skill_name: str) -> tuple[dict
         extras["gateway_setup_hint"] = capture_result["gateway_setup_hint"]
     missing_items = [f"env ${n}" for n in remaining] + [f"file {p}" for p in missing_cred_files]
     if setup_needed and (setup_note := _build_setup_note(status, missing_items, setup_help)):
-        if _is_remote_env_backend(backend):
-            setup_note = f"{setup_note} {backend.upper()}-backed skills need these requirements available inside the remote environment as well."
         extras["setup_note"] = setup_note
     return fields, extras
 

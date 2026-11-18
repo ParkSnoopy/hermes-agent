@@ -3,7 +3,6 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
-import plistlib
 import socket
 import sys
 import threading
@@ -16,13 +15,6 @@ from hermes_platform.resolver.app import AppDef, AppLocation, AppResolver, Endpo
 
 TOKEN = "tok-3e1f9c-unique-fixture-value"
 
-
-def _bundle(tmp_path, version="9.8.7"):
-    app = tmp_path / "Applications" / "Thing.app"
-    (app / "Contents").mkdir(parents=True)
-    with open(app / "Contents" / "Info.plist", "wb") as fh:
-        plistlib.dump({"CFBundleShortVersionString": version}, fh)
-    return app
 
 
 def _server_json(tmp_path, *, url, pid=None):
@@ -49,15 +41,6 @@ def test_locate_reports_expanded_path_when_missing(tmp_path, monkeypatch):
     assert res.candidates[0].value == str(tmp_path / "bin" / "thing")
 
 
-def test_bundle_presence_and_plist_version(tmp_path):
-    app = _bundle(tmp_path)
-    r = AppResolver(AppDef("thing", "darwin", "bundle", (AppLocation("path", str(app)),), version_kind="plist"))
-    res = r.locate()
-    assert res.kind == "known_path" and res.command == (str(app),)
-    insp = r.inspect(res)
-    assert insp.version.state is CheckState.PRESENT and insp.version.value == "9.8.7"
-    assert insp.signer.state is CheckState.NOT_CHECKED
-
 
 def test_star_segment_tries_the_highest_version_first(tmp_path):
     for version in ("2.9", "2.10", "10.0b"):
@@ -80,8 +63,23 @@ def test_first_present_location_sets_the_resolution(tmp_path):
     assert [c.present for c in res.candidates] == [False, True]
 
 
+def test_flatpak_system_precedes_user(tmp_path, monkeypatch):
+    from hermes_platform.resolver import app
+
+    system, user = tmp_path / "system", tmp_path / "user"
+    for directory in (system, user):
+        directory.mkdir()
+        (directory / "org.example.Thing").write_text("fixture", encoding="utf-8")
+    spec = dataclasses.replace(app.LOCATION_KINDS["flatpak"], locate=app._in_dirs(lambda: (str(system), str(user))))
+    monkeypatch.setitem(app.LOCATION_KINDS, "flatpak", spec)
+    definition = AppDef("thing", "linux", "executable", (AppLocation("flatpak", "org.example.Thing"),))
+    result = AppResolver(definition).locate()
+    assert result.command == (str(system / "org.example.Thing"),)
+    assert [candidate.value for candidate in result.present] == [str(system / "org.example.Thing"), str(user / "org.example.Thing")]
+
+
 def test_inspect_on_missing_is_not_checked(tmp_path):
-    r = AppResolver(AppDef("thing", sys.platform, "executable", (AppLocation("path", str(tmp_path / "none")),), version_kind="plist"))
+    r = AppResolver(AppDef("thing", sys.platform, "executable", (AppLocation("path", str(tmp_path / "none")),)))
     insp = r.inspect(r.locate())
     assert insp.version.state is CheckState.NOT_CHECKED
 

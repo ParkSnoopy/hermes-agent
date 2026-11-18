@@ -24,9 +24,7 @@ HELLO_SECONDS = 60
 # After Stop the child interrupts its agent and emits its result; the owner terminates a
 # child that has not acknowledged within this window instead of waiting on the pipe forever.
 STOP_ACK_SECONDS = 30
-# How long a lost attempt's board note may hold up settling its admission (the note is
-# advisory; a busy board's write finishes in the background).
-LOSS_RECORD_WAIT_S = 10
+
 # Own session (POSIX): a worker whose owner died kills its whole group (managed_worker
 # _die_with_owner); on Windows it exits itself.
 # detached-spawn: ok — covered: the worker kills its own group when its owner dies (_die_with_owner)
@@ -47,7 +45,7 @@ def managed_policy(authority, ref):
     policy = policy_for_source(authority.runner, authority.sessions[ref.session_id].source)
     if policy is None:
         return None
-    if policy.ignore_user_config or policy.kanban_json is not None:
+    if policy.ignore_user_config:
         return policy
     if policy.config().get('gateway', {}).get('managed_workers') is not True:
         return None
@@ -69,7 +67,7 @@ def _bootstrap(authority, ref, row, policy, scope, text=None):
     live = authority.sessions[ref.session_id]
     # This turn's facts ride the per-turn hydrated request (the bootstrap field set is closed):
     # the admission's one-shot flags, the route's YOLO as of now (never the frozen launch flag) and
-    # the committed surface (HUD / live voice / voice turn) when admission recorded one.
+    # the committed HUD surface when admission recorded one.
     request = dict(json.loads(policy.request_json), turn_v1={
         'finite': row['payload'].get('finite', False), 'unattended': row['payload'].get('unattended') is True,
         'yolo': _session_yolo(authority, live.route, policy),
@@ -122,8 +120,8 @@ def _session_yolo(authority, route, policy):
 def worker_turn_scope(frame):
     """Child side of ``turn_v1``: bind what the in-process turn binds on the owner
     (execute_finite_admission, the route's YOLO, the committed surface), so ``chat -q``/``-z``
-    never park a prompt, the session's current YOLO governs this child and a HUD / live-voice /
-    voice turn reaches the model as it does in process. Frames without it bind nothing."""
+    never park a prompt, the session's current YOLO governs this child and a HUD turn reaches the
+    model as it does in process. Frames without it bind nothing."""
     from gateway.session_finite import finite_turn_scope
     from gateway.session_display import display_turn_scope, restore_display
     from gateway.session_surface import restore_surface, surface_turn_scope
@@ -549,37 +547,11 @@ def _stopped_before_spawn(authority, ref, row):
     return True
 
 
-def _record_lost_attempt(authority, policy, exc, reason, scope):
-    """Start the board disposition (``worker_lost``) for a lost Kanban card attempt; the task, or None.
-
-    A worker that dies in ``worker.adopt`` never writes ``worker_bound``/``worker_result``, so
-    without it the card's run learns nothing from its own loss. A deliberate Stop or a
-    superseded generation is not a loss. Tracked, so retirement joins the write.
-    """
-    if (not getattr(policy, 'kanban_json', None) or isinstance(exc, asyncio.CancelledError)
-            or reason in ('managed_worker_stopped', 'stale_generation')):
-        return None
-    from gateway.session_kanban import record_worker_loss
-    from gateway.session_runtime_workers import track_mutation
-    return track_mutation(authority, asyncio.to_thread(partial(record_worker_loss, policy, reason,
-                                                               pid=(scope or {}).get('pid'), bound=scope is not None)))
-
-
-async def _settle_lost(authority, row, scope, recording):
-    """Settle a lost worker's admission ``unknown`` once its board note (``recording``) landed.
-
-    The note comes first: the submitter exits on the settled 'unknown' and the crash sweep then
-    books the bound interpreter, so a later write is dropped and an exit-0 worker_result reads
-    as a protocol violation. A busy board holds this up ``LOSS_RECORD_WAIT_S`` at most (the
-    write carries on, tracked), and a cancellation during the wait still settles.
-    """
+async def _settle_lost(authority, row, scope):
+    """Settle a lost worker's admission as unknown."""
     from gateway.session_worker_reservation import lose_admission_worker
     from gateway.session_runtime_workers import tracked_write
-    try:
-        if recording is not None:
-            await asyncio.wait({recording}, timeout=LOSS_RECORD_WAIT_S)
-    finally:
-        await tracked_write(authority, partial(lose_admission_worker, authority, row, scope))
+    await tracked_write(authority, partial(lose_admission_worker, authority, row, scope))
 
 
 async def _spawn_registered_worker(authority, ref, row):
@@ -737,9 +709,9 @@ async def execute_managed(authority, ref, row, policy):
                 # Stopped before the child ever received its bootstrap: nothing executed, so
                 # this settles like an ordinary interrupted turn (the finally kills the child).
                 return _interrupted_before_bootstrap(authority, row, worker.stop_cause)
-            _record_lost_attempt(authority, policy, exc, reason, scope)  # nothing bound: a late note is dropped, never misbooked
+
             raise
-        await _settle_lost(authority, row, scope, _record_lost_attempt(authority, policy, exc, reason, scope))
+        await _settle_lost(authority, row, scope)
         live = authority.sessions[ref.session_id]
         with live.event_stream.lock:
             live.controls.snapshot(ref.session_id, None)

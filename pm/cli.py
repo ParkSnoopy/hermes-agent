@@ -57,15 +57,14 @@ def _relock_project(root: Path) -> int:
         print(f"✗ uv.lock refresh failed: {exc}")
         return 1
     print("✓ uv.lock updated from pyproject.toml")
-    windows = sys.platform == "win32"
-    activate = r". .\activate.ps1" if windows else "source ./activate"
+    activate = "source ./activate"
     print(f"Next: re-source activation to sync the environments: {activate}")
     opt_in = _new_opt_in_extras(root, before)
     if opt_in:
         # Activation syncs [all] plus extras already recorded, and --test-extras
         # REPLACES the default rather than adding to it, so [all] stays listed.
         names = ",".join(["all", *opt_in])
-        flag = f"-TestExtras '{names}'" if windows else f"--test-extras {names}"
+        flag = f"--test-extras {names}"
         print(f"New extras outside [all] ({', '.join(opt_in)}) need: {activate} {flag}")
     print("Then commit pyproject.toml and uv.lock together.")
     return 0
@@ -135,35 +134,11 @@ def _fmt_bytes(n: int) -> str:
     return f"{n / (1024 * 1024):.1f} MiB"
 
 
-def _enable_vt(stream) -> bool:
-    """A Windows console prints ESC as a glyph (`←[2K`) until its handle opts
-    in to VT processing, and PowerShell hands children a console with VT off.
-    NUL also reports isatty() but is no console, so it fails here too."""
-    if sys.platform != "win32":
-        return True
-    import ctypes
-    import msvcrt
-    from ctypes import wintypes
-
-    try:
-        handle = msvcrt.get_osfhandle(stream.fileno())
-    except (AttributeError, OSError, ValueError):
-        return False
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    mode = wintypes.DWORD()
-    if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
-        return False
-    vt = 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
-    return bool(mode.value & vt or kernel32.SetConsoleMode(handle, mode.value | vt))
-
-
 def _progress_stream():
-    """Stream for in-place progress, or None off a terminal. Prefer stdout;
-    fall back to stderr because activate.ps1 pipes stdout through Out-Host
-    while stderr stays on the console."""
+    """Stream for in-place progress, or None off a terminal. Prefer stdout."""
     for stream in (sys.stdout, sys.stderr):
         try:
-            if stream.isatty() and _enable_vt(stream):
+            if stream.isatty():
                 return stream
         except (AttributeError, ValueError):
             continue

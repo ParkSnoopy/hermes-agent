@@ -2,34 +2,19 @@
 its re-download got; changed bytes under the same provider id still conflict."""
 import asyncio
 from datetime import UTC, datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-import threading
 
+import httpx
 import pytest
 
 PNG = b'\x89PNG\r\n\x1a\n' + b'\x00' * 24
 
 
-class _Media(BaseHTTPRequestHandler):
-    body = PNG
-
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-Type', 'image/png')
-        self.send_header('Content-Length', str(len(self.body)))
-        self.end_headers()
-        self.wfile.write(self.body)
-
-    def log_message(self, *args):
-        pass
-
-
 @pytest.mark.asyncio
 async def test_redelivered_media_message_returns_its_receipt_and_changed_bytes_conflict(tmp_path, monkeypatch):
-    from gateway.config import GatewayConfig, Platform, PlatformConfig
+    from gateway.config import GatewayConfig
+    from gateway.platforms.base import cache_image_from_url
     from gateway.platforms.event import MessageEvent, MessageType
-    from gateway.relay.media import RelayMediaClient
     from gateway.run import GatewayRunner
     from gateway.session_authority import SessionAuthority, initialize_session_authority
     from gateway.session_ingress_context import native_callback
@@ -37,24 +22,29 @@ async def test_redelivered_media_message_returns_its_receipt_and_changed_bytes_c
     from hermes_constants import get_hermes_home
     from hermes_state_runtime import (RuntimeStoreError, claim_session_input, list_session_admissions,
                                       settle_session_input)
-    from plugins.platforms.discord.adapter import DiscordAdapter
+    from tests.gateway.test_authority_busy_plaintext_approval import CHAT, _human_adapter
     monkeypatch.setattr(SessionAuthority, '_schedule', lambda self, ref: None)
-    monkeypatch.setenv('DISCORD_ALLOWED_USERS', '42')
-    server = ThreadingHTTPServer(('127.0.0.1', 0), _Media)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    url = f'http://127.0.0.1:{server.server_port}/photo.png'
-    client = RelayMediaClient(f'http://127.0.0.1:{server.server_port}', None, None)
+    body = [PNG]
+    requests = []
+
+    def respond(request):
+        requests.append(request.url)
+        return httpx.Response(200, content=body[0], request=request)
+
+    monkeypatch.setattr('tools.url_safety.is_safe_url', lambda url: True)
+    monkeypatch.setattr('tools.url_safety.create_ssrf_safe_async_client',
+                        lambda **kwargs: httpx.AsyncClient(transport=httpx.MockTransport(respond)))
+    url = 'https://media.example.invalid/photo.png'
     runner = GatewayRunner(GatewayConfig())
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token='fixture-token', typing_indicator=False))
-    runner.adapters = {Platform.DISCORD: adapter}
+    adapter = _human_adapter(monkeypatch)
+    runner.adapters = {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='owner')
     runner._wire_adapter_handlers(adapter)
-    source = adapter.build_source(chat_id='42', chat_type='dm', user_id='42')
+    source = adapter.build_source(chat_id=CHAT, chat_type='dm', user_id=CHAT)
 
     async def deliver():
-        # Every delivery re-downloads the attachment, as the Relay adapter does before admission.
-        staged = await client.download(url)
-        # The Relay adapter pins the timestamp: the connector sends no provider time.
+        # Every delivery re-downloads the attachment before admission.
+        staged = await cache_image_from_url(url, ext='.png')
         event = MessageEvent(text='look', source=source, message_id='provider-1', message_type=MessageType.PHOTO,
                              media_urls=[staged], media_types=['image/png'],
                              timestamp=datetime.fromtimestamp(0, UTC))
@@ -76,11 +66,9 @@ async def test_redelivered_media_message_returns_its_receipt_and_changed_bytes_c
         assert not list(_media_root().rglob('*.png')), 'a redelivery copy no admission owns stayed retained'
         rows = list_session_admissions(authority.db, session_id=sid, pending_only=False)
         assert [row['request_id'] for row in rows] == ['provider-1'], 'the message must execute once'
-        _Media.body = PNG + b'changed'
+        body[0] = PNG + b'changed'
         with pytest.raises(RuntimeStoreError, match='admission_conflict'):
             await deliver()
+        assert len(requests) == 4
     finally:
-        _Media.body = PNG
-        server.shutdown()
-        server.server_close()
         await asyncio.to_thread(authority.db.close)

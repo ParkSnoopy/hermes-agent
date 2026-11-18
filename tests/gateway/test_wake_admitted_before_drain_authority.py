@@ -1,10 +1,10 @@
 """A wake receipted before a restart drain must run exactly once on the authority route too.
 
-Once a chat has a committed human turn, ``deliver_wake`` commits a Kanban wake to the session
+Once a chat has a committed human turn, ``deliver_wake`` commits a wake to the session
 authority's FIFO (``admit_route_wake``) instead of the classic adapter path the sibling file covers.
 The receipt lets the notifier advance its cursor, so the wake is never re-sent: a drain must leave
 the committed row queued (or run it), and the restarted gateway's startup recovery must run it, never
-twice. Real GatewayRunner, DiscordAdapter and SessionAuthority over SQLite; the restart is a second
+twice. Real GatewayRunner, a generic plugin adapter and SessionAuthority over SQLite; the restart is a second
 runner and authority over the same state DB.
 """
 
@@ -14,7 +14,7 @@ import pytest
 
 from tests.waiting import async_wait_until
 
-WAKE = "[Kanban task completed] t_1"
+WAKE = "[Background task completed] t_1"
 
 
 class Hold:
@@ -30,18 +30,18 @@ async def authority_route(monkeypatch, instance_id, executed, hold=None):
     from gateway.run import GatewayRunner
     from gateway.session_authority import initialize_session_authority
     from gateway.session_results import execution_result
-    from plugins.platforms.discord.adapter import DiscordAdapter
+    from tests.gateway.test_native_admission_named_refusal import make_test_transport
 
-    monkeypatch.setenv("DISCORD_ALLOWED_USERS", "42")
+    monkeypatch.setenv("GATEWAY_ALLOW_ALL_USERS", "true")
     runner = GatewayRunner(GatewayConfig())
-    adapter = DiscordAdapter(PlatformConfig(enabled=True, token="fixture-token", typing_indicator=False))
+    adapter = make_test_transport(monkeypatch)
 
     async def send(chat_id, content, reply_to=None, metadata=None):
         return SendResult(success=True, message_id="sent")
 
     monkeypatch.setattr(adapter, "send", send)
     adapter.gateway_runner = runner  # as GatewayRunner._create_adapter binds every adapter
-    runner.adapters = {Platform.DISCORD: adapter}
+    runner.adapters = {adapter.platform: adapter}
     authority = await initialize_session_authority(runner, profile_id="default", instance_id=instance_id)
     runner._wire_adapter_handlers(adapter)
 

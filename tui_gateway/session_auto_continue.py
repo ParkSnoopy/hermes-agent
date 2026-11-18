@@ -20,9 +20,9 @@ _AUTO_CONTINUE_FRESHNESS_MINUTES_DEFAULT = 15
 
 
 def _auto_continue_config() -> tuple[bool, float, int]:
-    """(enabled, freshness window in seconds, max attempts) from ``desktop.auto_continue`` in config.yaml."""
-    desktop = _load_cfg().get("desktop")
-    cfg = desktop.get("auto_continue") if isinstance(desktop, dict) else None
+    """(enabled, freshness window in seconds, max attempts) from ``sessions.auto_continue`` in config.yaml."""
+    sessions = _load_cfg().get("sessions")
+    cfg = sessions.get("auto_continue") if isinstance(sessions, dict) else None
     cfg = cfg if isinstance(cfg, dict) else {}
     try:
         minutes = float(cfg.get("freshness_minutes", _AUTO_CONTINUE_FRESHNESS_MINUTES_DEFAULT))

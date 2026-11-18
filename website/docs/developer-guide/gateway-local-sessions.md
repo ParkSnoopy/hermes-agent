@@ -49,71 +49,31 @@ admission, not inference completion. Closing every viewer leaves the execution a
 pending approval alive. A new viewer can resume the same identity and answer through
 `approval.respond({session_id, execution_generation, prompt_id, choice})`.
 
-## Deliberate behavior change: shared operator access
+## Shared operator access
 
-Verified operators of the same gateway profile may attach to canonical local sessions
-created through another operator authentication path. This replaces the creator-subject-only
-access fence for those operators: the existing dashboard gate already grants operator access,
-so changing from native CLI/TUI to an authenticated dashboard must not create a second runtime
-or prevent attachment solely because the raw identities differ. This is shared access, not
-shared identity: creation receipts keep the original owner, and admissions and retries keep
-the submitting principal.
+Verified operators of the same gateway profile may attach to canonical local sessions created by another operator.
+This is shared access, not shared identity: creation receipts retain the original owner, and submissions and retries retain the submitting principal.
 
-The server issues `session:operator` only at these existing trusted boundaries:
+Native interactive bootstrap ticket redemption grants `session:operator`; worker-adoption tickets do not.
+A client cannot request operator scope in RPC parameters or an identity capability list.
+Operator scope does not replace profile, instance, per-operation capability, subscription, revision or generation checks, and does not upgrade messaging, room, worker or service credentials.
 
-- Native interactive bootstrap ticket redemption (not worker-adoption tickets).
-- The dashboard WebSocket upgrade gate, including authenticated dashboard login tickets,
-  the process-lifetime internal credential for server-spawned PTY clients, and the verified
-  legacy session token when that authentication path is enabled. With `webapp.enabled`, that
-  session token is the browser-hosted Desktop's credential: the gateway keeps it in its home so
-  Webapp tabs survive a restart, hands it out only through a one-use link minted for a same-user
-  control-socket peer, and replaces it on `hermes webapp --sign-out` and whenever the Webapp's
-  listener fails to start, since its port then belongs to someone else. Behind the sign-in gate a
-  Webapp login is bound to that token by the `hermes_webapp_signin_<gateway>` cookie (HMAC-SHA256 of
-  `webapp-sign-in` keyed with the token), so replacing it ends those logins too; sign-out closes
-  every socket the token or a bound login opened, Bot Desktop viewers included. The Webapp's listener
-  names every sign-in cookie it sets that way (`hermes_session_at_<gateway>` and the rest; `<gateway>`
-  comes from a digest of the gateway home), so two gateways' Webapps on one hostname keep their own
-  logins, whatever their sign-in providers, and leave the standalone dashboard's cookies alone. The provider tokens
-  such a login keeps in its cookies never work there on their own: the Webapp's listener accepts a
-  bearer token or a socket's `?token=`, and renews a refresh token, only when it gave that token to a
-  native app's RFC 8252 sign-in (digests kept in `webapp/native-sign-in-tokens.json` in the gateway home until they
-  expire), so native apps stay signed in across a sign-out and a restart. The deployment session
-  token (`HERMES_DASHBOARD_SESSION_TOKEN`) also works there as a bearer token or `?token=` while the
-  session-token provider is enabled; it has no refresh token.
-- The HTTP mutation gate, after a verified dashboard Session, native HTTP owner grant,
-  or permitted legacy session token has been accepted.
-
-A client cannot request this scope in RPC parameters or an identity capability list.
-Operator scope does not replace profile, instance, per-operation capability, subscription,
-revision, or generation checks. It does not upgrade messaging, room, worker, or service
-credentials, or permit remote first-claim adoption of unowned historical transcripts. If
-restricted dashboard identities are introduced, these issuance gates must reflect that
-restriction rather than treating every accepted dashboard credential as an operator.
-
-Cross-subject local submissions carry a private, server-written profile/session/principal
-binding for queued execution and recovery. It is not exposed in model requests or public
-session snapshots. This change does not implement OpenAI API-to-local session affinity. The gateway
-listener stays on loopback unless `webapp.host` binds a wildcard address. The Webapp's listener engages
-the dashboard sign-in gate on a wildcard bind or when `webapp.public_url` is set, on any bind, and
-one-use launch links are then off. `dashboard.public_url` never applies to the Webapp's listener; the
-gateway's private listener for native clients reads it as main does, so hosted sign-in on that
-listener keeps working.
+Cross-subject local submissions carry a private, server-written profile/session/principal binding for queued execution and recovery.
+This binding is not exposed in model requests or public session snapshots.
+The gateway listener remains local, and this does not implement OpenAI API-to-local session affinity.
 
 ## Deliberately limited compatibility
 
-- `source` accepts `cli` (default), `tui`, `gui`, `acp`, `tool` and `oneshot`
+- `source` accepts `cli` (default), `tui`, `acp`, `tool` and `oneshot`
   (`gateway.session_policy.SURFACES`). They select the agent platforms `cli`, `tui`,
-  `desktop`, `acp`, `cli` and `cli`; `tool` (third-party integrations) and `oneshot`
+  `acp`, `cli` and `cli`; `tool` (third-party integrations) and `oneshot`
   (finite `chat -q` / `-z` runs) keep their own stored label so human pickers hide them.
   The native local routing identity remains server-owned `Platform.LOCAL`; source never
-  grants messaging/native trust. Default TUI selection folds in `project`; GUI folds in
-  the client-surface toolsets (`project`, `desktop_ui`, `catalog`). GUI policy is
-  independent of `HERMES_DESKTOP` and of the attaching viewer's identity. Without explicit
+  grants messaging/native trust. Default TUI selection folds in `project`. Without explicit
   `toolsets`, the gateway applies the coding posture (`agent.coding_context: focus` in a
   code workspace, `agent/coding_context.py`) from the `cwd` a `session.create` names,
   decided once at creation; clients never send it as a pick. Only `session.create` applies
-  it, never for `source: tool`: Kanban workers, cron jobs, A2A, hosted rooms and migrated
+  it, never for `source: tool`: Kanban workers, A2A, hosted rooms and migrated
   legacy rows keep the profile's toolsets.
 - Optional flat creation fields: `cwd` (existing absolute gateway-local directory),
   `model` (nonempty model identifier on the daemon's configured provider), and `toolsets`
@@ -133,9 +93,8 @@ listener keeps working.
   `invalid_params`. No supported launch field mutates daemon-wide configuration or process
   environment.
 - Fresh creation requires a server-authenticated identity with `session:create`, supplied
-  by the gated dashboard or native bootstrap path. The verified legacy `?token=` route
-  stamps a session-token identity and also supports creation. Callers cannot provide an
-  identity in RPC parameters, and operator scope does not promote resume-only capabilities
+  by the native bootstrap path. Callers cannot provide an identity in RPC parameters,
+  and operator scope does not promote resume-only capabilities
   to `session:create`.
 - `session.list({limit})` returns authorized **live** authority sessions (`scope: "live"`).
   The native TUI picker also requests `session.list({limit, scope: "stored"})` for pre-authority

@@ -12,7 +12,7 @@ chat completions — use your Hermes-managed provider subscription as their
 LLM endpoint. The proxy attaches the right credentials (refreshing them
 automatically) so the app never needs a static API key.
 
-This is different from the [API server](./api-server.md):
+This is different from the API server:
 
 | | API server | Subscription proxy |
 |---|---|---|

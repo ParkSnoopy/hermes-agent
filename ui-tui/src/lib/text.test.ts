@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { t } from '../i18n/runtime.js'
+import { libTextEn } from '../copy/libText.js'
 
 import { clarifyRevisitState, formatAbandonedClarify, stripTrailingPasteNewlines } from './text.js'
 
@@ -32,10 +32,10 @@ describe('formatAbandonedClarify', () => {
 
     expect(out).toBe(
       [
-        t('libText.text.clarifyHead', 2),
-        `  ${t('libText.text.clarifyAnswered', 'One?', 'alpha')}`,
-        `  ${t('libText.text.clarifyUnanswered', 'Two?')}`,
-        `  ${t('libText.text.clarifyReason', 'timed out')}`
+        libTextEn.libText.text.clarifyHead(2),
+        `  ${libTextEn.libText.text.clarifyAnswered('One?', 'alpha')}`,
+        `  ${libTextEn.libText.text.clarifyUnanswered('Two?')}`,
+        `  ${libTextEn.libText.text.clarifyReason('timed out')}`
       ].join('\n')
     )
   })
@@ -43,7 +43,7 @@ describe('formatAbandonedClarify', () => {
   it('treats an empty locked answer as unanswered in the record', () => {
     const out = formatAbandonedClarify([{ qid: 'q0', question: 'One?' }], { q0: '' }, 'cancelled')
 
-    expect(out).toContain(t('libText.text.clarifyUnanswered', 'One?'))
+    expect(out).toContain(libTextEn.libText.text.clarifyUnanswered('One?'))
   })
 })
 

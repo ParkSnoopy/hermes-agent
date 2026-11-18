@@ -86,7 +86,7 @@ def test_oneshot_prompt_drops_steering_note(monkeypatch):
 
     def guidance(oneshot):
         agent = SimpleNamespace(valid_tool_names={"terminal"}, model="m", _tool_use_enforcement=False,
-                                _execution_guidance=False, _kanban_worker_guidance="", _oneshot_session=oneshot)
+                                _execution_guidance=False, _oneshot_session=oneshot)
         return "\n".join(p for p in system_prompt._guidance_parts(agent) if p)
 
     assert "OUT-OF-BAND USER MESSAGE" in guidance(False)
@@ -128,7 +128,7 @@ def test_skill_safety_rule_rides_the_compaction_handoff_not_the_system_prompt(pr
     from agent.context_compressor import _skill_pruned_marker
 
     fresh = system_prompt._tool_guidance_block(SimpleNamespace(valid_tool_names={"skill_manage"},
-                                                               _kanban_worker_guidance=""))
+                                                              ))
     assert fresh and "SKILL_PRUNED" not in fresh and "Skill Safety Rule" not in fresh
     # Control: no skill was ever loaded, so no marker exists and the handoff stays rule-free.
     summary = _compress(_transcript("skill_view", "[skill_view] name=pdf (48,201 chars) " + _skill_pruned_marker("pdf"))

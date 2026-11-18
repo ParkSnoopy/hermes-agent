@@ -14,19 +14,6 @@ description: "A recurring prompt that re-enters your current session whenever it
 
 Inspired by Prime-Agent's `/heartbeat`. The Hermes adaptation keeps the strict message-flow invariants: the heartbeat is injected only between turns (never mid-run), as a plain user-role message.
 
-## Heartbeat vs cron: which one do I want?
-
-They look similar but serve different jobs:
-
-| | `/heartbeat` | [`hermes cron`](./cron) |
-|---|---|---|
-| Runs in | **This conversation** — full context, memory of the discussion | A fresh isolated session per tick |
-| Survives process restart | State survives (SessionDB); gateway watches resume automatically after restart | Yes — fully durable scheduler |
-| How many | One per session | Unlimited jobs |
-| Best for | "Keep an eye on X *in this thread* while we work" | Standing jobs, reports, watchdogs, deliveries |
-
-Rule of thumb: if the recurring prompt needs the conversation's context, use `/heartbeat`. If it's a self-contained job, use cron.
-
 ## Commands
 
 | Command | What it does |

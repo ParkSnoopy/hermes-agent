@@ -1,7 +1,7 @@
 import type { BillingBlock } from '@hermes/shared/billing'
 import type { UsageLimit } from '@hermes/shared/plan-usage'
 
-import { t } from '../i18n/runtime.js'
+import { libTextEn } from '../copy/libText.js'
 
 export interface BillingDialogCopy {
   cancelLabel: string
@@ -21,22 +21,22 @@ export interface BillingDialogCopy {
 export function billingDialogCopy(block: BillingBlock): BillingDialogCopy {
   if (block.is_nous) {
     return {
-      cancelLabel: t('libText.billingDialog.dismiss'),
-      confirmLabel: t('libText.billingDialog.topUp'),
-      detail: t('libText.billingDialog.nousDetail'),
-      title: t('libText.billingDialog.nousTitle')
+      cancelLabel: libTextEn.libText.billingDialog.dismiss,
+      confirmLabel: libTextEn.libText.billingDialog.topUp,
+      detail: libTextEn.libText.billingDialog.nousDetail,
+      title: libTextEn.libText.billingDialog.nousTitle
     }
   }
 
-  const label = block.provider_label || t('libText.billingDialog.yourProvider')
+  const label = block.provider_label || libTextEn.libText.billingDialog.yourProvider
 
   return {
-    cancelLabel: t('libText.billingDialog.dismiss'),
+    cancelLabel: libTextEn.libText.billingDialog.dismiss,
     confirmLabel: block.billing_url
-      ? t('libText.billingDialog.openBillingPage')
-      : t('libText.billingDialog.switchProvider'),
-    detail: t('libText.billingDialog.providerDetail', label),
-    title: t('libText.billingDialog.providerTitle', label)
+      ? libTextEn.libText.billingDialog.openBillingPage
+      : libTextEn.libText.billingDialog.switchProvider,
+    detail: libTextEn.libText.billingDialog.providerDetail(label),
+    title: libTextEn.libText.billingDialog.providerTitle(label)
   }
 }
 
@@ -47,9 +47,9 @@ export interface UsageLimitDialog extends BillingDialogCopy {
 
 // agent/plan_limits.py::credits_action → the dialog's credits line.
 const CREDITS_STEP: Record<string, () => string> = {
-  add_credits: () => t('libText.billingDialog.limitCreditsAdd'),
-  add_credits_and_keep_going: () => t('libText.billingDialog.limitCreditsBoth'),
-  use_credits: () => t('libText.billingDialog.limitCreditsUse')
+  add_credits: () => libTextEn.libText.billingDialog.limitCreditsAdd,
+  add_credits_and_keep_going: () => libTextEn.libText.billingDialog.limitCreditsBoth,
+  use_credits: () => libTextEn.libText.billingDialog.limitCreditsUse
 }
 
 /**
@@ -67,21 +67,21 @@ export function usageLimitDialog(limit: UsageLimit): UsageLimitDialog {
 
   if (!suggestion) {
     return {
-      cancelLabel: t('libText.billingDialog.dismiss'),
-      confirmLabel: t('libText.billingDialog.limitOpenTopup'),
+      cancelLabel: libTextEn.libText.billingDialog.dismiss,
+      confirmLabel: libTextEn.libText.billingDialog.limitOpenTopup,
       switchValue: null,
       detail: [sentence, credits].filter(Boolean).join('\n'),
-      title: t('libText.billingDialog.limitTitle')
+      title: libTextEn.libText.billingDialog.limitTitle
     }
   }
 
   const note = suggestion.note ? ` (${suggestion.note})` : ''
 
   return {
-    cancelLabel: t('libText.billingDialog.dismiss'),
-    confirmLabel: t('libText.billingDialog.limitSwitchTo', `${suggestion.label}${note}`),
+    cancelLabel: libTextEn.libText.billingDialog.dismiss,
+    confirmLabel: libTextEn.libText.billingDialog.limitSwitchTo(`${suggestion.label}${note}`),
     detail: [sentence, credits].filter(Boolean).join('\n'),
     switchValue: `${suggestion.model} --provider ${suggestion.provider || 'nous'} --session`,
-    title: t('libText.billingDialog.limitTitle')
+    title: libTextEn.libText.billingDialog.limitTitle
   }
 }

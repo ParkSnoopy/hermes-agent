@@ -33,11 +33,11 @@ def _start_update_prefetch():
 
 def _grouped(tools):
     """``{toolset: [tool names]}`` exactly as main's ``_session_info`` grouped ``agent.tools``."""
-    from model_tools import get_toolset_for_tool
+    from tools.registry import registry
     grouped: dict[str, list[str]] = {}
     for tool in tools or []:
         name = tool["function"]["name"]
-        grouped.setdefault(get_toolset_for_tool(name) or "other", []).append(name)
+        grouped.setdefault(registry.get_toolset_for_tool(name) or "other", []).append(name)
     return grouped
 
 
@@ -79,10 +79,10 @@ def _cli_startup_notices(enabled):
     with contextlib.suppress(Exception):
         from hermes_cli.tool_availability_notices import (
             current_terminal_backend, filter_to_enabled_toolsets, tool_availability_warning_lines)
-        from model_tools import check_tool_availability
+        from tools.registry import registry
         from tools.terminal_tool import terminal_backend_unavailable_reason
         from toolsets import resolve_toolset
-        _, unavailable = check_tool_availability()
+        _, unavailable = registry.check_tool_availability()
         unavailable = filter_to_enabled_toolsets(unavailable, enabled or [], resolve_toolset)
         notices["tool_availability_warnings"] = tool_availability_warning_lines(
             unavailable, terminal_reason=terminal_backend_unavailable_reason(),
@@ -104,21 +104,9 @@ def _unknown_toolsets(enabled, config):
 
 
 def _cli_skills():
-    """``hermes_cli.banner.get_available_skills`` as main's classic CLI computed it: ``cmd_chat`` pins
-    ``HERMES_KANBAN_BOARD`` before HermesCLI starts, so ``environments: [kanban]`` skills are offered.
-    The owner never sets that env; the kanban relevance is scoped to this scan (a ContextVar) and the
-    catalog cache entry it would poison is restored, so other surfaces keep their own view."""
+    """Group the skills available to a local CLI session."""
     from tools import skills_tool
-    from tools.kanban_toolset_context import scoped_kanban_toolset_selection
-    key = ("filtered", False)
-    saved = skills_tool._SKILLS_CACHE.pop(key, None)
-    try:
-        with scoped_kanban_toolset_selection(["kanban"]):
-            found = skills_tool.find_all_skills()
-    finally:
-        skills_tool._SKILLS_CACHE.pop(key, None)
-        if saved is not None:
-            skills_tool._SKILLS_CACHE[key] = saved
+    found = skills_tool.find_all_skills()
     grouped: dict[str, list[str]] = {}
     for skill in found:
         grouped.setdefault(skill.get("category") or "general", []).append(skill["name"])
@@ -142,8 +130,7 @@ def session_inventory(authority, policy, agent, cwd):
     with owner_scope(authority):
         config = policy.config(authority, secrets=False) if policy is not None else {}
         if agent is not None:
-            from agent.voice_turn_route import session_runtime_view
-            info["provider"] = _session_provider(session_runtime_view(agent), config if policy is not None else None)
+            info["provider"] = _session_provider(agent, config if policy is not None else None)
             info["tools"] = _grouped(getattr(agent, "tools", None))
             info["system_prompt"] = getattr(agent, "_cached_system_prompt", "") or ""
             compressor = getattr(agent, "context_compressor", None)
@@ -212,8 +199,7 @@ def agent_inventory(agent) -> dict:
     length. Cheap attribute reads, safe on the agent thread at turn end."""
     info: dict = {}
     with contextlib.suppress(Exception):
-        from agent.voice_turn_route import session_runtime_view
-        info["provider"] = _session_provider(session_runtime_view(agent))
+        info["provider"] = _session_provider(agent)
     with contextlib.suppress(Exception):
         info["tools"] = _grouped(getattr(agent, "tools", None))
     info["system_prompt"] = getattr(agent, "_cached_system_prompt", "") or ""

@@ -7,7 +7,6 @@ platform config).
 """
 from __future__ import annotations
 
-from agent.i18n import t
 
 
 def _box(title: str, width: int) -> list[str]:
@@ -19,25 +18,25 @@ def _box(title: str, width: int) -> list[str]:
 def toolsets_lines(enabled) -> list[str]:
     """``/toolsets``: every toolset, ``(*)`` on the ones *enabled* names."""
     from toolsets import get_all_toolsets, get_toolset_info
-    out = ["", *_box(t("cli.toolsets.header"), 58), ""]
+    out = ["", *_box('(^_^)b Available Toolsets', 58), ""]
     for name in sorted(get_all_toolsets()):
         info = get_toolset_info(name)
         if info:
             marker = "(*)" if enabled and name in enabled else "   "
             out.append(f"  {marker} {name:<18} [{info['tool_count']:>2} tools] - {info['description']}")
-    return [*out, "", f"  {t('cli.toolsets.currently_enabled_legend')}", "",
-            f"  {t('cli.toolsets.tip_enable_all')}", f"  {t('cli.toolsets.example')}", ""]
+    return [*out, "", f"  {'(*) = currently enabled'}", "",
+            ('  ' + format(("Tip: Use 'all' or '*' to enable all toolsets"), '')), ('  ' + format(('Example: python cli.py --toolsets web,terminal'), '')), ""]
 
 
 def platforms_lines() -> list[str]:
     """``/platforms``: the messaging platforms the profile's gateway config enables."""
     from hermes_constants import display_hermes_home
     from gateway.config import load_gateway_config, Platform
-    out = ["", *_box(t("cli.gateway_status.header"), 60), ""]
+    out = ["", *_box("Gateway Status", 60), ""]
     config_file = f"{display_hermes_home()}/config.yaml"
     try:
         config = load_gateway_config()
-        out += [f"  {t('cli.gateway_status.platform_config_header')}", "  " + "-" * 55]
+        out += [f"  {'Platform Configuration'}", "  " + "-" * 55]
         platform_status = {
             Platform.TELEGRAM: ("Telegram", "TELEGRAM_BOT_TOKEN"),
             Platform.DISCORD: ("Discord", "DISCORD_BOT_TOKEN"),
@@ -48,14 +47,14 @@ def platforms_lines() -> list[str]:
             if pconfig and pconfig.enabled:
                 home = config.get_home_channel(platform)
                 home_str = f" → {home.name}" if home else ""
-                out.append(f"    ✓ {name:<12} {t('cli.gateway_status.enabled')}{home_str}")
+                out.append(f"    ✓ {name:<12} {'enabled'}{home_str}")
             else:
-                out.append(f"    ○ {name:<12} {t('cli.gateway_status.not_configured', env_var=env_var)}")
-        return [*out, "", f"  {t('cli.gateway_status.conversations_persist')}", "",
-                f"  {t('cli.gateway_status.to_start')}", "    python cli.py --gateway", "",
-                f"  {t('cli.gateway_status.config_file', path=config_file)}", ""]
+                out.append(f"    ○ {name:<12} {(f'not configured ({env_var})')}")
+        return [*out, "", f"  {'Conversations persist across restarts.'}", "",
+                f"  {'To start the gateway:'}", "    python cli.py --gateway", "",
+                f"  {(f'Config file: {config_file}')}", ""]
     except Exception as e:  # health: allow BLE001 -- moved unchanged from CLIInfoMixin._show_gateway_status (main): any config load failure prints the setup steps
-        return [*out, f"  {t('cli.gateway_status.load_error', error=str(e))}", "",
-                f"  {t('cli.gateway_status.to_configure')}", f"    {t('cli.gateway_status.step_env_vars')}",
+        return [*out, f"  {(f'Could not load gateway config: {e!s}')}", "",
+                f"  {'To configure the gateway:'}", f"    {'Set environment variables:'}",
                 "       TELEGRAM_BOT_TOKEN=your_token", "       DISCORD_BOT_TOKEN=your_token",
-                f"    {t('cli.gateway_status.step_config', path=config_file)}", ""]
+                f"    {(f'Edit {config_file}')}", ""]

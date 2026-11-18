@@ -1,4 +1,4 @@
-"""display.install runs its worker inside the caller's profile scope; display.observe mints the viewer identity."""
+"""Linux screen installation, profile scope, and lease privacy boundaries."""
 
 from __future__ import annotations
 
@@ -7,8 +7,6 @@ import json
 import threading
 
 import pytest
-
-from hermes_cli.dashboard_auth import ws_tickets
 
 
 def test_install_worker_keeps_the_requested_profile_scope(tmp_path, monkeypatch):
@@ -65,97 +63,21 @@ def test_thumbnail_is_suppressed_while_a_human_holds_the_lease(monkeypatch, _fre
     assert _call(server, "display.thumbnail", {})["result"]["data_url"].endswith("SECRET")
 
 
-def test_release_without_viewer_id_cannot_yank_another_viewers_lease(monkeypatch, tmp_path, _fresh_lease):
-    """lease.release(None) skips the holder check, so a client that lost its viewer id (or a bare RPC)
-    must be refused unless it forces; the holder's own (minted) viewer id and force keep working."""
-    from tui_gateway import server
-    from tools.bot_desktop import runtime
-
-    monkeypatch.setattr(runtime, "rfb_socket_path", lambda: tmp_path / "rfb.sock")
-    mine = _call(server, "display.observe", {})["result"]["viewer_id"]
-    _fresh_lease.acquire(mine)
-    refused = _call(server, "display.lease.release", {})
-    assert refused["error"]["data"]["code"] == "viewer_mismatch"
-    assert _fresh_lease.get().holder == _fresh_lease.HUMAN
-    assert _call(server, "display.lease.release", {"viewer_id": mine})["result"]["lease"]["holder"] == _fresh_lease.AGENT
-    _fresh_lease.acquire("viewer-2")
-    assert _call(server, "display.lease.release", {"force": True})["result"]["lease"]["holder"] == _fresh_lease.AGENT
 
 def _rpc(server, method, params):
     return server.handle_request({"jsonrpc": "2.0", "id": 7, "method": method, "params": params})
 
 
-def test_a_viewer_opened_from_a_browser_tab_signs_out_with_that_tab(monkeypatch, tmp_path):
-    """The viewer ticket carries the credential digest the asking browser socket was admitted with,
-    so /api/display/ws closes the viewer when that browser signs out; a native client's carries none."""
-    import asyncio
-
-    from hermes_cli import browser_credential, web_server, web_session_sockets
-    from tools.bot_desktop import runtime
+def test_status_never_discloses_the_lease_holder(monkeypatch):
+    """No snapshot or broadcast carries the holder capability, only its hash."""
+    from tools.bot_desktop import lease
     from tui_gateway import server
 
-    monkeypatch.setattr(runtime, "rfb_socket_path", lambda: tmp_path / "rfb.sock")
-    monkeypatch.setattr(web_server, "_SESSION_TOKEN", "a" * 43)
-    signed_in = browser_credential.generation_of("a" * 43)
-
-    class _Socket:
-        async def close(self, code=1000, reason=""):
-            pass
-
-    class _Peer:
-        def __init__(self, ws=None):
-            self.ws = ws
-
-        def write(self, obj):
-            return True
-
-    tab = _Peer(_Socket())
-
-    async def admit():  # sockets are tracked from the server's loop
-        web_session_sockets.track(tab.ws, signed_in)
-
-    asyncio.run(admit())
-
-    def ticket(peer):
-        observed = server.dispatch({"jsonrpc": "2.0", "id": 11, "method": "display.observe", "params": {}}, peer)
-        return ws_tickets.consume_ticket(observed["result"]["ticket"])
-
-    assert ticket(tab)["admitted_with"] == signed_in
-    assert "admitted_with" not in ticket(_Peer())
-    assert "admitted_with" not in ticket(_Peer(_Socket()))  # a socket sign-out does not cover
-
-
-def test_observe_mints_the_viewer_id_and_status_never_discloses_the_holder(monkeypatch, tmp_path):
-    """A client cannot choose its viewer id (it would impersonate the holder and co-drive or release
-    their lease), and no snapshot or broadcast carries the raw holder id — only a hash the holder
-    itself can match."""
-    from tools.bot_desktop import lease, runtime
-    from tui_gateway import server
-
-    monkeypatch.setattr(runtime, "rfb_socket_path", lambda: tmp_path / "rfb.sock")
     lease._reset_for_tests()
     broadcasts = []
     monkeypatch.setattr(server, "_broadcast_global_event", lambda ev, payload=None: broadcasts.append((ev, payload)))
     try:
-        observed = _rpc(server, "display.observe", {"viewer_id": "victim"})["result"]
-        assert observed["viewer_id"] != "victim"
-        assert observed["viewer_id"] and len(observed["viewer_id"]) >= 16
-        assert ws_tickets.consume_ticket(observed["ticket"])["viewer_id"] == observed["viewer_id"]
-        holder = observed["viewer_id"]
-
-        # Only the connection that minted an id may reuse it (a reconnecting pane keeps its lease).
-        class _Peer:
-            def write(self, obj):
-                return True
-        mine, other = _Peer(), _Peer()
-        with_mine = server.dispatch({"jsonrpc": "2.0", "id": 8, "method": "display.observe", "params": {}}, mine)["result"]
-        again = server.dispatch({"jsonrpc": "2.0", "id": 9, "method": "display.observe",
-                                 "params": {"viewer_id": with_mine["viewer_id"]}}, mine)["result"]
-        assert again["viewer_id"] == with_mine["viewer_id"]
-        stolen = server.dispatch({"jsonrpc": "2.0", "id": 10, "method": "display.observe",
-                                  "params": {"viewer_id": with_mine["viewer_id"]}}, other)["result"]
-        assert stolen["viewer_id"] != with_mine["viewer_id"]
-
+        holder = "private-viewer-capability"
         _rpc(server, "display.status", {})  # installs the broadcast listener
         lease.acquire(holder)
         status = _rpc(server, "display.status", {})["result"]
@@ -170,7 +92,7 @@ def test_observe_mints_the_viewer_id_and_status_never_discloses_the_holder(monke
 
 def test_stop_cannot_kill_the_screen_under_a_human_without_force(monkeypatch, _fresh_lease):
     """display.stop released the lease unconditionally before stopping Xvnc: any authenticated caller
-    could yank a human mid-login and kill the screen under them. Same rule as display.lease.release."""
+    could yank a human mid-login and kill the screen under them."""
     from tui_gateway import server
     from tools.bot_desktop import runtime
 
@@ -197,74 +119,9 @@ def test_stop_cannot_kill_the_screen_under_a_human_without_force(monkeypatch, _f
 
     monkeypatch.setattr(_fresh_lease, "_transition", transition_after_takeover)
     stops.clear()
-    for method, params in (("display.stop", {}), ("display.lease.release", {})):
-        res = _call(server, method, params)
-        assert "error" in res and res["error"]["data"]["code"] == "viewer_mismatch", (method, res)
+    res = _call(server, "display.stop", {})
+    assert "error" in res and res["error"]["data"]["code"] == "viewer_mismatch", res
     assert stops == []
-
-
-def test_lease_acquire_and_release_only_honour_an_id_this_connection_minted(monkeypatch, tmp_path, _fresh_lease):
-    """The minted identity is worthless if acquire takes any string: a caller could acquire under a
-    made-up id (evicting the human) or release with a guessed one. Both must insist on an id that
-    display.observe minted for THIS connection."""
-    from tui_gateway import server
-    from tools.bot_desktop import runtime
-
-    monkeypatch.setattr(runtime, "rfb_socket_path", lambda: tmp_path / "rfb.sock")
-
-    class _Peer:
-        def write(self, obj):
-            return True
-
-    def rpc(peer, method, params):
-        return server.dispatch({"jsonrpc": "2.0", "id": 3, "method": method, "params": params}, peer)
-
-    mine, other = _Peer(), _Peer()
-    minted = rpc(mine, "display.observe", {})["result"]["viewer_id"]
-    forged = rpc(other, "display.lease.acquire", {"viewer_id": "made-up"})
-    assert forged["error"]["data"]["code"] == "viewer_mismatch"
-    assert _fresh_lease.get().holder == _fresh_lease.AGENT
-    ok = rpc(mine, "display.lease.acquire", {"viewer_id": minted})["result"]
-    assert ok["lease"]["holder"] == _fresh_lease.HUMAN
-    # another connection presenting the holder's id (read off the wire) cannot release it either
-    stolen = rpc(other, "display.lease.release", {"viewer_id": minted})
-    assert stolen["error"]["data"]["code"] == "viewer_mismatch"
-    assert _fresh_lease.get().holder == _fresh_lease.HUMAN
-    assert rpc(mine, "display.lease.release", {"viewer_id": minted})["result"]["lease"]["holder"] == _fresh_lease.AGENT
-
-
-def test_a_takeover_counts_as_use_of_an_idle_screen(monkeypatch, tmp_path, _fresh_lease):
-    """The idle stop times out a human lease nothing has used for four windows. A takeover landing on a long
-    idle screen, before its viewer's first frame stamps activity, must not read as an abandoned lease."""
-    import os
-    import time
-
-    from tui_gateway import server
-    from tools.bot_desktop import runtime
-
-    monkeypatch.setattr(runtime, "rfb_socket_path", lambda: tmp_path / "rfb.sock")
-    monkeypatch.setattr(runtime, "state_dir", lambda: tmp_path)
-    activity = tmp_path / "activity"
-    activity.touch()
-    old = time.time() - 3600
-    os.utime(activity, (old, old))
-
-    class _Peer:
-        def write(self, obj):
-            return True
-
-    # The new lease is visible from the moment it is written (the screen's own idle check reads the file);
-    # by then the stamp must already be there. The listener runs right after the write.
-    seen_idle = []
-    off = _fresh_lease.on_change(lambda _key, held: seen_idle.append(time.time() - activity.stat().st_mtime))
-    try:
-        peer = _Peer()
-        minted = server.dispatch({"jsonrpc": "2.0", "id": 1, "method": "display.observe", "params": {}}, peer)["result"]["viewer_id"]
-        resp = server.dispatch({"jsonrpc": "2.0", "id": 2, "method": "display.lease.acquire", "params": {"viewer_id": minted}}, peer)
-    finally:
-        off()
-    assert resp["result"]["lease"]["holder"] == _fresh_lease.HUMAN
-    assert seen_idle and seen_idle[0] < 60, f"the new lease was visible against a stale stamp: {seen_idle}"
 
 
 def test_install_sudo_card_ignores_a_client_supplied_session_id(monkeypatch):
@@ -314,29 +171,3 @@ def test_thumbnail_grabbed_across_a_takeover_is_suppressed(monkeypatch, _fresh_l
     monkeypatch.setattr(thumbnail, "thumbnail_data_url", grab_while_human_takes_over)
     result = _call(server, "display.thumbnail", {})["result"]
     assert result["data_url"] is None and result["suppressed"] == "human_has_control", result
-
-
-def test_switch_sandbox_image_decides_only_a_pending_switch(monkeypatch, tmp_path):
-    """The pane's button: refused when nothing is pending (a stale pane cannot rewrite config);
-    otherwise the decision is made through the same module the CLI offer uses and the fresh
-    status rides back."""
-    from tui_gateway import server
-    from hermes_cli import sandbox_image_switch as sw
-    from tools.bot_desktop import runtime
-
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.setattr(sw, "pending", lambda: None)
-    resp = _call(server, "display.switchSandboxImage", {"approve": True})
-    assert "error" in resp and "pending" in resp["error"]["message"]
-
-    decided = []
-    switch = sw.PendingSwitch("old/base:1", "nousresearch/hermes-sandbox:desktop", ["hermes-a"])
-    monkeypatch.setattr(sw, "pending", lambda: switch)
-    monkeypatch.setattr(sw, "decide", lambda s, approve: decided.append((s, approve)) or s.target_image)
-    monkeypatch.setattr(runtime, "status", lambda profile=None: runtime.DesktopStatus(
-        profile="default", supported=True, installed=True, missing=[], running=False, pid=None, display=None,
-        socket=None, geometry="1280x800", install_command=None, browser=None))
-    resp = _call(server, "display.switchSandboxImage", {"approve": False})
-    assert decided == [(switch, False)]
-    assert resp["result"]["docker_image"] == "nousresearch/hermes-sandbox:desktop"
-    assert resp["result"]["running"] is False and "lease" in resp["result"]

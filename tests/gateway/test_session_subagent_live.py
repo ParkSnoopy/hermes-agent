@@ -1,4 +1,4 @@
-"""A viewer of the parent session follows a delegated child live over the shared gateway, with no file reads.
+"""A viewer follows a delegated child live through the authority, with no file reads.
 
 The owner already publishes ``subagent.*`` to the parent session's viewers. What those frames lack
 (a tool's result and outcome, and any tool of a nested child) is in the child's stored rows, because

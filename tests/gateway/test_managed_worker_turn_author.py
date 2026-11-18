@@ -37,7 +37,7 @@ def test_bootstrap_frame_carries_the_admitted_author(tmp_path, monkeypatch):
 
 
 def test_worker_turn_passes_the_author_to_run_conversation():
-    from gateway.session_kanban import run_worker_turns
+    from gateway.session_worker_turns import run_worker_turns
 
     seen = []
     agent = SimpleNamespace(run_conversation=lambda text, **kw: seen.append((text, kw)) or {'final_response': 'ok'})

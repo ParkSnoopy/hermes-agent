@@ -175,7 +175,7 @@ def test_poller_holds_session_between_dequeue_and_routing(server, registry, deta
     proc = _spawn(registry, session["session_key"], notify_on_complete=True)
     proc.mark_exited(0)
     registry._move_to_finished(proc)
-    for name in ("_maybe_fire_tui_loop_tick", "_maybe_fire_tui_heartbeat_tick", "_notif_poll_kanban"):
+    for name in ("_maybe_fire_tui_loop_tick", "_maybe_fire_tui_heartbeat_tick"):
         monkeypatch.setattr(server, name, lambda *a, **k: None)
     monkeypatch.setattr(registry, "restore_completions", lambda: 0)
     stop, observed = threading.Event(), []

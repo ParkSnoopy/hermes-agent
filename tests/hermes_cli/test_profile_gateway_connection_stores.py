@@ -29,13 +29,15 @@ def _seed_root(home: Path) -> Path:
     root = home / ".hermes"
     root.mkdir(parents=True)
     (root / "config.yaml").write_text("model: test\n", encoding="utf-8")
-    env = {k: v for k, v in os.environ.items() if not k.startswith("HERMES_")}
-    env.update(HOME=str(home), HERMES_HOME=str(root), PYTHONPATH=str(REPO))
-    script = ("from hermes_cli import gateway_connections as g\n"
-              f"g.save_connection({{'kind': 'remote', 'label': 'Box', 'url': 'http://10.0.0.5:9119', 'token': '{SECRET}'}})\n"
-              "c, _ = g.save_connection({'kind': 'remote', 'label': 'Gw', 'url': 'https://gw.example', 'authMode': 'oauth'})\n"
-              "g.write_tokens(c['id'], {'accessToken': 'AT-123456789012345', 'refreshToken': 'RT-123456789012345'})\n")
-    subprocess.run([sys.executable, "-c", script], env=env, check=True, timeout=60)
+    # Legacy files may remain after the saved-gateway UI has been retired.
+    (root / "gateway-connections.json").write_text(json.dumps({
+        "version": 2, "connections": [{"id": "box", "kind": "remote", "label": "Box",
+                                       "url": "http://10.0.0.5:9119",
+                                       "token": {"encoding": "plain", "value": SECRET}}],
+    }), encoding="utf-8")
+    (root / "gateway-connection-tokens.json").write_text(json.dumps({
+        "box": {"accessToken": "AT-123456789012345", "refreshToken": "RT-123456789012345"},
+    }), encoding="utf-8")
     (root / "gateway-connections.json.corrupt-1700000000000").write_text(
         json.dumps({"connections": [{"token": {"encoding": "plain", "value": SECRET}}]}), encoding="utf-8")
     (root / "gateway-connections.json.lock").mkdir()

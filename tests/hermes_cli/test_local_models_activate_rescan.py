@@ -14,7 +14,7 @@ def test_activate_rescans_through_state_endpoint_when_supervisor_is_none(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-    from hermes_cli.web_routers import local_models as lm
+    from hermes_cli.local_runtime import local_models as lm
 
     staged = tmp_path / "models"
     staged.mkdir(parents=True)
@@ -40,10 +40,7 @@ def test_activate_rescans_through_state_endpoint_when_supervisor_is_none(
         patch.object(lm.bootstrap, "refresh_local_runtime", fake_refresh),
         patch.object(lm, "_router_request", fake_router_request),
         patch.object(lm, "_set_runtime_enabled", lambda v: {}),
-        patch(
-            "hermes_cli.web_server_config._apply_model_assignment_sync",
-            lambda *a, **k: {"ok": True},
-        ),
+
     ):
         lm._ensure_server(
             job,
@@ -62,7 +59,7 @@ def test_activate_skips_rescan_when_owned_server_already_lists_the_model(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-    from hermes_cli.web_routers import local_models as lm
+    from hermes_cli.local_runtime import local_models as lm
 
     calls = {"refresh": 0}
 

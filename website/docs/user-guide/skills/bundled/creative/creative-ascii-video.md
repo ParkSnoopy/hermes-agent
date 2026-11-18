@@ -63,7 +63,6 @@ This is visual art. ASCII characters are the medium; cinema is the standard.
 | **Generative** | None (or seed params) | Procedural ASCII animation | `references/effects.md` |
 | **Hybrid** | Video + audio | ASCII video with audio-reactive overlays | Both input refs |
 | **Lyrics/text** | Audio + text/SRT | Timed text with visual effects | `references/inputs.md` § Text/Lyrics |
-| **TTS narration** | Text quotes + TTS API | Narrated testimonial/quote video with typed text | `references/inputs.md` § TTS Integration |
 
 ## Stack
 
@@ -76,7 +75,6 @@ Single self-contained Python script per project. No GPU required.
 | Imaging | Pillow (PIL) | Font rasterization, frame decoding, image I/O |
 | Video I/O | ffmpeg (CLI) | Decode input, encode output, mux audio |
 | Parallel | concurrent.futures | N workers for batch/clip rendering |
-| TTS | ElevenLabs API (optional) | Generate narration clips |
 | Optional | OpenCV | Video frame sampling, edge detection |
 
 ## Pipeline Architecture
@@ -233,7 +231,7 @@ For segmented videos (quotes, scenes, chapters), render each as a separate clip 
 | `references/effects.md` | Effect building blocks: value field generators, hue fields, noise/fBM/domain warp, voronoi, reaction-diffusion, cellular automata, SDFs, strange attractors, particle systems, coordinate transforms, temporal coherence |
 | `references/shaders.md` | `ShaderChain`, `_apply_shader_step()` dispatch, 38 shader catalog, audio-reactive scaling, transitions, tint presets, output format encoding, terminal rendering |
 | `references/scenes.md` | Scene protocol, `Renderer` class, `SCENES` table, `render_clip()`, beat-synced cutting, parallel rendering, design patterns (layer hierarchy, directional arcs, visual metaphors, compositional techniques), complete scene examples at every complexity level, scene design checklist |
-| `references/inputs.md` | Audio analysis (FFT, bands, beats), video sampling, image conversion, text/lyrics, TTS integration (ElevenLabs, voice assignment, audio mixing) |
+| `references/inputs.md` | Audio analysis (FFT, bands, beats), video sampling, image conversion, text/lyrics |
 | `references/optimization.md` | Hardware detection, quality profiles, vectorized patterns, parallel rendering, memory management, performance budgets |
 | `references/troubleshooting.md` | NumPy broadcasting traps, blend mode pitfalls, multiprocessing/pickling, brightness diagnostics, ffmpeg issues, font problems, common mistakes |
 

@@ -31,11 +31,11 @@ on:
         type: string
         required: true
       python:
-        description: detect's `python` lane (contributor attribution, prompt-surface diff).
+        description: detect's `python` lane (prompt-surface diff).
         type: boolean
         default: false
       catalog:
-        description: detect's `catalog` lane (contributor attribution).
+        description: detect's `catalog` lane.
         type: boolean
         default: false
       scan:
@@ -131,24 +131,6 @@ jobs:
         with:
           name: review-status-history-check
           path: ${{ runner.temp }}/review-status/history-check/review-status.json
-          retention-days: 1
-          overwrite: true
-          if-no-files-found: ignore
-
-      # ── python or catalog lane: contributor attribution ───────────────────────────────────
-
-      - name: Check for unmapped contributor emails
-        id: check-emails
-        if: ${{ !cancelled() && (inputs.python || inputs.catalog) }}
-        run: python3 scripts/ci/check_contributor_emails.py
-
-      - name: Upload review status artifact (contributor check)
-        if: always() && steps.check-emails.outcome != 'skipped'
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: review-status-contributor-check
-          path: ${{ runner.temp }}/review-status/contributor-check/review-status.json
           retention-days: 1
           overwrite: true
           if-no-files-found: ignore
