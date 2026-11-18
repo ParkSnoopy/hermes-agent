@@ -38,6 +38,7 @@ def complete_source_checkout(
     announce: str | None = None,
     followups: list[tuple[str, str]] | None = None,
     after_dependencies=None,
+    preserve_profile: bool = False,
 ) -> bool:
     """Publish commands, build the products, then run post-build maintenance.
 
@@ -75,7 +76,7 @@ def complete_source_checkout(
             pre_update_snapshot_id=pre_update_snapshot_id,
             pre_update_version=pre_update_version,
             completion_message=completion_message, announce=announce, followups=followups,
-            after_dependencies=after_dependencies,
+            after_dependencies=after_dependencies, preserve_profile=preserve_profile,
         )
     finally:
         lock.release()
@@ -93,6 +94,7 @@ def _complete_locked(
     announce: str | None,
     followups: list[tuple[str, str]] | None = None,
     after_dependencies=None,
+    preserve_profile: bool = False,
 ) -> bool:
     """The completion body; callers hold the update lock already."""
     from hermes_cli.source_build import build_update_products
@@ -126,6 +128,7 @@ def _complete_locked(
         pre_update_version=pre_update_version,
         completion_message=completion_message,
         followups=owed,
+        preserve_profile=preserve_profile,
     )))
     tail_done = not owed
     if tail_done:
@@ -160,6 +163,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Also build the packaged desktop app.")
     parser.add_argument("--interactive", action="store_true",
                         help="Allow prompts; installers pass no flag and stay unattended.")
+    parser.add_argument("--preserve-profile", action="store_true",
+                        help="Publish the install without migrating existing user data.")
     parser.add_argument("--finish-update", action="store_true",
                         help="Complete a source UPDATE tail instead of an install: the "
                              "same launchers/products/maintenance with update wording.")
@@ -192,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
             ok = complete_source_checkout(
                 root, desktop=args.desktop, assume_yes=not args.interactive,
                 completion_message="✓ Install complete!",
+                preserve_profile=args.preserve_profile,
             )
         return 0 if ok else 1
 
@@ -201,7 +207,8 @@ def main(argv: list[str] | None = None) -> int:
     # every flag that decides WHICH tail runs has to survive into it. Losing
     # --finish-update here silently reports an update as an install.
     passthrough = (["--desktop"] if args.desktop else []) + \
-                  (["--finish-update"] if args.finish_update else [])
+                  (["--finish-update"] if args.finish_update else []) + \
+                  (["--preserve-profile"] if args.preserve_profile else [])
     command = _bootstrap_command(root, passthrough)
     from hermes_cli.update_lock import checkout_lock_fds
 

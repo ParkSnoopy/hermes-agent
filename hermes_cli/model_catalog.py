@@ -18,18 +18,16 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from hermes_cli.distribution import MODEL_CATALOG_URL
 from hermes_cli.version_info import hermes_user_agent
 from utils import atomic_json_write
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CATALOG_URL = (
-    "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json")
-# The Docusaurus site sits behind Vercel, which occasionally 403s non-browser clients (bot
-# challenge); the raw GitHub copy is the same manifest and is not bot-gated.
-DEFAULT_CATALOG_FALLBACK_URLS: tuple[str, ...] = (
-    "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/static/api/model-catalog.json",
-)
+DEFAULT_CATALOG_URL = MODEL_CATALOG_URL
+DEFAULT_CATALOG_FALLBACK_URLS = (MODEL_CATALOG_URL,)
+_PREVIOUS_DEFAULT_URL = "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json"
+_PREVIOUS_RAW_URL = "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/static/api/model-catalog.json"
 DEFAULT_TTL_MINUTES = 20
 # Legacy key, honoured only when the user set it explicitly; ``ttl_minutes`` is the shipped default.
 DEFAULT_TTL_HOURS = DEFAULT_TTL_MINUTES / 60.0
@@ -109,9 +107,12 @@ def _load_catalog_config() -> dict[str, Any]:
     if ttl_minutes <= 0:
         ttl_minutes = DEFAULT_TTL_MINUTES
 
+    url = str(raw.get("url") or DEFAULT_CATALOG_URL)
+    if url in {_PREVIOUS_DEFAULT_URL, _PREVIOUS_RAW_URL}:
+        url = DEFAULT_CATALOG_URL
     return {
         "enabled": bool(raw.get("enabled", True)),
-        "url": str(raw.get("url") or DEFAULT_CATALOG_URL),
+        "url": url,
         "ttl_hours": ttl_minutes / 60.0,
         "providers": raw.get("providers") if isinstance(raw.get("providers"), dict) else {}}
 
@@ -119,7 +120,7 @@ def _load_catalog_config() -> dict[str, Any]:
 def _cache_path() -> Path:
     """Disk cache path; imported lazily so tests can monkeypatch home."""
     from hermes_constants import get_hermes_home
-    return get_hermes_home() / "cache" / "model_catalog.json"
+    return get_hermes_home() / "cache" / "parksnoopy-model-catalog.json"
 
 
 def _fetch_manifest(url: str, timeout: float) -> dict[str, Any] | None:

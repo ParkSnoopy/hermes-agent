@@ -20,15 +20,16 @@ set -u
 # hygiene can't break the locked sync the way it used to before pm owned it.
 export UV_NO_CONFIG=1
 
-REPO_URL="${HERMES_REPO_URL:-https://github.com/NousResearch/hermes-agent.git}"
+REPO="ParkSnoopy/hermes-agent"
+REPO_URL="${HERMES_REPO_URL:-https://github.com/$REPO.git}"
 BRANCH="main"
 INSTALL_COMMIT=""
-# The update channel to install: stable (the latest published release, the default for the
-# official repository's main line) or main (every commit). An explicit choice is persisted.
+# The fork follows main by default. Stable is available once it publishes a release.
 CHANNEL="${HERMES_INSTALL_CHANNEL:-}"
 INSTALL_DIR="${HERMES_INSTALL_DIR:-}"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 STAGE=""
+EXISTING_PROFILE=false
 WANT_MANIFEST=false
 JSON=false
 NON_INTERACTIVE=false
@@ -72,8 +73,8 @@ while [ $# -gt 0 ]; do
             echo "                  [--non-interactive] [--include-desktop] [--verbose]"
             echo "                  [--skip-browser]"
             echo
-            echo "  --channel       stable (default): the latest published release, then release"
-            echo "                  to release. main: every commit. Also HERMES_INSTALL_CHANNEL;"
+            echo "  --channel       main (default): every commit. stable: published fork releases."
+            echo "                  Also HERMES_INSTALL_CHANNEL;"
             echo "                  an explicit choice is saved like 'hermes update --set-channel'."
             echo "  --skip-browser  Do not install the browser (Chromium). Alias: --no-playwright."
             echo "                  Remembered by later installs and 'hermes update';"
@@ -94,6 +95,7 @@ INSTALL_DIR="${INSTALL_DIR:-$HERMES_HOME/hermes-agent}"
 export HERMES_HOME
 
 INSTALL_LOG="$HERMES_HOME/logs/install.log"
+PROFILE_PREPARATION="$INSTALL_DIR/.hermes/bootstrap-profile"
 
 # Same glyphs as the pre-pm installer. Colour only on a terminal, so CI
 # transcripts and the Hermes-Setup driver read plain text.
@@ -203,7 +205,7 @@ run_logged() {
     if [ "$1" = --may-fail ]; then may_fail=true; shift; fi
     local label="$1"; shift
     RUN_LOGGED_ERROR=""
-    if ! quiet_output || ! { mkdir -p "${INSTALL_LOG%/*}" && : >> "$INSTALL_LOG"; } 2>/dev/null; then
+    if [ "$EXISTING_PROFILE" = true ] || ! quiet_output || ! { mkdir -p "${INSTALL_LOG%/*}" && : >> "$INSTALL_LOG"; } 2>/dev/null; then
         log "$label"
         local err rc
         err="$(mktemp 2>/dev/null)" || { "$@"; return; }
@@ -348,7 +350,7 @@ stage_result() {
 # is never listed: --include-desktop selects the desktop product inside
 # `products` instead of adding a second build stage.
 stage_names() {
-    printf '%s\n' prerequisites repository venv python-deps config products setup gateway complete
+    printf '%s\n' prerequisites repository venv python-deps config products setup complete
 }
 
 # "title|category|needs_user_input".
@@ -370,7 +372,6 @@ stage_record() {
         config)        echo "Prepare config and skills|configuration|false" ;;
         products)      products_record ;;
         setup)         echo "Configure API keys and settings|configuration|true" ;;
-        gateway)       echo "Configure gateway service|configuration|true" ;;
         desktop)       echo "Build desktop app|runtime|false" ;;
         complete)      echo "Finish install|runtime|false" ;;
     esac
@@ -397,6 +398,7 @@ stage_prerequisites() {
         fail "git is installed but cannot run: $(printf '%s\n' "$_git_err" | error_line)" git_missing
     fi
     command -v curl >/dev/null 2>&1 || fail "curl is required. Install it with your system package manager." curl_missing
+    ensure_uv
     # PM's Node on musl is the unofficial-builds musl archive, which links the
     # system libstdc++; without it every node/npm stage fails verification.
     local _target
@@ -449,31 +451,32 @@ chosen_channel() {
         }' "$config" | grep -E '^[a-z0-9]+(-[a-z0-9]+)*$' || :
 }
 
-# Forks and mirrors publish no official releases; they keep following their branch, as
-# hermes_cli.update_channel.default_channel decides.
-is_official_repo() {
-    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' \
-        | grep -Eq '^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)nousresearch/hermes-agent(\.git)?/?$'
+is_distribution_origin() {
+    local url="${1,,}"
+    [[ "$url" =~ ^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)${REPO,,}(\.git)?/?$ ]]
+}
+
+matches_install_origin() {
+    if [ "${HERMES_REPO_URL:-}" != "" ]; then
+        [ "$1" = "$REPO_URL" ]
+    else
+        is_distribution_origin "$1"
+    fi
 }
 
 # The latest published stable release (vX.Y.Z), the release `hermes update` resolves for the
-# stable channel. github.com's /releases/latest redirect answers when the API quota is spent, and
-# origin's highest vX.Y.Z tag (final tags are pushed by the publication run) when github.com's web
-# endpoints are unreachable but git is not. $1 is the origin URL. Prints nothing when none answers.
+# stable channel. Tags inherited from upstream are not fork releases.
 latest_stable_release() {
     local tag
     tag="$(curl -fsSL --connect-timeout 5 --max-time 20 -H 'Accept: application/vnd.github+json' \
-        https://api.github.com/repos/NousResearch/hermes-agent/releases/latest 2>/dev/null \
+        "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
         | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
     if ! valid_stable_tag "$tag"; then
         tag="$(curl -fsSI --connect-timeout 5 --max-time 20 \
-            https://github.com/NousResearch/hermes-agent/releases/latest 2>/dev/null \
+            "https://github.com/$REPO/releases/latest" 2>/dev/null \
             | tr -d '\r' | sed -n 's#^[Ll]ocation:.*/releases/tag/\([^/]*\)$#\1#p' | tail -n 1)"
     fi
-    if ! valid_stable_tag "$tag"; then
-        tag="$(git ls-remote --tags --refs "$1" 'refs/tags/v*' 2>/dev/null | sed 's#.*refs/tags/##' \
-            | grep -E '^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | sort -V | tail -n 1)"
-    fi
+
     if valid_stable_tag "$tag"; then printf '%s' "$tag"; fi
 }
 # Same shape as hermes_cli.update_channel.STABLE_TAG_RE.
@@ -481,18 +484,12 @@ valid_stable_tag() {
     printf '%s' "$1" | grep -Eq '^v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 }
 
-# The stable release this run installs, nothing to follow the branch, or "-" when stable applies
-# but no release could be looked up: an explicit --channel, else stable for the official
-# repository's main line. $1 is the origin URL.
+# The stable release this run installs, nothing for branch installs, or "-" if unavailable.
 stable_target() {
     [ "$INSTALL_COMMIT" = "" ] || return 0
-    case "$CHANNEL" in
-        main) return 0 ;;
-        stable) ;;
-        *) [ "$BRANCH" = main ] && is_official_repo "$1" || return 0 ;;
-    esac
+    [ "$CHANNEL" = stable ] || return 0
     local release
-    release="$(latest_stable_release "$1")"
+    release="$(latest_stable_release)"
     printf '%s' "${release:--}"
 }
 
@@ -514,6 +511,16 @@ stable_unreachable() {
 
 stage_repository() {
     local pinned=false channel="" release="" origin
+    if [ -L "$INSTALL_DIR" ]; then
+        fail "$INSTALL_DIR is a symlink. Choose a different --dir." dir_not_checkout
+    fi
+    if [ "$CHANNEL" = stable ] && ! is_distribution_origin "$REPO_URL"; then
+        fail "stable installs require the $REPO origin" wrong_repository
+    fi
+    if [ -e "$INSTALL_DIR/.git" ]; then
+        origin="$(git -C "$INSTALL_DIR" config --local --get-all remote.origin.url 2>/dev/null)" || origin=""
+        matches_install_origin "$origin" || fail "$INSTALL_DIR has a different or unreadable origin. Choose a different --dir; no checkout files were replaced." wrong_repository
+    fi
     # An interrupted clone from an older installer can leave a .git with no
     # initial commit, where stash/checkout abort ("You do not have the
     # initial commit yet", #40998); a killed update or a sync tool can leave
@@ -526,24 +533,16 @@ stage_repository() {
         log_warn "$INSTALL_DIR is not a usable git checkout (interrupted clone or damaged .git); moving it aside to $broken"
         mv "$INSTALL_DIR" "$broken" || fail "cannot move $INSTALL_DIR aside" filesystem_error
     fi
-    if [ -d "$INSTALL_DIR/.git" ]; then
+    if [ -e "$INSTALL_DIR/.git" ]; then
         # A chosen channel (stable, a preview) owns where this checkout sits: `hermes update`
         # moves it. Switching it to the installer's branch would leave it on main while its
         # channel still says otherwise, and the next check would offer the release as an update.
         # Only an explicit --commit pin outranks the choice.
         # An explicit --channel is a new choice and replaces the recorded one.
         [ "$INSTALL_COMMIT" != "" ] || [ "$CHANNEL" != "" ] || channel="$(chosen_channel)"
-        # An explicit HERMES_REPO_URL names the source for reruns too, not
-        # just the first clone.
-        if [ "${HERMES_REPO_URL:-}" != "" ]; then
-            git -C "$INSTALL_DIR" remote set-url origin "$REPO_URL" || fail "cannot point origin at $REPO_URL" git_fetch_failed
-        fi
-        # No recorded choice: an official checkout tracks stable, as `hermes update` does.
+
         if [ "$channel" = "" ]; then
-            # The configured URL, as hermes_cli.update_channel reads it (`remote get-url`
-            # applies insteadOf rewrites).
-            origin="$(git -C "$INSTALL_DIR" config --get remote.origin.url 2>/dev/null)" || origin=""
-            release="$(stable_target "$origin")"
+            release="$(stable_target)"
         fi
         [ "$channel" != main ] || channel=""
         if [ "$release" = - ]; then
@@ -691,7 +690,7 @@ stage_repository() {
         fi
         mkdir -p "$(dirname "$INSTALL_DIR")"
         local staged attempt label cloned=false progress=() materialize=(reset --hard HEAD) no_checkout=""
-        release="$(stable_target "$REPO_URL")"
+        release="$(stable_target)"
         [ "$release" != - ] || stable_unreachable "could not look up the latest stable release"
         [ "$INSTALL_COMMIT$release" = "" ] || no_checkout=--no-checkout
         [ "$release" = "" ] || log "Installing the latest stable release ($release); --channel main follows every commit"
@@ -918,6 +917,11 @@ stage_products() {
     local boot_py
     local args=(--source "$INSTALL_DIR")
     bootstrap_python
+    # A separately invoked setup stage still has to recognize the untouched
+    # templates. Don't migrate them during the staged products handoff.
+    if [ "$EXISTING_PROFILE" = true ] || profile_prepared_by_installer; then
+        args+=(--preserve-profile)
+    fi
     if [ "$INCLUDE_DESKTOP" = true ] || desktop_product_present; then
         args+=(--desktop)
     fi
@@ -936,16 +940,58 @@ stage_desktop() {
     stage_products
 }
 
+profile_has_user_data() (
+    shopt -s nullglob dotglob
+    local path
+    for path in "$HERMES_HOME"/{auth.json,state.db,profile.yaml,SOUL.md,sessions/*,profiles/*,memories/*}; do
+        if [ -e "$path" ] || [ -L "$path" ]; then return 0; fi
+    done
+    return 1
+)
+
+profile_preparation_matches() {
+    [ "$INSTALL_LADDER" = false ] && [ -f "$PROFILE_PREPARATION" ] &&
+        [ ! -L "$PROFILE_PREPARATION" ] && [ "$(< "$PROFILE_PREPARATION")" = "$HERMES_HOME" ]
+}
+
+# The staged protocol spans processes. Only the same checkout's unmodified
+# templates count as a pending first setup, never another profile or user data.
+profile_prepared_by_installer() {
+    profile_preparation_matches &&
+        [ -f "$HERMES_HOME/config.yaml" ] && [ ! -L "$HERMES_HOME/config.yaml" ] &&
+        [ -f "$HERMES_HOME/.env" ] && [ ! -L "$HERMES_HOME/.env" ] &&
+        cmp -s "$HERMES_HOME/config.yaml" "$INSTALL_DIR/cli-config.yaml.example" &&
+        cmp -s "$HERMES_HOME/.env" "$INSTALL_DIR/.env.example" &&
+        ! profile_has_user_data
+}
+
+classify_profile() {
+    if [ -e "$HERMES_HOME/config.yaml" ] || [ -L "$HERMES_HOME/config.yaml" ] ||
+        [ -e "$HERMES_HOME/.env" ] || [ -L "$HERMES_HOME/.env" ] || profile_has_user_data; then
+        profile_prepared_by_installer || EXISTING_PROFILE=true
+    fi
+}
+
 stage_config() {
+    if [ "$EXISTING_PROFILE" = true ]; then
+        log "keeping existing profile at $HERMES_HOME"
+        return 0
+    fi
     mkdir -p "$HERMES_HOME"/cron "$HERMES_HOME"/sessions "$HERMES_HOME"/logs \
         "$HERMES_HOME"/pairing "$HERMES_HOME"/hooks "$HERMES_HOME"/image_cache \
         "$HERMES_HOME"/audio_cache "$HERMES_HOME"/memories "$HERMES_HOME"/skills
-    if [ ! -f "$HERMES_HOME/.env" ]; then
-        cp "$INSTALL_DIR/.env.example" "$HERMES_HOME/.env" 2>/dev/null || touch "$HERMES_HOME/.env"
+    if [ ! -e "$HERMES_HOME/.env" ] && [ ! -L "$HERMES_HOME/.env" ]; then
+        (umask 077; cp "$INSTALL_DIR/.env.example" "$HERMES_HOME/.env" 2>/dev/null || touch "$HERMES_HOME/.env")
     fi
-    chmod 600 "$HERMES_HOME/.env"
-    if [ ! -f "$HERMES_HOME/config.yaml" ] && [ -f "$INSTALL_DIR/cli-config.yaml.example" ]; then
+    if [ ! -e "$HERMES_HOME/config.yaml" ] && [ ! -L "$HERMES_HOME/config.yaml" ] && [ -f "$INSTALL_DIR/cli-config.yaml.example" ]; then
         cp "$INSTALL_DIR/cli-config.yaml.example" "$HERMES_HOME/config.yaml"
+    fi
+    if [ "$INSTALL_LADDER" = false ] && [ -f "$INSTALL_DIR/cli-config.yaml.example" ] && [ -f "$INSTALL_DIR/.env.example" ]; then
+        mkdir -p "${PROFILE_PREPARATION%/*}"
+        local preparation
+        preparation="$(mktemp "${PROFILE_PREPARATION}.XXXXXX")" || fail "cannot record staged profile preparation" filesystem_error
+        printf '%s\n' "$HERMES_HOME" > "$preparation"
+        mv -fT "$preparation" "$PROFILE_PREPARATION"
     fi
     log_success "config prepared in $HERMES_HOME"
 }
@@ -961,17 +1007,8 @@ stage_setup() {
         log "setup skipped (no terminal); run 'hermes setup' after install"
         return 0
     fi
+    if profile_prepared_by_installer; then rm -f -- "$PROFILE_PREPARATION"; fi
     "$INSTALL_DIR/.hermes/bin/hermes" setup </dev/tty || fail "setup failed" setup_failed
-}
-
-stage_gateway() {
-    if [ "$NON_INTERACTIVE" = true ]; then return 0; fi
-    if ! has_terminal; then
-        log "gateway setup skipped (no terminal); run 'hermes gateway install' after install"
-        return 0
-    fi
-    # Setup installs the service when it handles the gateway; ask only if it did not.
-    "$INSTALL_DIR/.hermes/bin/hermes" gateway install --if-missing </dev/tty || fail "gateway installation failed" gateway_failed
 }
 
 stage_complete() {
@@ -987,6 +1024,7 @@ stage_complete() {
         "$INSTALL_DIR/.hermes/bin/hermes" update --set-channel "$CHANNEL" \
             || fail "could not save the $CHANNEL update channel" other
     fi
+    if profile_preparation_matches; then rm -f -- "$PROFILE_PREPARATION"; fi
     log_success "Hermes Agent install complete. Run: hermes"
 }
 
@@ -1020,9 +1058,9 @@ run_stage() (
         trap 'stage_signal "$?" 143' TERM
         trap 'stage_signal "$?" 129' HUP
     fi
-    if [ "$NON_INTERACTIVE" = true ] && { [ "$STAGE" = setup ] || [ "$STAGE" = gateway ]; }; then
+    if [ "$STAGE" = setup ] && { [ "$NON_INTERACTIVE" = true ] || [ "$EXISTING_PROFILE" = true ]; }; then
         STAGE_SKIPPED=true
-        STAGE_REASON="needs user input"
+        STAGE_REASON="non-interactive install or existing profile"
         exit 0
     fi
     case "$1" in
@@ -1033,7 +1071,6 @@ run_stage() (
         config) stage_config ;;
         products) stage_products ;;
         setup) stage_setup ;;
-        gateway) stage_gateway ;;
         desktop) stage_desktop ;;
         complete) stage_complete ;;
         *) STAGE_REASON="unknown stage: $1"; printf '%s\n' "$STAGE_REASON" >&2; exit 2 ;;
@@ -1062,13 +1099,13 @@ if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
     check_platform
     trap - EXIT
 
+    classify_profile
     if [ "$STAGE" != "" ]; then
         run_stage "$STAGE"
         exit "$?"
     fi
 
-    # No --stage: run the whole ladder — the same authoritative list the
-    # manifest prints, so --include-desktop inserts desktop here too.
+    # No --stage: run the same ladder the manifest prints.
     print_banner
     mapfile -t stages < <(stage_names)
     for s in "${stages[@]}"; do

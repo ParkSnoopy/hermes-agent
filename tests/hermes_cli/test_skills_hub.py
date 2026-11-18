@@ -293,6 +293,7 @@ def test_inspect_reuses_one_ssrf_safe_client_for_metadata_and_bundle(monkeypatch
     import tools.skills_hub_clawhub as clawhub
     from tools.skills_hub_models import SkillBundle, SkillMeta
 
+    monkeypatch.setattr(search, "HERMES_INDEX_URL", "https://example.com/skills-index.json")
     clients = []
     client_kwargs = []
 

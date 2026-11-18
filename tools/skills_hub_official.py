@@ -5,6 +5,7 @@ from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Tuple, Union
 
 from agent.skill_utils import is_excluded_skill_path
+from hermes_cli.distribution import REPOSITORY
 from tools.skills_hub_github import GitHubAuth, GitHubSource, _skip_bundle_file, _tree_members
 from tools.skills_hub_models import (
     SkillBundle, SkillMeta, SkillSource, _hermes_tags, _matches_query, _memo_json, _parse_frontmatter, hub,
@@ -32,13 +33,13 @@ def _entry_provider(entry: dict) -> str:
 
 
 class OptionalSkillSource(SkillSource):
-    """Skills from the repo's ``optional-skills/`` directory: official (Nous-maintained) but not
+    """Skills from the fork's ``optional-skills/`` directory: maintained with the distribution but not
     activated by default — absent from the system prompt and not copied to ~/.hermes/skills/ at
     setup. Discoverable via the Skills Hub as source "official" with "builtin" trust."""
 
     SOURCE_ID = "official"
     TRUST_LEVEL = "builtin"
-    OFFICIAL_REPO = "NousResearch/hermes-agent"
+    OFFICIAL_REPO = REPOSITORY
     OPTIONAL_SKILLS_PREFIX = "optional-skills"
 
     _parse_frontmatter = staticmethod(_parse_frontmatter)

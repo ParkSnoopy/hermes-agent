@@ -80,7 +80,7 @@ class TestClassifyFetchFailure:
             "fatal: Could not read from remote repository."
         )
         assert "SSH authentication failed" in msg
-        assert "https://github.com/NousResearch/hermes-agent.git" in msg
+        assert "https://github.com/ParkSnoopy/hermes-agent.git" in msg
 
     def test_only_a_checkout_git_rejects_gets_the_installer_repair(self, tmp_path, capsys):
         # The updater fetches only when .git exists; git rejecting the checkout itself (here an

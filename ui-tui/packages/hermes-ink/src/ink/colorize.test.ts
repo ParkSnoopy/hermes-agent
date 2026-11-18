@@ -1,6 +1,36 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { richEightBitColorNumber, shouldUseRichEightBitDowngradeForLegacyAppleTerminal } from './colorize.js'
+import {
+  richEightBitColorNumber,
+  shouldUseRichEightBitDowngradeForLegacyAppleTerminal,
+  terminalColorLevel
+} from './colorize.js'
+
+describe('terminal color depth', () => {
+  it('trusts tmux client capabilities rather than the inherited color hint', () => {
+    const env = { COLORTERM: 'truecolor', TMUX: 'active', TMUX_PANE: '%4' }
+    const features = vi.fn(() => '256,RGB,title')
+
+    expect(terminalColorLevel(2, env, features)).toBe(3)
+    expect(features).toHaveBeenCalledWith('%4')
+
+    for (const unconfirmed of ['256,title', '256,notRGB', '']) {
+      expect(terminalColorLevel(3, env, () => unconfirmed)).toBe(2)
+    }
+  })
+
+  it('honors explicit color choices without querying tmux', () => {
+    const env = { TMUX: 'active', TMUX_PANE: '%4' }
+    const features = vi.fn(() => '256,RGB')
+
+    expect(terminalColorLevel(3, { ...env, HERMES_TUI_TRUECOLOR: '1' }, features)).toBe(3)
+    expect(terminalColorLevel(3, { ...env, HERMES_TUI_TRUECOLOR: '0' }, features)).toBe(2)
+    expect(terminalColorLevel(3, { ...env, HERMES_TUI_TRUECOLOR: '1', NO_COLOR: '1' }, features)).toBe(0)
+    expect(terminalColorLevel(0, { ...env, FORCE_COLOR: '0' }, features)).toBe(0)
+    expect(terminalColorLevel(2, { ...env, FORCE_COLOR: '2' }, features)).toBe(2)
+    expect(features).not.toHaveBeenCalled()
+  })
+})
 
 describe('shouldUseRichEightBitDowngradeForLegacyAppleTerminal', () => {
   it('uses Rich-compatible 256-color downgrade on legacy Apple Terminal', () => {

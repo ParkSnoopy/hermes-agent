@@ -99,12 +99,26 @@ describe('forceTruecolor', () => {
   it('sets COLORTERM=truecolor and FORCE_COLOR=3 when explicitly enabled', async () => {
     await withCleanEnv(
       () => {
+        process.env.COLORTERM = '256color'
         process.env.HERMES_TUI_TRUECOLOR = '1'
       },
       async () => {
         await import('../lib/forceTruecolor.js?t=enabled-' + importId++)
         expect(process.env.COLORTERM).toBe('truecolor')
         expect(process.env.FORCE_COLOR).toBe('3')
+      }
+    )
+  })
+
+  it('honors the standard 24bit capability hint without forcing redirected output', async () => {
+    await withCleanEnv(
+      () => {
+        process.env.COLORTERM = '24bit'
+      },
+      async () => {
+        await import('../lib/forceTruecolor.js?t=24bit-' + importId++)
+        expect(process.env.COLORTERM).toBe('truecolor')
+        expect(process.env.FORCE_COLOR).toBeUndefined()
       }
     )
   })

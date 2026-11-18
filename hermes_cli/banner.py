@@ -186,18 +186,14 @@ def _compute_git_banner_state(repo_dir: Optional[Path] = None) -> Optional[dict]
     return {"upstream": upstream, "local": local, "ahead": max(ahead, 0)}
 
 
-_RELEASE_URL_BASE = "https://github.com/NousResearch/hermes-agent/releases/tag"
-
-
 def get_latest_release_tag(repo_dir: Optional[Path] = None) -> Optional[tuple]:
-    """Return ``(tag, release_url)`` for the latest local git tag, or None (a miss is cached too).
+    """Return the local tag and fork releases page; a tag is not proof of publication."""
+    from hermes_cli.distribution import REPO_WEB
 
-    Release URL always points at the canonical NousResearch/hermes-agent repo (forks get no link).
-    """
     def _compute():
         rd = repo_dir or _resolve_repo_dir()
         tag = source_check._git_stdout(["describe", "--tags", "--abbrev=0"], cwd=rd, timeout=3) if rd else None
-        return (tag, f"{_RELEASE_URL_BASE}/{tag}") if tag else None
+        return (tag, f"{REPO_WEB}/releases") if tag else None
     return _memo("_latest_release_cache", _compute)
 
 

@@ -1,31 +1,60 @@
-import chalk from 'chalk'
+import { spawnSync } from 'node:child_process'
+
+import chalk, { type ColorSupportLevel } from 'chalk'
 
 import type { Color, TextStyles } from './styles.js'
 
-/**
- * xterm.js (VS Code, Cursor, code-server, Coder) has supported truecolor
- * since 2017, but code-server/Coder containers often don't set
- * COLORTERM=truecolor. chalk's supports-color doesn't recognize
- * TERM_PROGRAM=vscode (it only knows iTerm.app/Apple_Terminal), so it falls
- * through to the -256color regex → level 2. At level 2, chalk.rgb()
- * downgrades to the nearest 6×6×6 cube color: rgb(215,119,87) → idx 174
- * rgb(215,135,135) — washed-out salmon.
- *
- * Gated on level === 2 (not < 3) to respect NO_COLOR / FORCE_COLOR=0 —
- * those yield level 0 and are an explicit "no colors" request. Desktop VS
- * Code sets COLORTERM=truecolor itself, so this is a no-op there (already 3).
- *
- * Must run BEFORE the tmux clamp — if tmux is running inside a VS Code
- * terminal, tmux's passthrough limitation wins and we want level 2.
- */
-function boostChalkLevelForXtermJs(): boolean {
-  if (process.env.TERM_PROGRAM === 'vscode' && chalk.level === 2) {
-    chalk.level = 3
+const TRUECOLOR_ON = /^(?:1|true|yes|on)$/i
+const TRUECOLOR_OFF = /^(?:0|false|no|off)$/i
 
-    return true
+function tmuxClientFeatures(pane: string | undefined): string {
+  if (!pane || !process.stdout.isTTY) {
+    return ''
   }
 
-  return false
+  // COLORTERM can be inherited from the outer terminal even when tmux will
+  // quantize RGB. Ask tmux what it can actually emit for the current pane.
+  const result = spawnSync('tmux', ['display-message', '-p', '-t', pane, '#{client_termfeatures}'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 200
+  })
+
+  return result.status === 0 ? result.stdout.trim() : ''
+}
+
+export function terminalColorLevel(
+  detected: ColorSupportLevel,
+  env: NodeJS.ProcessEnv = process.env,
+  readTmuxFeatures = tmuxClientFeatures
+): ColorSupportLevel {
+  if ('NO_COLOR' in env || detected === 0) {
+    return 0
+  }
+
+  const override = (env.HERMES_TUI_TRUECOLOR ?? '').trim()
+  const indexed = detected === 3 ? 2 : detected
+
+  if (TRUECOLOR_OFF.test(override)) {
+    return indexed
+  }
+
+  if (TRUECOLOR_ON.test(override)) {
+    return 3
+  }
+
+  const hasForceColor = 'FORCE_COLOR' in env
+
+  if (env.TMUX) {
+    if (hasForceColor && detected < 3) {
+      return detected
+    }
+
+    return readTmuxFeatures(env.TMUX_PANE).split(',').includes('RGB') ? 3 : indexed
+  }
+
+  // xterm.js can render RGB even on hosts which only advertise xterm-256color.
+  return !hasForceColor && env.TERM_PROGRAM === 'vscode' && detected === 2 ? 3 : detected
 }
 
 export function shouldUseRichEightBitDowngradeForLegacyAppleTerminal(
@@ -33,7 +62,7 @@ export function shouldUseRichEightBitDowngradeForLegacyAppleTerminal(
   level = chalk.level
 ): boolean {
   const termProgram = (env.TERM_PROGRAM ?? '').trim()
-  const truecolorOverride = /^(?:1|true|yes|on)$/i.test((env.HERMES_TUI_TRUECOLOR ?? '').trim())
+  const truecolorOverride = TRUECOLOR_ON.test((env.HERMES_TUI_TRUECOLOR ?? '').trim())
   const advertisesTruecolor = /^(?:truecolor|24bit)$/i.test((env.COLORTERM ?? '').trim())
 
   return (
@@ -67,40 +96,8 @@ export function richEightBitColorNumber(red: number, green: number, blue: number
   return 16 + 36 * Math.round(sixRed) + 6 * Math.round(sixGreen) + Math.round(sixBlue)
 }
 
-/**
- * tmux parses truecolor SGR (\e[48;2;r;g;bm) into its cell buffer correctly,
- * but its client-side emitter only re-emits truecolor to the outer terminal if
- * the outer terminal advertises Tc/RGB capability (via terminal-overrides).
- * Default tmux config doesn't set this, so tmux emits the cell to iTerm2/etc
- * WITHOUT the bg sequence — outer terminal's buffer has bg=default → black on
- * dark profiles. Clamping to level 2 makes chalk emit 256-color (\e[48;5;Nm),
- * which tmux passes through cleanly. grey93 (255) is visually identical to
- * rgb(240,240,240).
- *
- * Users who HAVE set `terminal-overrides ,*:Tc` get a technically-unnecessary
- * downgrade, but the visual difference is imperceptible. Querying
- * `tmux show -gv terminal-overrides` to detect this would add a subprocess on
- * startup — not worth it.
- *
- * $TMUX is a pty-lifecycle env var set by tmux itself; it never comes from
- * globalSettings.env, so reading it here is correct. chalk is a singleton, so
- * this clamps ALL truecolor output (fg+bg+hex) across the entire app.
- */
-function clampChalkLevelForTmux(): boolean {
-  if (process.env.TMUX && chalk.level > 2) {
-    chalk.level = 2
-
-    return true
-  }
-
-  return false
-}
-
-// Computed once at module load — terminal/tmux environment doesn't change mid-session.
-// Order matters: boost first; then tmux can still clamp RGB to 256.
-// Exported for debugging — tree-shaken if unused.
-export const CHALK_BOOSTED_FOR_XTERMJS = boostChalkLevelForXtermJs()
-export const CHALK_CLAMPED_FOR_TMUX = clampChalkLevelForTmux()
+// Resolve once before rendering the first frame.
+chalk.level = terminalColorLevel(chalk.level)
 export const CHALK_USES_RICH_EIGHT_BIT_DOWNGRADE = shouldUseRichEightBitDowngradeForLegacyAppleTerminal()
 
 export type ColorType = 'foreground' | 'background'

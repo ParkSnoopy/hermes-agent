@@ -18,6 +18,7 @@ import urllib.error
 import urllib.request
 
 from hermes_constants import get_hermes_home
+from hermes_cli.distribution import is_distribution_origin
 from hermes_cli.source_releases import OFFICIAL_REPOSITORY, _GITHUB_ORIGIN, resolve_source_target
 
 logger = logging.getLogger(__name__)
@@ -242,7 +243,8 @@ def _read_checkout(root: Path, git: str, embedded: Optional[str]) -> _Checkout:
     # An embedded revision has no checkout to ask: it always tracks the official repository.
     head = embedded or _git_stdout(["rev-parse", "HEAD"], cwd=root, git=git)
     current_branch = None if embedded else _git_stdout(["rev-parse", "--abbrev-ref", "HEAD"], cwd=root, git=git)
-    origin = "" if embedded else (_git_stdout(["remote", "get-url", "origin"], cwd=root, git=git) or "")
+    origin = "" if embedded else (_git_stdout(["config", "--local", "--get-all", "remote.origin.url"],
+                                              cwd=root, git=git) or "")
     match = _GITHUB_ORIGIN.fullmatch(origin)
     repository = OFFICIAL_REPOSITORY if embedded else (match[1] if match else None)
     dirty = False if embedded else bool(_git_stdout(["status", "--porcelain"], cwd=root, git=git))
@@ -564,6 +566,8 @@ def check_for_updates(*, install_root: Path | None = None, home: Path | None = N
     channel = resolve_update_channel(config, root) if channel is None else validate_name(channel)
     forward_only = rides_default_channel(channel_record(config, root), channel, root)
     co = _read_checkout(root, _installed_git(git), embedded)
+    if not embedded and not is_distribution_origin(co.origin):
+        return {**result, "reason": "wrong-update-origin", "message": f"This checkout does not track {OFFICIAL_REPOSITORY}."}
     desktop_config = _read_json(branch_config_path) if branch_config_path else None
     configured_branch = _configured_branch(desktop_config)
     selected_branch = branch or configured_branch or _checked_out_branch(co.current_branch, "main")

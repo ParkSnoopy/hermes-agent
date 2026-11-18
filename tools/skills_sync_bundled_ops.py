@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from hermes_cli.distribution import REPOSITORY
 from tools.skills_sync_optional import _ignore_runtime_cache, _skill_file_list, _ss
 
 
@@ -60,7 +61,11 @@ def reset_bundled_skill(name: str, restore: bool = False) -> dict:
     return {"ok": True, "action": action, "message": message, "synced": synced}
 
 
-_OWN_REPO_PREFIXES = ("nousresearch/hermes-agent/skills/", "skills-sh/nousresearch/hermes-agent/")
+_OWN_REPO_PREFIXES = (
+    f"{REPOSITORY.lower()}/skills/", f"skills-sh/{REPOSITORY.lower()}/",
+    # Historical user-facing IDs resolve to the local copy, never an upstream download.
+    "nousresearch/hermes-agent/skills/", "skills-sh/nousresearch/hermes-agent/",
+)
 
 
 def bundled_skill_for_install(identifier: str) -> Optional[str]:

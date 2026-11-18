@@ -21,11 +21,12 @@ export function shouldForceTruecolor(env: NodeJS.ProcessEnv = process.env): bool
 
 const isAppleTerminal = (env: NodeJS.ProcessEnv = process.env) => (env.TERM_PROGRAM ?? '').trim() === 'Apple_Terminal'
 
-const isAdvertisedTruecolor = (env: NodeJS.ProcessEnv = process.env) => {
-  const colorTerm = (env.COLORTERM ?? '').trim().toLowerCase()
+const advertisesTruecolor = (env: NodeJS.ProcessEnv) => /^(?:truecolor|24bit)$/i.test((env.COLORTERM ?? '').trim())
+
+const isAdvertisedTruecolor = (env: NodeJS.ProcessEnv) => {
   const forceColor = (env.FORCE_COLOR ?? '').trim()
 
-  return colorTerm === 'truecolor' || colorTerm === '24bit' || forceColor === '3'
+  return advertisesTruecolor(env) || forceColor === '3'
 }
 
 export function shouldDowngradeAppleTerminalTruecolor(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -41,10 +42,7 @@ export function shouldDowngradeAppleTerminalTruecolor(env: NodeJS.ProcessEnv = p
 }
 
 if (shouldForceTruecolor()) {
-  if (!process.env.COLORTERM) {
-    process.env.COLORTERM = 'truecolor'
-  }
-
+  process.env.COLORTERM = 'truecolor'
   process.env.FORCE_COLOR = '3'
 } else if (shouldDowngradeAppleTerminalTruecolor()) {
   // Terminal.app may advertise truecolor even when RGB SGR paths render
@@ -55,6 +53,9 @@ if (shouldForceTruecolor()) {
   if ((process.env.FORCE_COLOR ?? '').trim() === '3') {
     delete process.env.FORCE_COLOR
   }
+} else if (advertisesTruecolor(process.env)) {
+  // Chalk only recognizes the literal COLORTERM=truecolor.
+  process.env.COLORTERM = 'truecolor'
 }
 
 export {}

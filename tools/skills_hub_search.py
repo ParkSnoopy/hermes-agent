@@ -14,6 +14,7 @@ import json
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from hermes_cli.distribution import SKILLS_INDEX_URL as HERMES_INDEX_URL
 from tools.skills_hub_clawhub import ClawHubSource
 from tools.skills_hub_github import GitHubAuth, GitHubSource, _filter_results_by_provider, _provider_filter_of
 from tools.skills_hub_models import SkillMeta, SkillSource, TRUST_RANK, _dedupe_by_trust, hub
@@ -24,13 +25,12 @@ from tools.skills_hub_sources import BrowseShSource, LobeHubSource, UrlSource, W
 # Log-record parity with the origin module.
 logger = logging.getLogger("tools.skills_hub")
 
-HERMES_INDEX_URL = "https://hermes-agent.nousresearch.com/docs/api/skills-index.json"
 HERMES_INDEX_TTL = 6 * 3600  # 6 hours
 
 
 def _hermes_index_cache_file() -> Path:
     from tools.skills_hub import _index_cache_dir
-    return _index_cache_dir() / "hermes-index.json"
+    return _index_cache_dir() / "parksnoopy-hermes-index.json"
 
 
 def _load_hermes_index() -> Optional[dict]:
@@ -43,6 +43,8 @@ def _load_hermes_index() -> Optional[dict]:
     Skills Hub. gzip/deflate first; the identity retry covers proxies that
     ignore the header and return Brotli anyway.
     """
+    if not HERMES_INDEX_URL:
+        return None  # Search the individual sources without a central index.
     from tools.skills_hub import _read_json_if_fresh
     cache_file = _hermes_index_cache_file()
     cached = _read_json_if_fresh(cache_file, HERMES_INDEX_TTL)

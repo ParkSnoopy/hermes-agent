@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from hermes_cli._subprocess_compat import NO_LAZY_FETCH_ENV, noninteractive_git_env
+from hermes_cli.distribution import INSTALLER_URL, REPO_GIT
 
 logger = logging.getLogger("hermes_cli.update_cmd")  # log-record parity with the origin module
 
@@ -275,7 +276,7 @@ SKIP_UPSTREAM_PROMPT_FILE = ".skip_upstream_prompt"
 
 def _get_origin_url(git_cmd: list[str], cwd: Path) -> Optional[str]:
     """Get the URL of the origin remote, or None if not set."""
-    return _git_stdout(git_cmd, ["remote", "get-url", "origin"], cwd)
+    return _git_stdout(git_cmd, ["config", "--local", "--get-all", "remote.origin.url"], cwd)
 
 
 def _is_fork(origin_url: Optional[str]) -> bool:
@@ -493,16 +494,11 @@ def _has_http_code(stderr: str, *codes: str) -> bool:
 def _damaged_checkout_message(root: Path) -> str:
     """The repair for a checkout git rejects: the installer pointed at THIS checkout (a bare one-liner
     would rebuild the default directory and leave a ``--dir`` install broken)."""
-    if sys.platform == "win32":
-        quoted = "'" + str(root).replace("'", "''") + "'"
-        repair = ("& ([scriptblock]::Create((irm https://hermes-agent.nousresearch.com/install.ps1)))"
-                  f" -InstallDir {quoted}")
-    else:
-        repair = f"curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --dir {shlex.quote(str(root))}"
+    repair = f"Download {INSTALLER_URL}, then run: bash install.sh --dir {shlex.quote(str(root))}"
     return (f"✗ This Hermes checkout's git data is damaged (git no longer recognizes {root / '.git'}),"
             " so it cannot be updated in place.\n"
-            "  Run the installer again to repair it; it moves the damaged checkout aside and keeps"
-            f" your config and chats:\n    {repair}")
+            "  Move the damaged checkout aside without moving your Hermes home, then reinstall:\n"
+            f"    {repair}")
 
 
 def _checkout_rejected_by_git(stderr: str, git_cmd, root: Path) -> bool:
@@ -542,7 +538,7 @@ _FETCH_FAILURE_RULES = (
     # key (or lack of one) was the cause (#82169).
     (lambda s: "Permission denied (publickey)" in s or "Host key verification failed" in s,
      "✗ SSH authentication failed — check your SSH key is added to GitHub, or switch"
-     " `origin` to HTTPS: `git remote set-url origin https://github.com/NousResearch/hermes-agent.git`."),
+     f" `origin` to HTTPS: `git remote set-url origin {REPO_GIT}`."),
 )
 
 

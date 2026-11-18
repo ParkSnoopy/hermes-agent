@@ -28,9 +28,19 @@ def _resp(*, status=200, body=b""):
 # ---------------------------------------------------------------------------
 
 class TestRequestUploadUrl:
-    def test_happy_path_posts_json_and_returns_dict(self):
+    def test_unconfigured_service_does_not_send_a_request(self, monkeypatch):
+        from hermes_cli import diagnostics_upload as mod
+
+        monkeypatch.setattr(mod, "NAS_BASE", "")
+        with patch.object(mod.urllib.request, "urlopen") as urlopen:
+            with pytest.raises(RuntimeError, match="No diagnostics service configured"):
+                mod.request_upload_url()
+        urlopen.assert_not_called()
+
+    def test_happy_path_posts_json_and_returns_dict(self, monkeypatch):
         from hermes_cli.diagnostics_upload import request_upload_url
 
+        monkeypatch.setattr("hermes_cli.diagnostics_upload.NAS_BASE", "https://diagnostics.example.invalid")
         payload = {
             "success": True,
             "id": "abc-123",
@@ -58,9 +68,10 @@ class TestRequestUploadUrl:
         # urllib lower-cases header keys.
         assert req.headers["Content-type"] == "application/json"
 
-    def test_non_2xx_raises(self):
+    def test_non_2xx_raises(self, monkeypatch):
         from hermes_cli.diagnostics_upload import request_upload_url
 
+        monkeypatch.setattr("hermes_cli.diagnostics_upload.NAS_BASE", "https://diagnostics.example.invalid")
         resp = _resp(status=500, body=b"boom")
         with patch(
             "hermes_cli.diagnostics_upload.urllib.request.urlopen",

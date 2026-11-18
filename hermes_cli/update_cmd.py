@@ -596,6 +596,7 @@ def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False, ch
     # uses, or --check fails where the apply path succeeds (see
     # _map_ssl_cert_file_for_git).
     _map_ssl_cert_file_for_git(git_cmd)
+    _require_distribution_origin(git_cmd, root)
     _check.clear_git_debris(root)
 
     selected_channel = _source_update_channel(channel=channel, branch_explicit=branch_explicit)
@@ -1481,12 +1482,27 @@ def _record_update_initiator() -> None:
             _completion_receipt.record_fact("initiator", "desktop")
 
 
+def _require_distribution_origin(git_cmd: list[str], root: Path) -> None:
+    from hermes_cli.distribution import INSTALLER_URL, REPO_GIT, is_distribution_origin
+
+    if not (root / ".git").exists():
+        print(f"✗ Not a git repository. To reinstall, download and run {INSTALLER_URL}")
+        sys.exit(1)
+    origin = _get_origin_url(git_cmd, root)
+    if not is_distribution_origin(origin):
+        print(f"✗ This update requires origin to point to {REPO_GIT}.")
+        print("  Install the fork separately rather than updating another checkout in place.")
+        sys.exit(1)
+
+
 def _prepare_git_command(*, checkout_move=None) -> tuple[list, bool]:
     """Prepare Git and fail before mutation when the checkout is not a repository."""
     git_dir = _m().PROJECT_ROOT / ".git"
     if not git_dir.exists():
+        from hermes_cli.distribution import INSTALLER_URL
+
         print("✗ Not a git repository. Please reinstall:")
-        print("  curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash")
+        print(f"  Download and run {INSTALLER_URL}")
         sys.exit(1)
 
     git_cmd = _base_git_cmd()
@@ -1500,14 +1516,7 @@ def _prepare_git_command(*, checkout_move=None) -> tuple[list, bool]:
     _discard_lockfile_churn(git_cmd, _m().PROJECT_ROOT, checkout_move=checkout_move)
     _normalize_managed_eol(git_cmd, _m().PROJECT_ROOT, checkout_move=checkout_move)
 
-    origin_url = _m()._get_origin_url(git_cmd, _m().PROJECT_ROOT)
-    is_fork = _is_fork(origin_url)
-
-    if is_fork:
-        print("⚠ Updating from fork:")
-        print(f"  {origin_url}")
-        print()
-    return git_cmd, is_fork
+    return git_cmd, False  # The fork never syncs or pushes to a second remote during update.
 
 
 def _verify_head_after_pull(
@@ -1660,6 +1669,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
     _commit.begin_update_attempt()  # nothing an earlier update in this process armed is ours (O5)
     from hermes_cli.update_proxy_env import prefer_dotenv_proxy_env
     prefer_dotenv_proxy_env()  # the .env loaded at import beats a system proxy the Desktop injected
+    _require_distribution_origin(_base_git_cmd(), _m().PROJECT_ROOT)
     git_operation = git_operation_in_progress(_m().PROJECT_ROOT)
     if git_operation:
         root = _m().PROJECT_ROOT

@@ -183,6 +183,10 @@ If you want the light theme permanently regardless of terminal:
 export HERMES_TUI_THEME=light
 ```
 
+### Truecolor skins
+
+The TUI uses 24-bit RGB for skin colors when the terminal supports it. In tmux it checks the client’s `RGB` capability and falls back to indexed colors when RGB support cannot be confirmed. If your terminal and multiplexer support RGB but do not advertise it, launch with `HERMES_TUI_TRUECOLOR=1 hermes --tui`. Use `HERMES_TUI_TRUECOLOR=0` to keep indexed colors.
+
 ## Busy indicator styles
 
 The status-bar busy indicator is pluggable — the default rotates Hermes' kawaii face palette every 2.5 seconds during agent work. Pick a different style via config or the `/indicator` slash command:

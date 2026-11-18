@@ -9,8 +9,8 @@ import urllib.request
 
 from hermes_cli.debug_redaction import redact_debug_support_text
 
-# Overridable via env so the feature can be pointed at staging / a local dev NAS instance.
-NAS_BASE = os.environ.get("HERMES_DIAGNOSTICS_BASE_URL", "https://portal.nousresearch.com")
+# This fork does not publish a diagnostics service. The operator must opt in to one.
+NAS_BASE = os.environ.get("HERMES_DIAGNOSTICS_BASE_URL", "").strip().rstrip("/")
 _REQUEST_TIMEOUT = 30
 _UPLOAD_TIMEOUT = 120  # the PUT carries the gzipped log bundle, so a more generous window
 _USER_AGENT = "hermes-agent/debug-share"
@@ -33,6 +33,8 @@ def request_upload_url(content_type: str = "application/gzip", size_bytes: int |
     payload: dict = {"contentType": content_type}
     if size_bytes is not None:
         payload["sizeBytes"] = int(size_bytes)
+    if not NAS_BASE:
+        raise RuntimeError("No diagnostics service configured (HERMES_DIAGNOSTICS_BASE_URL)")
     body = _urlopen_checked(
         f"{NAS_BASE}/api/diagnostics/upload-url", json.dumps(payload).encode("utf-8"), "POST",
         {"Content-Type": "application/json", "Accept": "application/json"},

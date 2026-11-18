@@ -2084,6 +2084,7 @@ class TestLoadHermesIndex:
     def _isolate_cache(monkeypatch, tmp_path):
         """Point the on-disk cache at an empty tmp dir so no real cache leaks in."""
         cache_file = tmp_path / "hermes-index.json"
+        monkeypatch.setattr("tools.skills_hub_search.HERMES_INDEX_URL", "https://catalog.example.invalid/skills.json")
         monkeypatch.setattr("tools.skills_hub_search._hermes_index_cache_file", lambda: cache_file)
         return cache_file
 

@@ -146,19 +146,13 @@ def test_pinned_fresh_clone_publishes_nothing_when_the_pin_fails(tmp_path):
     assert not list(tmp_path.glob(".hermes-clone-*"))
 
 
-@pytest.mark.parametrize("damage", ["commitless", "lost_head", "dangling_gitdir_file"])
-def test_unusable_checkout_is_moved_aside_and_recloned(tmp_path, damage):
-    """An interrupted clone, or a .git a killed update left unreadable (the state `hermes update`
-    tells the user to repair by rerunning the installer): moved aside, never deleted, then cloned."""
+def test_interrupted_clone_with_known_origin_is_moved_aside(tmp_path):
+    """A commitless clone of the selected source may be repaired without deleting its files."""
     origin = _origin(tmp_path / "origin")
     install = tmp_path / "install"
     install.mkdir()
-    if damage == "dangling_gitdir_file":
-        (install / ".git").write_text(f"gitdir: {tmp_path / 'gone'}\n")
-    else:
-        _git(install, "init", "-q")
-        if damage == "lost_head":
-            (install / ".git" / "HEAD").unlink()
+    _git(install, "init", "-q")
+    _git(install, "remote", "add", "origin", str(origin))
     (install / "keep").write_text("user file")
     result = _stage(tmp_path, origin)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -185,17 +179,20 @@ def test_unmerged_index_is_cleared_then_stashed(tmp_path):
     assert not _git(install, "ls-files", "--unmerged")
 
 
-def test_rerun_follows_an_explicit_repo_url(tmp_path):
+def test_selected_source_never_takes_over_another_checkout(tmp_path):
     first = _origin(tmp_path / "first")
     assert _stage(tmp_path, first).returncode == 0
-    moved = tmp_path / "moved"
-    subprocess.run(["git", "clone", "-q", str(first), str(moved)], check=True)
-    tip = _commit(moved, "moved")
-    result = _stage(tmp_path, moved)
-    assert result.returncode == 0, result.stdout + result.stderr
     install = tmp_path / "install"
+    tip = _git(install, "rev-parse", "HEAD")
+    (install / "keep").write_text("local work")
+    other = _origin(tmp_path / "other")
+    result = _stage(tmp_path, other)
+    assert result.returncode != 0
+    assert "different or unreadable origin" in result.stderr
     assert _git(install, "rev-parse", "HEAD") == tip
-    assert _git(install, "remote", "get-url", "origin") == moved.as_posix()
+    assert _git(install, "remote", "get-url", "origin") == first.as_posix()
+    assert (install / "keep").read_text() == "local work"
+    assert not list(tmp_path.glob("install.broken-*"))
 
 
 def test_path_uv_is_never_used_even_when_newer_than_the_pin(tmp_path):
@@ -211,7 +208,7 @@ def test_path_uv_is_never_used_even_when_newer_than_the_pin(tmp_path):
     assert f"UV_CMD={fake}" not in result.stdout
 
 
-def test_interactive_stages_skip_without_a_terminal(tmp_path):
+def test_interactive_setup_skips_without_a_terminal(tmp_path):
     install = tmp_path / "install"
     (install / ".hermes" / "bin").mkdir(parents=True)
     marker = tmp_path / "ran"
@@ -219,7 +216,7 @@ def test_interactive_stages_skip_without_a_terminal(tmp_path):
     hermes.write_text(f"#!/bin/sh\ntouch {shlex.quote(marker.as_posix())}\n")
     hermes.chmod(0o755)
     # A new session has no controlling terminal, so opening /dev/tty fails.
-    result = _run(tmp_path, "NON_INTERACTIVE=false\nstage_setup\nstage_gateway", start_new_session=True,
+    result = _run(tmp_path, "NON_INTERACTIVE=false\nstage_setup", start_new_session=True,
                   stdin=subprocess.DEVNULL)
     assert result.returncode == 0, result.stdout + result.stderr
     assert not marker.exists()

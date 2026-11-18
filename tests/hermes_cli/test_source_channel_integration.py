@@ -41,6 +41,10 @@ def source(tmp_path, monkeypatch):
         git(origin, "commit", "-m", label)
         commits.append(git(origin, "rev-parse", "HEAD"))
     git(tmp_path, "clone", str(origin), str(checkout))
+    fork = "https://github.com/ParkSnoopy/hermes-agent.git"
+    git(checkout, "remote", "set-url", "origin", fork)
+    git(checkout, "config", f"url.{origin.as_uri()}.insteadOf", fork)
+    monkeypatch.setenv("GIT_ALLOW_PROTOCOL", "file")
     git(checkout, "checkout", "--detach", commits[0])
     monkeypatch.setattr(main, "PROJECT_ROOT", checkout)
     monkeypatch.setattr("hermes_cli.config.get_project_root", lambda: checkout)
@@ -56,13 +60,13 @@ def source(tmp_path, monkeypatch):
     return SimpleNamespace(home=home, origin=origin, root=checkout, commits=commits, parser=parser)
 
 
-def record(name, *, repository="NousResearch/hermes-agent", state="active", destination=None):
+def record(name, *, repository="ParkSnoopy/hermes-agent", state="active", destination=None):
     return {"schema": 1, "name": name, "repository": repository, "policy": "preview",
             "state": state, "identity": {}, "nextSequence": 2, "head": None,
             **({"destination": destination} if destination else {})}
 
 
-def reader_result(source, name, destination=None, repository="NousResearch/hermes-agent"):
+def reader_result(source, name, destination=None, repository="ParkSnoopy/hermes-agent"):
     requested = record(name, repository=repository,
                        state="retired" if destination else "active", destination=destination)
     terminal = record(destination or name, repository=repository)
@@ -289,7 +293,7 @@ def publish_channel_build(channel_archive, name, build_id, commit, *, sequence=1
                 "windowsExecutableName": "Fixture"}
     version = f"1.2.{sequence}" if stable else f"0.0.{sequence}"
     request = {"schema": 1, "channel": name, "buildId": build_id, "sequence": sequence,
-               "repository": "NousResearch/hermes-agent", "commit": commit,
+               "repository": "ParkSnoopy/hermes-agent", "commit": commit,
                "sourceVersion": f"1.2.{sequence}", "version": version, "windowsVersion": version + ".0",
                "identity": identity, "bundleEnv": {}, "publicBase": base}
     if stable:

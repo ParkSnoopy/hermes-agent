@@ -10,11 +10,11 @@ import subprocess
 import urllib.error
 import urllib.request
 
+from hermes_cli.distribution import RELEASE_CHANNEL_BASE as _PUBLIC_BASE, REPOSITORY as OFFICIAL_REPOSITORY
 from hermes_cli.update_channel import STABLE_TAG_RE, is_canary_tag
 
 logger = logging.getLogger(__name__)
-_PUBLIC_BASE = "https://hermes-assets.nousresearch.com"
-OFFICIAL_REPOSITORY = "NousResearch/hermes-agent"
+
 _GITHUB_ORIGIN = re.compile(
     r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
     r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?$", re.IGNORECASE,
@@ -28,7 +28,7 @@ def source_repository(git_cmd=None, cwd=None) -> str:
         from hermes_cli.source_check import source_git_env
 
         result = subprocess.run(
-            [*git_cmd, "config", "--get", "remote.origin.url"], cwd=cwd,
+            [*git_cmd, "config", "--local", "--get-all", "remote.origin.url"], cwd=cwd,
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
             stdin=subprocess.DEVNULL, env=source_git_env(),
             check=False,
@@ -73,6 +73,8 @@ def _resolve_channel(name: str, repository: str):
     GitHub fallback is allowed when a record is unavailable; the one exception
     is an unpublished ``main`` record, which resolves to the main branch.
     """
+    if not _PUBLIC_BASE:
+        raise ValueError(f"{repository} does not publish the {name} source channel. Use main or a published release.")
     from hermes_cli.release_channels import ChannelReader
 
     return ChannelReader(_PUBLIC_BASE, repository=repository).resolve(name)
@@ -317,6 +319,8 @@ def _published_fallback(channel: str, base: str) -> dict:
 
 
 def _release_pointer(channel: str) -> tuple[str | None, str | None]:
+    if not _PUBLIC_BASE:
+        return None, None
     # Stable's completion job writes this before publishing the GitHub draft.
     # Publication is checked separately, so that interval fails closed.
     if channel == "stable":

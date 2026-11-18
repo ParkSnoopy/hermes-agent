@@ -667,7 +667,9 @@ def _perform_uninstall(
             print(f"  {path}/")
         print()
         print("To reinstall later with your existing settings:")
-        print(color("  curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash", Colors.DIM))
+        from hermes_cli.distribution import INSTALLER_URL
+
+        print(color(f"  Download and run {INSTALLER_URL}", Colors.DIM))
         print()
 
     print(color("Reload your shell to complete the process:", Colors.YELLOW))

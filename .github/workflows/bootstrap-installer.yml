@@ -47,13 +47,11 @@ jobs:
           assert m["protocol_version"] == 1, m
           names = [s["name"] for s in m["stages"]]
           expected = ["prerequisites", "repository", "venv", "python-deps",
-                      "config", "products", "setup", "gateway", "complete"]
+                      "config", "products", "setup", "complete"]
           assert names == expected, names
           assert m["stages"][-1]["name"] == "complete"
           print("stage manifest ok:", " -> ".join(names))
           '
-
-
       - name: Publish the PR checkout as the install source
         id: source
         shell: bash
@@ -66,6 +64,9 @@ jobs:
           git push "$mirror" "HEAD:refs/heads/ci-under-test"
           echo "mirror=$mirror" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: ./.github/actions/setup-pm - Prepare Installer Tools
+        uses: ./.github/actions/setup-pm
 
       - name: Check repository/config/completion protocol (not a working install)
         shell: bash
@@ -114,10 +115,6 @@ jobs:
           head="$(git -C "$HERMES_INSTALL_DIR" rev-parse HEAD)"
           test "$head" = "${{ steps.source.outputs.sha }}" \
             || { echo "::error::installed HEAD $head != pinned ${{ steps.source.outputs.sha }}"; exit 1; }
-
-      - name: Prepare tools for the real small-graph installer test
-        uses: ./.github/actions/setup-pm
-
       - name: Prepare isolated acceptance-test dependencies
         shell: bash
         # psutil: tests/conftest.py's session-end daemon reaper reads process environments with it.

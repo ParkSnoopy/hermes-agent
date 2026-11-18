@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import hermes_yaml as yaml
+from hermes_cli.distribution import PLUGIN_CATALOG_URL as LIVE_CATALOG_URL
 from datetime import UTC
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ CATALOG_TIERS = ("official", "verified", "community")
 # Browse taxonomy for the catalog page / picker. Entries without one land on the Desktop shelf
 # (the common case for community submissions); "general" is for plugins that fit no shelf.
 CATALOG_CATEGORIES = ("desktop", "memory", "platform", "web", "tools", "voice", "automation", "models", "general")
-LIVE_CATALOG_URL = "https://hermes-agent.nousresearch.com/docs/api/plugin-catalog.json"
+
 LIVE_CATALOG_TTL_SECONDS = 6 * 60 * 60
 # Offline pins expire, but cached removals remain a permanent kill list.
 LIVE_CATALOG_MAX_STALE_SECONDS = 24 * 60 * 60
@@ -313,7 +314,10 @@ def match_removed(
 
 def _live_cache_path() -> Path:
     from hermes_constants import get_hermes_home
-    return get_hermes_home() / "cache" / "plugin-catalog.json"
+    return get_hermes_home() / "cache" / _LIVE_CACHE_NAME
+
+
+_LIVE_CACHE_NAME = "parksnoopy-plugin-catalog.json"
 
 
 def invalidate_live_cache_for_home(home: Path) -> None:
@@ -327,7 +331,7 @@ def invalidate_live_cache_for_home(home: Path) -> None:
     cache is absent (first run, other profiles that never opened the plugins hub).
     """
     try:
-        (Path(home) / "cache" / "plugin-catalog.json").unlink(missing_ok=True)
+        (Path(home) / "cache" / _LIVE_CACHE_NAME).unlink(missing_ok=True)
     except Exception as exc:
         logger.debug("Plugin catalog: could not drop the live cache under %s: %s", home, exc)
 
@@ -361,6 +365,8 @@ def fetch_live_catalog(*, force: bool = False) -> Optional[dict[str, Any]]:
     :data:`LIVE_CATALOG_FAILURE_TTL_SECONDS` so a dead host costs one timeout per TTL window, not one
     per call (``force`` bypasses both caches)."""
     global _live_fetch_failed_until
+    if not LIVE_CATALOG_URL:
+        return None  # The fork ships the in-tree catalog but no live service.
     cache = _live_cache_path()
     try:
         if not force and cache.is_file() and time.time() - cache.stat().st_mtime < LIVE_CATALOG_TTL_SECONDS:

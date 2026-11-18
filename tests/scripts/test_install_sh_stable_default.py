@@ -1,17 +1,13 @@
-"""A new or rerun install of the official repository lands on the latest stable release.
-
-`hermes update` already follows stable for an official checkout that never chose a channel;
-the installer has to put a fresh install there too, or new users start on main's tip. The
-official URL is redirected to a local origin and `curl` answers the release lookup.
-"""
+"""The fork installer follows main by default and stable only when selected."""
 from pathlib import Path
 import os
 import subprocess
 
 import pytest
 
+from hermes_cli.distribution import REPOSITORY, REPO_GIT
+
 ROOT = Path(__file__).resolve().parents[2]
-OFFICIAL = "https://github.com/NousResearch/hermes-agent.git"
 
 pytestmark = pytest.mark.platforms("posix")
 
@@ -25,19 +21,18 @@ def _git(cwd, *args, env=None):
 
 
 @pytest.mark.parametrize("side,start,args,tagged,lands", [
-    (False, None, [], True, "release"),                 # fresh install: the release, not main's tip
-    (False, None, ["--channel", "main"], True, "tip"),  # explicit opt-out: main's tip
-    (False, "before", [], True, "release"),             # rerun behind the release: moves forward to it
-    (False, "tip", [], True, "tip"),                    # rerun already containing it: never moves back
-    (False, None, [], False, None),                     # release tag unreachable: fail, publish nothing
-    (False, "before", [], False, "before"),             # ... a rerun keeps its checkout instead
+    (False, None, [], True, "tip"),
+    (False, None, ["--channel", "stable"], True, "release"),
+    (False, "before", ["--channel", "stable"], True, "release"),
+    (False, "tip", ["--channel", "stable"], True, "tip"),
+    (False, None, ["--channel", "stable"], False, None),
     # The release cut on a release branch, main past the fork point (v0.22.2's shape): main moves
     # back only through `hermes update`, whose downgrade guard the installer cannot run.
     (True, "tip", [], True, "tip"),
     (True, "tip", ["--channel", "stable"], True, "tip"),
-    (True, "before", [], True, "release"),
+    (True, "before", ["--channel", "stable"], True, "release"),
 ])
-def test_install_lands_on_the_latest_stable_release(tmp_path, side, start, args, tagged, lands):
+def test_installer_lands_on_the_selected_channel(tmp_path, side, start, args, tagged, lands):
     origin, home, bin_dir = tmp_path / "origin", tmp_path / "home", tmp_path / "bin"
     install = home / ".hermes" / "hermes-agent"
     for d in (origin, home, bin_dir):
@@ -53,16 +48,17 @@ def test_install_lands_on_the_latest_stable_release(tmp_path, side, start, args,
     _git(origin, "checkout", "-q", "main")
     _git(origin, "commit", "-q", "--allow-empty", "-m", "newer")
     commits["tip"] = _git(origin, "rev-parse", "HEAD")
-    (home / ".gitconfig").write_text(f'[url "file://{origin}"]\n  insteadOf = {OFFICIAL}\n', encoding="utf-8")
+    (home / ".gitconfig").write_text(f'[url "file://{origin}"]\n  insteadOf = {REPO_GIT}\n', encoding="utf-8")
     (bin_dir / "curl").write_text(
-        '#!/bin/sh\ncase "$*" in *api.github.com*) printf \'{\\n  "tag_name": "v1.2.3",\\n}\\n\';; *) exit 22;; esac\n',
+        '#!/bin/sh\ncase "$*" in *api.github.com/repos/' + REPOSITORY
+        + '/releases/latest*) printf \'{\\n  "tag_name": "v1.2.3",\\n}\\n\';; *) exit 22;; esac\n',
         encoding="utf-8")
     (bin_dir / "curl").chmod(0o755)
     env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "HOME": str(home), "NO_COLOR": "1",
-           "GIT_CONFIG_NOSYSTEM": "1"}
+           "GIT_CONFIG_NOSYSTEM": "1", "GIT_ALLOW_PROTOCOL": "file"}
     if start:
         install.parent.mkdir(parents=True)
-        _git(tmp_path, "clone", "-q", OFFICIAL, str(install), env=env)
+        _git(tmp_path, "clone", "-q", REPO_GIT, str(install), env=env)
         _git(install, "checkout", "-q", "--detach", commits[start])
 
     result = subprocess.run(

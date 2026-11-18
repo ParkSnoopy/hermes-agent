@@ -22,7 +22,7 @@ Examples:
     hermes debug share --expire 30  Keep dpaste.com fallback pastes for 30 days
     hermes debug share --local      Print report locally (no upload)
     hermes debug share --no-redact  Disable upload-time secret redaction
-    hermes debug share --nous       Upload to Nous-internal storage (private)
+    hermes debug share --nous       Upload to a configured diagnostics service
     hermes debug delete <url>       Delete a previously uploaded paste
 """)
     debug_sub = debug_parser.add_subparsers(dest="debug_command")
@@ -52,11 +52,9 @@ Examples:
             "into the public paste service.")
     share_parser.add_argument(
         "--nous", action="store_true",
-        help="Upload the debug bundle to Nous-internal storage (AWS S3) instead "
-            "of a public paste service. The bundle is private — viewable only "
-            "by Nous staff (and allowlisted Discord mods) via a Google-login-"
-            "gated viewer — and auto-deletes after 14 days. Still force-redacts "
-            "secrets unless --no-redact is also passed.")
+        help="Upload using the diagnostics API at HERMES_DIAGNOSTICS_BASE_URL. "
+            "Access and retention depend on the service. Secrets are redacted "
+            "unless --no-redact is also passed.")
     delete_parser = debug_sub.add_parser(
         "delete", help="Delete a paste uploaded by 'hermes debug share'")
     delete_parser.add_argument(

@@ -5,6 +5,7 @@ docs of config.yaml.
 """
 
 from hermes_cli.config_defaults_auxiliary import _aux
+from hermes_cli.distribution import MODEL_CATALOG_URL
 from hermes_constants import DEFAULT_INDICATOR_STYLE, DEFAULT_SKIN
 
 DEFAULT_CONFIG = {
@@ -1396,10 +1397,10 @@ DEFAULT_CONFIG = {
     },
     # Remote model-catalog manifest: curated OpenRouter / Nous Portal model lists fetched from this
     # URL (falls back to the in-repo snapshot on network failure), so picker lists update without a
-    # release. Default URL is served by the docs-site GitHub Pages deploy.
+    # release. The default uses the fork's checked-in catalog.
     "model_catalog": {
         "enabled": True,
-        "url": "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json",
+        "url": MODEL_CATALOG_URL,
         # Disk cache TTL in minutes. The gateway refreshes in the background on this cadence; the
         # CLI refetches on the next /model or `hermes model` once the cache is older. Network
         # failures silently use the stale cache. Legacy `ttl_hours` is honoured if set.

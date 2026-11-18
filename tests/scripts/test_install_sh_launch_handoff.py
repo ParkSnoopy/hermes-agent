@@ -31,12 +31,11 @@ def _with_controlling_terminal(tty_path: str):
 
 
 @pytest.mark.platforms('posix')
-@pytest.mark.parametrize('stage, expected', [('setup', ['setup']), ('gateway', ['gateway', 'install', '--if-missing'])])
-def test_installer_post_pm_stages(tmp_path: Path, stage: str, expected: list[str]) -> None:
+def test_installer_setup_uses_published_launcher(tmp_path: Path) -> None:
     install = tmp_path / 'source tree'
     calls = tmp_path / 'calls.json'
     publish_fixture_launcher(install, "import json, os, sys\nfrom pathlib import Path\ndef main():\n    Path(os.environ['CALLS']).write_text(json.dumps(sys.argv[1:])); return int(os.environ['STAGE_EXIT'])\n")
-    command = ['bash', '-c', 'source "$1" --manifest >/dev/null; INSTALL_DIR="$2"; NON_INTERACTIVE=false; "stage_$3"', 'test', str(ROOT / 'scripts/install.sh'), str(install), stage]
+    command = ['bash', '-c', 'source "$1" --manifest >/dev/null; INSTALL_DIR="$2"; NON_INTERACTIVE=false; stage_setup', 'test', str(ROOT / 'scripts/install.sh'), str(install)]
     env = {**os.environ, 'HOME': str(tmp_path), 'HERMES_HOME': str(tmp_path / 'home'), 'HERMES_RUNTIME_DIR': str(tmp_path / 'store'), 'CALLS': str(calls)}
     # `curl | bash` and Docker builds have no terminal: the interactive stage is skipped, not failed.
     result = subprocess.run(command, cwd=tmp_path, env={**env, 'STAGE_EXIT': '9'}, capture_output=True, text=True,
@@ -55,7 +54,7 @@ def test_installer_post_pm_stages(tmp_path: Path, stage: str, expected: list[str
                                     preexec_fn=_with_controlling_terminal(tty_path), check=False)
             assert calls.exists(), (result.returncode, result.stdout, result.stderr)
             assert (result.returncode == 0) == (code == 0), result.stdout + result.stderr
-            assert json.loads(calls.read_text()) == expected
+            assert json.loads(calls.read_text()) == ['setup']
     finally:
         os.close(master)
     assert not (install / 'venv').exists()
@@ -104,3 +103,27 @@ def test_desktop_flag_does_not_add_a_stage(tmp_path):
     assert "products" in plain
     assert plain[-1] == "complete"
     assert manifest("--include-desktop") == plain
+
+
+@pytest.mark.platforms("linux")
+def test_staged_profile_is_fresh_only_while_its_templates_are_untouched(tmp_path):
+    install = tmp_path / "checkout"
+    install.mkdir()
+    (install / "cli-config.yaml.example").write_text("model: fixture\n", encoding="utf-8")
+    (install / ".env.example").write_text("# Fresh profile\n", encoding="utf-8")
+    home = tmp_path / "profile"
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "HERMES_HOME": str(home)}
+
+    def stage(body):
+        return subprocess.run(
+            ["bash", "-euc", 'source "$1" --dir "$2" --manifest; ' + body,
+             "fixture", str(ROOT / "scripts/install.sh"), str(install)],
+            cwd=tmp_path, env=env, capture_output=True, text=True, check=True, timeout=20,
+        ).stdout.strip()
+
+    stage("classify_profile; stage_config")
+    assert stage('classify_profile; echo "$EXISTING_PROFILE"') == "false"
+    (home / "config.yaml").write_text("model: local-choice\n", encoding="utf-8")
+    assert stage('classify_profile; echo "$EXISTING_PROFILE"') == "true"
+    stage("classify_profile; stage_config")
+    assert (home / "config.yaml").read_text(encoding="utf-8") == "model: local-choice\n"

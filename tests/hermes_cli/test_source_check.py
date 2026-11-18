@@ -30,7 +30,10 @@ class Installation(tuple):
 
 @pytest.fixture
 def installation(tmp_path, monkeypatch):
-    from hermes_cli import source_releases
+    from hermes_cli import source_check, source_releases
+
+    # These fixtures exercise branch/release resolution independently of origin admission.
+    monkeypatch.setattr(source_check, "is_distribution_origin", lambda url: bool(url))
 
     root = tmp_path / "checkout"
     root.mkdir()
@@ -141,6 +144,17 @@ def test_target_worktree_owns_admission_and_fork_comparison(installation, monkey
     assert all(not any(arg in {"fetch", "checkout", "reset", "update-ref", "stash"} for arg in cmd) for cmd in commands)
     assert git("rev-parse", "HEAD", cwd=linked) == head
     assert {str(p.relative_to(root)): p.read_bytes() for p in (root / ".git").rglob("*") if p.is_file()} == before
+
+
+def test_passive_check_refuses_another_repository_without_a_request(installation, monkeypatch):
+    from hermes_cli import source_check
+    from hermes_cli.distribution import is_distribution_origin
+
+    monkeypatch.setattr(source_check, "is_distribution_origin", is_distribution_origin)
+    root, _linked, home, _base, _head, _responses, requests, _git = installation
+    status = source_check.check_for_updates(install_root=root, home=home)
+    assert status["reason"] == "wrong-update-origin"
+    assert not requests
 
 
 def test_bare_git_off_path_reads_through_the_updaters_git(installation, monkeypatch, tmp_path):

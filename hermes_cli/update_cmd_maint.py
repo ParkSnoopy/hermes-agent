@@ -14,6 +14,7 @@ import time as _time
 from pathlib import Path
 from typing import Optional
 
+from hermes_cli.distribution import INSTALLER_URL
 from hermes_cli.update_cmd_common import _best_effort
 from datetime import UTC
 
@@ -33,9 +34,6 @@ _PRE_UPDATE_SNAPSHOT_KEEP = 1
 # small hard-to-regenerate state, not a multi-GB state.db (24 GB cost ~60s + 24 GB/update).
 _PRE_UPDATE_SNAPSHOT_MAX_FILE_SIZE = 1 << 30  # 1 GiB
 
-#: Reinstalling through the official installer swaps in a Python whose SQLite is safe.
-_REINSTALL_ONE_LINER = "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"
-
 
 def _sqlite_partial_completion_lines(sqlite_version: str) -> list[str]:
     """Shared ``⚠ Update partially complete`` wording for a vulnerable post-update SQLite, so the
@@ -44,7 +42,7 @@ def _sqlite_partial_completion_lines(sqlite_version: str) -> list[str]:
     return [
         f"⚠ Update partially complete — your Python's SQLite ({sqlite_version}) has a known "
         "corruption bug. Hermes works, but sessions could be damaged.",
-        f"  Fix: run the installer again ({_REINSTALL_ONE_LINER}) "
+        f"  Fix: run the installer again ({INSTALLER_URL}) "
         "which installs a safe Python, then run `hermes doctor` to confirm.",
     ]
 
@@ -945,7 +943,7 @@ def _print_post_update_notices_and_self_heals() -> None:
 
 def _run_post_update_maintenance(
     *, assume_yes, gateway_mode, pre_update_snapshot_id, had_desktop_app_before_update,
-    pre_update_version, completion_message=None, followups=None,
+    pre_update_version, completion_message=None, followups=None, preserve_profile=False,
 ) -> bool:
     """Post-build housekeeping and completion, returning the SQLite runtime verdict.
 
@@ -957,6 +955,9 @@ def _run_post_update_maintenance(
     runtime withholds success (and is reported) but is not tail work.
     """
     from hermes_cli.update_receipt import record_followup
+
+    if preserve_profile:
+        return _print_verified_update_completion(completion_message or _update_complete_message(pre_update_version))
 
     def owed_step(name, run):
         try:

@@ -55,6 +55,10 @@ def source(tmp_path, monkeypatch):
     git(origin, "commit", "-am", "gateway runtime")
     installed = git(origin, "rev-parse", "HEAD")
     git(tmp_path, "clone", "-q", str(origin), str(checkout))
+    fork = "https://github.com/ParkSnoopy/hermes-agent.git"
+    git(checkout, "remote", "set-url", "origin", fork)
+    git(checkout, "config", f"url.{origin.as_uri()}.insteadOf", fork)
+    monkeypatch.setenv("GIT_ALLOW_PROTOCOL", "file")
     git(checkout, "fetch", "-q", "origin", "release")
     git(checkout, "checkout", "-q", "--detach", installed)
     monkeypatch.setattr(main, "PROJECT_ROOT", checkout)
@@ -86,12 +90,12 @@ def _ledgered(home):
 
 
 def _channel_publishes(monkeypatch, source, name):
-    record = {"schema": 1, "name": name, "repository": "NousResearch/hermes-agent", "policy": "preview",
+    record = {"schema": 1, "name": name, "repository": "ParkSnoopy/hermes-agent", "policy": "preview",
               "state": "active", "identity": {}, "nextSequence": 2,
               "head": {"buildId": "build-fixture", "sequence": 1}}
     result = SimpleNamespace(requested=deepcopy(record), terminal=record, manifest={
         "schema": 1, "request": {"buildId": "build-fixture", "channel": name, "sequence": 1,
-        "repository": "NousResearch/hermes-agent", "commit": source.release, "sourceVersion": "1.2.3",
+        "repository": "ParkSnoopy/hermes-agent", "commit": source.release, "sourceVersion": "1.2.3",
         "version": "0.0.1", "identity": {}, "bundleEnv": {},
         "publicBase": "https://hermes-assets.nousresearch.com"}, "packages": []})
     monkeypatch.setattr(source_releases, "_resolve_channel", lambda n, repository: deepcopy(result),
