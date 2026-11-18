@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 from tools.connectors import live
 from tools.connectors.contract import SettleReason
@@ -64,22 +64,19 @@ def reissue(operation: ConnectionOperation, names: Sequence[str], *, initiator: 
         client = managed_client(creates_guest=True, initiator=initiator or CARD_RETRY)
         mint(client, operation, stale, reinitiate=True, actor=Actor.user)
         return None
-    from tools.connectors import catalog
     from tools.connectors.mcp import retry
 
-    rerun = catalog.retry if catalog.owns(operation.op_id) else retry
-    return REFUSED if rerun(operation, stale) else None
+    return REFUSED if retry(operation, stale) else None
 
 
 def apply_answer(operation: ConnectionOperation, raw: str) -> None:
-    """Hand the card's answer to the module running this operation (a catalog install or an MCP
-    one); a managed operation's card only skips and continues, which the MCP fold also covers."""
-    from tools.connectors import catalog, display, mcp
+    """Fold a display or MCP answer; managed cards only skip, which the MCP fold also covers."""
+    from tools.connectors import display, mcp
 
     if isinstance(operation, display.DisplayOperation):
         display.apply_answer(operation, raw)
         return
-    (catalog.apply_answer if catalog.owns(operation.op_id) else mcp.apply_answer)(operation, raw)
+    mcp.apply_answer(operation, raw)
 
 
 def respond(operation: ConnectionOperation, raw: str) -> bool:

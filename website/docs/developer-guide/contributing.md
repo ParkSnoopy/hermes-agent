@@ -191,7 +191,7 @@ script or tool in this repository, so the commands below also work without
 | `just test <paths>` | `scripts/run_tests.sh <paths>`; refuses to start without a path, even with flags |
 | `just test-all` | the full Python suite |
 | `just js-install`, `just check-js`, `just test-js` | `pnpm install --frozen-lockfile`, `pnpm -r check`, `pnpm -r test` (after building `@hermes/ink`) |
-| `just desktop`, `just tui` | the desktop and TUI dev servers |
+| `just tui` | the TUI in watch mode |
 | `just docs-install`, `just docs-build` | the website's `npm ci` and `build:fast` |
 | `just docs-generate`, `just docs-check` | regenerate the skill docs pages; then every docs check CI runs (committed pages match, links, diagrams) |
 | `just lock` | `scripts/relock.sh`: refreshes `uv.lock` after a `pyproject.toml` change, then re-syncs |

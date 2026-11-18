@@ -75,7 +75,7 @@ jobs:
           # Tests that drive the real scripts/build/node-deps.mjs need pnpm (and
           # with it PM's Node) on PATH.
           packages: pnpm
-          extras: '["all", "anthropic", "bedrock", "mistral", "fal", "parallel-web", "keychain"]'
+          extras: '["all", "anthropic", "bedrock", "fal", "parallel-web", "keychain"]'
           test-environment: 'true'
           prune-python-cache: true
 
@@ -164,7 +164,7 @@ jobs:
         uses: ./.github/actions/setup-pm
         with:
           toolchain: all
-          extras: '["all", "anthropic", "bedrock", "mistral", "fal", "parallel-web"]'
+          extras: '["all", "anthropic", "bedrock", "fal", "parallel-web"]'
           test-environment: 'true'
           prune-python-cache: true
 
@@ -207,7 +207,7 @@ jobs:
 
       - name: Run e2e tests
         # One subprocess per file, in parallel: the core suites spawn real
-        # processes (serve, gateway, tui_gateway, MCP servers, SQLite writers)
+        # processes (gateway, tui_gateway, MCP servers, SQLite writers)
         # and must not share interpreter state.
         # tests/e2e/core/upgrade runs in its own job (e2e-upgrade) below.
         run: |
@@ -219,8 +219,7 @@ jobs:
           # 32 files at once the hosted run starved live children before their
           # ready frames (empty stderr, still alive) and hit 60–120s deadlines
           # across unrelated SQLite, tenancy, provider and terminal suites.
-          # Bound the trees, not the child readiness/turn timeouts. At 4 the
-          # PTY turn and serve-SIGTERM deadlines still starved intermittently.
+          # Bound the trees, not the child readiness/turn timeouts.
           HERMES_TEST_WORKERS: "3"
           # Multi-process episodes (torture chamber, compaction kill -9,
           # gateway liveness, delivery exactly-once through a real gateway,
@@ -365,7 +364,7 @@ jobs:
         # in the venv up front.
         uses: ./.github/actions/retry
         with:
-          command: uv sync --locked --python 3.14 --extra all --group dev --extra anthropic --extra mistral --extra fal --extra parallel-web --extra keychain
+          command: uv sync --locked --python 3.14 --extra all --group dev --extra anthropic --extra fal --extra parallel-web --extra keychain
 
       - name: Install bubblewrap
         # Every spawned updater runs in bwrap (own PID namespace, no user

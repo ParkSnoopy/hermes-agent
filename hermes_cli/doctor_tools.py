@@ -3,7 +3,6 @@ Split out of ``hermes_cli/doctor.py``, which re-exports every name so ``hermes_c
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import shutil
 import subprocess
@@ -41,7 +40,6 @@ def _pm_package_for_command(command: str) -> str | None:
     package definitions (binary_rel → executable basename) — no restated
     name table, so new pm packages are covered without doctor changes."""
     try:
-        import pm
         from pm import registry, store
         from pm.packages import BinaryPackage
 
@@ -158,13 +156,20 @@ def _check_git_and_rg(should_fix: bool, f: Finding) -> None:
         check_info(f"Install for faster search: {_system_package_install_cmd('ripgrep')}")
 
 
+@doctor_check()
 def _check_terminal_backend(should_fix: bool, f: Finding) -> None:
-    backend = os.getenv("TERMINAL_ENV", "local").strip().lower() or "local"
-    if backend == "local":
-        check_ok("Local terminal backend")
+    from hermes_cli.config import apply_terminal_config_to_env
+    from tools.terminal_tool_config import require_local_environment
+
+    env = apply_terminal_config_to_env(env=dict(os.environ))
+    backend = env.get("TERMINAL_ENV", "local")
+    try:
+        require_local_environment(backend)
+    except ValueError:
+        _fail_and_issue(f"Unsupported terminal backend {backend!r}", "(only local is supported)",
+                        "Set terminal.backend or TERMINAL_ENV to local", f.manual_issues)
     else:
-        _fail_and_issue(f"Unsupported terminal backend '{backend}'", "(only local is supported)",
-                        "Set terminal.backend to local in config.yaml", f.issues)
+        check_ok("Local terminal backend")
 
 
 def _chromium_not_needed_reason() -> str:
@@ -183,7 +188,7 @@ def _chromium_not_needed_reason() -> str:
 
 def _check_chromium(should_fix: bool) -> None:
     """The Chromium browser_exec launches for a local session (``chromium_executable()``: browser.executable_path,
-    pm, the Docker image's baked build, a Termux system build). Only --fix may acquire it through PM."""
+    PM, or a Termux system build). Only --fix may acquire it through PM."""
     import pm
     from hermes_cli.browser_runtime import chromium_executable, chromium_missing_hint
 
@@ -284,7 +289,7 @@ def _audit_one(tool: str, cwd, label: str, audit_extra: list[str], manual_issues
                 check_info(f"  ^ runtime dependency tree; report/pin the fix in {lockfile} — see #116774")
             manual_issues.append(
                 f"{label} has {total} npm {_plural(total)}; wait for an upstream lockfile fix, then update "
-                "your installation (Docker: pull a rebuilt image; recreating the same image restores the same dependencies)"
+                "your installation"
             )
         else:
             check_ok(f"{label} deps", f"({moderate} moderate {_plural(moderate)})")
@@ -294,11 +299,7 @@ def _audit_one(tool: str, cwd, label: str, audit_extra: list[str], manual_issues
 
 @doctor_check()
 def _check_npm_audit(should_fix: bool, f: Finding) -> None:
-    """pnpm audit per installed workspace (root, web, ui-tui).
-
-    The workspaces are audited one --filter each, so the desktop app's tree (Electron, node-pty, ...) is
-    never part of a routine check (#38772).
-    """
+    """pnpm audit for the root package and the installed TUI workspace."""
     from hermes_cli.doctor import PROJECT_ROOT
 
     # Termux has no pnpm: nothing installs the JS workspaces on device.
@@ -306,8 +307,7 @@ def _check_npm_audit(should_fix: bool, f: Finding) -> None:
     for tool, tree, label, audit_extra in (
         # The root package.json itself (js-yaml, semver, eslint tooling). See #122223.
         (pnpm_bin, PROJECT_ROOT, "Root npm package", ["--filter", "."]),
-        # `{./X}...`: the workspace and the sibling workspaces it depends on (apps/shared, hermes-ink).
-        (pnpm_bin, PROJECT_ROOT / "web", "web workspace", ["--filter", "{./web}..."]),
+        # Include the TUI's local Ink workspace dependency.
         (pnpm_bin, PROJECT_ROOT / "ui-tui", "ui-tui workspace", ["--filter", "{./ui-tui}..."]),
     ):
         # Only installed trees: pnpm links each installed workspace's own node_modules.

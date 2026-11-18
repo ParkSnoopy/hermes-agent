@@ -17,12 +17,6 @@ js-install:
 js-install-tests:
     pnpm install --frozen-lockfile --filter "{./tests-js}..." --prod --ignore-scripts
 
-
-# Prepare the pm-locked Electron binary the desktop app and its E2E suites launch
-[group('setup')]
-electron-runtime:
-    node scripts/build/electron-runtime.mjs --source .
-
 # Run every blocking lint check CI runs (`just check --only health`)
 [group('check')]
 [positional-arguments]
@@ -98,16 +92,6 @@ test-catalog:
 [group('test')]
 test-rust:
     cargo test --lib --manifest-path apps/bootstrap-installer/src-tauri/Cargo.toml
-
-# Start the desktop app in development mode
-[group('dev')]
-desktop:
-    pnpm --dir apps/desktop run dev
-
-# Build the desktop app from source (apps/desktop/scripts/build.mjs), as its E2E suites run it
-[group('dev')]
-desktop-build:
-    pnpm --dir apps/desktop run build
 
 # Start the TUI in watch mode
 [group('dev')]

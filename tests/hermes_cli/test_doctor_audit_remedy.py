@@ -48,18 +48,18 @@ def test_root_remedy_never_prescribes_local_audit_fix(capsys):
     assert "lockfile bump" in out
     assert issues == [
         "Root npm package has 2 npm vulnerabilities; wait for an upstream lockfile fix, then update "
-        "your installation (Docker: pull a rebuilt image; recreating the same image restores the same dependencies)"
+        "your installation"
     ]
 
 
 def test_npm_audit_only_finding_does_not_offer_doctor_fix(capsys):
-    """npm lockfile findings need an upstream image or lockfile update (#136806)."""
+    """npm lockfile findings need an upstream lockfile update (#136806)."""
     from hermes_cli import doctor
 
-    doctor._print_summary(False, Finding(manual_issues=["web workspace has 1 npm vulnerability"]))
+    doctor._print_summary(False, Finding(manual_issues=["ui-tui workspace has 1 npm vulnerability"]))
 
     out = capsys.readouterr().out
-    assert "web workspace has 1 npm vulnerability" in out
+    assert "ui-tui workspace has 1 npm vulnerability" in out
     assert "hermes doctor --fix" not in out
 
 

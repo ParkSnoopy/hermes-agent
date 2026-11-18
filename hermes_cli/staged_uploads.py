@@ -25,11 +25,8 @@ from fastapi import HTTPException
 
 from hermes_constants import WEBAPP_ATTACHMENT_MAX_BYTES
 from hermes_cli.install_identity import get_install_id
-from hermes_cli.web_deps import late
 
 
-_is_current_profile = late("_is_current_profile", "hermes_cli.web_server_profiles")
-_resolve_profile_dir = late("_resolve_profile_dir", "hermes_cli.web_server_profiles")
 _UPLOADS_DIR = "uploads"
 _STAGED_PREFIX = "web-"
 _CHUNK_BYTES = 1024 * 1024
@@ -73,26 +70,6 @@ def removed_on_failure(target: Path):
         with suppress(OSError):
             target.unlink(missing_ok=True)
         raise
-
-
-def resolve_upload_home(profile: str | None) -> Path:
-    """Resolve the profile home an upload is published into, with ``_profile_scope``'s 400/404s.
-
-    Without entering that scope: nothing here reads config or secrets, so an upload must not queue
-    on its process-wide skills lock or wait on its secret-source hydration. A named home that is
-    missing or deleted is a 404.
-    """
-    from hermes_constants import assert_named_profile_home_live, get_hermes_home
-
-    if _is_current_profile(profile):
-        home = get_hermes_home()
-    else:
-        home = _resolve_profile_dir(profile.strip())
-    try:
-        assert_named_profile_home_live(home)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Profile home is unavailable") from exc
-    return home
 
 
 def ensure_profile_subdir(

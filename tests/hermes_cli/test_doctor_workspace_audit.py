@@ -4,17 +4,14 @@ import json
 import subprocess
 from unittest.mock import patch
 
-import pytest
-
 from hermes_cli import doctor_tools
 
 
-@pytest.mark.parametrize("workspace, runtime_package", [("web", "react-router"), ("ui-tui", "undici")])
-def test_workspace_runtime_findings_are_not_dismissed_as_build_tooling(workspace, runtime_package, tmp_path, capsys):
-    audit_args = ["pnpm", "audit", "--json", "--filter", f"./{workspace}"]
+def test_workspace_runtime_findings_are_not_dismissed_as_build_tooling(tmp_path, capsys):
+    audit_args = ["pnpm", "audit", "--json", "--filter", "{./ui-tui}..."]
     audit_output = json.dumps({
         "vulnerabilities": {
-            runtime_package: {"severity": "high", "isDirect": True},
+            "undici": {"severity": "high", "isDirect": True},
             "vitest": {"severity": "moderate", "isDirect": True},
         },
         "metadata": {"vulnerabilities": {"high": 1, "moderate": 1}},
@@ -23,7 +20,7 @@ def test_workspace_runtime_findings_are_not_dismissed_as_build_tooling(workspace
     issues = []
 
     with patch.object(doctor_tools.subprocess, "run", return_value=result) as run:
-        doctor_tools._audit_one("pnpm", tmp_path, f"{workspace} workspace", audit_args[3:], issues)
+        doctor_tools._audit_one("pnpm", tmp_path, "ui-tui workspace", audit_args[3:], issues)
 
     assert run.call_args.args[0] == audit_args
     output = capsys.readouterr().out
@@ -32,4 +29,4 @@ def test_workspace_runtime_findings_are_not_dismissed_as_build_tooling(workspace
     assert "1 high, 1 moderate" in output
     assert "upstream lockfile bump" in output
     assert len(issues) == 1
-    assert issues[0].startswith(f"{workspace} workspace has 2 npm vulnerabilities")
+    assert issues[0].startswith("ui-tui workspace has 2 npm vulnerabilities")

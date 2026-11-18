@@ -62,10 +62,6 @@
       "entries": [
         "agent.context_references",
         "agent.plugin_llm",
-
-
-        "hermes_cli.dashboard_auth",
-
         "hermes_cli.plugins:PluginContext",
         "hermes_cli.plugins_ledger:PluginRegistration",
         "hermes_cli.plugins_state:PluginState"

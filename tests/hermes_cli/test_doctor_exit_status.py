@@ -1,7 +1,19 @@
 """Regression for #117276: ``hermes doctor``'s exit status must agree with its unresolved findings."""
+from inspect import signature
 from types import SimpleNamespace
 
 import pytest
+
+
+def test_registered_checks_accept_the_doctor_driver_call():
+    from hermes_cli.doctor import DOCTOR_CHECKS
+
+    for _, check in DOCTOR_CHECKS:
+        # Inspect the callable the driver invokes, not the wrapped check body.
+        try:
+            signature(check, follow_wrapped=False).bind(False)
+        except TypeError as exc:
+            pytest.fail(f"{check.__module__}.{check.__name__} cannot accept should_fix: {exc}")
 
 
 @pytest.mark.parametrize("issues,manual,fixed,fix,expected", [
