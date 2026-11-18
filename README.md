@@ -13,15 +13,16 @@ Use the CLI or TUI with a hosted model provider or your own compatible endpoint.
 
 ## Install from source
 
-From the root of your Linux source checkout, activate the managed environment and run setup:  
+In zsh, from the root of your Linux source checkout, activate the managed environment and run setup:  
 
-```bash
+```zsh
 source ./activate
 hermes setup
 hermes
 ```
 
 Activation prepares the pinned Python interpreter and project-managed dependencies.  
+The same commands work in Bash, which is still required for internal scripts.  
 The first activation may require network access and a native compiler.  
 See [installation](website/docs/getting-started/installation.md) for deployment options.  
 

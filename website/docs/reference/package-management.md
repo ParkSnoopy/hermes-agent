@@ -252,9 +252,9 @@ cd hermes-agent
 For isolated development, select a separate data home before the first PM
 command. Keep the same values when returning to this checkout.
 
-Bash, from the repository root:
+Zsh or Bash, from the repository root:
 
-```bash
+```zsh
 export HERMES_HOME="$HOME/hermes-dev-data"
 export HERMES_RUNTIME_DIR="$HERMES_HOME/tools"
 source ./activate

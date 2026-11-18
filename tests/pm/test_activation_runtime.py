@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import textwrap
 
@@ -12,6 +13,16 @@ from tests.pm.activation_support import bash, fake_store, posix, powershell, syn
 
 # Spawns children with a home it builds itself; the parent's must stay real.
 pytestmark = pytest.mark.real_machine_home
+
+
+@pytest.fixture(params=["zsh", "bash"])
+def interactive_shell(request):
+    if request.param == "bash":
+        return [bash(), "--noprofile", "--norc"]
+    zsh = shutil.which("zsh")
+    if zsh is None:
+        pytest.skip("zsh is not installed")
+    return [zsh, "-f"]
 
 
 def _assert_syncs(root: Path):
@@ -24,16 +35,22 @@ def _assert_syncs(root: Path):
 
 @pytest.mark.platforms("posix")
 @pytest.mark.parametrize("canary", [None, "caller-canary"])
-def test_bash_cold_sync_changed_input_and_warm_noop(tmp_path, canary):
+def test_shell_cold_sync_changed_input_and_warm_noop(tmp_path, canary, interactive_shell):
     root, env = sync_checkout(tmp_path)
     assert not (root / ".venv").exists()
     if canary is not None:
         env["HERMES_PM_ACTIVATE_CANARY"] = canary
-    from tests.pm.test_activate_scripts import fake_store
     fake_store(tmp_path)
     script = f'''
         set -e
         export PYTHONPATH=caller-original VIRTUAL_ENV=caller-venv
+        export __HERMES_ACTIVATED=parent-selection
+        PS1='original prompt'
+        if [ -n "${{ZSH_VERSION-}}" ]; then
+            precmd_functions=(caller_hook)
+        else
+            PROMPT_COMMAND=caller_hook
+        fi
         original_path="$PATH"
         source "{posix(root / 'activate')}"
         printf '%s\\n' "$PYTHONPATH"
@@ -44,15 +61,26 @@ def test_bash_cold_sync_changed_input_and_warm_noop(tmp_path, canary):
         source "{posix(root / 'activate')}"
         printf '%s\\n' "$PYTHONPATH"
         test "$PWD" = "{posix(tmp_path)}"
+        if [ -n "${{ZSH_VERSION-}}" ]; then
+            test "${{precmd_functions[*]}}" = 'caller_hook _hermes_prompt'
+        else
+            test "$PROMPT_COMMAND" = '_hermes_prompt; caller_hook'
+        fi
         deactivate
         test "$PATH" = "$original_path"
         test "$PYTHONPATH" = caller-original
         test "$VIRTUAL_ENV" = caller-venv
         {('test "$HERMES_PM_ACTIVATE_CANARY" = caller-canary' if canary else 'test -z "${HERMES_PM_ACTIVATE_CANARY+set}"')}
-        test -z "${{__HERMES_ACTIVATED+set}}"
-        ! declare -F deactivate >/dev/null
+        test "$__HERMES_ACTIVATED" = parent-selection
+        test "$PS1" = 'original prompt'
+        if [ -n "${{ZSH_VERSION-}}" ]; then
+            test "${{precmd_functions[*]}}" = caller_hook
+        else
+            test "$PROMPT_COMMAND" = caller_hook
+        fi
+        ! typeset -f deactivate >/dev/null
     '''
-    run = subprocess.run([bash(), "-c", script], cwd=tmp_path, env=env,
+    run = subprocess.run([*interactive_shell, "-c", script], cwd=tmp_path, env=env,
                          capture_output=True, text=True, timeout=40, check=False)
     assert run.returncode == 0, run.stdout + run.stderr
     first, second, warm = run.stdout.splitlines()
@@ -65,7 +93,7 @@ def test_bash_cold_sync_changed_input_and_warm_noop(tmp_path, canary):
 
 @pytest.mark.platforms("posix")
 @pytest.mark.parametrize("already_active", [False, True])
-def test_bash_setup_failure_preserves_caller(tmp_path, already_active):
+def test_shell_setup_failure_preserves_caller(tmp_path, already_active, interactive_shell):
     root, env = sync_checkout(tmp_path)
     activate = shlex.quote(str(root / "activate"))
     script = f'''
@@ -73,19 +101,19 @@ def test_bash_setup_failure_preserves_caller(tmp_path, already_active):
         {f'source {activate}' if already_active else ':'}
         export PYTHONHOME=caller-home PYTHONPATH=caller-path VIRTUAL_ENV=caller-venv
         before_env=$(export -p)
-        before_function=$(declare -f deactivate || :)
+        before_function=$(typeset -f deactivate || :)
         before_active=${{__HERMES_ACTIVATED-unset}}
         before_cwd="$PWD"
         touch {shlex.quote(str(root / 'fail'))}
         if source {activate}; then exit 9; fi
         test "$(export -p)" = "$before_env"
-        test "$(declare -f deactivate || :)" = "$before_function"
+        test "$(typeset -f deactivate || :)" = "$before_function"
         test "${{__HERMES_ACTIVATED-unset}}" = "$before_active"
         test "$PWD" = "$before_cwd"
         {"deactivate" if already_active else ':'}
         printf preserved
     '''
-    run = subprocess.run([bash(), "-c", script], cwd=tmp_path, env=env,
+    run = subprocess.run([*interactive_shell, "-c", script], cwd=tmp_path, env=env,
                          capture_output=True, text=True, timeout=40, check=False)
     assert run.returncode == 0, run.stdout + run.stderr
     assert run.stdout == "preserved"

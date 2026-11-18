@@ -10,9 +10,12 @@ Hermes runs on Linux. See [Platform Support](./platform-support.md) for architec
 
 ## Linux source checkout
 
-From the root of your local source checkout, use the repository's activation script to prepare the managed environment:
+Zsh is the primary interactive shell for this workflow.
+Bash remains supported and is required for internal scripts.
 
-```bash
+From the root of your local source checkout, activate the managed environment and run setup:
+
+```zsh
 source ./activate
 hermes setup
 hermes
