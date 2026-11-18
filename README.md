@@ -13,16 +13,16 @@ Use the CLI or TUI with a hosted model provider or your own compatible endpoint.
 
 ## Install from source
 
-From the repository root on Linux, prepare the pinned runtime and activate it in your shell:  
+From the root of your Linux source checkout, activate the managed environment and run setup:  
 
 ```bash
-bash ./setup-hermes.sh --runtime-only
 source ./activate
 hermes setup
 hermes
 ```
 
-The package manager supplies the pinned Python interpreter and runtime tools.  
+Activation prepares the pinned Python interpreter and project-managed dependencies.  
+The first activation may require network access and a native compiler.  
 See [installation](website/docs/getting-started/installation.md) for deployment options.  
 
 ## Getting started
