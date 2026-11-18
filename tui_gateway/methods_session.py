@@ -1992,6 +1992,7 @@ def _compress_live(rid, sid: str, session: dict, focus_topic: str) -> dict:
     from agent.conversation_compression import finalize_context_engine_compression_notification
     from agent.manual_compression_feedback import summarize_manual_compression
     from agent.model_metadata import estimate_request_tokens_rough
+    from tui_gateway.server import _status_update
     with session["history_lock"]:
         before_messages = list(session.get("history", []))
         history_version = int(session.get("history_version", 0))
@@ -2031,7 +2032,7 @@ def _compress_live(rid, sid: str, session: dict, focus_topic: str) -> dict:
             "usage": usage, "info": info, "messages": _history_to_messages(messages, profile_home=session.get("profile_home"))})
     finally:
         # Always clear the pinned compressing status (success, no-op, or raise).
-        _status_update(sid, "ready")
+        _status_update(sid, "compacted", "")
 
 
 @method("session.compress")

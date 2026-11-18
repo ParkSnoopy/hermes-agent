@@ -734,9 +734,10 @@ def _emit_approval_request(sid: str, data: dict | None) -> None:
 
 
 def _status_update(sid: str, kind: str, text: str | None = None):
-    if not (body := (text if text is not None else kind).strip()):
-        return
     out_kind = kind if text is not None else "status"
+    body = (text if text is not None else kind).strip()
+    if not body and out_kind != "compacted":
+        return
     # Auto-compaction arrives as a generic "lifecycle" status; re-tag so drivers can show a
     # summarizing indicator — otherwise idle/preflight compaction looks like a hung turn.
     # See #97239.

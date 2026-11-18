@@ -1188,6 +1188,16 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         const p = ev.payload
 
         if (!p?.text) {
+          // Manual compression sends indicator-only events; its RPC result
+          // already supplies the transcript report.
+          if (p?.kind === 'compressing') {
+            turnController.clearStatusTimer()
+            patchUiState({ compacting: true })
+          } else if (p?.kind === 'compacted') {
+            patchUiState({ compacting: false })
+            setStatus(statusFromBusy())
+          }
+
           return
         }
 

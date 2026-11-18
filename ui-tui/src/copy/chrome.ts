@@ -8,7 +8,7 @@ export const chromeEn = {
     ready: 'ready',
     running: 'running…',
     mcpReloaded: 'MCP reloaded after config change',
-    compacting: 'compacting',
+    compacting: 'compressing',
     devCredits: ' (dev credits)',
     sessionCount: (count: number) => `${count} ${count === 1 ? 'session' : 'sessions'}`,
     paused: '⏸ paused',

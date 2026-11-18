@@ -31,7 +31,7 @@ def test_display_version_names_the_distance_without_the_commit():
     """Keep the distance-based identity separate from the release label."""
     ahead = VersionInfo("0.21.5", "0.21.5+1913.gf83a9e9", 1913, "f83a9e9" + "0" * 33, "main", "git")
     assert ahead.display_version == "0.21.5+1913"
-    assert ahead.version_label == "v0.21.5 (f83a9e9)"
+    assert ahead.version_label == "version v0.21.5 (f83a9e9)"
     assert VersionInfo("0.21.5", "0.21.5", 0, None, None, "git").display_version == "0.21.5"
 
 
@@ -155,7 +155,8 @@ def test_get_version_info_unknown_when_no_stamp_and_no_git(monkeypatch):
 
 
 @pytest.mark.parametrize("tagged", [True, False], ids=["tag", "release-commit"])
-def test_get_version_info_derives_identity_from_reachable_release(tmp_path, monkeypatch, tagged):
+@pytest.mark.parametrize("stamp_kind", ["absent", "unversioned", "stale"])
+def test_get_version_info_derives_identity_from_reachable_release(tmp_path, monkeypatch, tagged, stamp_kind):
     repo = tmp_path / "repo"
     repo.mkdir()
 
@@ -178,7 +179,17 @@ def test_get_version_info_derives_identity_from_reachable_release(tmp_path, monk
     (repo / "tracked").write_text("next\n", encoding="utf-8")
     git("commit", "-qam", "next", "-m", "v0.99.0")
 
-    monkeypatch.setattr("hermes_cli.version_info._resolve_stamp_file", lambda: None)
+    commit = git("rev-parse", "HEAD")
+    stamp_file = None
+    if stamp_kind != "absent":
+        stamp_file = repo / "install-stamp.json"
+        stamp_file.write_text(json.dumps({
+            "commit": commit if stamp_kind == "unversioned" else git("rev-parse", "HEAD^"),
+            "baseVersion": None if stamp_kind == "unversioned" else "0.19.0",
+            "source": "local",
+            "updateMechanism": "self",
+        }), encoding="utf-8")
+    monkeypatch.setattr("hermes_cli.version_info._resolve_stamp_file", lambda: stamp_file)
     monkeypatch.setattr("hermes_cli.version_info._resolve_repo_dir", lambda: repo)
 
     info = get_version_info()
@@ -186,9 +197,8 @@ def test_get_version_info_derives_identity_from_reachable_release(tmp_path, monk
     assert info.base_version == "0.21.4"
     assert info.derived_version == f"0.21.4+1.g{git('rev-parse', '--short=7', 'HEAD')}"
     assert info.distance == 1
-    commit = git("rev-parse", "HEAD")
     assert info.commit == commit
-    assert info.version_label == f"v0.21.4 ({commit[:7]})"
+    assert info.version_label == f"version v0.21.4 ({commit[:7]})"
     assert info.source == "git"
 
 

@@ -458,6 +458,18 @@ describe('createGatewayEventHandler', () => {
     }
   })
 
+  it('shows and clears manual compression without adding a transcript line', () => {
+    const ctx = buildCtx([])
+    const onEvent = createGatewayEventHandler(ctx)
+
+    onEvent({ payload: { kind: 'compressing', text: '' }, type: 'status.update' })
+    expect(getUiState().compacting).toBe(true)
+
+    onEvent({ payload: { kind: 'compacted', text: '' }, type: 'status.update' })
+    expect(getUiState().compacting).toBe(false)
+    expect(ctx.system.sys).not.toHaveBeenCalled()
+  })
+
   it('keeps goal verdict text in transcript but shows a brief idle status (#goal statusbar)', () => {
     const appended: Msg[] = []
     const ctx = buildCtx(appended)

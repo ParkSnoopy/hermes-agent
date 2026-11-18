@@ -156,6 +156,13 @@ async def test_input_is_admitted_while_compress_summarizes_but_not_claimed_until
     owner = AuthorityConnection(authority, object(), {'user_id': 'human'})
     ref = create_local_session(authority, owner.actor, dict(request_id='busy', source='cli', cwd=str(tmp_path),
                                                               model='frozen', toolsets=[]))
+    stream = authority.sessions[ref.session_id].event_stream
+    watermark = stream.watermark()
+
+    def status_kinds():
+        return [event['payload']['kind'] for event in stream.since(*watermark)['events']
+                if event['type'] == 'status.update']
+
     for i in range(4):
         db.append_message(ref.session_id, 'user', f'question {i}')
         db.append_message(ref.session_id, 'assistant', f'answer {i}')
@@ -165,6 +172,7 @@ async def test_input_is_admitted_while_compress_summarizes_but_not_claimed_until
             'session_id': ref.session_id, 'request_id': 'compress', 'expected_revision': before['runtime_revision'],
             'expected_generation': before['runtime_generation'], 'operation': 'compress', 'payload': {}}}))
         assert await asyncio.to_thread(summarizing.wait, 10)
+        assert status_kinds() == ['compressing']
         receipt = await asyncio.wait_for(authority.submit(owner.actor, Submission(
             'during', ref, {'text': 'typed while compressing'}, 'queue')), 2)
         assert receipt.status == 'queued'
@@ -174,6 +182,7 @@ async def test_input_is_admitted_while_compress_summarizes_but_not_claimed_until
         release.set()
         reply = await asyncio.wait_for(compressing, 10)
         assert reply.get('result', {}).get('operation') == 'compress', reply
+        assert status_kinds() == ['compressing', 'compacted']
         row, _ = await asyncio.wait_for(claim, 10)
         assert row['admission_id'] == receipt.admission_id
         assert row['generation'] == reply['result']['execution_generation'] + 1

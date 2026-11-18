@@ -30,7 +30,7 @@ def test_version_slash_command_displays_release_and_short_commit(monkeypatch):
 
     agent = object.__new__(HermesACPAgent)
     state = cast(SessionState, SimpleNamespace(cwd="."))
-    assert agent._handle_slash_command("/version", state) == "Hermes Agent v1.2.3 (abcdef0)"
+    assert agent._handle_slash_command("/version", state) == "Hermes Agent version v1.2.3 (abcdef0)"
 
 
 @pytest.mark.asyncio

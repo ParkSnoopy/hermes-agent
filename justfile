@@ -167,4 +167,10 @@ ruff +files:
 [no-cd]
 [positional-arguments]
 eslint +files:
-    pnpm exec eslint "$@"
+    @test -f {{ quote(justfile_directory() / 'node_modules/eslint/bin/eslint.js') }} || { printf '%s\n' 'ESLint is not installed. Run `just eslint-install` from the repository root.' >&2; exit 1; }
+    bun --no-env-file run --no-install {{ quote(justfile_directory() / 'node_modules/eslint/bin/eslint.js') }} -- "$@"
+
+# Install only the root JS dependencies needed by the ESLint hook
+[group('hooks')]
+eslint-install:
+    pnpm --filter . install --frozen-lockfile --trust-lockfile --prod=false --ignore-scripts

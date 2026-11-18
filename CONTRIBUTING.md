@@ -159,7 +159,13 @@ To run one command in the environment without activating a shell, use
 
 `just` with no arguments lists every developer command. Each recipe calls one
 script or tool in this repository, so the commands below also work without
-`just`. The lefthook pre-commit hook calls the same recipes.
+`just`. The Lefthook pre-commit hook calls the same recipes. If the hook is missing,
+run `lefthook install` from the repository root with Lefthook on your PATH.
+Hooks live in local Git metadata, not in the commit history.
+
+For JavaScript and TypeScript linting, put Bun on your PATH and run `just eslint-install`
+once from the repository root with the pinned pnpm on your PATH. This installs the root lint
+dependencies from `pnpm-lock.yaml`; the hook runs ESLint with Bun and never installs packages.
 
 | Recipe | Runs |
 |---|---|

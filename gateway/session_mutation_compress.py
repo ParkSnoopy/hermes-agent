@@ -89,7 +89,16 @@ async def prepare_compress(authority, live, payload, prepared):
             if not any(m.get('_compressed_summary') for m in compressed):
                 return None, compressor
             return rejoin_compressed_head_and_tail(compressed, tail), compressor
-    compressed, compressor = await asyncio.to_thread(summarize)
+    # No agent turn owns this mutation, so publish its indicator edges here.
+    # The claim gate serializes compression with other compressions and turns.
+    # Empty text updates only the indicator; the RPC result supplies the report.
+    stream = live.event_stream
+    session_id = snapshot['receipt']['session_id']
+    stream.publish(session_id, {'kind': 'compressing', 'text': ''}, event_type='status.update', execution={})
+    try:
+        compressed, compressor = await asyncio.to_thread(summarize)
+    finally:
+        stream.publish(session_id, {'kind': 'compacted', 'text': ''}, event_type='status.update', execution={})
     # The same report every native /compress prints ("Compressed: N → M messages").
     from agent.manual_compression_feedback import summarize_manual_compression
     if compressed is None:

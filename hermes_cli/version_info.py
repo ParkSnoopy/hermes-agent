@@ -37,7 +37,7 @@ class VersionInfo:
     @property
     def version_label(self) -> str:
         """Human-readable release and revision, without changing machine identity."""
-        version = f"v{self.base_version}" if self.base_version != "unknown" else "version unknown"
+        version = f"version v{self.base_version}" if self.base_version != "unknown" else "version unknown"
         return f"{version} ({self.commit[:7]})" if self.commit else version
 
     @property
@@ -169,12 +169,19 @@ def _stamp_version_info() -> VersionInfo | None:
         # All-zero placeholder = fallback stamp, not real provenance.
         return None
     stamp_source = str(data.get("source") or "")
-    if stamp_source == "git" and (stamp_file.parent / ".git").exists():
-        live_commit = _run_git(stamp_file.parent, "rev-parse", "HEAD")
+    base_version = data.get("baseVersion") or "unknown"
+    self_managed = data["updateMechanism"] == "self"
+    checkout = stamp_file.parent
+    if (stamp_source == "git" or self_managed) and (checkout / ".git").exists():
+        live_commit = _run_git(checkout, "rev-parse", "HEAD")
         if live_commit and live_commit != commit:
             return None
+        if live_commit == commit and self_managed and base_version == "unknown":
+            # A tagless source stamp can omit a reachable first-parent release marker.
+            live_info = _git_version_info(checkout)
+            if live_info.commit == commit and live_info.base_version != "unknown":
+                return live_info
 
-    base_version = data.get("baseVersion") or "unknown"
     display_version = data.get("displayVersion") or base_version
     distance = data.get("distance")
     if isinstance(distance, str):
