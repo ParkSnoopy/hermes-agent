@@ -139,6 +139,8 @@ def _detect_supervisor() -> str:
     if env.get("INVOCATION_ID"):
         return "systemd"
 
+    if env.get("HERMES_S6_SUPERVISED_CHILD"):
+        return "external"
     if env.get("HERMES_DESKTOP_MANAGED"):
         return "desktop"
     return "external" if "--external-supervisor" in sys.argv else "manual"

@@ -124,7 +124,7 @@ def session_inventory(authority, policy, agent, cwd):
     its own, so one failing builder never blanks the others (main wrapped each in ``suppress``)."""
     from gateway.session_authorities import owner_scope
     from tui_gateway import git_probe
-    info: dict = {"tools": {}, "skills": {}, "mcp_servers": [], "version": "", "release_date": "",
+    info: dict = {"tools": {}, "skills": {}, "mcp_servers": [], "version": "", "version_commit": None,
                   "update_behind": None, "update_command": "",
                   "branch": git_probe.branch(cwd) if cwd else "", "project": _project(cwd)}
     with owner_scope(authority):
@@ -163,9 +163,9 @@ def session_inventory(authority, policy, agent, cwd):
             from tools.mcp_tool_discovery import get_mcp_status
             info["mcp_servers"] = get_mcp_status()
     with contextlib.suppress(Exception):
-        from hermes_cli import __release_date__
         from hermes_cli.version_info import get_version_info
-        info.update(version=get_version_info().base_version, release_date=__release_date__)
+        identity = get_version_info()
+        info.update(version=identity.base_version, version_commit=identity.commit)
     with contextlib.suppress(Exception):
         from hermes_cli.banner import get_update_result
         from hermes_cli.config import recommended_update_command

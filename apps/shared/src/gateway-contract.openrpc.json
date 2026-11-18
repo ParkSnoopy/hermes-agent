@@ -9457,7 +9457,7 @@
             "default": null,
             "title": "Version"
           },
-          "release_date": {
+          "version_commit": {
             "anyOf": [
               {
                 "type": "string"
@@ -9467,7 +9467,7 @@
               }
             ],
             "default": null,
-            "title": "Release Date"
+            "title": "Version Commit"
           },
           "update_behind": {
             "anyOf": [
@@ -10330,7 +10330,7 @@
             "default": null,
             "title": "Version"
           },
-          "release_date": {
+          "version_commit": {
             "anyOf": [
               {
                 "type": "string"
@@ -10340,7 +10340,7 @@
               }
             ],
             "default": null,
-            "title": "Release Date"
+            "title": "Version Commit"
           },
           "update_behind": {
             "anyOf": [
@@ -34745,10 +34745,17 @@
             "title": "Version",
             "type": "string"
           },
-          "release_date": {
-            "default": "",
-            "title": "Release Date",
-            "type": "string"
+          "version_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Version Commit"
           },
           "update_behind": {
             "anyOf": [
@@ -35561,10 +35568,17 @@
             "title": "Version",
             "type": "string"
           },
-          "release_date": {
-            "default": "",
-            "title": "Release Date",
-            "type": "string"
+          "version_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Version Commit"
           },
           "update_behind": {
             "anyOf": [

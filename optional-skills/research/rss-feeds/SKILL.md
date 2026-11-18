@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 metadata:
   hermes:
     tags: [RSS, Atom, Feeds, Monitoring, Research, Blogs, Releases]
-    related_skills: [reddit-reading, competitor-news-monitor, grounded-citations, youtube-content, blogwatcher]
+    related_skills: [competitor-news-monitor, grounded-citations, blogwatcher]
 ---
 
 # RSS Feeds Skill
@@ -47,7 +47,7 @@ python3 scripts/feed.py discover https://example.com/               # list candi
 | Source | Feed URL pattern |
 |---|---|
 | GitHub releases / commits / tags | `https://github.com/OWNER/REPO/releases.atom`, `…/commits/BRANCH.atom`, `…/tags.atom` |
-| Subreddit / Reddit search | `https://www.reddit.com/r/NAME/.rss`, `https://www.reddit.com/search.rss?q=…` (1 req/min anon; see `reddit-reading`) |
+| Subreddit / Reddit search | `https://www.reddit.com/r/NAME/.rss`, `https://www.reddit.com/search.rss?q=…` (1 req/min anon) |
 | YouTube channel | `https://www.youtube.com/feeds/videos.xml?channel_id=UC…` |
 | Hacker News | `https://hnrss.org/frontpage`, `https://hnrss.org/newest?q=TERM` |
 | arXiv category | `https://rss.arxiv.org/rss/cs.CL` |
@@ -80,8 +80,6 @@ truncated or the first paragraph only.
   common paths reports `no feed found` — check the site's footer or `/sitemap.xml` before
   concluding there is none.
 - Reddit feeds share Reddit's anonymous throttle (about one request per minute per IP).
-  Chain them through `reddit-reading`, which waits out the window, when you need more
-  than one Reddit call.
 - Dates: RSS `pubDate` is RFC 822 and Atom uses ISO 8601; the script normalises both to
   UTC. Feeds that omit dates sort to the bottom and are dropped by `--since`.
 - Some feeds are Cloudflare-fronted and 403 non-browser clients; `blocked-page-recovery`

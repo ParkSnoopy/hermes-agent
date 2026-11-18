@@ -531,7 +531,7 @@ export interface SessionLiveInfo {
   stored_session_id?: string
   desktop_contract?: number | string | null
   version?: string
-  release_date?: string
+  version_commit?: string | null
   update_behind?: unknown | null
   update_command?: string
   usage?: Usage | null
@@ -3038,7 +3038,7 @@ export interface SessionCwdSetResult {
   stored_session_id?: string
   desktop_contract?: number | string | null
   version?: string
-  release_date?: string
+  version_commit?: string | null
   update_behind?: unknown | null
   update_command?: string
   usage?: Usage | null
@@ -4301,7 +4301,7 @@ export interface CanonicalSessionInfo {
   skills?: Record<string, string[]> | null
   mcp_servers?: McpServerStatus[] | null
   version?: string | null
-  release_date?: string | null
+  version_commit?: string | null
   update_behind?: unknown | null
   update_command?: string | null
   branch?: string | null
@@ -4618,7 +4618,7 @@ export interface CanonicalSnapshotInfo {
   skills?: Record<string, string[]> | null
   mcp_servers?: McpServerStatus[] | null
   version?: string | null
-  release_date?: string | null
+  version_commit?: string | null
   update_behind?: unknown | null
   update_command?: string | null
   branch?: string | null

@@ -162,7 +162,7 @@ class SessionInventoryFields(Result):
     skills: dict[str, list[str]] | None = None
     mcp_servers: list[McpServerStatus] | None = None
     version: str | None = None
-    release_date: str | None = None
+    version_commit: str | None = None
     update_behind: JsonValue | None = None
     update_command: str | None = None
     branch: str | None = None

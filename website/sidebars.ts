@@ -180,25 +180,7 @@ const sidebars: SidebarsConfig = {
                   ],
                 },
 
-                {
-                  type: 'category',
-                  label: 'email',
-                  key: 'skills-bundled-email',
-                  collapsed: true,
-                  items: [
-                    'user-guide/skills/bundled/email/email-email-inbox-triage',
-                    'user-guide/skills/bundled/email/email-himalaya',
-                  ],
-                },
-                {
-                  type: 'category',
-                  label: 'media',
-                  key: 'skills-bundled-media',
-                  collapsed: true,
-                  items: [
-                    'user-guide/skills/bundled/media/media-youtube-content',
-                  ],
-                },
+
                 {
                   type: 'category',
                   label: 'note-taking',
@@ -236,15 +218,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/bundled/research/research-grounded-citations',
                   ],
                 },
-                {
-                  type: 'category',
-                  label: 'social-media',
-                  key: 'skills-bundled-social-media',
-                  collapsed: true,
-                  items: [
-                    'user-guide/skills/bundled/social-media/social-media-xurl',
-                  ],
-                },
+
                 {
                   type: 'category',
                   label: 'software-development',
@@ -384,15 +358,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/optional/dogfood/dogfood-adversarial-ux-test',
                   ],
                 },
-                {
-                  type: 'category',
-                  label: 'email',
-                  key: 'skills-optional-email',
-                  collapsed: true,
-                  items: [
-                    'user-guide/skills/optional/email/email-agentmail',
-                  ],
-                },
+
                 {
                   type: 'category',
                   label: 'finance',
@@ -553,15 +519,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/optional/smart-home/smart-home-openhue',
                   ],
                 },
-                {
-                  type: 'category',
-                  label: 'social-media',
-                  key: 'skills-optional-social-media',
-                  collapsed: true,
-                  items: [
-                    'user-guide/skills/optional/social-media/social-media-reddit-reading',
-                  ],
-                },
+
                 {
                   type: 'category',
                   label: 'software-development',
@@ -631,7 +589,7 @@ const sidebars: SidebarsConfig = {
         'guides/troubleshooting-agent-quality',
         'guides/work-with-skills',
         'guides/delegation-patterns',
-        'guides/agent-email-address',
+
         'guides/webhook-automation-examples',
         'guides/webhook-github-pr-review',
         'guides/aws-bedrock',

@@ -208,10 +208,8 @@ async def test_lost_ack_restart_and_regrouped_batch_note_each_result_once(tmp_pa
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('producer', ['delegation', 'process'])
-async def test_executed_turn_stays_a_turn_after_lost_ack_detach_and_restart(tmp_path, monkeypatch, producer):
-    """A watched completion ran as its turn, but the producer never saw the acknowledgement. The viewer
-    leaves, the owner restarts, and the producer offers it again through its real path: it resolves to
-    the executed admission, so there is no second turn and no note."""
+async def test_viewed_note_survives_lost_ack_detach_and_restart(tmp_path, monkeypatch, producer):
+    """A lost acknowledgement and owner restart do not duplicate a viewed producer note."""
     runner, authority, ref, actor = await _local(tmp_path, monkeypatch)
     route, target = authority.sessions[ref.session_id].route, _target(runner, authority, ref)
     name = f'{producer}_ran'
@@ -229,8 +227,8 @@ async def test_executed_turn_stays_a_turn_after_lost_ack_detach_and_restart(tmp_
         assert await offer(runner) is True
     seen = _turns(runner, authority, target, name)
     await authority._drain(ref)
-    assert [text for text, _ in seen] == [_admissions(authority, ref)[0]['payload']['text']]
-    assert name in seen[0][0] and seen[0][1] == 0, 'the watched completion ran as a turn'
+    assert seen == []
+    assert len(_texts(authority, target, name)) == 1
     assert [r['outcome'] for r in _admissions(authority, ref)] == ['completed']
     if producer == 'delegation':
         assert settled and settled[0][0] == 'complete', 'the acknowledgement was the step that got lost'
@@ -244,9 +242,7 @@ async def test_executed_turn_stays_a_turn_after_lost_ack_detach_and_restart(tmp_
         assert await offer(runner) is True, 'the retry resolves to the executed admission'
         await authority._drain(ref)
         assert seen == [], 'never a second turn'
-        assert not [m for m in authority.db.get_messages(target)
-                    if (m.get('display_metadata') or {}).get('completion_admission')], 'never also a note'
-        assert _texts(authority, target, name) == []
+        assert len(_texts(authority, target, name)) == 1
         assert [r['outcome'] for r in _admissions(authority, ref)] == ['completed']
     finally:
         authority.db.close()

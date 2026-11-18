@@ -164,8 +164,9 @@ Intended differences from the pre-transactional updater, for release notes:
 
 ## Historical surface
 
-All names frozen from the complete reachable shipped updater history stay
-resolvable. Historical dependency hooks retain the stdlib-only takeover bridge:
+The historical updater audit remains a conservative superset; requirements
+proven exclusive to releases older than v0.23.1 can be removed. Retained
+dependency hooks use the stdlib-only takeover bridge:
 the old parent waits, carries receipt/recovery state and never resumes a retired
 installer. Newly retired preparation and module-reload hooks explicitly marked
 incomplete stop nonzero and request `hermes update` again; they cannot manufacture
@@ -173,8 +174,8 @@ a missing completion request. Current Git/current callers use only the
 canonical completion transport, not the historical takeover entrypoint.
 Unfrozen branch-only retry compositions are deleted, not shimmed. ACP convenience
 publication uses the launcher owner's `expose_cli`; the historical ACP entry is
-only an adapter, never a second writer. The frozen set is never trimmed or replaced
-with tag-only coverage. New current-path imports are unioned with that history.
+only an adapter, never a second writer. Check actual baseline post-swap failure
+and recovery paths before retiring an audited name.
 
 ## Verification
 

@@ -1,16 +1,12 @@
-"""An old `hermes update` must still find every name it loads mid-swap.
+"""Check the retained conservative updater compatibility surface.
 
 `hermes update` replaces the checkout underneath a RUNNING process. The
 old process then lazy-imports from the new tree: whatever it asks for
 must still exist, or the user's update dies half-applied. The names it
-can ask for are the contract of updaters shipped BEFORE the PM migration:
-EVERY commit reachable from an explicit pre-PM cutoff, back to the first
-cmd_update. The checked-in tests/compat/old_updater_surface.json already
-contains a history-plus-tree superset; keep enforcing those names, but do
-not continually expand it with new PM updater imports. Moving the
-implementation to pm does not retire already-running old updaters.
-Historical entrypoints, extractions, renamed and deleted helpers remain
-part of the contract.
+can ask for are the contract of supported updaters from v0.23.1 onward.
+The checked-in tests/compat/old_updater_surface.json is still a conservative
+history-plus-tree superset, except for individually verified older-only names.
+Moving the implementation to pm does not retire supported running updaters.
 
 Regeneration requires a full clone. These tests deliberately consume the
 checked-in names and resolve them against the current tree, so shallow CI can
@@ -22,14 +18,8 @@ from 'hermes_constants'`` while the NEW file on disk plainly held it.
 
 If this test fails you have two honest options:
 * restore the name (a stub with the old signature is fine), or
-* prove no updater in the pre-PM history loads it, then review a full
-  history audit at the same cutoff (the existing JSON records it under
-  stats.history.history_ref):
-      python scripts/audit-old-updater-imports.py --ref PRE_PM_COMMIT --freeze \
-          tests/compat/old_updater_surface.json
-New updater imports are not grounds for regeneration or for advancing the
-cutoff to a later origin/main. Hand-trimming the JSON is how someone's
-install bricks mid-update.
+* prove the supported release's actual post-swap and recovery paths do not
+  load it. A historical audit is not proof of a baseline dependency.
 
 The test resolves names statically (AST over the files) rather than
 importing: importing would execute module side effects and — worse —
@@ -94,7 +84,7 @@ class TestTheFrozenSurfaceStillResolves:
 
 
 class TestTheFrozenFileIsSane:
-    """Catch a corrupted or hand-trimmed freeze before it lies to us."""
+    """Check the historical audit metadata and retained recovery anchors."""
 
     def test_has_historical_load_bearing_names(self):
         # Spot-check names loaded by pre-PM updaters. If any of

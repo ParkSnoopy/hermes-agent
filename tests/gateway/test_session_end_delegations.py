@@ -280,7 +280,7 @@ async def test_unviewed_local_completion_is_a_note_not_a_turn(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_viewed_local_completion_still_starts_its_turn(tmp_path, monkeypatch):
+async def test_viewed_local_completion_is_recorded_without_a_new_turn(tmp_path, monkeypatch):
     runner, authority, ref, actor = await _local(tmp_path, monkeypatch)
     try:
         authority.sessions[ref.session_id].subscribers['watching'] = actor
@@ -288,14 +288,14 @@ async def test_viewed_local_completion_still_starts_its_turn(tmp_path, monkeypat
         assert [r['status'] for r in _admissions(authority, ref)] == ['queued']
         seen = _record_turns(runner)
         await authority._drain(ref)
-        assert seen == [f'[finished] RESULT_{_PROCESS[1]}'], 'a watched completion runs as its turn'
+        assert seen == []
         assert [r['outcome'] for r in _admissions(authority, ref)] == ['completed']
-        assert _notes(authority, target) == []
-        # Its retry after the viewer left is the same settled admission: no second turn, no note.
+        assert len(_notes(authority, target)) == 1
+        # Its retry after the viewer left is the same settled admission.
         authority.sessions[ref.session_id].subscribers.clear()
         await _deliver(runner, authority, ref, _PROCESS)
         await authority._drain(ref)
-        assert len(seen) == 1 and len(_admissions(authority, ref)) == 1 and _notes(authority, target) == []
+        assert len(seen) == 0 and len(_admissions(authority, ref)) == 1 and len(_notes(authority, target)) == 1
     finally:
         authority.db.close()
 

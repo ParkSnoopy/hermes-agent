@@ -505,7 +505,7 @@ class S6ServiceManager:
         restarting; only other non-zero exits let s6 restart normally.
 
         When the gateway exits with EX_CONFIG (78) — a fatal configuration error such as a token collision
-        or no messaging platforms — we tell s6-supervise to stop restarting by exiting 125 (permanent
+        — we tell s6-supervise to stop restarting by exiting 125 (permanent
         failure). A clean exit 0 is an intentional stop, not a crash: restarting after it turns any normal
         gateway exit into a reconnect loop (the ashriel-discord storm in #76435 — 1,000+ connections and a
         provider token reset). See #51228, #76435.

@@ -158,11 +158,7 @@ export const sessionCommands: SlashCommand[] = [
       // gateway QUEUES it and applies it at the next turn start (returning
       // deferred:true) instead of rejecting. Either way the pick sticks without
       // interrupting the stream or waiting on the swap.
-      if (!arg.trim()) {
-        return patchOverlayState({ modelPicker: true })
-      }
-
-      if (arg.trim() === '--refresh') {
+      if (!arg.trim() || arg.trim() === '--refresh') {
         return patchOverlayState({ modelPicker: { refresh: true } })
       }
 
@@ -473,7 +469,7 @@ export const sessionCommands: SlashCommand[] = [
   },
 
   {
-    help: 'pick the busy indicator: kaomoji (default), emoji, unicode (braille), or ascii',
+    help: 'pick the busy indicator: ascii (default), kaomoji, emoji, or unicode (braille)',
     name: 'indicator',
     usage: `/indicator [${INDICATOR_STYLES.join('|')}]`,
     run: (arg, ctx) => {

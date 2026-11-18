@@ -149,6 +149,12 @@ async def steer_queued(connection, ref, params):
         raise RuntimeStoreError('admission_started')
     if 'steer' not in queued_controls(authority, row):
         raise RuntimeStoreError('unsupported_control')
+    return await _transfer_queued(authority, ref, row)
+
+
+async def _transfer_queued(authority, ref, row):
+    """Transfer an already-authorized admission to the currently executing claim."""
+    admission_id = row['admission_id']
     handle = authority._handle(ref)
     if handle.execution_state != 'running':
         raise RuntimeStoreError('session_idle')

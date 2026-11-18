@@ -79,7 +79,7 @@ Every installed skill is automatically available as a slash command:
 /excalidraw sketch the request flow for our API
 /axolotl help me fine-tune Llama 3 on my dataset
 /github-pr-workflow create a PR for the auth refactor
-/youtube-content summarize https://youtu.be/dQw4w9WgXcQ
+
 
 # Just the skill name loads it and lets the agent ask what you need:
 /excalidraw

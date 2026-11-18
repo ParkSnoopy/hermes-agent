@@ -187,33 +187,25 @@ def _ensure_tui_workspace(tui_dir: Path) -> None:
         "This usually means `hermes update` left tracked ui-tui files deleted.\n"
         "Recovery:\n"
         "  1. From the Hermes checkout, run `git restore -- ui-tui`\n"
-        "  2. Run `pnpm install --frozen-lockfile`\n"
+        "  2. Run `bun install --frozen-lockfile`\n"
         "  3. Retry `hermes --tui`\n"
         "If the checkout is still inconsistent, run `hermes update --force`.",
         file=sys.stderr)
     sys.exit(1)
 
 
-def _tui_node_bin(bin: str) -> str:
-    """Resolve the TUI runtime through PM; an explicit bundled HERMES_NODE wins."""
-    if bin == "node":
-        env_node = os.environ.get("HERMES_NODE")
-        if env_node and os.path.isfile(env_node) and os.access(env_node, os.X_OK):
-            return env_node
-    from pm import ensure
-    path = shutil.which(bin, path=ensure(bin).env["PATH"])
-    if not path:
-        print(
-            f"Node.js is required for the TUI but `{bin}` was not found. Install it from "
-            "https://nodejs.org (run `hermes doctor` for the install hint for your OS), then "
-            "retry `hermes --tui`. To keep working now, run `hermes --cli`."
-        )
+def _tui_bun_bin() -> str:
+    from hermes_cli.source_build import bun_binary
+
+    try:
+        return bun_binary()
+    except RuntimeError as exc:
+        print(f"{exc}. Retry `hermes --tui`, or use `hermes --cli`.", file=sys.stderr)
         sys.exit(1)
-    return path
 
 
 def _make_tui_argv(tui_dir: Path, tui_dev: bool, notices: Optional[list] = None) -> tuple[list[str], Path]:
-    """TUI: --dev → tsx src; else node dist (HERMES_TUI_DIR prebuilt or esbuild).
+    """TUI: --dev → Bun source; else Bun dist (prebuilt or esbuild).
 
     *notices* collects warnings the caller must show again once the TUI exits: the TUI clears the
     screen and scrollback on start, so a line printed before it is gone by the time anyone looks."""
@@ -231,7 +223,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool, notices: Optional[list] = None)
     # 1. Prebuilt bundle (nix / packaged release / Docker image): just run it.
     # Must run BEFORE _ensure_tui_workspace(): a prebuilt install ships
     # hermes_cli/tui_dist/entry.js but never ui-tui/ (git checkouts only).
-    # 1. A prebuilt install (Docker image, Nix build, or prior `pnpm run build`) ships
+    # 1. A prebuilt install (Docker image, Nix build, or prior source build) ships
     #   hermes_cli/tui_dist/entry.js but never ships ui-tui/ at all (that directory only exists in a git
     #   checkout) — so requiring the workspace to exist first made every prebuilt dashboard Chat tab
     #   connection hard-exit before it ever got a chance to try the bundled entry.js it already has. See
@@ -240,24 +232,24 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool, notices: Optional[list] = None)
         if ext_dir:
             p = Path(ext_dir)
             if (p / "dist" / "entry.js").is_file():
-                return [_tui_node_bin("node"), "--expose-gc", str(p / "dist" / "entry.js")], p
+                return [_tui_bun_bin(), str(p / "dist" / "entry.js")], p
 
         bundled = _find_bundled_tui()
         if bundled is not None:
-            return [_tui_node_bin("node"), "--expose-gc", str(bundled)], bundled.parent
+            return [_tui_bun_bin(), str(bundled)], bundled.parent
 
-    # About to pnpm install/build from source, so the workspace must exist.
+    # About to install/build from source, so the workspace must exist.
     if not ext_dir:
         _ensure_tui_workspace(tui_dir)
 
     if not tui_dev and not _tui_need_rebuild(tui_dir):
-        return [_tui_node_bin("node"), "--expose-gc", str(tui_dir / "dist/entry.js")], tui_dir
+        return [_tui_bun_bin(), str(tui_dir / "dist/entry.js")], tui_dir
 
     from hermes_cli.source_build import build_source_tui, prepare_launch_dependencies, source_build_env
 
     project_root = tui_dir.parent
     try:
-        # Acquiring pnpm is part of preparation: offline, it fails like the install.
+        # Acquiring build tools is part of preparation and may fail offline.
         env = source_build_env()
         prepare_launch_dependencies(project_root, env=env)
     except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
@@ -267,27 +259,25 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool, notices: Optional[list] = None)
         # An update whose install failed (an unreachable registry, #150031) keeps the previous
         # trees and bundle. Nothing pins a TUI build to its backend: like a TUI left open across
         # an update, it negotiates with the gateway (runtime.describe), so it usually still works.
-        notice = ("⚠ Could not prepare the TUI's Node dependencies, so the previous TUI build was started.\n"
+        notice = ("⚠ Could not prepare the TUI's JavaScript dependencies, so the previous TUI build was started.\n"
                   "  It predates the current code and may not support all of it. Run `hermes update` again\n"
                   "  once the package registry is reachable, or use `hermes --cli`.")
-        # A failed command printed its own output; a refusal before it (PM acquiring pnpm) did not.
+        # A failed command printed its own output; a refusal before it did not.
         cause = "(The error is above.)" if isinstance(exc, subprocess.CalledProcessError) else f"({exc})"
         print(f"{notice}\n  {cause}", file=sys.stderr)
-        logger.warning("TUI launch fell back to the previous build: its Node dependencies could not be prepared: %s", exc)
+        logger.warning("TUI launch fell back to the previous build: dependencies could not be prepared: %s", exc)
         if notices is not None:
             notices.append(notice)
-        return [_tui_node_bin("node"), "--expose-gc", str(previous)], tui_dir
+        return [_tui_bun_bin(), str(previous)], tui_dir
     if tui_dev:
-        # tsx imports @hermes/ink's built exports; the production bundle instead
+        # Source imports @hermes/ink's built exports; the production bundle instead
         # compiles its source directly through scripts/build/tui.mjs.
-        pnpm = shutil.which("pnpm", path=env["PATH"])
-        subprocess.run([pnpm, "run", "build"], cwd=tui_dir / "packages/hermes-ink", env=env, check=True, timeout=600)
-        tsx = tui_dir / "node_modules/.bin/tsx"
-        return ([str(tsx), "src/entry.tsx"] if tsx.exists() else [pnpm, "start"]), tui_dir
+        bun = _tui_bun_bin()
+        subprocess.run([bun, "run", "build"], cwd=tui_dir / "packages/hermes-ink", env=env, check=True, timeout=600)
+        return [bun, "src/entry.tsx"], tui_dir
 
     build_source_tui(project_root, env=env)
-    node = shutil.which("node", path=env["PATH"])
-    return [node, "--expose-gc", str(tui_dir / "dist/entry.js")], tui_dir
+    return [_tui_bun_bin(), str(tui_dir / "dist/entry.js")], tui_dir
 
 
 def _split_comma_items(items, *, split_non_str: bool = True) -> list[str]:
@@ -596,7 +586,7 @@ def _launch_tui(
 
     _apply_tui_python_env(env)
     # This shell's allowlisted environment, sent as each session's ``client_env`` (LC-8, T3): taken from
-    # the shell before the launcher's own edits (NODE_OPTIONS heap, TUI pins) so the session gets the
+    # the shell before the launcher's own edits so the session gets the
     # PATH / venv / HERMES_* values the user exported.
     from hermes_cli.gateway_chat import shell_client_env
     env["HERMES_TUI_CLIENT_ENV"] = json.dumps(shell_client_env())
@@ -618,15 +608,7 @@ def _launch_tui(
         ("HERMES_ACCEPT_HOOKS", "1" if accept_hooks else None)):
         if value:
             env[key] = value
-    # Generous V8 heap (8GB target; default cap can fatal-OOM on long sessions),
-    # sized below the cgroup limit by _resolve_tui_heap_mb() so V8 exits
-    # gracefully instead of being reaped silently. Token-level merge respects a
-    # user-supplied --max-old-space-size. --expose-gc is NOT added here: Node
-    # rejects it in NODE_OPTIONS; _make_tui_argv() passes it as a direct flag.
-    _tokens = env.get("NODE_OPTIONS", "").split()
-    if not any(t.startswith("--max-old-space-size=") for t in _tokens):
-        _tokens.append(f"--max-old-space-size={_resolve_tui_heap_mb()}")
-    env["NODE_OPTIONS"] = " ".join(_tokens)
+
     # HERMES_TUI_RESUME is an internal hand-off to the Ink app. We start from a
     # full os.environ snapshot, so a stale exported value would make a plain
     # `hermes --tui` try to resume a non-existent session; only forward the id

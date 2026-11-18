@@ -67,7 +67,6 @@ def _skin_color(key: str, fallback: str) -> str:
 
 # === ASCII Art & Branding ===
 
-from hermes_cli import __release_date__ as RELEASE_DATE
 from hermes_cli.version_info import get_version_info
 
 HERMES_AGENT_LOGO = """[bold #FFD700]██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]
@@ -208,37 +207,35 @@ def format_banner_version_label() -> str:
     from hermes_cli.steward import read_install_stamp
     from hermes_cli.update_channel import is_canary_tag
 
+    base = f"Hermes Agent {get_version_info().version_label}"
     stamp = read_install_stamp(get_project_root())
     if stamp.get("distribution") == "desktop-app":
-        label = f"Hermes Agent v{get_version_info().derived_version}"
         if stamp.get("source") == "commit-build":
-            return f"{label} · commit-build · {str(stamp.get('commit') or '')[:12]}"
+            return f"{base} · commit-build"
         if stamp.get("tag"):
             channel = "canary" if is_canary_tag(stamp["tag"]) else "stable"
-            return f"{label} · {channel}"
+            return f"{base} · {channel}"
         if stamp.get("payload") == "bootstrap":
             # The old installer shell's CLI backend: the shell never updates
             # itself (`self`), the managed checkout under it does. Name the
             # shell so it doesn't read as a plain packaged build.
-            return f"{label} · installer"
-        return label
+            return f"{base} · installer"
+        return base
 
-    base = f"Hermes Agent v{get_version_info().derived_version} ({RELEASE_DATE})"
     from hermes_cli.config import load_config
     from hermes_cli.update_channel import resolve_update_channel
 
     channel = resolve_update_channel(_quiet(load_config), get_project_root())
     if channel != "main":
-        head = source_check._git_stdout(["rev-parse", "HEAD"], cwd=get_project_root())
-        return f"{base} · {channel}" + (f" · local {head[:12]}" if head else "")
+        return f"{base} · {channel}"
     state = get_git_banner_state()
     if not state:
         return base
     upstream, local = state["upstream"], state["local"]
     ahead = int(state.get("ahead") or 0)
     if ahead <= 0 or upstream == local:
-        return f"{base} · upstream {upstream}"
-    return f"{base} · upstream {upstream} · local {local} (+{ahead} carried {_plural(ahead, 'commit')})"
+        return f"{base} · upstream {upstream[:7]}"
+    return f"{base} · upstream {upstream[:7]} (+{ahead} carried {_plural(ahead, 'commit')})"
 
 
 # === Non-blocking update check ===

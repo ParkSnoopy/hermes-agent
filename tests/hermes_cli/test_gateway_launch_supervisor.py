@@ -38,6 +38,15 @@ def test_identify_payload_carries_the_launch_supervisor(monkeypatch):
     assert payload["supervisor"] == payload["launch_supervisor"] == "desktop"
 
 
+def test_s6_marker_declares_external_owner(monkeypatch):
+    for key in ("INVOCATION_ID", "HERMES_DESKTOP_MANAGED", "HERMES_S6_SUPERVISED_CHILD"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(control_socket.sys, "argv", ["hermes", "gateway", "run"])
+    assert control_socket._detect_supervisor() == "manual"
+    monkeypatch.setenv("HERMES_S6_SUPERVISED_CHILD", "1")
+    assert control_socket._detect_supervisor() == "external"
+
+
 @pytest.mark.parametrize("identity, argv, external", [
     (MANUAL, PLAIN_ARGV, False),
     ({**MANUAL, "launch_supervisor": "desktop"}, PLAIN_ARGV, True),

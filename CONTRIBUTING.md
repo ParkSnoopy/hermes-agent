@@ -635,10 +635,10 @@ Non-interactive sessions must not collect secrets in-band; configure them locall
 - The skill can still be useful if the user skips setup, but may degrade gracefully
 
 **When to declare command prerequisites:**
-- The skill relies on a CLI tool that may not be installed (e.g., `himalaya`, `openhue`, `ddgs`)
+- The skill relies on a CLI tool that may not be installed (e.g., `openhue`, `ddgs`)
 - Treat command checks as guidance, not discovery-time hiding
 
-See `optional-skills/media/gif-search/` and `skills/email/himalaya/` for examples.
+See `optional-skills/smart-home/openhue/` for an example.
 
 ### Skill authoring standards (HARDLINE)
 

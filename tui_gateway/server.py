@@ -1394,15 +1394,15 @@ def _session_info(agent, session: dict | None = None) -> dict:
         "running": bool(sess.get("running")), "turn_started_at": _turn_started_at(session),
         "title": _session_live_title(sess, session_key) if session_key else "",
         "stored_session_id": session_key or "", "desktop_contract": DESKTOP_BACKEND_CONTRACT,
-        "version": "", "release_date": "", "update_behind": None, "update_command": "",
+        "version": "", "version_commit": None, "update_behind": None, "update_command": "",
         "usage": _session_usage_snapshot(session),
         "profile_name": profile_name_for_home(sess.get("profile_home")) or _current_profile_name(),
     }
     with contextlib.suppress(Exception):
-        from hermes_cli import __release_date__
         from hermes_cli.version_info import get_version_info
 
-        info.update(version=get_version_info().base_version, release_date=__release_date__)
+        identity = get_version_info()
+        info.update(version=identity.base_version, version_commit=identity.commit)
     live_agent = agent is not None and not sess.get("_compute_host_active")
     if live_agent:
         with contextlib.suppress(Exception):

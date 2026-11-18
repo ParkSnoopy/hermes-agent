@@ -112,7 +112,7 @@ _PRELOAD = (
 _POST_PURGE_IMPORTS = (
     "hermes_cli.config", "hermes_cli.managed_scope", "hermes_cli.gateway", "gateway.status",
     "hermes_cli.gateway_migrate", "hermes_cli.profiles", "hermes_cli.backup", "hermes_cli.model_catalog",
-    "hermes_cli.plugin_compat", "agent.curator", "tools.skills_sync", "tools.browser_tool",
+    "agent.curator", "tools.skills_sync", "tools.browser_tool",
 )
 # What the pre-hand-off ``hermes update`` process had imported before the pull.
 _OLD_UPDATER_GRAPH = ("hermes_cli.main", "hermes_cli.update_cmd", "hermes_cli.config", "hermes_cli.gateway")

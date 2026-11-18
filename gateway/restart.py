@@ -11,7 +11,7 @@ from hermes_cli.config import DEFAULT_CONFIG
 
 # EX_TEMPFAIL (sysexits.h): ask the service manager to restart after a graceful drain/reload.
 GATEWAY_SERVICE_RESTART_EXIT_CODE = 75
-# EX_CONFIG (sysexits.h): fatal configuration error (token collision, no platforms);
+# EX_CONFIG (sysexits.h): fatal configuration error (for example, token collision);
 # the s6 finish script maps it to exit 125 so the supervisor stops restarting.
 # See #51228.
 GATEWAY_FATAL_CONFIG_EXIT_CODE = 78

@@ -34,19 +34,24 @@ def _context(agent, compressor) -> dict:
     from agent.context_breakdown import context_display_source
     last = max(0, getattr(compressor, "last_prompt_tokens", 0) or 0)
     tokens = last
+    source = context_display_source(compressor)
     with contextlib.suppress(Exception):
         from agent.usage_anchor import anchored_context_tokens
         messages = getattr(agent, "_session_messages", None)
-        anchored = anchored_context_tokens(messages if isinstance(messages, list) else [],
-                                           getattr(agent, "_turn_base_usage_anchor", None),
-                                           charge_stale_thinking=False)
-        if anchored is not None and anchored > 0:
-            tokens = anchored
+        if isinstance(messages, list):
+            anchor = getattr(agent, "_turn_base_usage_anchor", None)
+            anchored = anchored_context_tokens(messages, anchor, charge_stale_thinking=False)
+            if anchor is not None and anchored is not None and anchored > 0:
+                tokens = anchored
+                delta = messages[int(anchor["base_count"]):]
+                if delta and delta[0].get("role") == "assistant":
+                    delta = delta[1:]
+                source = "provider_usage_plus_estimate" if delta else "provider_usage"
     length = max(0, getattr(compressor, "context_length", 0) or 0)
     return {"last_prompt_tokens": last, "context_tokens": min(tokens, length) if length else tokens,
             "context_length": length or None,
             "config_context_length": getattr(compressor, "_config_context_length", None),
-            "context_source": context_display_source(compressor),
+            "context_source": source,
             "compression_count": getattr(compressor, "compression_count", 0) or 0}
 
 
@@ -136,7 +141,7 @@ def tui_usage(stats: dict) -> dict:
              "reasoning": stats.get("reasoning_tokens") or 0, "prompt": stats.get("prompt_tokens") or 0,
              "completion": stats.get("completion_tokens") or 0, "total": stats.get("total_tokens") or 0,
              "calls": stats.get("api_calls") or 0}
-    used, maximum = stats.get("last_prompt_tokens") or 0, stats.get("context_length") or 0
+    used, maximum = stats.get("context_tokens", stats.get("last_prompt_tokens")) or 0, stats.get("context_length") or 0
     if used and maximum:
         # ``agent/context_breakdown.py::context_usage_fields``: current occupancy, clamped.
         used = min(used, maximum)

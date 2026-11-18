@@ -59,7 +59,7 @@ def test_commit_version_banner_uses_stamp_not_shared_checkout(commit_build, monk
     git = Mock(side_effect=AssertionError("version must not inspect another checkout"))
     monkeypatch.setattr(banner, "get_git_banner_state", git)
     label = banner.format_banner_version_label()
-    assert "1.2.3+gabcdef12" in label
+    assert label.startswith("Hermes Agent v1.2.3 (aaaaaaa)")
     assert "commit-build" in label
     assert get_version_info().source == "commit-build"
     git.assert_not_called()

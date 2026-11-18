@@ -145,7 +145,7 @@ def cmd_doctor(args) -> None:
         ("Cloud browser (Browserbase) *RECOMMENDED*", caps["browserbase"],
          "default backend: clears soft CAPTCHAs (Turnstile/hCaptcha) -> more T1", "set BROWSERBASE_API_KEY"),
         ("Email auto (AgentMail)", caps["agentmail"],
-         "send + auto-verify, per-broker aliases (Mode B/C)", "install agentmail skill / set AGENTMAIL_API_KEY"),
+         "send + auto-verify, per-broker aliases (Mode B/C)", "set AGENTMAIL_API_KEY"),
         ("Email send (CLI SMTP)", caps["smtp_send"],
          "`send-email` delivers opt-outs itself (Mode B)", "set EMAIL_ADDRESS / EMAIL_PASSWORD (+ EMAIL_SMTP_HOST)"),
         ("Verify-link poll (CLI IMAP)", caps["imap_read"],

@@ -21,7 +21,7 @@ Gmail, Calendar, Drive, Docs, Sheets via gws CLI or Python.
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `Google`, `Gmail`, `Calendar`, `Drive`, `Sheets`, `Docs`, `Contacts`, `Email`, `OAuth` |
-| Related skills | [`himalaya`](../../bundled/email/email-himalaya.md) |
+
 
 ## Reference: full SKILL.md
 
@@ -74,10 +74,7 @@ Before starting OAuth setup, ask the user TWO questions:
 **Question 1: "What Google services do you need? Just email, or also
 Calendar/Drive/Sheets/Docs?"**
 
-- **Email only** → They don't need this skill at all. Use the `himalaya` skill
-  instead — it works with a Gmail App Password (Settings → Security → App
-  Passwords) and takes 2 minutes to set up. No Google Cloud project needed.
-  Load the himalaya skill and follow its setup instructions.
+- **Email only** → Continue with this skill using `--services email` during auth.
 
 - **Email + Calendar** → Continue with this skill, but use
   `--services email,calendar` during auth so the consent screen only asks for

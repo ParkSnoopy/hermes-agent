@@ -1,62 +1,21 @@
-# Hermes Agent
-
-A Linux terminal agent with persistent memory, reusable skills, conversation search, and delegated tasks.  
-Use the CLI or TUI with a hosted model provider or your own compatible endpoint.  
-
-## Features
-
-- Interactive terminal interfaces with streaming output, conversation history, and slash commands.
-- Local command execution, file editing, Python tool orchestration, and browser automation.
-- Persistent memory, searchable sessions, and skills compatible with the [Agent Skills standard](https://agentskills.io).
-- Isolated subagents for parallel work.
-- Configurable model providers, MCP servers, and plugins.
+# Hernes Agent
 
 ## Install from source
 
-In zsh, from the root of your Linux source checkout, activate the managed environment and run setup:  
+On Linux, install Git, Bash, zsh, and `uv` on your `PATH`. Clone this fork and run:
 
 ```zsh
+git clone https://github.com/ParkSnoopy/hermes-agent.git
+cd hermes-agent
 source ./activate
 hermes setup
 hermes
 ```
 
-Activation prepares the pinned Python interpreter and project-managed dependencies.  
-The same commands work in Bash, which is still required for internal scripts.  
-The first activation may require network access and a native compiler.  
-See [installation](website/docs/getting-started/installation.md) for deployment options.  
+The first activation may need network access and a native compiler. Use `hermes --tui` for the full-screen interface.
 
-## Getting started
+## Differences from upstream
 
-```bash
-hermes              # Interactive CLI — start a conversation
-hermes model        # Choose your LLM provider and model
-hermes tools        # Configure which tools are enabled
-hermes config set   # Set individual config values
-hermes config get   # Print individual config values
-
-hermes setup        # Run the full setup wizard (configures everything at once)
-hermes update       # Update the source installation
-hermes doctor       # Diagnose any issues
-```
-
-Start a conversation with `hermes`, use `/new` for a fresh session, `/model` to switch models, and `/skills` to browse skills.  
-
-## Documentation
-
-- [CLI usage](website/docs/user-guide/cli.md)
-- [Configuration](website/docs/user-guide/configuration.md)
-- [Model providers](website/docs/integrations/providers.md)
-- [Tools and toolsets](website/docs/user-guide/features/tools.md)
-- [Skills](website/docs/user-guide/features/skills.md)
-- [Memory](website/docs/user-guide/features/memory.md)
-- [MCP integration](website/docs/user-guide/features/mcp.md)
-- [Security](website/docs/user-guide/security.md)
-
-## Development
-
-See [contributing](CONTRIBUTING.md#development-setup) and the [package-manager workflow](website/docs/reference/package-management.md#developer-workflow) for the development environment and test commands.  
-
-## License
-
-MIT — see [LICENSE](LICENSE).  
+- Focuses on terminal chat. The local gateway still owns sessions and runs the agent without a messaging adapter.
+- Uses system `uv` and defaults to the Slate skin and ASCII busy indicator.
+- Omits the native computer-use driver, A2A, X Search, and the bundled email, YouTube, and X skills.

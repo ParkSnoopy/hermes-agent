@@ -1,16 +1,13 @@
-"""A completion for a local session no viewer is watching is written into it as a note (#134889 LC-7).
+"""Persist local producer completions that could not steer a live claim as notes.
 
 Main's CLI and TUI hosted async delegations and background processes in their own process, so once
 the user left nothing started a turn for them. Under the gateway the owner outlives its viewers. The
 completion is admitted like any producer input. Producers still coalesce a batch into one admission
 under its primary identity, the siblings' identities in its descriptor: a lookup by any of them finds
 it (``completion_admission``), results already admitted are left out of a new batch, and the one
-outcome, note or turn, covers the whole batch. When that admission comes up for execution with no
-viewer attached (the authority's own subscriber records) the executor records it in the session's
-history, where the next turn sees it, and settles the admission without a model call. Queue order, restart survival and
-exactly-once are the admission contract's. With a viewer attached it runs as the turn it always was,
-except a local cron result, which is always a note; messaging, Kanban, ``/loop`` and heartbeat wakes
-never reach here.
+outcome, note or turn, covers the whole batch. When that admission comes up for execution the executor records it in the session's history, where
+the next turn sees it, and settles it without a model call. Queue order, restart survival and dedupe
+are the admission contract's. Messaging, Kanban, ``/loop`` and heartbeat wakes never reach here.
 """
 import json
 from functools import partial
@@ -31,9 +28,11 @@ def _producer(identity):
 
 
 def noted_completion(row):
-    """*row* is a local completion admission: a note when it runs with no viewer attached."""
+    """*row* is a local completion admission to record as a note."""
     descriptor = (row or {}).get('payload', {}).get('local_automation_v1')
-    return descriptor is not None and _producer(descriptor['identity']) in _NOTED_PRODUCERS | _ALWAYS_NOTED
+    if descriptor is None:
+        return False
+    return _producer(descriptor['identity']) in _NOTED_PRODUCERS | _ALWAYS_NOTED
 
 
 async def reopen_for_turn(authority, ref):
@@ -58,7 +57,7 @@ async def note_if_unviewed(authority, ref, row):
     from gateway.session_runtime_workers import tracked_write
     live = authority.sessions.get(ref.session_id)
     descriptor = row['payload']['local_automation_v1']
-    if live is None or (live.subscribers and _producer(descriptor['identity']) not in _ALWAYS_NOTED):
+    if live is None:
         # The claim left a closed row closed for a note; the turn reopens it as any first turn does.
         await reopen_for_turn(authority, ref)
         return None

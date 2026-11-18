@@ -8,12 +8,12 @@ platforms: [linux, macos, windows]
 metadata:
   hermes:
     tags: [Social-Media, Content-Calendar, Campaigns, Publishing]
-    related_skills: [xurl, humanizer]
+    related_skills: [humanizer]
 ---
 
 # Social Media Content Calendar
 
-Plan a concrete calendar across selected social platforms. This skill owns campaign structure, post briefs, channel adaptation, approvals, and publishing verification; platform skills such as `xurl` own API commands. For platforms without a connector, the verified handoff ends at approved drafts for the user's scheduler — say so rather than claiming publication.
+Plan a concrete calendar across selected social platforms. This skill owns campaign structure, post briefs, channel adaptation, approvals, and publishing verification. For platforms without a connector, the verified handoff ends at approved drafts for the user's scheduler — say so rather than claiming publication.
 
 ## When to Use
 
@@ -52,7 +52,7 @@ Check factual accuracy, tone, repetition, rights/permissions, accessibility, dis
 
 ### 7. Schedule or hand off
 
-Present the approval batch. Publish/schedule only approved posts using available platform skills (`xurl` for X); for platforms without a connector, deliver the approved package (copy, assets, timing) for the user's scheduling tool and mark those slots handed-off, not published. Read back scheduled time, account, content preview, and provider post/job ID for anything actually published. Done when the calendar reflects verified publishing or handoff status per slot.
+Present the approval batch. Publish/schedule only approved posts using available platform connectors; for platforms without a connector, deliver the approved package (copy, assets, timing) for the user's scheduling tool and mark those slots handed-off, not published. Read back scheduled time, account, content preview, and provider post/job ID for anything actually published. Done when the calendar reflects verified publishing or handoff status per slot.
 
 ## Pitfalls
 

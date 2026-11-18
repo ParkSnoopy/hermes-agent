@@ -4192,7 +4192,8 @@ def _maybe_redirect_run_to_s6_supervision(args) -> bool:
     no_supervise = getattr(args, "no_supervise", False) or \
         os.environ.get("HERMES_GATEWAY_NO_SUPERVISE", "").lower() in ("1", "true", "yes")
     # HERMES_S6_SUPERVISED_CHILD: we ARE the supervised child; fall through so the gateway starts.
-    if no_supervise or os.environ.get("HERMES_S6_SUPERVISED_CHILD"):
+    if (no_supervise or getattr(args, "external_supervisor", False)
+            or os.environ.get("HERMES_S6_SUPERVISED_CHILD")):
         return False
     if not _dispatch_via_service_manager_if_s6("start"):
         return False

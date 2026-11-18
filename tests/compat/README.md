@@ -4,12 +4,13 @@ An updater can retain old Python modules after replacing its checkout. Its next
 lazy import reads the new files. Current-tree tests alone cannot protect that
 boundary.
 
-The compatibility contract covers only updaters shipped before the PM migration,
-not imports introduced on the unshipped migration branch or in the working tree.
-`old_updater_surface.json` retains an existing history-plus-tree superset; keep
-every frozen name, without continually adding new PM updater imports.
+The supported baseline is v0.23.1. `old_updater_surface.json` retains a
+conservative history-plus-tree superset, not an exact baseline audit. Remove
+older-only requirements only after checking the release's actual post-swap and
+failure paths. The three `hermes_cli.plugin_compat` stubs were removed because
+the v0.23.1 source has no caller; historical stats still record the old audit.
 
-One exception grows the list: updaters from v0.21.6 on still import from the
+The original union also covers updaters from v0.21.6 on that import from the
 new tree after the swap (a Ctrl-C after the commit point, a lost completion,
 the parent restarting the gateways it paused, a shallow-checkout count). The
 names those post-swap paths reach in each shipped release are added here, so a
@@ -17,12 +18,13 @@ rename cannot break an update halfway. They come from a call-graph walk of
 each release tag from its post-swap entry points, not from the history audit
 above.
 
-Regeneration audits history only and requires a full clone and an explicit
-pre-PM cutoff. Use the existing JSON's `stats.history.history_ref` (or
-`stats.history_ref` in history-only output), not a later `origin/main`:
+The historical audit requires a full clone and an explicit pre-PM cutoff.
+It is useful as diagnostic evidence, but regenerating the supported freeze from
+it would restore retired requirements. Use the existing JSON's
+`stats.history.history_ref` (or `stats.history_ref` in history-only output):
 
 ```sh
-python3 scripts/audit-old-updater-imports.py --ref PRE_PM_COMMIT --freeze tests/compat/old_updater_surface.json
+python3 scripts/audit-old-updater-imports.py --ref PRE_PM_COMMIT --json
 ```
 
 The walker resolves `--ref` once. The JSON records that exact commit, the
@@ -35,8 +37,9 @@ not require fresh-tree imports to be a subset of the freeze. An update-flow
 change alone is not grounds for regeneration or for advancing the cutoff.
 
 The surface deliberately over-approximates reachability. Matching update
-entrypoints and same-named functions can include unrelated callers. Do not trim
-those entries by hand. A historical name is cheaper than a missed live import.
+entrypoints and same-named functions can include unrelated callers. A historical
+name alone does not prove a supported release needs it; examine actual release
+callers and recovery paths before removing an entry.
 The resolver requires module-scope bindings, not names inside functions or
 classes. It does not execute module bodies or prove every conditional export.
 

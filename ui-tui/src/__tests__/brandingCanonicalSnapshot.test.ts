@@ -33,11 +33,11 @@ const snapshot = {
     profile_name: 'default',
     provider: 'nous',
     reasoning_effort: 'high',
-    release_date: '2026.9.24',
     skills: { creative: ['ascii-art'], research: ['arxiv', 'blogwatcher'] },
     source: 'tui',
     tools: { file: ['patch', 'read_file', 'search_files', 'write_file'], terminal: ['process', 'terminal'] },
-    version: '0.18.0'
+    version: '0.18.0',
+    version_commit: `abcdef0${'1'.repeat(33)}`
   },
   last_sequence: 0,
   message_count: 0,
@@ -52,12 +52,12 @@ const snapshot = {
   subscription_id: 'sub'
 }
 
-async function render(info: SessionInfo): Promise<string> {
+async function render(info: SessionInfo, columns = 140): Promise<string> {
   const stdout = new PassThrough()
   const stdin = new PassThrough()
   const stderr = new PassThrough()
 
-  Object.assign(stdout, { columns: 140, isTTY: false, rows: 60 })
+  Object.assign(stdout, { columns, isTTY: false, rows: 60 })
   Object.assign(stdin, { isTTY: false })
   Object.assign(stderr, { isTTY: false })
   let captured = ''
@@ -88,7 +88,7 @@ describe('banner from a canonical session snapshot', () => {
     const { info } = canonicalResult('session.create', snapshot)
     const frame = await render(info)
 
-    expect(frame).toContain('v0.18.0 (2026.9.24)')
+    expect(frame).toContain('v0.18.0 (abcdef0)')
     expect(frame).toContain('claude-opus-5.5')
     expect(frame).toContain('/work/repo')
     expect(frame).toMatch(/file: patch, read_file, search_files, write_file/)
@@ -99,6 +99,11 @@ describe('banner from a canonical session snapshot', () => {
     expect(frame).toMatch(/3 skills/)
     expect(frame).toMatch(/1 MCP/)
     expect(frame).not.toMatch(/not exposed by this runtime/)
+  })
+
+  it('shows release and commit on a narrow terminal', async () => {
+    const { info } = canonicalResult('session.create', snapshot)
+    expect(await render(info, 48)).toContain('v0.18.0 (abcdef0)')
   })
 
   it('renders main\'s banner, not a placeholder, before the inventory arrives', async () => {

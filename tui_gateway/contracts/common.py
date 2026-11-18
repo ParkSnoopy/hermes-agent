@@ -97,7 +97,7 @@ class SessionLiveInfo(OpenModel):
     stored_session_id: str = ""
     desktop_contract: int | str | None = None
     version: str = ""
-    release_date: str = ""
+    version_commit: str | None = None
     update_behind: JsonValue | None = None
     update_command: str = ""
     usage: Usage | None = None

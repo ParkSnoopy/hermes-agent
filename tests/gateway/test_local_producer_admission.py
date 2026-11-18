@@ -451,4 +451,6 @@ async def test_a_served_profiles_desktop_session_admits_its_own_process_notices(
     assert await gateway.runner._deliver_completion_notification('[job finished]', completion) is True
     await gateway.settled(secondary, sid, 3)
     assert [(turn.profile, turn.chat, turn.policy) for turn in gateway.turns] == [
-        ('beta', sid, ('desk-model', str(gateway.tmp_path)))] * 3
+        ('beta', sid, ('desk-model', str(gateway.tmp_path)))]
+    assert len([message for message in secondary.db.get_messages(sid)
+                if message.get('display_kind') in ('internal_notification', 'process_complete')]) >= 2

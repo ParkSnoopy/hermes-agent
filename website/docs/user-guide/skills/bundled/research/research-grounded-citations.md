@@ -21,7 +21,7 @@ Ground answers and documents in cited, verifiable sources.
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `Research`, `Citations`, `Grounding`, `Sources`, `Web`, `Reports` |
-| Related skills | [`arxiv`](../../bundled/research/research-arxiv.md), [`pdf`](../../bundled/productivity/productivity-pdf.md), [`reddit-reading`](../../optional/social-media/social-media-reddit-reading.md), [`rss-feeds`](../../optional/research/research-rss-feeds.md), [`youtube-content`](../../bundled/media/media-youtube-content.md) |
+| Related skills | [`arxiv`](../../bundled/research/research-arxiv.md), [`pdf`](../../bundled/productivity/productivity-pdf.md), [`rss-feeds`](../../optional/research/research-rss-feeds.md) |
 
 ## Reference: full SKILL.md
 
@@ -152,15 +152,11 @@ with every claim attributed to the platform it came from:
 | Source type | Route | What it adds |
 |---|---|---|
 | Open web | `web_search` → `web_extract` | official docs, articles, announcements |
-| Community discussion | `reddit-reading` (`search`, `thread`) | real user experience, complaints, workarounds |
 | Blogs / releases / changelogs | `rss-feeds` (`read`, `discover`) | dated primary posts, version history |
-| Video | `youtube-content` | walkthroughs, demos, talks |
 | Code | `terminal` with `gh search repos` / `gh search issues` | implementations, open bugs |
-| X/Twitter | `xurl` (needs API access) | announcements, developer chatter |
 
-The `reddit-reading` and `rss-feeds` skills are optional. If absent, install with
-`hermes skills install official/social-media/reddit-reading` or
-`hermes skills install official/research/rss-feeds` before using them.
+The `rss-feeds` skill is optional. If absent, install with
+`hermes skills install official/research/rss-feeds` before using it.
 
 Register every URL from every route in the ledger as it arrives (step ②). Keep
 opinion and measurement apart: a Reddit thread is evidence that users *report*

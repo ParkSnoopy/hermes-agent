@@ -127,9 +127,9 @@ export const MAX_DURATION_WIDTH = Math.max(
 // `unicode` is a bare 1-col braille spinner with no verb, while kaomoji/emoji/
 // ascii add a fixed-width verb; any style adds a bounded elapsed-time tail.
 // Mirrors FaceTicker's `frame + verbSegment + durationSegment` layout.
-export const busyIndicatorWidth = (style: IndicatorStyle, hasDuration: boolean): number => {
+export const busyIndicatorWidth = (style: IndicatorStyle, hasDuration: boolean, forceVerb = false): number => {
   const { showVerb } = renderIndicator(style, 0)
-  const verb = showVerb ? 1 + VERB_PAD_LEN : 0
+  const verb = showVerb || forceVerb ? 1 + VERB_PAD_LEN : 0
   // ` · ` plus the bounded clock (e.g. `59m 59s`).
   const duration = hasDuration ? stringWidth(' · ') + MAX_DURATION_WIDTH : 0
 
@@ -591,7 +591,7 @@ export function StatusRule({
   // A credits notice replaces the status/verb slot, but only when idle —
   // while busy the FaceTicker always wins (R1 render priority). The notice
   // text carries its own glyph; we only tint it (R1) and let it shrink (R3-M7).
-  const showNotice = !busy && !!notice?.text
+  const showNotice = !busy && !compacting && !!notice?.text
   // The notice slot is shrinkable (flexShrink={1}, truncate-end), so reserve
   // only a small bounded width for it in the essentials budget — enough that
   // a short notice never gets crushed, but a long one ellipsizes instead of
@@ -605,8 +605,8 @@ export function StatusRule({
   // yields first. The busy face width depends on the active /indicator style
   // (kaomoji is wide + verb; unicode is a bare 1-col spinner). When a notice
   // occupies the slot it reserves only `noticeReserve` (it shrinks/truncates).
-  const slotWidth = busy
-    ? busyIndicatorWidth(indicatorStyle, turnStartedAt != null)
+  const slotWidth = busy || compacting
+    ? busyIndicatorWidth(indicatorStyle, turnStartedAt != null, compacting)
     : showNotice
       ? noticeReserve
       : stringWidth(status)
@@ -731,7 +731,7 @@ export function StatusRule({
               <Text color={t.color.muted}>{' │ '}</Text>
             </Text>
           ) : null}
-          {busy ? (
+          {busy || compacting ? (
             <FaceTicker
               color={statusColor}
               startedAt={turnStartedAt}

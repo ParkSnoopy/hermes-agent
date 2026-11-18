@@ -95,8 +95,9 @@ def test_dispatch_all_handles_partial_failure(
 class _Args:
     """Lightweight argparse-like namespace for the helper."""
 
-    def __init__(self, no_supervise: bool = False) -> None:
+    def __init__(self, no_supervise: bool = False, external_supervisor: bool = False) -> None:
         self.no_supervise = no_supervise
+        self.external_supervisor = external_supervisor
 
 
 def _stub_s6(monkeypatch: pytest.MonkeyPatch, *, on_s6: bool) -> _CallRecorder:
@@ -111,6 +112,16 @@ def _stub_s6(monkeypatch: pytest.MonkeyPatch, *, on_s6: bool) -> _CallRecorder:
         "hermes_cli.service_manager.get_service_manager", lambda: rec,
     )
     return rec
+
+
+def test_external_supervisor_keeps_foreground_ownership(monkeypatch):
+    from hermes_cli import gateway as gw
+
+    rec = _stub_s6(monkeypatch, on_s6=True)
+    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
+    monkeypatch.delenv("HERMES_GATEWAY_NO_SUPERVISE", raising=False)
+    assert gw._maybe_redirect_run_to_s6_supervision(_Args(external_supervisor=True)) is False
+    assert rec.calls == []
 
 
 

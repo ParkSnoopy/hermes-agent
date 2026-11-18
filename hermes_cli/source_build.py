@@ -3,27 +3,31 @@
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 
 
+def bun_binary(env: dict | None = None) -> str:
+    """Use the Bun available on PATH without provisioning a runtime."""
+    from hermes_platform.resolver import LookupContext, locate_command
+
+    path = (os.environ if env is None else env).get("PATH", "")
+    command = locate_command("bun", LookupContext(path=path)).command
+    if not command:
+        raise RuntimeError("Bun is required for the TUI; install Bun and put it on PATH")
+    return command[0]
+
+
 def source_product_current(project_root: Path, product: str, out: Path) -> bool:
     """Read the compiler's receipt without acquiring tools or dependencies."""
-    from pm import env_for, installed_package
-
-    installed = installed_package("node")
-    if installed is None or installed.binary is None:
-        return False  # Only PM's Node may run the receipt reader; never the user's PATH copy.
-    node, env = str(installed.binary), env_for("node")
     try:
         result = subprocess.run(
-            [node, str(project_root / "scripts/build/freshness.mjs"),
+            [bun_binary(), str(project_root / "scripts/build/freshness.mjs"),
              "--source", str(project_root), "--product", product, "--out", str(out)],
-            cwd=project_root, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
+            cwd=project_root, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
         )
         return result.stdout.strip() == "true"
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, RuntimeError, subprocess.SubprocessError):
         return False
 
 
@@ -53,6 +57,9 @@ def source_build_env(base_env: dict | None = None, *, explicit: bool = False, ve
         name = f"npm_config_{key.replace('-', '_').lower()}"
         if name.upper() not in inherited:  # an explicit setting wins, in any case
             env[name] = value
+    bun_binary(env)
+    # node-deps.mjs still delegates installation to pnpm. This is a build-only
+    # toolchain, never part of shell activation or the TUI runtime.
     return ensure("pnpm", base_env=pnpm_env(env), explicit=explicit, verify=verify).env
 
 
@@ -87,7 +94,7 @@ def run_in_custody(project_root: Path, command: list, label: str, **kwargs):
 
 
 def run_source_script(project_root: Path, script: str, *args: str, env: dict, label: str) -> None:
-    command = [shutil.which("node", path=env["PATH"]), str(project_root / script), *args]
+    command = [bun_binary(env), str(project_root / script), *args]
     run_in_custody(project_root, command, label, indent="  ", cwd=project_root, env=env)
 
 
@@ -103,42 +110,14 @@ def prepare_source_dependencies(project_root: Path, workspaces: tuple[str, ...],
         project_root, "scripts/build/node-deps.mjs", "--source", str(project_root), "--reuse",
         *_install_args(explicit),
         *(arg for workspace in workspaces for arg in ("--workspace", workspace)), env=env,
-        label="Preparing Node dependencies",
+        label="Preparing JavaScript dependencies",
     )
 
 
 def prepare_launch_dependencies(project_root: Path, *, env: dict) -> None:
     """Prepare the retained TUI workspace for a source launch."""
     workspaces = ("ui-tui",)
-    # Someone is waiting for this launch, which falls back to the previous build when it fails:
-    # offline, pnpm's default retries spend ~70 s before failing, one retry ~10 s.
-    if not _fetch_retries_configured(project_root, env):
-        env = {**env, "pnpm_config_fetch_retries": "1"}
     prepare_source_dependencies(project_root, workspaces, env=env)
-
-
-def _fetch_retries_configured(project_root: Path, env: dict) -> bool:
-    """Whether the user chose a download retry count where pnpm 12 reads one:
-    ``pnpm_config_fetch_retries``, pnpm's global config.yaml or pnpm-workspace.yaml. pnpm 12 reads
-    no ``fetch-retries`` from an npmrc nor ``npm_config_fetch_retries``, so neither counts. A pnpm
-    that cannot answer counts as configured: the default stays."""
-    if any(key.lower() == "pnpm_config_fetch_retries" for key in env):
-        return True
-    from hermes_platform.resolver import LookupContext, locate_command
-
-    # The PATH of the env PM's ensure("pnpm") composed, never this process's.
-    found = locate_command("pnpm", LookupContext(path=env["PATH"])).command
-    if not found:
-        return True
-    pnpm = found[0]
-    try:
-        answer = subprocess.run(
-            [pnpm, "config", "get", "fetchRetries", "--json"], cwd=project_root, env=env,
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, check=True,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return True
-    return answer.stdout.strip() != "null"
 
 
 def build_source_tui(project_root: Path, *, env: dict) -> None:
@@ -197,17 +176,14 @@ def build_update_products(project_root: Path, *, after_dependencies=None) -> Non
         after_dependencies()
     if frontends:
         env: dict = {}
-        publish_stage("Updating Node dependencies")
+        publish_stage("Updating JavaScript dependencies")
 
         def node_dependencies(selected: tuple[str, ...]) -> None:
-            # Acquiring pnpm is part of this step: its failure must be reported like the install's.
-            # A recorded install is trusted as at startup (re-hashing the toolchain costs seconds per
-            # tail); a missing one is still installed explicitly.
             env.update(source_build_env(explicit=True, verify=False))
             prepare_source_dependencies(project_root, selected, env=env, explicit=True)
 
         # Every product compiles from these node_modules: without them there is nothing to build.
-        prepared = attempt("Node dependencies", lambda: node_dependencies(frontends))
+        prepared = attempt("JavaScript dependencies", lambda: node_dependencies(frontends))
         if after_dependencies is not None:
             after_dependencies()
         if prepared:

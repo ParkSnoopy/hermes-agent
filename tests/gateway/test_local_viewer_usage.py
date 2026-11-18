@@ -115,6 +115,23 @@ def test_completion_carries_main_tui_usage_from_the_turn_end_stats():
     assert 'usage' not in completion_payload(row, {'outcome': 'completed'}, 'hi', {'result': {}})
 
 
+def test_completion_reports_the_retained_context_not_the_last_request():
+    from agent.usage_anchor import capture_usage_anchor
+    from gateway.session_settlement_recovery import completion_payload
+    from gateway.session_usage import usage_stats
+
+    agent = _agent()
+    request = [{'role': 'user', 'content': 'question'}]
+    agent._turn_base_usage_anchor = capture_usage_anchor(700, 30, request)
+    agent._session_messages = [*request, {'role': 'assistant', 'content': 'answer'}]
+    captured = {'result': {'final_response': 'answer'}, 'session_usage': usage_stats(agent)}
+    row = {'admission_id': 'a1', 'request_id': 'r1'}
+    result = completion_payload(row, {'outcome': 'completed'}, 'answer', captured)
+
+    assert result['usage']['context_used'] == 730
+    assert captured['session_usage']['last_prompt_tokens'] == 900
+
+
 def test_local_viewer_turn_end_records_stats_for_the_completion():
     from gateway.session_results import execution_result
     from gateway.session_usage import publish_usage

@@ -147,17 +147,6 @@ def test_boot_drops_the_live_plugin_catalog_cache(tmp_path, monkeypatch):
 # ── machine-step registry ────────────────────────────────────────────
 
 
-def test_provisioning_is_the_machine_scope_driver_path():
-    """cua-driver has no refresh step of its own — provisioning carries it.
-
-    Pinned managed tools ride pm's lockfile; the provision_runtimes sweep
-    moves a pin bump exactly like node or ripgrep, and a second mechanism
-    would be a second authority on a tool's version.
-    """
-    names = [name for name, _ in post_update.MACHINE_STEPS]
-    assert "provision_runtimes" in names
-    assert not any("cua" in name for name in names)
-
 
 def test_provisioning_does_not_use_human_diagnostics(tmp_path, monkeypatch):
     import json

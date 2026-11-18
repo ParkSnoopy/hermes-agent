@@ -12,7 +12,7 @@ import re
 import sys
 from pathlib import Path
 
-from hermes_constants import display_hermes_home, get_hermes_home
+from hermes_constants import DEFAULT_SKIN, display_hermes_home, get_hermes_home
 
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -24,7 +24,7 @@ def _skins_dir() -> Path:
 def _active_skin() -> str:
     from hermes_cli.config import load_config
     display = (load_config() or {}).get("display") or {}
-    return str(display.get("skin") or "default")
+    return str(display.get("skin") or DEFAULT_SKIN)
 
 
 def _use(name: str) -> None:

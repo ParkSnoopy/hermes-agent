@@ -5,6 +5,7 @@ docs of config.yaml.
 """
 
 from hermes_cli.config_defaults_auxiliary import _aux
+from hermes_constants import DEFAULT_INDICATOR_STYLE, DEFAULT_SKIN
 
 DEFAULT_CONFIG = {
     "model": "",
@@ -809,10 +810,10 @@ DEFAULT_CONFIG = {
         # /focus off restores. Never affects what the model sees (focus_view.py).
         "focus_view": False,
         "focus_saved_tool_progress": "all",
-        "skin": "default",
+        "skin": DEFAULT_SKIN,
 
         # TUI busy indicator: kaomoji | emoji | unicode (braille) | ascii. `/indicator <style>`.
-        "tui_status_indicator": "kaomoji",
+        "tui_status_indicator": DEFAULT_INDICATOR_STYLE,
         # Seconds between idle prompt_toolkit redraws in the classic CLI; keeps wall-clock
         # status-bar read-outs ticking and the bottom chrome from going stale. 0 disables it if it
         # fights terminal auto-scroll in non-fullscreen mode.

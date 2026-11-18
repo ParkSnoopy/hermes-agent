@@ -520,6 +520,7 @@ class Nodejs(_BionicDebArm, BinaryPackage, DebPackage):
     the Termux main-repo nodejs .deb for bionic (same major line, termux-built)."""
 
     name = "node"
+    optional = True
     binary_rel = {"win32": "node.exe", "posix": "bin/node"}
     # The staged .deb's main binary: DebPackage.verify checks it.
     main_bin_rel = "bin/node"
@@ -630,6 +631,7 @@ def pnpm_env(base_env: Optional[dict] = None) -> dict[str, str]:
 @register
 class Npm(BinaryPackage):
     name = "npm"
+    optional = True
     deps = ("node",)
     binary_rel = {"win32": "npm.cmd", "posix": "bin/npm"}
     flatten = False
@@ -726,6 +728,7 @@ class Pnpm(BinaryPackage):
     (or none) would build them."""
 
     name = "pnpm"
+    optional = True
     # Lifecycle scripts and node-gyp run on the node pm installs.
     deps = ("node",)
     binary_rel = {"win32": "pnpm.exe", "posix": "pnpm"}

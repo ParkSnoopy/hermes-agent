@@ -618,12 +618,30 @@ async def admit_automation(authority, adapter, event, identity, replaces=None, f
     authority.sessions.setdefault(ref.session_id, LiveSession(source, entry.session_key))
     from functools import partial
     from gateway.session_runtime_workers import tracked_write
-    admitted, replaced = partial(authority._admitted, ref, event), []
-    if replaces is not None:
-        def admitted(row, admitted=admitted):
-            if replaced:  # the guard ran in the committed write; an exact replay runs no guard
-                authority._settle_cancelled(ref, replaces)
-            return admitted(row)
+    replaced = []
+
+    async def admitted(row):
+        if replaced:
+            authority._settle_cancelled(ref, replaces)
+        receipt = authority._admitted(ref, event, row)
+        from gateway.session_completion_notes import noted_completion
+        if row['status'] == 'queued' and noted_completion(row) and _notice_producer(row):
+            from gateway.session_queued_controls import _receiving_agent, _transfer_queued
+            live = authority.sessions.get(ref.session_id)
+            generation = authority.executing.get(ref.session_id)
+            if live is not None and generation is not None:
+                with live.event_stream.lock:
+                    agent = _receiving_agent(authority, ref.session_id, generation)
+                    ticketed = agent is not None and callable(getattr(agent, 'withdraw_steer', None))
+                if ticketed:
+                    try:
+                        check_local_automation(authority, ref, row)
+                        await _transfer_queued(authority, ref, row)
+                    except RuntimeStoreError:
+                        pass  # claim ended or refused: the durable row remains available
+                    except Exception:
+                        logger.exception('Could not transfer committed local producer notice %s', row['admission_id'])
+        return receipt
     return await tracked_write(authority, partial(
         admit_session_input, authority.db, epoch=authority.epoch, principal_id='automation:' + entry.session_key,
         session_id=ref.session_id, request_id=identity, payload=deepcopy(payload),
@@ -631,6 +649,15 @@ async def admit_automation(authority, adapter, event, identity, replaces=None, f
             _replace_queued(replaces, ref.session_id, replaced) if fold is None
             else _fold_queued(replaces, ref.session_id, replaced, fold)))),
         then=admitted, ordered=True, after=partial(authority._schedule_admitted, ref))
+
+
+def _notice_producer(row):
+    """Only the local producer's own completion/watch rows may auto-transfer."""
+    descriptor = row['payload'].get('local_automation_v1') or {}
+    identities = _identities([row['request_id']])
+    return (row['principal_id'] == 'automation:' + str(descriptor.get('route') or '')
+            and descriptor.get('identity') == row['request_id'] and bool(identities)
+            and identities[0][0] in {'async_delegation', 'completion', 'watch_match', 'watch_disabled'})
 
 
 # Keep the legacy producer identity for queued durable admissions created before removal.

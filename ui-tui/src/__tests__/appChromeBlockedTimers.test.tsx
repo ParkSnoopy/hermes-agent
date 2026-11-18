@@ -245,7 +245,7 @@ describe('status-chrome timers under an occluding overlay', () => {
   })
 
   it('freezes the FaceTicker verb on compacting and skips verb rotation (#97239)', () => {
-    const { output } = mount({ ...busyProps, compacting: true })
+    const { output } = mount({ ...busyProps, busy: false, compacting: true })
 
     expect(output()).toContain('compacting')
     // Glyph still ticks at the kaomoji cadence; the rotating-verb timer does not.

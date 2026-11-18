@@ -1,7 +1,7 @@
 """A canonical session's snapshot carries main's banner/status inventory for its frozen policy.
 
 Main's ``tui_gateway/server.py::_session_info`` put tools (by toolset), skills (by category), MCP
-servers, version / release date, git branch and provider on every create / resume / ``session.info``
+servers, version / commit, git branch and provider on every create / resume / ``session.info``
 ``info``; the Ink banner and the classic CLI banner render exactly those. A lazy canonical session
 (agent built on the first turn) must report what that turn's agent WILL load: the toolsets frozen
 at creation, never the owner process's whole registry."""
@@ -27,8 +27,12 @@ async def test_created_session_snapshot_carries_inventory_for_frozen_toolsets(tm
     from gateway.session_authority import initialize_session_authority
     from gateway.session_controls import AuthorityConnection
     from hermes_cli import banner
+    from hermes_cli.version_info import VersionInfo
     from tui_gateway.contracts.registry import CANONICAL_METHODS
 
+    commit = 'abcdef0' + '1' * 33
+    monkeypatch.setattr('hermes_cli.version_info.get_version_info',
+                        lambda: VersionInfo('1.2.3', '1.2.3+4.gabcdef0', 4, commit, None, 'git'))
     home = tmp_path / 'home'
     skill = home / 'skills' / 'research' / 'arxiv'
     skill.mkdir(parents=True)
@@ -68,7 +72,7 @@ async def test_created_session_snapshot_carries_inventory_for_frozen_toolsets(tm
         assert info['mcp_servers'] == []
         assert info['branch'] == 'inventory-branch'
         assert info['provider'] == 'custom'
-        assert info['version'] and info['release_date'], info
+        assert (info['version'], info['version_commit']) == ('1.2.3', commit), info
         assert sorted(info['enabled_toolsets']) == info['enabled_toolsets']
         assert {'file', 'terminal'} <= set(info['enabled_toolsets'])
 

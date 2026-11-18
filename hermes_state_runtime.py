@@ -337,14 +337,31 @@ def steer_session_input(db, *, epoch: int, admission_id: str, generation: int) -
 def settle_steer_transfers(conn, *, epoch: int, generation: int, transfers, outcome: str) -> None:
     """In the receiving claim's terminal write: each admission bound to it settles ``steered`` only if
     its text reached the claim's agent (``transfers[id]``) and the claim completed; a delivered text
-    under any other ending is ``interrupted`` (never replayed); an undelivered one is queued again."""
+    under any other ending is ``interrupted`` for human inputs; an undelivered input or a local
+    producer notice under an unsuccessful ending is queued again."""
     for admission_id, delivered in (transfers or {}).items():
-        if not delivered:
+        if not delivered or (outcome != 'completed' and _durable_notice_transfer(conn, admission_id)):
             _requeue_transfer(conn, admission_id=admission_id, epoch=epoch, generation=generation)
             continue
         conn.execute("UPDATE session_admissions SET outcome=? WHERE admission_id=? AND status='terminal' "
                      "AND outcome=? AND owner_epoch=? AND generation=?",
                      ('steered' if outcome == 'completed' else 'interrupted', admission_id, STEERING, epoch, generation))
+
+
+def _durable_notice_transfer(conn, admission_id):
+    """Only authenticated local producer notices are retryable after an uncertain turn."""
+    row = _row(_admission(conn, admission_id))
+    if row is None:
+        return False
+    descriptor = row['payload'].get('local_automation_v1') or {}
+    try:
+        identity = json.loads(row['request_id'])
+    except (TypeError, ValueError):
+        return False
+    return (isinstance(identity, list) and bool(identity)
+            and row['principal_id'] == 'automation:' + str(descriptor.get('route') or '')
+            and descriptor.get('identity') == row['request_id']
+            and identity[0] in {'async_delegation', 'completion', 'watch_match', 'watch_disabled'})
 
 
 def revert_steer_input(db, *, epoch: int, admission_id: str, generation: int) -> bool:
@@ -457,7 +474,13 @@ def recover_session_inputs(db, *, epoch: int) -> int:
         from hermes_state_runtime_workers import retire_stale_children
         retire_stale_children(conn, epoch)
         conn.execute("UPDATE worker_executions SET status='unknown' WHERE status IN ('registered','running') AND owner_epoch!=?", (epoch,))
-        # A steer handed to a lost claim may or may not have reached its agent: never replayed.
+        # Human steers are never replayed; local producer notices have nobody to resend them.
+        stale = conn.execute("SELECT admission_id,owner_epoch,generation FROM session_admissions "
+                             "WHERE status='terminal' AND outcome=? AND owner_epoch!=?", (STEERING, epoch)).fetchall()
+        for row in stale:
+            if _durable_notice_transfer(conn, row['admission_id']):
+                _requeue_transfer(conn, admission_id=row['admission_id'], epoch=row['owner_epoch'],
+                                  generation=row['generation'])
         conn.execute("UPDATE session_admissions SET outcome='interrupted' WHERE status='terminal' AND outcome=? "
                      "AND owner_epoch!=?", (STEERING, epoch))
         return conn.execute("UPDATE session_admissions SET status='unknown' WHERE status='started' AND owner_epoch!=?", (epoch,)).rowcount

@@ -388,20 +388,25 @@ export function SessionPanel({ info, maxWidth, sid, t }: SessionPanelProps) {
     </Box>
   ) : null
 
+  const version = info.version && info.version !== 'unknown' ? `v${info.version}` : 'version unknown'
+  const title = (
+    <Text bold color={t.color.primary}>
+      {t.brand.name} {version}
+      {info.version_commit ? ` (${info.version_commit.slice(0, 7)})` : ''}
+    </Text>
+  )
+
   const infoColumn = (
     <Box flexDirection="column" width="100%">
       {wide ? (
         <Box justifyContent="center" marginBottom={1}>
-          <Text bold color={t.color.primary}>
-            {t.brand.name}
-            {info.version ? ` v${info.version}` : ''}
-            {info.release_date ? ` (${info.release_date})` : ''}
-          </Text>
+          {title}
         </Box>
       ) : (
-        // Narrow layout hides the hero column; surface model/cwd/session
+        // Narrow layout hides the hero column; surface version/model/cwd/session
         // here so they aren't lost.
         <Box flexDirection="column" marginBottom={1}>
+          {title}
           <Text color={t.color.accent} wrap="truncate-end">
             {(info.model ?? '').split('/').pop()}
             <Text color={t.color.muted}> · Nous Research</Text>

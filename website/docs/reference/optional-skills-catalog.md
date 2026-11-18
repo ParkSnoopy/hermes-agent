@@ -112,11 +112,6 @@ hermes skills uninstall <skill-name>
 |-------|-------------|
 | [**adversarial-ux-test**](../user-guide/skills/optional/dogfood/dogfood-adversarial-ux-test.md) | Roleplay a hostile user to find and triage UX pain points. |
 
-## email
-
-| Skill | Description |
-|-------|-------------|
-| [**agentmail**](../user-guide/skills/optional/email/email-agentmail.md) | Use when an agent needs AgentMail CLI email inboxes. |
 
 ## finance
 
@@ -245,11 +240,6 @@ hermes skills uninstall <skill-name>
 |-------|-------------|
 | [**openhue**](../user-guide/skills/optional/smart-home/smart-home-openhue.md) | Control Philips Hue lights, scenes, rooms via OpenHue CLI. |
 
-## social-media
-
-| Skill | Description |
-|-------|-------------|
-| [**reddit-reading**](../user-guide/skills/optional/social-media/social-media-reddit-reading.md) | Read Reddit: subreddits, search, threads, users. No browser. |
 
 ## software-development
 

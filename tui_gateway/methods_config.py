@@ -9,7 +9,7 @@ import threading
 from .method_ctx import HandlerRegistry, bind_module
 from ._env import env_int
 
-from hermes_constants import DEFAULT_INDICATOR_STYLE, INDICATOR_STYLES
+from hermes_constants import DEFAULT_INDICATOR_STYLE, DEFAULT_SKIN, INDICATOR_STYLES
 from hermes_constants import display_hermes_home as _display_hermes_home
 
 _registry = HandlerRegistry()
@@ -255,7 +255,7 @@ _CONFIG_GETTERS = {
     "project": _cfg_get_project,
     "full": lambda params: {"config": _load_cfg()},
     "prompt": lambda params: {"prompt": _load_cfg().get("custom_prompt", "")},
-    "skin": lambda params: {"value": _display_raw().get("skin", "default")},
+    "skin": lambda params: {"value": _display_raw().get("skin") or DEFAULT_SKIN},
     # Normalised like the TUI renders it (frontend falls back to the default for the same inputs).
     "indicator": lambda params: {
         "value": _display_word("tui_status_indicator", DEFAULT_INDICATOR_STYLE, INDICATOR_STYLES)},

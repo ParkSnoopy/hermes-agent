@@ -250,12 +250,12 @@ describe('normalizeIndicatorStyle', () => {
     expect(normalizeIndicatorStyle('UNICODE')).toBe('unicode')
   })
 
-  it('defaults to kaomoji for missing/unknown values', () => {
-    expect(normalizeIndicatorStyle(undefined)).toBe('kaomoji')
-    expect(normalizeIndicatorStyle(null)).toBe('kaomoji')
-    expect(normalizeIndicatorStyle('')).toBe('kaomoji')
-    expect(normalizeIndicatorStyle('sparkle')).toBe('kaomoji')
-    expect(normalizeIndicatorStyle(42)).toBe('kaomoji')
+  it('defaults to ascii for missing/unknown values', () => {
+    expect(normalizeIndicatorStyle(undefined)).toBe('ascii')
+    expect(normalizeIndicatorStyle(null)).toBe('ascii')
+    expect(normalizeIndicatorStyle('')).toBe('ascii')
+    expect(normalizeIndicatorStyle('sparkle')).toBe('ascii')
+    expect(normalizeIndicatorStyle(42)).toBe('ascii')
   })
 })
 

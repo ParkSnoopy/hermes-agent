@@ -17012,7 +17012,7 @@ def test_config_get_indicator_normalizes_casing_and_whitespace(monkeypatch):
 
     Frontend's `normalizeIndicatorStyle` lowercases + trims, so config.get
     must do the same — otherwise `/indicator` prints 'EMOJI ' while the
-    UI is actually rendering the kaomoji default."""
+    UI is actually rendering the ASCII default."""
     monkeypatch.setattr(
         server, "_load_cfg", lambda: {"display": {"tui_status_indicator": " EMOJI "}}
     )
@@ -17024,14 +17024,14 @@ def test_config_get_indicator_normalizes_casing_and_whitespace(monkeypatch):
 
 def test_config_get_indicator_falls_back_to_default_for_unknown(monkeypatch):
     """An unknown value in config.yaml falls back to the same default
-    the frontend uses (`_INDICATOR_DEFAULT`)."""
+    the frontend uses (`DEFAULT_INDICATOR_STYLE`)."""
     monkeypatch.setattr(
         server, "_load_cfg", lambda: {"display": {"tui_status_indicator": "rainbow"}}
     )
     resp = server.handle_request(
         {"id": "1", "method": "config.get", "params": {"key": "indicator"}}
     )
-    assert resp["result"] == {"value": "kaomoji"}
+    assert resp["result"] == {"value": "ascii"}
 
 
 # ── config.set indicator validation ──────────────────────────────────

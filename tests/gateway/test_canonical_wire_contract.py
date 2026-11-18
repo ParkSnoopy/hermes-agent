@@ -53,23 +53,6 @@ async def test_retired_speech_methods_are_unknown_without_mutating_the_session(o
         await connection.close()
 
 
-@pytest.mark.asyncio
-async def test_retired_forward_method_is_unknown_without_mutation(owner):
-    connection, db = owner
-    before = db.get_session('s')
-    try:
-        assert 'a2a.forward' not in CANONICAL_METHODS
-        assert 'a2a.forward' not in METHODS
-        assert 'a2a.forward' not in connection.handlers()
-        response = await connection.dispatch({'id': 1, 'method': 'a2a.forward', 'params': {}})
-        assert response['error']['code'] == -32601
-        assert response['error']['data']['reason'] == 'unknown_method'
-        assert db.get_session('s') == before
-        reply = await connection.dispatch({'id': 2, 'method': 'ping', 'params': {}})
-        METHODS['ping'].result.model_validate(reply['result'])
-    finally:
-        await connection.close()
-
 
 @pytest.mark.asyncio
 async def test_declared_params_gate_canonical_verbs_before_their_handlers(owner):

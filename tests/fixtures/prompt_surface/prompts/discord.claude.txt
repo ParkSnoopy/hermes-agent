@@ -46,10 +46,6 @@ After difficult/iterative tasks, offer to save as a skill. If a skill you loaded
     - p5js: p5.js sketches: gen art, shaders, interactive, 3D.
     - popular-web-designs: 54 real design systems (Stripe, Linear, Vercel) as HTML/CSS.
     - songwriting-and-ai-music: Songwriting craft and Suno AI music prompts.
-  email:
-    - email-inbox-triage: Triage an inbox: prioritize threads, draft replies safely.
-    - himalaya: Himalaya CLI: IMAP/SMTP email from terminal.
-  - youtube-content: YouTube transcripts to summaries, threads, blogs.
   - obsidian: Read, search, create, and edit notes in the Obsidian vault.
   productivity:
     - document-to-action-items: Extract cited obligations, deadlines, tasks from documents.
@@ -65,7 +61,6 @@ After difficult/iterative tasks, offer to save as a skill. If a skill you loaded
     - arxiv: Search arXiv papers by keyword, author, category, or ID.
     - competitor-news-monitor: Watch named companies for material news; cited digests.
     - grounded-citations: Ground answers and documents in cited, verifiable sources.
-  - xurl: X/Twitter via xurl CLI: raw post search, posting, DM, media.
   software-development:
     - codebase-inspection: Inspect codebases w/ pygount: LOC, languages, ratios.
     - dogfood: Exploratory QA of web apps: find bugs, evidence, reports.

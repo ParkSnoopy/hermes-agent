@@ -21,7 +21,7 @@ Remove your info from data-broker sites, by name or phone.
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `privacy`, `data-broker`, `opt-out`, `ccpa`, `gdpr`, `security`, `doxxing` |
-| Related skills | [`google-workspace`](../../bundled/productivity/productivity-google-workspace.md), [`agentmail`](../../optional/email/email-agentmail.md), [`himalaya`](../../bundled/email/email-himalaya.md), [`scrapling`](../../optional/research/research-scrapling.md), [`osint-investigation`](../../optional/research/research-osint-investigation.md) |
+| Related skills | [`google-workspace`](../../bundled/productivity/productivity-google-workspace.md), [`scrapling`](../../optional/research/research-scrapling.md), [`osint-investigation`](../../optional/research/research-osint-investigation.md) |
 
 ## Reference: full SKILL.md
 
@@ -106,8 +106,7 @@ verifying re-scan.
       Falls back to drafts for an email if the inbox isn't reachable.
     - **SMTP/IMAP (stored creds): `EMAIL_ADDRESS` + `EMAIL_PASSWORD`** (+ `EMAIL_SMTP_HOST` /
       `EMAIL_IMAP_HOST` for non-mainstream providers; gmail/outlook/yahoo/icloud/fastmail inferred).
-      The CLI sends via `send-email` and reads verify links via `poll-verification`. The `agentmail`
-      skill (per-broker aliases) also counts.
+      The CLI sends via `send-email` and reads verify links via `poll-verification`.
   - Google Sheets tracker: the `google-workspace` skill.
   - The `scrapling` skill for stealth/Cloudflare-protected pages.
 

@@ -35,6 +35,12 @@ class VersionInfo:
     distribution: Literal["docker", "nix", "desktop-app"] | None = None
 
     @property
+    def version_label(self) -> str:
+        """Human-readable release and revision, without changing machine identity."""
+        version = f"v{self.base_version}" if self.base_version != "unknown" else "version unknown"
+        return f"{version} ({self.commit[:7]})" if self.commit else version
+
+    @property
     def display_version(self) -> str:
         """``<base>+<distance>`` when a release is known, else the derived identity.
         Keep a tagless checkout's ``git.<sha>`` rather than reducing it to unknown.
@@ -251,7 +257,21 @@ def _git_version_info(repo_dir: Path, *, include_untracked: bool = False) -> Ver
         _run_git(repo_dir, "rev-list", "--count", f"v{base_version}..HEAD")
     ) if releases else None
     if not releases:
-        base_version, distance = _calver_release_version(repo_dir) or ("unknown", None)
+        # The fork's manually cut releases can be first-parent commits titled
+        # exactly vX.Y.Z, with no tag (e.g. in a squashed source checkout).
+        markers = _run_git(
+            repo_dir, "log", "--first-parent", "--format=%H %s", "--extended-regexp",
+            "--grep=^v(0|[1-9][0-9]{0,2})[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$", "HEAD",
+        )
+        for marker in (markers or "").splitlines():
+            revision, _, subject = marker.partition(" ")
+            if not STABLE_TAG_RE.fullmatch(subject):
+                continue
+            base_version = subject[1:]
+            distance = _parse_nonnegative(_run_git(repo_dir, "rev-list", "--count", f"{revision}..HEAD"))
+            break
+        else:
+            base_version, distance = _calver_release_version(repo_dir) or ("unknown", None)
     short_commit = _run_git(repo_dir, "rev-parse", "--short=7", "HEAD")
     if base_version == "unknown" and short_commit:
         display_version = f"git.{short_commit}{'.dirty' if dirty else ''}"

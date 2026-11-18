@@ -456,7 +456,7 @@ class _NonRetryableFailureAdapter(BasePlatformAdapter):
 
 @pytest.mark.asyncio
 async def test_runner_exits_with_ex_config_on_nonretryable_startup_error(monkeypatch, tmp_path):
-    """Non-retryable startup errors (token collision, no platforms) must
+    """Non-retryable ownership conflicts (such as token collision) must
     set exit_code to 78 (EX_CONFIG) so the s6 finish script can translate
     it to exit 125 (permanent failure).  See #51228."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))

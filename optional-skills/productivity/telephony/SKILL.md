@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 metadata:
   hermes:
     tags: [telephony, phone, sms, mms, voice, twilio, bland.ai, vapi, calling, texting]
-    related_skills: [maps, google-workspace, agentmail]
+    related_skills: [maps, google-workspace]
     category: productivity
 ---
 
