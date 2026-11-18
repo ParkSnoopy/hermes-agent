@@ -34,8 +34,7 @@ it('branch hydration replaces source authority only after a successful destinati
   function Harness() {
     const lifecycle = useSessionLifecycle({ colsRef: { current: 80 }, composerActions: { setComposerTokens: vi.fn() },
       gw: { request }, rpc: request, scrollRef: { current: null }, panel: vi.fn(), sys,
-      setHistoryItems, setLastUserMsg: vi.fn(), setSessionStartedAt: vi.fn(), setStickyPrompt: vi.fn(),
-      setVoiceProcessing: vi.fn(), setVoiceRecording: vi.fn() } as any)
+      setHistoryItems, setLastUserMsg: vi.fn(), setSessionStartedAt: vi.fn(), setStickyPrompt: vi.fn(), } as any)
 
     slash = createSlashHandler({ slashFlightRef: { current: 0 }, gateway: { gw: { request }, rpc: request },
       local: {}, session: { ...lifecycle, setSessionStartedAt: vi.fn() }, transcript: { sys, setHistoryItems } } as any)

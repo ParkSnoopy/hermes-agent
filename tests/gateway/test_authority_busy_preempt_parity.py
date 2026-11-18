@@ -1,11 +1,11 @@
-"""The authority's busy preempt keeps main's busy handler: voice steers, steer folds, busy ack."""
+"""The authority's busy preempt preserves steering, interrupt and busy acknowledgement."""
 import asyncio
 
 import pytest
 
 from gateway.config import GatewayConfig
 from gateway.platforms.base import SendResult
-from gateway.platforms.event import MessageEvent, MessageType
+from gateway.platforms.event import MessageEvent
 from gateway.run import GatewayRunner
 from gateway.session_authority import SessionAuthority, initialize_session_authority
 from hermes_state_runtime import list_session_admissions
@@ -58,24 +58,15 @@ def _admitted(authority):
 
 
 @pytest.mark.asyncio
-async def test_busy_voice_note_steers_with_transcript_folds_and_acks(tmp_path, monkeypatch):
+async def test_busy_text_steers_folds_and_acks(tmp_path, monkeypatch):
     runner, authority, source, agent, sent, turn = await _setup(tmp_path, monkeypatch, 'steer')
-
-    async def transcribe(event, adapter, source, text, **_):
-        return 'TRANSCRIBED voice follow-up', ['TRANSCRIBED voice follow-up']
-
-    monkeypatch.setattr(runner, '_transcribe_and_echo_pending_voice', transcribe)
-    monkeypatch.setattr(runner, '_pending_event_audio_paths', lambda event: list(event.media_urls))
-    voice = tmp_path / 'note.ogg'
-    voice.write_bytes(b'OggS')
     try:
         handled = asyncio.ensure_future(runner._handle_message(MessageEvent(
-            text='', message_type=MessageType.VOICE, source=source, message_id='v1', reply_expected=True,
-            media_urls=[str(voice)], media_types=['audio/ogg'])))
+            text='follow-up', source=source, message_id='v1', reply_expected=True)))
         done, _ = await asyncio.wait({handled}, timeout=10)
         handled.cancel()
-        assert done, 'the voice note was admitted as a turn behind the running one instead of steering'
-        assert len(agent.steers) == 1 and agent.steers[0].endswith('TRANSCRIBED voice follow-up'), agent.steers
+        assert done, 'the text was admitted as a turn behind the running one instead of steering'
+        assert len(agent.steers) == 1 and agent.steers[0].endswith('follow-up'), agent.steers
         assert turn.event.reply_expected is True  # addressed steer folded: a silence marker can't end it
         assert sent, 'no busy ack'
         assert _admitted(authority) == []  # steered text is inside the run, never replayed
@@ -84,25 +75,16 @@ async def test_busy_voice_note_steers_with_transcript_folds_and_acks(tmp_path, m
 
 
 @pytest.mark.asyncio
-async def test_busy_voice_note_interrupts_with_transcript_in_interrupt_mode(tmp_path, monkeypatch):
+async def test_busy_text_interrupts_in_interrupt_mode(tmp_path, monkeypatch):
     runner, authority, source, agent, sent, _turn = await _setup(tmp_path, monkeypatch, 'interrupt')
-
-    async def transcribe(event, adapter, source, text, **_):
-        return 'TRANSCRIBED stop that', ['TRANSCRIBED stop that']
-
-    monkeypatch.setattr(runner, '_transcribe_and_echo_pending_voice', transcribe)
-    monkeypatch.setattr(runner, '_pending_event_audio_paths', lambda event: list(event.media_urls))
     monkeypatch.setattr(runner, '_handle_message_with_agent', lambda *a, **k: None)
-    voice = tmp_path / 'note.ogg'
-    voice.write_bytes(b'OggS')
     try:
         task = asyncio.ensure_future(runner._handle_message(MessageEvent(
-            text='', message_type=MessageType.VOICE, source=source, message_id='v2',
-            media_urls=[str(voice)], media_types=['audio/ogg'])))
+            text='stop that', source=source, message_id='v2')))
         from tests.waiting import async_wait_until
-        await async_wait_until(lambda: _admitted(authority), timeout=10, what='the voice note admitted')
+        await async_wait_until(lambda: _admitted(authority), timeout=10, what='the text admitted')
         task.cancel()
-        assert agent.interrupts == [('TRANSCRIBED stop that',)], agent.interrupts
+        assert agent.interrupts == [('stop that',)], agent.interrupts
         assert sent, 'no busy ack'
     finally:
         authority.db.close()

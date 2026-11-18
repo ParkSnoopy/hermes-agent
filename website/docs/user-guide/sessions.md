@@ -73,7 +73,6 @@ Media attachments are handled as turn-scoped inputs:
 
 - Images may be attached natively to the next model call, or pre-analyzed into
   a text description when the active model does not support native vision.
-- Audio is transcribed into text when speech-to-text is configured.
 - Text documents can have their extracted text included; other document types
   are usually represented by a saved local path and a short note.
 - Attachment paths and extracted/derived text can appear in the transcript, but
@@ -135,7 +134,7 @@ Each session is tagged with its source platform:
 | `webhook` | Incoming webhooks |
 | `api-server` | API server requests |
 | `acp` | ACP editor integration |
-| `cron` | Scheduled cron jobs |
+| `cron` | Historical scheduled-job sessions |
 | `batch` | Batch processing runs |
 | `kanban` | Kanban dispatcher workers (read on the board, hidden from session pickers) |
 | `tool` | Third-party integrations (`--source tool`), hidden from session pickers |
@@ -596,7 +595,7 @@ hermes sessions prune --after "2026-07-05 09:00" --before "2026-07-05 14:30"
 # Only prune sessions from a specific platform (all ages — any filter
 # disables the implicit 90-day default)
 hermes sessions prune --source telegram
-hermes sessions prune --source cron --older-than 60   # add a time flag to narrow
+hermes sessions prune --source cli --older-than 60   # add a time flag to narrow
 
 # More filters — all AND together
 hermes sessions prune --newer-than 5h --title "smoke test"   # title substring
@@ -630,7 +629,7 @@ exact), `--end-reason`, `--user`, `--chat-id`, `--chat-type` (exact),
 `--cwd` (path prefix), plus numeric bounds `--min/--max-messages`,
 `--min/--max-tokens` (input+output), `--min/--max-cost` (USD, actual falling
 back to estimated), and `--min/--max-tool-calls`. Using any filter disables
-the implicit 90-day default, so `hermes sessions prune --source cron` or
+the implicit 90-day default, so `hermes sessions prune --source cli` or
 `--model gpt-4o` matches all ages — add a time flag to narrow it. Only a
 completely bare `hermes sessions prune` keeps the 90-day cutoff. Every
 non-`--yes` run shows the match count plus the oldest and newest matching
@@ -863,7 +862,7 @@ What it finds and does:
 | `parent_session_id` pointing at another profile's row | sever the link; the row's own identity is kept |
 | routing rows outside the default store (under multiplexing) | move to the default store; an existing row there wins |
 | routing rows / `sessions.json` entries for a profile that no longer exists | delete |
-| Telegram topic bindings and voice-mode entries missing their bot's profile | relabel from the sessions that hold the chat |
+| Telegram topic bindings missing their bot's profile | relabel from the sessions that hold the chat |
 
 Two cases are reported but never repaired without being told what they are:
 rows keyed to a profile that does not exist (create the profile, or
@@ -909,46 +908,6 @@ process yourself — a process the scan does find is always refused. Enabling
 WAL is also refused when the store sits on a cross-VM filesystem (virtiofs/9p),
 where WAL shared memory corrupts silently.
 
-
-## Importing Sessions from Claude Code and Codex CLI
-
-Started a conversation in another agent CLI? You can pull it into Hermes and
-continue it here. Hermes reads Claude Code's session logs
-(`~/.claude/projects/`, or `$CLAUDE_CONFIG_DIR/projects/` when Claude Code's
-config dir is relocated) and Codex CLI's rollouts (`~/.codex/sessions/`, or
-`$CODEX_HOME/sessions/`) — the foreign files are only read, never modified.
-
-```bash
-# Interactive picker across both tools, newest first
-hermes sessions import
-
-# Limit to one tool, or point at a specific file
-hermes sessions import --from claude
-hermes sessions import --from codex ~/.codex/sessions/2026/08/15/rollout-....jsonl
-
-# Import-and-resume in one step
-hermes --resume @claude
-hermes --resume @codex
-```
-
-`hermes sessions import` creates a new Hermes session titled
-`Imported from Claude Code: <first user message>` (or Codex CLI) and prints
-the id plus a ready-to-paste `hermes --resume <id>` command.
-`--resume @claude` / `--resume @codex` show the same picker and drop you
-straight into the imported conversation.
-
-**Hermes Desktop** has the same importer in the command palette (**Import
-session**). It lists the logs on the machine the
-connected backend runs on — not the computer running the app — shows a
-read-only preview, and **Continue in Hermes** copies the conversation into the
-selected profile. Browsing never writes to your session store, importing never
-touches the source file, and importing the same log twice opens the existing
-copy instead of making another.
-
-What carries over: the ordered user/assistant conversation, with tool
-activity condensed to short `[ran tool: …]` notes inside assistant turns.
-System prompts, injected context, reasoning traces, and raw tool output are
-left behind — the import is a clean transcript, not a byte-for-byte replay.
 
 
 ## Session Search Tool
@@ -1192,7 +1151,7 @@ Key tables in `state.db`:
 
 - Gateway conversations persist across inactivity; use `/new` or `/reset` for an explicit boundary
 - Before reset, the agent saves memories and skills from the expiring session
-- Auto-pruning (**off by default**; opt in): when `sessions.auto_prune` is `true`, ended sessions inactive for `sessions.retention_days` (default 90) are pruned at CLI/gateway/cron startup
+- Auto-pruning (**off by default**; opt in): when `sessions.auto_prune` is `true`, ended sessions inactive for `sessions.retention_days` (default 90) are pruned at CLI/gateway startup
 - **Low-disk prompt.** While your `config.yaml` has no `sessions.auto_prune` key, Hermes checks the disk holding `state.db` at session start (two filesystem calls, no measurable cost). When that disk is low (under 2 GB free, or under 10% free with less than 20 GB left) it asks once: the classic CLI asks at startup (the first low-disk launch only measures, in the background, and the question appears from the next launch on, so startup never waits on the database), the TUI and Desktop show a notice, and a gateway posts the question to its home channel. The prompt estimates how much history a prune would delete (weighted by stored bytes, so many small old messages don't overstate it) and says plainly when pruning will *not* fix the disk (no session older than `retention_days`, or the history is a small share of the full disk). Deleted history frees space inside `state.db`; the automatic `VACUUM` below rarely triggers after a single prune, so run `hermes sessions optimize` to give the space back to the disk. Answer with `/autoprune on`, `/autoprune off` (keep everything; never asked again) or `/autoprune later` (reminded in a week); `/autoprune` alone shows the current state
 - `sessions.retention_days` must be a whole number of days `>= 0`. A negative value (or a missing one) is rejected: startup maintenance logs a warning naming the allowed range and skips the sweep instead of treating the future cutoff as "everything" — `sessions.auto_prune: false` is the switch that disables pruning
 - After a prune that actually removed rows, `state.db` is `VACUUM`ed to reclaim disk space only when **both** gates pass: at least `sessions.min_vacuum_interval_days` (default 30) have elapsed since the last successful `VACUUM`, **and** more than 25% of the file's pages are reclaimable (`PRAGMA freelist_count / page_count`). A dense database never pays for a full rewrite to reclaim a few MB (SQLite does not shrink the file on plain DELETE)
@@ -1220,11 +1179,11 @@ retention window. The same holds for a conversation that compression split into
 several sessions: its older segments are kept while any later segment is, and
 are pruned together with it once the whole conversation qualifies.
 
-**Stale open sessions from automation.** Some producers — cron jobs, kanban
+**Stale open sessions from automation.** Some producers — kanban
 workers, subagents, one-shot CLI runs — can die without ever marking their
 session ended, and pruning only deletes *ended* rows. To keep those from
 accumulating forever, each auto-prune pass also *closes* open sessions from
-those state-owned sources (`cli`, `cron`, `kanban`, `acp`, `api_server`,
+those state-owned sources (`cli`, `kanban`, `acp`, `api_server`,
 `subagent`, `tool`, plus the `recovered` placeholders that
 `hermes sessions recover` synthesizes for orphaned messages) whose last
 activity is older than `retention_days`

@@ -182,8 +182,8 @@ def test_gates_start_no_pass(setup):
 
 
 @pytest.mark.parametrize("agent_attrs", [
-    {"platform": "cron"}, {"platform": "subagent"}, {"_delegate_depth": 1}, {"_oneshot_session": True},
-], ids=["cron", "subagent-platform", "delegated-child", "one-shot"])
+    {"platform": "subagent"}, {"_delegate_depth": 1}, {"_oneshot_session": True},
+], ids=["subagent-platform", "delegated-child", "one-shot"])
 def test_turn_end_pass_skipped_where_the_session_ends_with_the_turn(agent_attrs):
     cc = _compressor()
     agent = _agent(cc)

@@ -69,7 +69,7 @@ The pipeline uses a minimum-viable set of application permissions. Add only what
 
 | Permission | What it lets the app do |
 |------------|--------------------------|
-| `OnlineMeetingRecording.Read.All` | Download Teams meeting recordings for offline STT processing. |
+| `OnlineMeetingRecording.Read.All` | Download Teams meeting recordings. |
 | `CallRecords.Read.All` | Resolve meetings from call records when only the join URL is known. |
 
 ### Required for outbound summary delivery (Graph mode only)

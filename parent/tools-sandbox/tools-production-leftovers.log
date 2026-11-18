@@ -1,0 +1,2 @@
+tools/approval.py:1225:    the LLM cannot skip it. Cron honors ``approvals.cron_mode``; any OTHER non-interactive
+tools/approval.py:1327:    or ``approvals.cron_mode`` to require approval). See #30882.

@@ -1,7 +1,6 @@
 """CLI coverage for the public Computer Use command surface."""
 
-import subprocess
-import sys
+import json
 from importlib import import_module
 from unittest.mock import Mock
 
@@ -14,13 +13,14 @@ from tools.computer_use import cua_backend_driver
 
 def _invoke(monkeypatch, *args: str) -> int:
     cli_main = import_module("hermes_cli.main")
-    monkeypatch.setattr(sys, "argv", ["hermes", "computer-use", *args])
-    monkeypatch.setattr(cli_main, "_prepare_agent_startup", lambda _args: None)
+    # Exercise real parser dispatch without running application startup hooks.
+    parser, subparsers = cli_main._build_cli_parser()
     try:
-        cli_main.main()
+        parsed = cli_main._parse_cli_args(parser, subparsers, ["computer-use", *args])
+        result = parsed.func(parsed)
     except SystemExit as exc:
         return int(exc.code or 0)
-    return 0
+    return result if isinstance(result, int) else 0
 
 
 
@@ -80,21 +80,15 @@ def test_computer_use_install_propagates_setup_result(monkeypatch, ready, upgrad
     install.assert_called_once_with(upgrade=upgrade)
 
 
-def test_permissions_status_names_the_stale_tcc_row_for_the_missing_grant(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """A grant the daemon reports missing while System Settings shows it ON is a stale TCC row (trycua/cua#3170);
-    the status output must name the reset for exactly the missing service, never for one that is granted."""
-    from tools.computer_use import permissions
+@pytest.mark.parametrize("ready,exit_code", [(True, 0), (False, 1), (None, 1)])
+def test_computer_use_status_json_reports_readiness(monkeypatch, capsys, ready, exit_code):
+    from tools.computer_use import readiness
 
-    status = {"platform": "darwin", "platform_supported": True, "installed": True, "version": "cua-driver 0.28.2",
-              "ready": False, "can_grant": True, "checks": [], "source": None, "error": None,
-              "accessibility": False, "screen_recording": True, "screen_recording_capturable": True}
-    monkeypatch.setattr(permissions, "computer_use_status", lambda driver_cmd=None: status)
+    status = {"platform": "linux", "platform_supported": True, "installed": True,
+              "version": "cua-driver fixture", "ready": ready, "checks": [], "source": None, "error": None}
+    monkeypatch.setattr(readiness, "computer_use_status", lambda: status)
 
-    assert _invoke(monkeypatch, "permissions", "status") == 1
-    out = capsys.readouterr().out
-    assert "tccutil reset Accessibility com.trycua.driver" in out
-    assert "ScreenCapture" not in out
-    assert "hermes computer-use permissions grant" in out
+    assert _invoke(monkeypatch, "status", "--json") == exit_code
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == status
+    assert captured.err == ""

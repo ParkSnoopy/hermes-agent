@@ -3,12 +3,11 @@
 import logging
 import os
 import signal
-import subprocess
+
 import time
 from contextlib import suppress
 from typing import TYPE_CHECKING, List, Optional
 
-from hermes_cli._subprocess_compat import windows_hide_flags
 
 if TYPE_CHECKING:
     from tools.process_registry import ProcessSession
@@ -37,10 +36,7 @@ class ProcessTerminationMixin:
         it — a leaked orphan beats tree-killing someone's browser. POSIX: snapshot descendants,
         SIGTERM the parent alone so it can perform an orderly shutdown, then clean up snapshot
         descendants that survive its grace window. Survivors are SIGKILLed after a second
-        ``terminal.daemon_term_grace_seconds`` window. Windows:
-        ``taskkill /T /F`` (psutil's stale PPID links miss orphans there); ``os.kill``
-        is the fallback."""
-        from tools.process_registry import _IS_WINDOWS
+        ``terminal.daemon_term_grace_seconds`` window."""
 
         if expected_start is not None and not cls._host_pid_is_ours(pid, expected_start):
             logger.warning(
@@ -51,15 +47,7 @@ class ProcessTerminationMixin:
         def _sigterm_quietly():
             with suppress(OSError, ProcessLookupError, PermissionError):
                 os.kill(pid, signal.SIGTERM)
-        if _IS_WINDOWS:
-            try:
-                subprocess.run(
-                    ["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True,
-                    encoding='utf-8', errors='replace', timeout=10, creationflags=windows_hide_flags(),
-                    stdin=subprocess.DEVNULL, check=False)
-            except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-                _sigterm_quietly()
-            return
+
         import psutil
         gone = (psutil.NoSuchProcess, psutil.AccessDenied, OSError)
         try:

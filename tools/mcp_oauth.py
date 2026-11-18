@@ -70,7 +70,6 @@ class RefreshFenceTimeout(RuntimeError):
 
 
 # POSIX flock: EWOULDBLOCK/EAGAIN, EACCES on some NFS; msvcrt.locking: EACCES/EDEADLK.
-# Same set as cron.scheduler._is_lock_contention_errno (not imported: that module is heavy).
 _FENCE_CONTENTION_ERRNOS = frozenset({errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES, errno.EDEADLK})
 
 

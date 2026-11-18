@@ -20,7 +20,6 @@ const sidebars: SidebarsConfig = {
         'getting-started/nix-setup',
         'getting-started/updating',
         'getting-started/learning-path',
-        'getting-started/official-domains',
       ],
     },
     {
@@ -32,8 +31,6 @@ const sidebars: SidebarsConfig = {
         'user-guide/tui',
 
         'user-guide/bot-mode',
-        'user-guide/windows-native',
-        'user-guide/windows-wsl-quickstart',
         'user-guide/switching-to-source',
         'user-guide/configuration',
         'user-guide/which-file-does-what',
@@ -106,8 +103,6 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'Automation',
           items: [
-            'user-guide/features/cron',
-            'reference/automation-blueprints-catalog',
             'user-guide/features/delegation',
 
             'user-guide/features/codex-app-server-runtime',
@@ -124,8 +119,6 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'Media & Web',
           items: [
-            'user-guide/features/voice-mode',
-            'user-guide/features/wake-word',
             'user-guide/features/web-search',
             'user-guide/features/x-search',
             'user-guide/features/browser',
@@ -136,7 +129,6 @@ const sidebars: SidebarsConfig = {
             'user-guide/features/image-generation',
             'user-guide/features/spotify',
             'user-guide/features/pets',
-            'user-guide/features/tts',
             'user-guide/features/deliverable-mode',
           ],
         },
@@ -160,18 +152,7 @@ const sidebars: SidebarsConfig = {
               label: 'Bundled',
               collapsed: true,
               items: [
-                {
-                  type: 'category',
-                  label: 'apple',
-                  key: 'skills-bundled-apple',
-                  collapsed: true,
-                  items: [
-                    'user-guide/skills/bundled/apple/apple-apple-notes',
-                    'user-guide/skills/bundled/apple/apple-apple-reminders',
-                    'user-guide/skills/bundled/apple/apple-findmy',
-                    'user-guide/skills/bundled/apple/apple-imessage',
-                  ],
-                },
+
                 {
                   type: 'category',
                   label: 'autonomous-ai-agents',
@@ -652,29 +633,20 @@ const sidebars: SidebarsConfig = {
       label: 'Guides & Tutorials',
       collapsed: true,
       items: [
-        'guides/run-nemotron-3-ultra-free',
         'guides/run-hermes-with-nous-portal',
         'guides/tips',
         'guides/secure-hermes-on-a-work-machine',
-        'guides/local-llm-on-mac',
-        'guides/daily-briefing-bot',
 
         'guides/python-library',
         'guides/use-mcp-with-hermes',
         'guides/manage-hermes-cloud-with-mcp',
         'guides/use-soul-with-hermes',
-        'guides/use-voice-mode-with-hermes',
-        'guides/automate-with-cron',
-        'guides/cron-script-only',
-        'guides/automation-blueprints',
-        'guides/cron-troubleshooting',
         'guides/troubleshooting-agent-quality',
         'guides/work-with-skills',
         'guides/delegation-patterns',
         'guides/agent-email-address',
-        'guides/github-pr-review-agent',
+        'guides/webhook-automation-examples',
         'guides/webhook-github-pr-review',
-        'guides/migrate-from-openclaw',
         'guides/aws-bedrock',
         'guides/google-vertex',
         'guides/azure-foundry',
@@ -758,11 +730,8 @@ const sidebars: SidebarsConfig = {
             'developer-guide/tools-runtime',
             'developer-guide/browser-supervisor',
             'developer-guide/acp-internals',
-            'developer-guide/cron-internals',
-            'developer-guide/chronos-managed-cron-contract',
             'developer-guide/egress-internals',
 
-            'developer-guide/streaming-tts',
             'developer-guide/billing-lifecycle',
             'developer-guide/trajectory-format',
           ],
@@ -774,7 +743,6 @@ const sidebars: SidebarsConfig = {
             'developer-guide/source-update-completion',
             'developer-guide/shared-bundle-builds',
             'developer-guide/stable-releases',
-            'developer-guide/macos-bundle-updates',
             'developer-guide/pm-audit-status',
           ],
         },

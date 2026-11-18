@@ -627,7 +627,7 @@ With `compression.prepare_ahead: true` (read at agent construction, so it takes 
 session or gateway agent rebuild), `agent/prepared_compaction.py` writes the next summary before
 the trigger fires. When the last provider-reported prompt count is within 12% of the trigger
 (`threshold_tokens`) below it, the turn loop starts one background pass, before a tool batch runs or
-at turn end. Turn-end passes are skipped for cron runs, delegated children and one-shot sessions
+at turn end. Turn-end passes are skipped for delegated children and one-shot sessions
 (`hermes chat -q`, `-z`), whose agents end with the turn. The pass plans the same window `compress()` plans (`_plan_compaction_window`) and calls
 the same `_generate_summary` on a copy of the compressor and of the window's messages, so the live
 transcript, the system prompt and the prompt cache are untouched until compaction. There is one pass
@@ -806,7 +806,7 @@ prompt_caching:
   cache_ttl: "5m"
 ```
 
-`"auto"` resolves once per session in `agent/agent_init.py::_init_prompt_cache_config` via `agent/prompt_caching.py::auto_cache_ttl_for_source`: `1h` for human-paced sources, `5m` for `MACHINE_PACED_SOURCES` (subagent, cron, oneshot, webhook, kanban, api, tool, batch). Auxiliary/stub calls (`configured_cache_ttl()`) treat `auto` as `5m`.
+`"auto"` resolves once per session in `agent/agent_init.py::_init_prompt_cache_config` via `agent/prompt_caching.py::auto_cache_ttl_for_source`: `1h` for human-paced sources, `5m` for `MACHINE_PACED_SOURCES` (subagent, oneshot, webhook, kanban, api, tool, batch). Auxiliary/stub calls (`configured_cache_ttl()`) treat `auto` as `5m`.
 
 The CLI shows caching status at startup:
 ```

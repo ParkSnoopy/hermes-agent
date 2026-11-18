@@ -70,7 +70,7 @@ export HERMES_WRITE_SAFE_ROOT=/path/to/project:/home/you/.hermes
 Sensitive paths inside the safe root are still blocked — pointing it at `$HOME` does not allow writing `~/.ssh/id_rsa`.
 
 :::caution
-Don't add this to `~/.hermes/.env` casually. If you set it to a project directory only, the agent cannot write to `~/.hermes/cron/jobs.json`, profile skills, or other Hermes state outside that prefix. Include your Hermes home as a second root, as above.
+Don't add this to `~/.hermes/.env` casually. If you set it to a project directory only, the agent cannot write to profile skills or other Hermes state outside that prefix. Include your Hermes home as a second root, as above.
 :::
 
 ### Local command execution

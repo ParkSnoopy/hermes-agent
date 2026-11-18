@@ -5,39 +5,25 @@ mangling, crashes, and divergent hashing that made day-to-day agent use on
 Windows unpleasant. Each test names the issue it pins.
 """
 
-import sys
+
 from pathlib import Path
 
 import pytest
 
-from hermes_cli._subprocess_compat import split_command_line
-
-
 class TestSplitCommandLine:
-    """#83934 / #78293 — backslashes in Windows paths must survive splitting."""
-
-    @pytest.mark.platforms("windows")
-    def test_windows_path_backslashes_preserved(self):
-        argv = split_command_line(r"sessions export C:\Users\me\Desktop\out.jsonl")
-        assert argv == ["sessions", "export", r"C:\Users\me\Desktop\out.jsonl"]
-
-    @pytest.mark.platforms("windows")
-    def test_quoted_path_with_spaces(self):
-        argv = split_command_line(r'run "C:\Program Files\App\tool.exe" --flag')
-        assert argv == ["run", r"C:\Program Files\App\tool.exe", "--flag"]
-
-    @pytest.mark.platforms("windows")
-    def test_bare_hook_command_path(self):
-        argv = split_command_line(r"C:\Users\u\.local\bin\dcg.exe --hook pre")
-        assert argv[0] == r"C:\Users\u\.local\bin\dcg.exe"
+    """Console command parsing retains POSIX quoting and error reporting."""
 
     @pytest.mark.platforms("linux")
     def test_posix_behavior_unchanged(self):
-        assert split_command_line("echo 'a b' c") == ["echo", "a b", "c"]
+        from hermes_cli.console_engine import _split_line
+
+        assert _split_line("echo 'a b' c") == ["echo", "a b", "c"]
 
     def test_unbalanced_quote_raises(self):
-        with pytest.raises(ValueError):
-            split_command_line('run "unterminated')
+        from hermes_cli.console_engine import ConsoleCommandError, _split_line
+
+        with pytest.raises(ConsoleCommandError, match="Could not parse command"):
+            _split_line('run "unterminated')
 
 
 class TestShellHooksWindowsPaths:
@@ -60,18 +46,6 @@ class TestShellHooksWindowsPaths:
         assert script_is_executable(f'python "{script}"') or script_is_executable(
             f"python {script}"
         )
-
-
-class TestWindowsMarketingVersion:
-    """#51755 — Windows 11 must not be reported as Windows 10."""
-
-    @pytest.mark.platforms("windows")
-    def test_matches_build_number(self):
-        from agent.prompt_builder import _windows_marketing_version
-
-        build = sys.getwindowsversion().build
-        expected = "11" if build >= 22000 else "10"
-        assert _windows_marketing_version() == expected
 
 
 class TestAutocompleteDevicePaths:

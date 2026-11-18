@@ -1,4 +1,4 @@
-"""Transport liveness + build capability probes (``methods_voice.py`` hosts them)."""
+"""Transport liveness and build capability probes."""
 
 from __future__ import annotations
 

@@ -1,15 +1,4 @@
-"""Plugin-registered auxiliary tasks reach the dashboard/Desktop Models settings.
-
-``PluginContext.register_auxiliary_task`` already puts a plugin task in the ``hermes model``
-picker (``main_provider_setup._all_aux_tasks``), but the REST surface behind the Desktop
-Settings → Models page enumerated only the built-in ``_AUX_TASK_SLOTS``: ``GET
-/api/model/auxiliary`` never listed the task, ``POST /api/model/set`` rejected it with
-``unknown auxiliary task``, ``__reset__`` skipped it and the stale-pin nudge ignored it.
-
-These tests load real plugins from temp homes through ``PluginManager`` discovery (no fake
-registry) and cover the profile seam: one ``hermes serve`` process, two profiles with their own
-plugins and their own config. Regression for #40880 / #129189.
-"""
+"""Plugin auxiliary-task discovery, inheritance and CLI config across profiles."""
 
 from __future__ import annotations
 
@@ -17,17 +6,11 @@ import json
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
-
 import hermes_cli.plugins as plugins_mod
 from agent.auxiliary_client import _get_auxiliary_task_config
 from hermes_cli.plugins import PluginManager
-from hermes_cli.web_server_config import (
-    _AUX_TASK_SLOTS, _apply_aux_assignment_sync, _apply_model_assignment_sync, _aux_task_slots,
-    _stale_aux_pins,
-)
-from hermes_cli.web_server_profiles import _profile_scope
-from hermes_cli.web_routers.models import get_auxiliary_models
+from hermes_cli.main_provider_setup import _AUX_TASKS, _all_aux_tasks, _reset_aux_to_auto, _save_aux_choice
+from tui_gateway.model_switch import _session_profile_runtime_scope
 
 
 def _write_plugin(home: Path, name: str, register_call: str) -> None:
@@ -71,77 +54,48 @@ def two_profile_homes(tmp_path, monkeypatch):
     plugins_mod._reset_plugin_managers_for_tests()
 
 
-def _rows(profile):
-    return {row["task"]: row for row in get_auxiliary_models(profile=profile)["tasks"]}
-
-
 def _resolved_model(profile):
-    with _profile_scope(profile):
+    with _session_profile_runtime_scope({"profile_home": profile}, hydrate_secrets=False):
         return _get_auxiliary_task_config("side_task").get("model")
 
 
 def test_listing_is_per_profile_and_carries_inheritance(two_profile_homes):
-    listing = get_auxiliary_models(profile=None)["tasks"]
-    # Built-ins first, in their fixed order and pre-existing shape; plugin rows appended.
-    assert [row["task"] for row in listing][: len(_AUX_TASK_SLOTS)] == list(_AUX_TASK_SLOTS)
-    assert "label" not in listing[0] and "plugin" not in listing[0]
-
-    rows_a, rows_b = _rows(None), _rows("b")
-    assert "alpha_task" in rows_a and "alpha_task" not in rows_b
-    side_a, side_b = rows_a["side_task"], rows_b["side_task"]
-    assert (side_a["label"], side_a["hint"], side_a["plugin"]) == ("Side model", "side model for side", "side")
-    assert side_a["inherit_from"] == "compression" and rows_a["alpha_task"]["inherit_from"] is None
-    # Unpinned: own provider stays "auto"; ``effective`` is the base slot of THAT profile.
-    assert side_a["provider"] == "auto"
-    assert side_a["effective"] == {"provider": "openrouter", "model": "vendor/model-a", "base_url": ""}
-    assert side_b["effective"]["model"] == "vendor/model-b"
+    home_a, home_b = two_profile_homes
+    with _session_profile_runtime_scope({"profile_home": home_a}, hydrate_secrets=False):
+        tasks_a = _all_aux_tasks()
+        assert tasks_a[:len(_AUX_TASKS)] == list(_AUX_TASKS)
+        assert ("side_task", "Side model", "side model for side") in tasks_a
+        assert any(row[0] == "alpha_task" for row in tasks_a)
+    with _session_profile_runtime_scope({"profile_home": home_b}, hydrate_secrets=False):
+        assert "alpha_task" not in {row[0] for row in _all_aux_tasks()}
+    assert (_resolved_model(home_a), _resolved_model(home_b)) == ("vendor/model-a", "vendor/model-b")
 
 
 def test_pin_persists_per_profile_and_is_honored_by_resolution(two_profile_homes):
-    home_a, _home_b = two_profile_homes
-    with _profile_scope("b"):
-        _apply_model_assignment_sync("auxiliary", "nous", "hermes-4", "side_task", "", "")
-    assert _rows("b")["side_task"]["provider"] == "nous"
+    home_a, home_b = two_profile_homes
+    with _session_profile_runtime_scope({"profile_home": home_b}, hydrate_secrets=False):
+        _save_aux_choice("side_task", provider="nous", model="hermes-4")
     assert "side_task" not in (home_a / "config.yaml").read_text()
-    assert (_resolved_model("b"), _resolved_model(None)) == ("hermes-4", "vendor/model-a")
-
-    # "auto" on an inheriting slot (Desktop's "Follow <base>") goes back to the base.
-    with _profile_scope("b"):
-        _apply_model_assignment_sync("auxiliary", "auto", "", "side_task", "", "")
-    assert _resolved_model("b") == "vendor/model-b"
-
-    # A base-slot change in B reaches B's plugin slot, never A's.
-    with _profile_scope("b"):
-        _apply_model_assignment_sync("auxiliary", "openrouter", "vendor/model-b2", "compression", "", "")
-    assert (_resolved_model("b"), _resolved_model(None)) == ("vendor/model-b2", "vendor/model-a")
+    assert (_resolved_model(home_b), _resolved_model(home_a)) == ("hermes-4", "vendor/model-a")
+    with _session_profile_runtime_scope({"profile_home": home_b}, hydrate_secrets=False):
+        _save_aux_choice("side_task", provider="auto")
+    assert _resolved_model(home_b) == "vendor/model-b"
+    with _session_profile_runtime_scope({"profile_home": home_b}, hydrate_secrets=False):
+        _save_aux_choice("compression", provider="openrouter", model="vendor/model-b2")
+    assert (_resolved_model(home_b), _resolved_model(home_a)) == ("vendor/model-b2", "vendor/model-a")
 
 
-def test_assignment_reset_and_stale_pins_cover_plugin_tasks(two_profile_homes, monkeypatch):
-    saved: dict = {}
-    monkeypatch.setattr("hermes_cli.config.save_config", lambda cfg: saved.update(cfg))
-    cfg: dict = {"auxiliary": {}}
+def test_assignment_reset_covers_plugin_tasks(two_profile_homes):
+    from hermes_cli.config import load_config
 
-    out = _apply_aux_assignment_sync(cfg, "openrouter", "fast-model", "alpha_task", "", "")
-    assert out["tasks"] == ["alpha_task"]
-    assert cfg["auxiliary"]["alpha_task"] == {"provider": "openrouter", "model": "fast-model"}
-    assert saved["auxiliary"]["alpha_task"]["model"] == "fast-model"
-
-    # A pin on a plugin task is a stale pin like any other when main moves elsewhere.
-    assert {"task": "alpha_task", "provider": "openrouter", "model": "fast-model"} in _stale_aux_pins(cfg, "nous")
-
-    # Empty task = broadcast; it must reach the plugin slot too.
-    _apply_aux_assignment_sync(cfg, "nous", "hermes-4", "", "", "")
-    assert cfg["auxiliary"]["alpha_task"]["provider"] == "nous"
-
-    _apply_aux_assignment_sync(cfg, "", "", "__reset__", "", "")
-    assert cfg["auxiliary"]["alpha_task"] == {"provider": "auto", "model": ""}
-
-    # Another profile's task is still unknown here — the validation is per-profile, not global.
-    with _profile_scope("b"):
-        _apply_aux_assignment_sync({"auxiliary": {}}, "openrouter", "m", "side_task", "", "")
-        with pytest.raises(HTTPException) as exc:
-            _apply_aux_assignment_sync({"auxiliary": {}}, "openrouter", "m", "alpha_task", "", "")
-    assert exc.value.status_code == 400 and "unknown auxiliary task" in exc.value.detail
+    home_a, home_b = two_profile_homes
+    with _session_profile_runtime_scope({"profile_home": home_a}, hydrate_secrets=False):
+        _save_aux_choice("alpha_task", provider="openrouter", model="fast-model")
+        assert load_config()["auxiliary"]["alpha_task"]["model"] == "fast-model"
+        assert _reset_aux_to_auto() > 0
+        entry = load_config()["auxiliary"]["alpha_task"]
+        assert entry["provider"] == "auto" and entry["model"] == ""
+    assert _resolved_model(home_b) == "vendor/model-b"
 
 
 def test_plugin_discovery_failure_leaves_builtins_working(two_profile_homes, monkeypatch):
@@ -150,6 +104,4 @@ def test_plugin_discovery_failure_leaves_builtins_working(two_profile_homes, mon
 
     # Patch where production reads: the resolver imports the name from hermes_cli.plugins at call time.
     monkeypatch.setattr(plugins_mod, "get_plugin_auxiliary_tasks", _boom)
-    assert _aux_task_slots() == _AUX_TASK_SLOTS
-    tasks = [row["task"] for row in get_auxiliary_models(profile=None)["tasks"]]
-    assert tasks == list(_AUX_TASK_SLOTS)
+    assert _all_aux_tasks() == list(_AUX_TASKS)

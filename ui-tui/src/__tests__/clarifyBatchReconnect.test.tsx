@@ -114,7 +114,6 @@ it('a reconnect keeps an open clarify batch on screen with its locked answer; a 
       resumeById: (id: string) => lifecycle.resumeById(id), setCatalog: noop },
     submission: { submitRef: { current: noop } }, system: { bellOnComplete: false, sys: noop },
     transcript: { appendMessage: noop, panel: noop, setHistoryItems: noop },
-    voice: { setProcessing: noop, setRecording: noop, setVoiceEnabled: noop }
   } as any))
   // As useMainApp wires them: the request handler, and the exit handler of an attached socket.
   const onServerRequest = createServerRequestHandler({ ringPromptBell: noop, setStatus: status => patchUiState({ status }) })
@@ -128,7 +127,7 @@ it('a reconnect keeps an open clarify batch on screen with its locked answer; a 
   function Harness() {
     lifecycle = useSessionLifecycle({ colsRef: { current: 80 }, composerActions: { setComposerTokens: noop }, gw, rpc: async () => null,
       scrollRef: { current: null }, panel: noop, sys: noop, setHistoryItems: noop, setLastUserMsg: noop, setSessionStartedAt: noop,
-      setStickyPrompt: noop, setVoiceProcessing: noop, setVoiceRecording: noop } as any)
+      setStickyPrompt: noop, } as any)
 
     return <Text>session</Text>
   }

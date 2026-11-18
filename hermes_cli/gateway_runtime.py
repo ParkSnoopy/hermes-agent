@@ -27,7 +27,7 @@ class GatewayEndpoint:
     authority_epoch: int
     runtime_protocol: int
     api_origin: str
-    supervisor: Literal["none", "systemd", "launchd", "windows", "external"]
+    supervisor: Literal["none", "systemd", "external"]
     capabilities: frozenset[str]
     # Home whose control socket answers for this endpoint: the profile's own home, or the
     # default multiplexer's root when the profile is served by it.
@@ -83,8 +83,7 @@ def _overlay_owner_home(home: Path, *, within: Callable[[Path], bool] | None = N
 
     With *within*, an owner home that fails it raises :class:`OverlayOutsideScope` before that
     home or its lock is inspected or tightened (``resolve-profile`` stays inside its own root)."""
-    if os.name == "nt":
-        return home
+
     from hermes_cli.gateway_runtime_discovery import DiscoveryError, _private_lock, _private_node
     lock = home / "gateway.lock"
     try:
@@ -150,7 +149,7 @@ def _endpoint(payload: dict, home: Path, control_home: Path | None = None) -> Ga
     except ValueError:
         return GatewayDiscovery("inaccessible", reason_code="invalid_api_origin")
     supervisor = payload.get("supervisor")
-    if supervisor not in {"none", "systemd", "launchd", "windows", "external"}:
+    if supervisor not in {"none", "systemd", "external"}:
         return GatewayDiscovery("inaccessible", reason_code="invalid_supervisor")
     return GatewayDiscovery("draining" if restart_wait else "ready", GatewayEndpoint(
         profile_id=matches[0]["profile_id"], instance_id=instance,
@@ -214,13 +213,6 @@ def _parked_by_multiplexer(payload: dict, home: Path) -> GatewayDiscovery | None
     return GatewayDiscovery("inaccessible", reason_code="profile_parked", detail=str(reason)[:500] or None)
 
 
-def _refused_owner_verdict(exc: PermissionError) -> GatewayDiscovery | None:
-    """The named refusal when the client proved the boundary from the control pipe, else None."""
-    from gateway.runtime_bootstrap_windows import RefusedOwner
-    if isinstance(exc, RefusedOwner):
-        return GatewayDiscovery("inaccessible", reason_code=exc.reason_code, detail=str(exc))
-    return None
-
 
 def _served_by_multiplexer(home: Path, *, timeout: float) -> GatewayDiscovery | None:
     """A served secondary has no socket of its own: the default multiplexer's control socket
@@ -233,17 +225,8 @@ def _served_by_multiplexer(home: Path, *, timeout: float) -> GatewayDiscovery | 
         return None
     try:
         payload = query_identify(root, timeout=timeout)
-    except PermissionError as exc:
-        # The multiplexer's pipe proved the boundary: name it for the secondary too (#140706), unless
-        # the boot policy never serves this home (a standalone secondary starts its own gateway). Any
-        # other refusal is "not served" before a config is read, as on POSIX, where none is proven.
-        named = _refused_owner_verdict(exc)
-        if named is None:
-            return None
-        from hermes_cli.gateway_multiplex_mode import host_serves_named_profile
-        if host_serves_named_profile(root, home) is False:
-            return None
-        return named
+    except PermissionError:
+        return None
     except (FileNotFoundError, ConnectionRefusedError, TimeoutError, DiscoveryError,
             OSError, ValueError, TypeError):
         return None
@@ -253,52 +236,11 @@ def _served_by_multiplexer(home: Path, *, timeout: float) -> GatewayDiscovery | 
     return result
 
 
-_NATIVE_WINDOWS = os.name == "nt"
 
 
-def _owner_pid(home: Path) -> int | None:
-    """The PID a refusal may name: one of *home*'s gateway records whose process is provably that
-    gateway, else None (the caller keeps the generic ``authorization``).
 
-    Proof is the shared identity chain: alive, its recorded start time known and equal to the live
-    one (a recycled PID differs), its recorded home not another profile's, and its live command line
-    (or, when that is unreadable across the elevation boundary, its record) a gateway's. A stale
-    ``gateway.pid`` falls through to ``gateway.lock`` instead of masking it."""
-    from gateway.status import (
-        _get_process_start_time,
-        _live_pid_from_record,
-        _read_json_file,
-        _record_matches_live_gateway_pid,
-        recorded_gateway_home_conflicts,
-    )
-    for name in ("gateway.pid", "gateway.lock"):
-        record = _read_json_file(home / name, bare_pid_ok=True)
-        pid = _live_pid_from_record(record)
-        if pid is None or pid == os.getpid():
-            continue
-        recorded = record.get("start_time")
-        if recorded is None or recorded != _get_process_start_time(pid):
-            continue  # unverifiable or recycled: never name it
-        if recorded_gateway_home_conflicts(record, expected_home=home):
-            continue
-        if not _record_matches_live_gateway_pid(record, pid):
-            continue
-        return pid
-    return None
-
-
-def _refused(home: Path, *, windows: bool = _NATIVE_WINDOWS) -> GatewayDiscovery:
-    """The owner's control channel refused this same-user client. On Windows (*windows*, the host
-    fact) name the boundary (an elevated owner, or one in another logon session) with its remedy
-    instead of the generic ``authorization`` that reads as a credential failure (#139845, #140252)."""
-    if windows and (pid := _owner_pid(home)) is not None:
-        from gateway.runtime_bootstrap_windows import probe_refused_owner
-        try:
-            named = probe_refused_owner(pid)
-        except OSError:
-            named = None
-        if named is not None:
-            return GatewayDiscovery("inaccessible", reason_code=named[0], detail=named[1])
+def _refused(home: Path) -> GatewayDiscovery:
+    """The owner's control channel refused this client."""
     return GatewayDiscovery("inaccessible", reason_code="authorization")
 
 
@@ -308,7 +250,7 @@ def _missing_owner_verdict(home: Path) -> GatewayDiscovery:
     answers an unserved secondary with this same verdict."""
     from hermes_cli.gateway_runtime_discovery import missing_owner_state
     state = missing_owner_state(home)
-    if state == "inaccessible" and os.name != "nt":
+    if state == "inaccessible":
         from gateway.runtime_ownership import unreadable_lock_recovery
         if detail := unreadable_lock_recovery(home / "gateway.lock"):
             return GatewayDiscovery(state, reason_code="foreign_stale_lock", detail=detail)
@@ -338,9 +280,8 @@ def discover_gateway_endpoint(profile_home: str | Path, *, timeout: float = 2.0)
     except DiscoveryError as exc:
         # The code stays bounded; the detail names the local node, its owner or mode, and the fix.
         return GatewayDiscovery("inaccessible", reason_code=exc.reason, detail=exc.bounded_detail(500))
-    except PermissionError as exc:
-        named = _refused_owner_verdict(exc)  # the client proved the boundary from the control pipe (#140706)
-        return named if named is not None else _refused(home)
+    except PermissionError:
+        return _refused(home)
     except (OSError, ValueError, TypeError):
         # Raw peer data, paths and URLs may contain secrets; report bounded codes.
         return GatewayDiscovery("inaccessible", reason_code="invalid_control_peer")
@@ -438,7 +379,6 @@ def ensure_gateway_runtime(profile_home: str | Path, *, timeout: float | None = 
     )
     from hermes_constants import get_default_hermes_root, get_process_hermes_home
 
-    from hermes_cli.gateway_launchd_runtime import GatewayJob
     from hermes_cli.gateway_runtime_progress import StartRunway
     runway = StartRunway(timeout, DEFAULT_ENSURE_TIMEOUT)
     deadline = runway.deadline
@@ -463,10 +403,8 @@ def ensure_gateway_runtime(profile_home: str | Path, *, timeout: float | None = 
             # budget on a starved owner is still followed by a progress verdict. An owner never seen
             # starting (a wedged READY gateway, which may spin forever) is never sampled: its control
             # timeout is a deadline, as before. A progressing owner moves this loop's deadline, and a
-            # macOS launchd job's, whose poll() would otherwise stop reporting an exit at the old one.
+            # deadline while it continues making progress.
             deadline = runway.extend(tuple(waiting), child)
-            if isinstance(child, GatewayJob):
-                child.extend_deadline(deadline)
             # Poll BEFORE discovering: an exit observed first, then "absent", cannot be a child that
             # published its owner a moment later. A winning racer shows up as starting/ready instead.
             status = child.poll() if child is not None else None

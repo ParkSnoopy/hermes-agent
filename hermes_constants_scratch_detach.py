@@ -37,17 +37,9 @@ def spawn_prune(scratch: Path) -> None:
     if sys.pycache_prefix:  # a sealed payload must never get __pycache__ writes
         argv += ["-X", f"pycache_prefix={sys.pycache_prefix}"]
     argv += ["-c", _CHILD, os.fspath(scratch), _encode_lineage(rules.lineage_with_start_times()), *sys.path]
-    from hermes_cli._subprocess_compat import windows_detach_flags_without_breakaway, windows_detach_popen_kwargs
-
     stdio = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
     try:
-        try:
-            subprocess.Popen(argv, close_fds=True, **stdio, **windows_detach_popen_kwargs())
-        except PermissionError:
-            if sys.platform != "win32":
-                raise
-            # A job object without BREAKAWAY_OK rejects CREATE_BREAKAWAY_FROM_JOB.
-            subprocess.Popen(argv, close_fds=True, **stdio, creationflags=windows_detach_flags_without_breakaway())
+        subprocess.Popen(argv, close_fds=True, start_new_session=True, **stdio)
     except (OSError, RuntimeError) as exc:
         logger.debug("scratch prune: could not start the detached pass for %s: %s", scratch, exc)
 

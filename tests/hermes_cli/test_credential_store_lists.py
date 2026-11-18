@@ -1,6 +1,6 @@
 """The Bitwarden and 1Password secret caches and the Photon sidecar record are covered by every guard
-over credential stores (profile export, file tools, gateway media delivery, the dashboard Files API,
-backups), at their current location and at the one earlier releases used.
+over credential stores (profile export, file tools, gateway media delivery, backups), at their
+current location and at the one earlier releases used.
 
 The current paths come from the writers' own path functions, so moving a store without updating the
 guards, or dropping it from one of them, fails here. The stores sit directly in the profile home: a
@@ -91,12 +91,6 @@ def test_gateway_media_delivery_refuses_them(home, monkeypatch):
         assert path in denied, rel
         assert base.validate_media_delivery_path(str(path)) is None, rel
 
-
-def test_dashboard_files_api_hides_them(home):
-    from hermes_cli.web_routers.files import _is_sensitive_path
-
-    for rel in _stores(home):
-        assert _is_sensitive_path(home / rel), rel
 
 
 def test_backups_leave_them_out(home):

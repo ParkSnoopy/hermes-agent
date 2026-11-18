@@ -60,7 +60,7 @@ class StreamDeliveryMixin:
             return False
 
     def _deliver_to_stream_callbacks(self, text: str) -> bool:
-        """Send ``text`` to the display + TTS delta callbacks; True if at least one accepted it.
+        """Send ``text`` to the display and per-turn delta callbacks; True if either accepted it.
         Nothing leaves while a ``hold_stream`` plugin holds this turn's reply (``_hold_stream``)."""
         if getattr(self, "_hold_stream", False):
             return False
@@ -330,7 +330,7 @@ class StreamDeliveryMixin:
         self._enqueue_stream_hook("on_stream_end", final_text=final_text, finished=finished, error=error)
 
     def _fire_stream_delta(self, text: str) -> None:
-        """Fire all registered stream delta callbacks (display + TTS)."""
+        """Fire registered stream delta callbacks."""
         # A superseded stream must not interleave its tokens alongside the retry that replaced it.
         if self._stream_writer_superseded():
             # See #65991.

@@ -11,12 +11,10 @@ prerequisites:
 metadata:
   hermes:
     tags: [Teams, Microsoft Graph, Meetings, Productivity, Operations]
-    # Channel-gated: this pipeline only makes sense on the Teams gateway
-    # channel (and in cron jobs, where its scheduled summary/replay work
-    # actually runs). Hidden from every other session's skills index.
-    session_platforms: [teams, cron]
+    # Channel-gated to the Teams gateway.
+    session_platforms: [teams]
     related_docs:
-      - /docs/guides/microsoft-graph-app-registration
+
       - /docs/user-guide/messaging/teams-meetings
       - /docs/guides/operate-teams-meeting-pipeline
 ---
@@ -52,7 +50,7 @@ MSGRAPH_CLIENT_ID=...
 MSGRAPH_CLIENT_SECRET=...
 ```
 
-If any are missing, direct the user to the Azure app registration guide at `/docs/guides/microsoft-graph-app-registration` — they need an Azure AD app registration with admin-consented Graph application permissions before the pipeline will work.
+If any are missing, direct the user to [Microsoft's app registration guide](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app) — they need an app registration with admin-consented Graph application permissions before the pipeline will work.
 
 ## Command reference
 
@@ -105,7 +103,7 @@ Microsoft Graph caps webhook subscriptions at 72 hours and **will not auto-renew
 When the user reports "the pipeline worked yesterday but nothing is arriving today":
 1. Run `hermes teams-pipeline subscriptions` — if it's empty or all entries show `expirationDateTime` in the past, that's the cause.
 2. Recreate with `subscribe` as shown above.
-3. **Set up automated renewal immediately** via `hermes cron add`, a systemd timer, or plain crontab. The operator runbook at `/docs/guides/operate-teams-meeting-pipeline#automating-subscription-renewal-required-for-production` has all three options. 12-hour interval is safe (6x headroom against the 72h limit).
+3. **Set up automated renewal immediately** via a systemd timer or plain crontab. The operator runbook at `/docs/guides/operate-teams-meeting-pipeline#automating-subscription-renewal-required-for-production` has both options. 12-hour interval is safe (6x headroom against the 72h limit).
 
 ## Other pitfalls
 
@@ -116,7 +114,7 @@ When the user reports "the pipeline worked yesterday but nothing is arriving tod
 ## Related docs
 
 Point the user to these when they need more depth than this skill covers:
-- Azure app registration walkthrough: `/docs/guides/microsoft-graph-app-registration`
+- [Microsoft app registration guide](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)
 - Full pipeline setup: `/docs/user-guide/messaging/teams-meetings`
 - Operator runbook (renewal automation, troubleshooting, go-live checklist): `/docs/guides/operate-teams-meeting-pipeline`
 - Webhook listener setup: `/docs/user-guide/messaging/msgraph-webhook`

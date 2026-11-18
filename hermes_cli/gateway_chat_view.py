@@ -347,12 +347,7 @@ class GatewayChatView:
                                         input_id=uuid.uuid4().hex, text=text,
                                         **({"finite": True} if self.finite else {}),
                                         **({"unattended": True} if self.finite and self.unattended else {}))
-        if (receipt or {}).get("voice_stopped") is True:
-            # TUI-26: a bare stop phrase typed into this LOCAL session's voice chat (another viewer
-            # turned it on) ended the chat on the owner; nothing was admitted and no turn follows.
-            if not self.quiet:
-                print('Stop phrase typed — ending voice chat.', flush=True)
-            return receipt
+
         admission = (receipt or {}).get("admission_id")
         if admission and admission not in self.completions and self.session_id == sid:
             self.mine[admission] = None
@@ -547,8 +542,7 @@ class GatewayChatView:
             receipt = await self.submit(query) if query else None
             if oneshot:
                 admission = _oneshot_admission(receipt)
-                if admission is None:
-                    return 0  # the voice chat ended; no turn was admitted, so none is awaited
+
                 self.finite_admission = admission
                 for kind, event_admission, payload in self._finite_events:
                     if event_admission == admission and admission not in self.completions:
@@ -631,11 +625,10 @@ class GatewayChatView:
 
 
 def _oneshot_admission(receipt):
-    """The one-shot query's admission id; None when the owner admitted nothing because the query was a
-    bare stop phrase that ended the session's LOCAL voice chat (TUI-26 ``{voice_stopped: true}``)."""
+    """Return the one-shot query's admission id."""
     if receipt is None:
         raise GatewayClientError("One-shot requires a query")
-    return None if receipt.get("voice_stopped") is True else receipt["admission_id"]
+    return receipt["admission_id"]
 
 
 def resume_footer(session_id):

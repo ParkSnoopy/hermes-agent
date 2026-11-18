@@ -33,6 +33,27 @@ def test_every_canonical_verb_has_a_declared_contract(owner):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('method', [
+    'voice.record', 'voice.toggle', 'voice.tts',
+    'wake.feed', 'wake.pause', 'wake.resume', 'wake.start', 'wake.status', 'wake.stop',
+])
+async def test_retired_speech_methods_are_unknown_without_mutating_the_session(owner, method):
+    connection, db = owner
+    before = db.get_session('s')
+    try:
+        response = await connection.dispatch({'id': 1, 'method': method, 'params': {}})
+        assert response['id'] == 1
+        assert response['error']['code'] == -32601
+        assert response['error']['data']['reason'] == 'unknown_method'
+        assert db.get_session('s') == before
+        reply = await connection.dispatch({'id': 2, 'method': 'ping', 'params': {}})
+        assert 'error' not in reply
+        METHODS['ping'].result.model_validate(reply['result'])
+    finally:
+        await connection.close()
+
+
+@pytest.mark.asyncio
 async def test_declared_params_gate_canonical_verbs_before_their_handlers(owner):
     """An unknown or missing key is ``4001 invalid_params`` naming the field, including verbs
     whose handlers only ``.get`` their keys; a well-formed call is unaffected."""

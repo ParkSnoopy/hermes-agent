@@ -705,8 +705,8 @@ class SessionAuthority:
     async def _submit(self, actor, request, *, _authorize_write=None, queue_only=False, _replay_guard=None):
         self._require_admission_open(queue_only=queue_only)
         if (request.intent != 'queue' or not {'text'} <= set(request.payload) <= {
-                'text', 'attachments', 'finite', 'unattended', 'surface', 'voice_context', 'interrupted',
-                'voice_turn', 'display_kind', 'title_preview', 'turn_author', 'api_text', 'model_override', 'clarify_batch'}
+                'text', 'attachments', 'finite', 'unattended', 'surface',
+                'display_kind', 'title_preview', 'turn_author', 'api_text', 'model_override', 'clarify_batch'}
                 or not isinstance(request.payload['text'], str)):
             raise RuntimeStoreError('invalid_params')
         from gateway.session_ingress_media import admit_attachments
@@ -1460,8 +1460,6 @@ async def initialize_session_authority(runner, *, profile_id, instance_id, db=No
     await adopt_local_compressions(authority)
     if register:
         runner.session_authority = authority
-    from gateway.session_cron import bind_owner
-    bind_owner(authority)
     store = runner.session_store
     if register:
         store._local_authority_epoch = epoch

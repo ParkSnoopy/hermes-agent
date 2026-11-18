@@ -138,7 +138,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
         cross-eval = let
           targetSystems = builtins.filter
             (s: inputs.self.packages ? ${s})
-            [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin" ];
+            [ "x86_64-linux" "aarch64-linux" ];
           tryEvalPkg = sys:
             let pkg = inputs.self.packages.${sys}.default;
             in builtins.tryEval (builtins.seq pkg.drvPath true);
@@ -246,17 +246,10 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
             cfg = enabled.config;
 
             # Inspect the gateway's command and environment.
-            processes =
-              if pkgs.stdenv.hostPlatform.isDarwin then
-                lib.mapAttrs (_: agent: {
-                  argv = agent.config.ProgramArguments;
-                  env = agent.config.EnvironmentVariables;
-                }) (lib.filterAttrs (n: _: lib.hasPrefix "hermes" n) cfg.launchd.agents)
-              else
-                lib.mapAttrs (_: unit: {
-                  argv = [ unit.Service.ExecStart ];
-                  env = unit.Service.Environment;
-                }) (lib.filterAttrs (n: _: lib.hasPrefix "hermes" n) cfg.systemd.user.services);
+            processes = lib.mapAttrs (_: unit: {
+              argv = [ unit.Service.ExecStart ];
+              env = unit.Service.Environment;
+            }) (lib.filterAttrs (n: _: lib.hasPrefix "hermes" n) cfg.systemd.user.services);
 
             names = lib.attrNames processes;
             argvOf = name: lib.concatStringsSep " " (lib.flatten (processes.${name}.argv));
@@ -398,11 +391,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           let
             cfg = (evalHomeSplit { programs.enable = true; }).config;
             agentPackages = builtins.filter (p: (p.pname or "") == "hermes-agent") cfg.home.packages;
-            processes =
-              if pkgs.stdenv.hostPlatform.isDarwin then
-                lib.filterAttrs (n: _: lib.hasPrefix "hermes" n) cfg.launchd.agents
-              else
-                lib.filterAttrs (n: _: lib.hasPrefix "hermes" n) cfg.systemd.user.services;
+            processes = lib.filterAttrs (n: _: lib.hasPrefix "hermes" n) cfg.systemd.user.services;
             failures =
               lib.optional (lib.length agentPackages != 1)
                 "programs.enable must install exactly one hermes-agent package"
@@ -584,48 +573,6 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
               ''
           );
 
-        # ── The user manager that restart-safe cron workers need ─────────
-        # The cron scheduler launches every job in a transient `systemd-run
-        # --user --scope`, so that a gateway restart cannot kill a running job,
-        # and it fails the fire closed when the scope cannot be created. A
-        # system service has no user manager — and so no /run/user/<uid>/bus —
-        # unless the uid lingers. That makes `linger` load-bearing for cron on
-        # this module, not cosmetic: without it every job dies before an agent
-        # starts. This check proves three properties: the uid the gateway runs
-        # as lingers, a lingering gateway does not start before that uid's bus
-        # exists, and a gateway whose uid does not linger waits for nothing.
-        cron-worker-user-scope =
-          let
-            configOf = settings: (evalNixosModule ({ enable = true; } // settings)).config;
-
-            managed = configOf { };
-            gateway = managed.systemd.services.hermes-agent;
-            gatewayUser = gateway.serviceConfig.User;
-
-            # The operator declares the user themselves. Nothing here knows
-            # whether they lingered it, so nothing may assume a bus.
-            unmanaged = (configOf { createUser = false; }).systemd.services.hermes-agent;
-
-            failures =
-              lib.optional (!((managed.users.users.${gatewayUser}.linger or false) == true))
-                "the uid the gateway runs as (${gatewayUser}) must linger: `systemd-run --user --scope` has no user manager to ask without it, and cron dispatch fails closed"
-              ++ lib.optional (!lib.elem "linger-users.service" gateway.after)
-                "a lingering gateway must be ordered after linger-users.service, the unit that runs `loginctl enable-linger`"
-              ++ lib.optional (!lib.hasInfix "/run/user" gateway.preStart)
-                "a lingering gateway must wait for its user bus before ExecStart: the bus environment is resolved once at startup, so a bus that appears later is one this process never sees"
-              ++ lib.optional (lib.hasInfix "/run/user" unmanaged.preStart)
-                "a gateway whose uid is not known to linger must not block on a user bus that may never arrive";
-          in
-          pkgs.runCommand "hermes-cron-worker-user-scope" { } (
-            if failures != [ ] then
-              throw "cron worker user scope check failed:\n${lib.concatMapStringsSep "\n" (f: "  - ${f}") failures}"
-            else
-              ''
-                echo "PASS: the gateway uid lingers and the unit waits for its user bus"
-                mkdir -p $out
-                echo "ok" > $out/result
-              ''
-          );
 
         # ── How .env is built ────────────────────────────────────────────
         # This check runs the real script that both modules use to build

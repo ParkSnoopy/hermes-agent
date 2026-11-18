@@ -37,7 +37,7 @@ hermes tools enable a2a --platform telegram   # or any messaging platform
 hermes tools enable a2a --platform a2a        # let inbound A2A tasks call peers (agent chaining)
 ```
 
-The tools are available in every process type — CLI, TUI, gateway, and cron — without the inbound platform needing to be enabled.
+The tools are available in the CLI, TUI and gateway without the inbound platform needing to be enabled.
 
 ## Outbound: calling other agents
 

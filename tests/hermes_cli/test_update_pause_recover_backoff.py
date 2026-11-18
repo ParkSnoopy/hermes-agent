@@ -23,9 +23,9 @@ def _claims() -> list:
 
 
 def test_an_unready_relaunch_stalls_one_launch_per_backoff_window_and_stays_owed(tmp_path, monkeypatch, capsys):
-    import hermes_cli.update_cmd_windows as w
+    import hermes_cli.update_cmd_posix_pause as w
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    pause_record.write(pause_record.stamp_tree({"resume_needed": True, "profiles": {"alpha": 4194000}}),
+    pause_record.write(pause_record.stamp_tree({"platform": "posix", "resume_needed": True, "profiles": {"alpha": 4194000}}),
                        owner=pause_record.UNOWNED)  # a killed update's set; pid 4194000 is long gone
     handed = []
 
@@ -34,7 +34,7 @@ def test_an_unready_relaunch_stalls_one_launch_per_backoff_window_and_stays_owed
         print("relaunched; waiting for readiness")
         raise RuntimeError("Windows gateway relaunch after update was not verified alive: alpha")
 
-    monkeypatch.setattr(w, "_resume_windows_gateways_after_update", resume)
+    monkeypatch.setattr(w, "resume_gateways_after_update", resume)
     pause_record.recover(["status"])
     pause_record.recover(["chat"])
     assert handed == [["alpha"]], "a launch inside the backoff waited on the unready relaunch again"

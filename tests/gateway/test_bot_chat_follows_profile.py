@@ -1,17 +1,9 @@
 """A Bot Chat follows its profile's current route, whoever creates it.
 
-Desktop's create asks for ``follow_profile_config``. The Bot/cron delivery door, a peer DM
-create, a CLI ``chat -c "Bot Chat" --create-if-missing`` and the adoption of a pre-upgrade
-Bot Chat used to freeze the route of that moment. Desktop later reuses the chat by title, so
-a profile change never reached it, and retiring the old key broke it. A session that is not
-a Bot Chat keeps the route it was created or saved with. A safe-mode Bot Chat stays frozen:
-that launch never reads the profile. A Bot Chat an earlier build already froze follows from
-the first time a client opens it; its creation request is not rewritten.
-
-Real: SessionStore/SessionAuthority/AuthorityConnection, ``session_bot._target`` (the delivery
-door), ``resolve_local_target`` -> ``adopt_legacy_session``, ``session.resume`` (the policy
-refresh on open), a real config.yaml and ``GatewayTurnPrepareMixin._resolve_session_agent_runtime``.
-Seam: a SimpleNamespace runner. No endpoint is contacted.
+Native creates and the delivery door follow the profile. Other chats and deliberate
+bypass launches stay frozen. Opening a previously frozen canonical Bot Chat refreshes
+its policy without rewriting its creation request. Real owner, receipts, config and route
+resolution are used; no endpoint is contacted.
 """
 import json
 from pathlib import Path
@@ -41,15 +33,14 @@ def _follows(runner, live):
 def _key(runner, authority, live):
     """The api_key the session's next turn sends, from its policy's one effective read.
 
-    ``_route`` reports ``no-key-required`` for an adopted session, so a key check goes
-    through ``effective``."""
+    Read the effective model block, including the current profile credential."""
     from gateway.session_policy import policy_for_source
     model = policy_for_source(runner, live.source).effective(authority)[0].get('model') or {}
     return model.get('api_key')
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('first', ['delivery', 'desktop', 'cli'])
+@pytest.mark.parametrize('first', ['delivery', 'native', 'cli'])
 async def test_bot_chat_follows_profile_whoever_creates_it(home, first):
     from gateway.session_bot import _target
     _profile(home, 'old-model', 1, 'old-key')
@@ -58,15 +49,15 @@ async def test_bot_chat_follows_profile_whoever_creates_it(home, first):
     try:
         if first == 'delivery':
             _ref, live, _entry = await _target(authority, owner.actor)
-        elif first == 'desktop':
-            live = await _create_bot_chat(owner, authority, home, 'gui-first', title='Bot Chat', hidden=True)
+        elif first == 'native':
+            live = await _create_bot_chat(owner, authority, home, 'native-first', title='Bot Chat', hidden=True)
         else:
             response = await owner.dispatch({'id': 'cli', 'method': 'session.create', 'params': dict(
                 request_id='cli-first', source='cli', cwd=str(home), title='Bot Chat')})
             assert 'result' in response, response
             live = authority.sessions[response['result']['session_id']]
-        # Desktop opening Bot Chat later is a titled create: it lands on the same session.
-        reopened = await _create_bot_chat(owner, authority, home, 'gui-open', title='Bot Chat', hidden=True)
+        # A subsequent native titled create lands on the same session.
+        reopened = await _create_bot_chat(owner, authority, home, 'native-open', title='Bot Chat', hidden=True)
         assert reopened is live
         assert _route(runner, live) == ('old-model', 'http://127.0.0.1:1/v1', 'old-key')
         _profile(home, 'new-model', 2, 'new-key')
@@ -156,138 +147,6 @@ async def test_cli_retries_a_titled_create_staged_without_the_follow_flag(home):
         store.close_all_db_handles()
 
 
-def _legacy(db, profile, sid, **row):
-    title = row.pop('title', None)
-    db.create_session(sid, cwd=str(profile), **row)
-    if title:
-        db.set_session_title(sid, title)
-    db.end_session(sid, 'tui_close')
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('marker', ['title', 'follow-marker'])
-async def test_adopted_legacy_bot_chat_keeps_following(home, marker):
-    from gateway.session_local_migration import resolve_local_target
-    from gateway.session_policy import policy_for_source
-    _profile(home, 'profile-model', 2, 'k2', agent={'reasoning_effort': 'low'})
-    store, runner, authority, owner = _owner(home)
-    runner._peek_session_state = lambda key: None
-    db = authority.db
-    _legacy(db, home, 'old-tui', source='tui', model='saved-model', model_config={
-        'provider': 'custom', 'base_url': 'http://127.0.0.1:1/v1', 'api_mode': 'chat_completions',
-        'reasoning_config': {'enabled': True, 'effort': 'high'}})
-    bot_config = {'provider': 'custom', 'base_url': 'http://127.0.0.1:1/v1', 'api_mode': 'codex_responses'}
-    if marker == 'follow-marker':
-        bot_config['follow_profile_config'] = True
-    _legacy(db, home, 'old-bot', source='gui', model='old-bot-model', model_config=bot_config,
-            title='Bot Chat' if marker == 'title' else 'Renamed later')
-    authority._native_legacy_transports = {owner.actor.transport_id: owner.actor}
-    try:
-        tui = authority.sessions[resolve_local_target(authority, owner.actor, 'old-tui').session_id]
-        bot = authority.sessions[resolve_local_target(authority, owner.actor, 'old-bot').session_id]
-        route = _route(runner, tui)
-        reasoning = policy_for_source(runner, tui.source).current_reasoning_config(runner)
-        assert (route[:2], reasoning.get('effort')) == (('saved-model', 'http://127.0.0.1:1/v1'), 'high')
-        assert _key(runner, authority, tui) not in ('k2', 'k3')
-        assert _follows(runner, bot)
-        assert _route(runner, bot)[:2] == ('profile-model', 'http://127.0.0.1:2/v1')
-        assert _key(runner, authority, bot) == 'k2'
-        frozen = json.loads(policy_for_source(runner, bot.source).config_json).get('model') or {}
-        assert frozen.get('api_mode') != 'codex_responses'
-        _profile(home, 'moved-model', 3, 'k3', agent={'reasoning_effort': 'low'})
-        assert _route(runner, bot)[:2] == ('moved-model', 'http://127.0.0.1:3/v1')
-        assert _key(runner, authority, bot) == 'k3'
-        assert _key(runner, authority, tui) not in ('k2', 'k3')
-        assert _route(runner, tui)[:2] == ('saved-model', 'http://127.0.0.1:1/v1')
-    finally:
-        await owner.close()
-        store.close_all_db_handles()
-
-
-@pytest.mark.asyncio
-async def test_adopted_desktop_chat_keeps_its_saved_route(home):
-    from gateway.session_local_migration import resolve_local_target
-    from gateway.session_policy import policy_for_source
-    _profile(home, 'profile-model', 2, 'k2', agent={'reasoning_effort': 'low'})
-    store, runner, authority, owner = _owner(home)
-    runner._peek_session_state = lambda key: None
-    db = authority.db
-    _legacy(db, home, 'old-desktop', source='desktop', model='saved-model', model_config={
-        'provider': 'custom', 'base_url': 'http://127.0.0.1:1/v1', 'api_mode': 'chat_completions',
-        'reasoning_config': {'enabled': True, 'effort': 'high'}})
-    authority._native_legacy_transports = {owner.actor.transport_id: owner.actor}
-    try:
-        live = authority.sessions[resolve_local_target(authority, owner.actor, 'old-desktop').session_id]
-        reasoning = policy_for_source(runner, live.source).current_reasoning_config(runner)
-        route = _route(runner, live)
-        assert not _follows(runner, live)
-        assert (route[:2], reasoning.get('effort')) == (('saved-model', 'http://127.0.0.1:1/v1'), 'high')
-        assert _key(runner, authority, live) not in ('k2', 'k3')
-    finally:
-        await owner.close()
-        store.close_all_db_handles()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('shape', ['empty', 'provider-only'])
-async def test_adopting_a_bot_chat_with_no_profile_model_stays_openable(home, shape):
-    """A profile that names no model must not leave a Bot Chat receipt that restore rejects.
-
-    ``{}``, and a provider plus key with no ``model.default``, both resolve to a blank model.
-    Committing that blank name makes the first open ``storage_unavailable``, and every later
-    open stays there after a model is added. The saved row's model is enough to open, and the
-    chat follows once the profile has a default.
-    """
-    from gateway.session_local_migration import resolve_local_target
-    from hermes_state_local import local_receipt
-    if shape == 'empty':
-        (home / 'config.yaml').write_text('{}\n')
-    else:
-        (home / 'config.yaml').write_text(json.dumps({'model': {
-            'provider': 'custom', 'base_url': 'http://127.0.0.1:1/v1', 'api_key': 'sk-provider-only'}}))
-    store, runner, authority, owner = _owner(home)
-    runner._peek_session_state = lambda key: None
-    _legacy(authority.db, home, 'old-bot', source='gui', model='saved-model', title='Bot Chat',
-            model_config={'provider': 'custom', 'base_url': 'http://127.0.0.1:9/v1'})
-    authority._native_legacy_transports = {owner.actor.transport_id: owner.actor}
-    try:
-        opened = resolve_local_target(authority, owner.actor, 'old-bot')
-        stored = local_receipt(authority.db, opened.session_id)['policy']['model']
-        assert isinstance(stored, str) and stored.strip()
-        _profile(home, 'added-model', 2, 'sk-added')
-        authority.sessions.pop(opened.session_id, None)
-        again = resolve_local_target(authority, owner.actor, 'old-bot')
-        live = authority.sessions[again.session_id]
-        assert _follows(runner, live)
-        assert _route(runner, live)[:2] == ('added-model', 'http://127.0.0.1:2/v1')
-        assert _key(runner, authority, live) == 'sk-added'
-    finally:
-        await owner.close()
-        store.close_all_db_handles()
-
-
-@pytest.mark.asyncio
-async def test_adopted_bot_chat_keeps_a_composer_pick_until_the_profile_moves(home):
-    from gateway.session_local_migration import resolve_local_target
-    _profile(home, 'profile-model', 2, 'k2')
-    store, runner, authority, owner = _owner(home)
-    runner._peek_session_state = lambda key: None
-    _legacy(authority.db, home, 'old-bot', source='gui', model='picked-model', title='Bot Chat', model_config={
-        'composer_override_profile': {'model': 'profile-model', 'provider': 'custom'}})
-    authority._native_legacy_transports = {owner.actor.transport_id: owner.actor}
-    try:
-        bot = authority.sessions[resolve_local_target(authority, owner.actor, 'old-bot').session_id]
-        assert _follows(runner, bot)
-        assert _route(runner, bot)[:2] == ('picked-model', 'http://127.0.0.1:2/v1')
-        assert _key(runner, authority, bot) == 'k2'
-        _profile(home, 'moved-model', 3, 'k3')
-        assert _route(runner, bot)[:2] == ('moved-model', 'http://127.0.0.1:3/v1')
-        assert _key(runner, authority, bot) == 'k3'
-    finally:
-        await owner.close()
-        store.close_all_db_handles()
-
-
 def _frozen_bot_chat(authority, actor, home, title='Bot Chat', **extra):
     """A chat an earlier build committed without the flag (its delivery door, a CLI titled create)."""
     from gateway.session_local import stage_local_session
@@ -303,7 +162,7 @@ def _frozen_bot_chat(authority, actor, home, title='Bot Chat', **extra):
 
 
 async def _open(authority, ref):
-    """Desktop opening a stored Bot Chat: ``session.resume`` by id on its own connection."""
+    """A native client opens a stored Bot Chat by id on its own connection."""
     from gateway.session_controls import AuthorityConnection
     desktop = AuthorityConnection(authority, object(), {'user_id': 'human'})
     try:
@@ -316,7 +175,8 @@ async def _open(authority, ref):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('moved', ['before-open', 'after-open'])
-async def test_opening_a_frozen_bot_chat_makes_it_follow(home, moved):
+@pytest.mark.parametrize('extra', [{}, {'provider': 'auto'}], ids=['profile-route', 'auto-provider'])
+async def test_opening_a_frozen_bot_chat_makes_it_follow(home, moved, extra):
     """A Bot Chat an earlier build froze kept its old route after any open. The open now adopts
     it once, durably, and the creation request stays the exact-retry identity."""
     from gateway.session_local import stage_local_session
@@ -325,7 +185,7 @@ async def test_opening_a_frozen_bot_chat_makes_it_follow(home, moved):
     store, runner, authority, owner = _owner(home)
     runner._peek_session_state = lambda key: None
     try:
-        ref, params = _frozen_bot_chat(authority, owner.actor, home)
+        ref, params = _frozen_bot_chat(authority, owner.actor, home, **extra)
         live = authority.sessions[ref.session_id]
         request = local_receipt(authority.db, ref.session_id)['policy']['request_json']
         if moved == 'before-open':
@@ -405,21 +265,12 @@ async def test_opening_leaves_other_chats_and_deliberate_freezes_frozen(home, ki
 
 
 @pytest.mark.asyncio
-async def test_opening_a_frozen_adopted_bot_chat_holds_its_composer_pick_until_the_profile_moves(home, monkeypatch):
-    """An earlier build adopted this pre-upgrade Bot Chat frozen. The open applies adoption's rule."""
-    from gateway import session_local_migration
-    from gateway.session_local_migration import resolve_local_target
+async def test_opening_a_frozen_bot_chat_holds_its_explicit_pick_until_profile_moves(home):
     _profile(home, 'profile-model', 2, 'k2')
     store, runner, authority, owner = _owner(home)
     runner._peek_session_state = lambda key: None
-    _legacy(authority.db, home, 'old-bot', source='gui', model='picked-model', title='Bot Chat', model_config={
-        'composer_override_profile': {'model': 'profile-model', 'provider': 'custom'}})
-    authority._native_legacy_transports = {owner.actor.transport_id: owner.actor}
     try:
-        with monkeypatch.context() as earlier:
-            earlier.setattr(session_local_migration, 'legacy_bot_chat_launch',
-                            lambda row, params, mode, config: (params, mode))
-            ref = resolve_local_target(authority, owner.actor, 'old-bot')
+        ref, _ = _frozen_bot_chat(authority, owner.actor, home, model='picked-model')
         bot = authority.sessions[ref.session_id]
         assert not _follows(runner, bot)
         await _open(authority, ref)
@@ -456,30 +307,24 @@ def _named_profile(home, monkeypatch, section, credential, url, secret):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('section, credential, path', [
-    ('providers', 'inline', 'adoption'), ('providers', 'env', 'open'),
-    ('custom_providers', 'inline', 'open'), ('custom_providers', 'command', 'adoption')])
+    ('providers', 'inline', 'create'), ('providers', 'env', 'open'),
+    ('custom_providers', 'inline', 'open'), ('custom_providers', 'command', 'create')])
 async def test_a_held_pick_never_sends_its_named_entrys_new_key_to_the_old_endpoint(
         home, monkeypatch, section, credential, path):
-    """A held composer pick on the named entry ``picked`` keeps the endpoint it was made on. Once that
-    entry moves to another endpoint and key, its credential belongs there: the hold ends."""
-    from gateway import session_local_migration
-    from gateway.session_local_migration import resolve_local_target
+    """A held native pick ends when its named endpoint moves to a new key."""
     _named_profile(home, monkeypatch, section, credential, 'http://127.0.0.1:5/v1', 'picked-key-one')
     store, runner, authority, owner = _owner(home)
     runner._peek_session_state = lambda key: None
-    _legacy(authority.db, home, 'old-bot', source='gui', model='picked-model', title='Bot Chat', model_config={
-        'provider': 'custom:picked', 'base_url': 'http://127.0.0.1:5/v1',
-        'composer_override_profile': {'model': 'profile-model', 'provider': 'custom:primary'}})
-    authority._native_legacy_transports = {owner.actor.transport_id: owner.actor}
     try:
-        with monkeypatch.context() as earlier:
-            if path == 'open':
-                earlier.setattr(session_local_migration, 'legacy_bot_chat_launch',
-                                lambda row, params, mode, config: (params, mode))
-            ref = resolve_local_target(authority, owner.actor, 'old-bot')
         if path == 'open':
+            ref, _ = _frozen_bot_chat(authority, owner.actor, home, model='picked-model',
+                                      provider='custom:picked', base_url='http://127.0.0.1:5/v1')
+            bot = authority.sessions[ref.session_id]
             await _open(authority, ref)
-        bot = authority.sessions[ref.session_id]
+        else:
+            bot = await _create_bot_chat(owner, authority, home, 'pick', title='Bot Chat',
+                                         model='picked-model', provider='custom:picked',
+                                         base_url='http://127.0.0.1:5/v1')
         assert _route(runner, bot)[:2] == ('picked-model', 'http://127.0.0.1:5/v1')
         _named_profile(home, monkeypatch, section, credential, 'http://127.0.0.1:6/v1', 'picked-key-two')
         assert _route(runner, bot) == ('profile-model', 'http://127.0.0.1:2/v1', 'primary-key-long')

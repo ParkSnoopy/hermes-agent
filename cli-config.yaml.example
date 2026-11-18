@@ -15,8 +15,7 @@ _config_version: 53
 # WAL is the normal default. Hermes automatically falls back to DELETE when
 # SQLite reports that WAL is incompatible with the filesystem. Set this to
 # "delete" explicitly for deployments whose backing filesystem is not WAL
-# crash-safe, such as Linux containers bind-mounted through macOS virtiofs,
-# NFS, or SMB. Hermes will not live-downgrade a database already open in WAL.
+# crash-safe, such as NFS or SMB. Hermes will not live-downgrade a database already open in WAL.
 database:
   journal_mode: "wal"  # Supported values: "wal", "delete"
   # Optional WAL sizing pragmas (integers). Unset = SQLite defaults.
@@ -26,10 +25,8 @@ database:
   # Durability level for every state.db connection: OFF, NORMAL, FULL, EXTRA
   # (or 0-3). Unset leaves SQLite's default, which is baked in at compile time
   # (SQLITE_DEFAULT_WAL_SYNCHRONOUS) and therefore differs between the bundled
-  # interpreter, a distro python3 and a Homebrew one. Set it if you need to
-  # know which one you are running rather than infer it. On macOS this is a
-  # floor, not a pin: values below FULL are refused because Darwin's fsync()
-  # does not guarantee write ordering, while EXTRA is honored normally.
+  # interpreter and a distro python3. Set it if you need an explicit policy
+  # rather than relying on the interpreter's compiled default.
   # synchronous: FULL
 
 # =============================================================================
@@ -397,8 +394,8 @@ model:
 # worktree_sync: true   # Default — branch from the fetched remote tip
 # worktree_sync: false  # Branch from local HEAD (offline / pinned base)
 
-# Stale worktree sweep (startup of `hermes -w` + every 6h from the cron ticker, over
-# every repo Hermes created a worktree in). Idle dirty/unpushed trees are archived to
+# Stale worktree sweep at startup of `hermes -w`, over every repo Hermes created
+# a worktree in. Idle dirty/unpushed trees are archived to
 # refs/hermes/archive/<tree> and removed; `hermes worktree restore <name>` brings one back.
 # worktrees:
 #   archive_dirty: true          # false = never remove dirty/unpushed trees (old behaviour)
@@ -419,9 +416,7 @@ model:
 # -----------------------------------------------------------------------------
 # Working directory behavior:
 #   - CLI (`hermes` command): Uses "." (current directory where you run hermes)
-#   - Gateway/cron: Uses terminal.cwd here; legacy .env cwd values are deprecated
-cron:
-  catch_up_missed: true  # False skips past-grace recurring misses after planned downtime.
+#   - Gateway: Uses terminal.cwd here; legacy .env cwd values are deprecated
 
 terminal:
   backend: "local"
@@ -540,7 +535,7 @@ browser:
 # Soft warnings are enabled by default. They append guidance to repeated failed
 # or non-progressing tool results but still let the tool execute. Hard stops stay
 # opt-in for interactive CLI/TUI/Desktop/ACP sessions, but default on for unattended
-# gateway/cron sessions where nobody is present to interrupt a model that
+# gateway sessions where nobody is present to interrupt a model that
 # ignores loop warnings.
 tool_loop_guardrails:
   warnings_enabled: true
@@ -779,7 +774,7 @@ prompt_caching:
 # Auxiliary Models (Advanced — Experimental)
 # =============================================================================
 # Hermes uses lightweight "auxiliary" models for side tasks: image analysis,
-# browser screenshot analysis, web page summarization, TTS audio-tag insertion,
+# browser screenshot analysis, web page summarization,
 # and context compression.
 #
 # By default these use Gemini Flash via OpenRouter or Nous Portal and are
@@ -849,12 +844,6 @@ prompt_caching:
 #     provider: "auto"
 #     model: ""
 #     reasoning_effort: "low"
-#
-#   # Gemini 3.1 TTS hidden audio-tag insertion
-#   tts_audio_tags:
-#     provider: "auto"       # empty model = your main chat model
-#     model: ""
-#     timeout: 30
 #
 #   # Automatic session title generation after the first exchange
 #   title_generation:
@@ -984,11 +973,11 @@ hosted_rooms:
 # =============================================================================
 # ~/.hermes/state.db keeps every session, message, and tool call, plus the
 # FTS5 search indexes. Auto-pruning is OFF by default; when enabled, at
-# CLI/gateway/cron startup (at most once per min_interval_hours) Hermes deletes
+# CLI/gateway startup (at most once per min_interval_hours) Hermes deletes
 # ENDED sessions whose last activity is older than retention_days. While
 # auto_prune is unset, Hermes asks once when the disk holding state.db runs
 # low (/autoprune on|off|later answers it). Open, pinned, and in-progress sessions are never
-# deleted. Stale automation sessions (cron/subagent/one-shot CLI) whose
+# deleted. Stale automation sessions (subagent/one-shot CLI) whose
 # process died without closing them are first *closed*, then aged through a
 # further full retention window before removal.
 #
@@ -1172,27 +1161,23 @@ agent:
   # window on /restart, and keep it well under systemd's TimeoutStopSec.
   # restart_drain_timeout: 0
 
-  # Floor under the same drain for cron jobs and api_server (/v1) runs
+  # Floor under the same drain for api_server (/v1) runs
   # (seconds). Default 30.
   # restart_drain_timeout above is written for chat turns, which are cheap to
   # interrupt: the user is told the gateway is restarting and the session
-  # resumes on their next message. A cron run has no such safety net — it is
-  # recorded in jobs.json as a permanent failure, nobody is waiting on it, and
-  # a recurring job simply skips to its next schedule. So in-flight cron work
-  # gets its own grace window instead of inheriting the 0 above, and so do
-  # api_server (/v1) runs: an interrupted /v1 run fails its waiting caller.
+  # resumes on their next message. An interrupted /v1 run fails its waiting
+  # caller, so API runs receive their own grace window.
   # Clamped at runtime to the shutdown-watchdog leash (restart_drain_timeout
   # + 60s) minus teardown headroom, so values past ~50s need a matching
-  # TimeoutStopSec bump to take effect. Set 0 to opt out and drain cron and
+  # TimeoutStopSec bump to take effect. Set 0 to opt out and drain
   # /v1 runs on restart_drain_timeout like before.
-  # cron_drain_timeout: 30
+  # api_drain_timeout: 30
 
   # In-band restart wait (seconds) for active turns to finish BEFORE stop()
   # begins. /restart and SIGUSR1 refuse new work, then wait up to this cap for
-  # in-flight agent, cron and API runs to complete so the requesting turn is
+  # in-flight agent and API runs to complete so the requesting turn is
   # not cut off by restart_drain_timeout. 0 = enter stop()/drain immediately.
-  # Excluded from the wait: wedged runs, and cron runs already handed to a
-  # worker in its own restart-safe systemd scope (they outlive the restart).
+  # Wedged runs are excluded from the wait.
   # The default (30 min) is a safety valve for wedged agents, not a target
   # latency; raise it for long unattended turns. Env: HERMES_RESTART_AFTER_TURN_TIMEOUT.
   # restart_after_turn_timeout: 1800
@@ -1314,10 +1299,8 @@ gateway:
   # signal_interrupt_grace_timeout: 1
 
   # Let platform adapters honor HTTP_PROXY / HTTPS_PROXY / NO_PROXY (and
-  # SSL_CERT_FILE) from the process environment, plus macOS system-proxy
-  # auto-detection. Set to false when the gateway inherits a proxy it must not
-  # use (e.g. a Windows Scheduled Task picking up a local Clash/V2Ray proxy that
-  # isn't running).
+  # SSL_CERT_FILE) from the process environment. Set to false when the gateway
+  # inherits a proxy it must not use.
   # trust_env: true
 
 # =============================================================================
@@ -1336,7 +1319,7 @@ gateway:
 #   - A preset like "hermes-cli" (curated tool set)
 #   - A list of individual toolsets to compose your own (see list below)
 #
-# Supported platform keys: cli, cron, api_server, webhook
+# Supported platform keys: cli, api_server, webhook
 #
 # Examples:
 #
@@ -1347,11 +1330,11 @@ gateway:
 #
 #   # Custom: CLI without browser or image gen:
 #   platform_toolsets:
-#     cli: [web, terminal, file, skills, todo, tts, cronjob]
+#     cli: [web, terminal, file, skills, todo]
 #
 
 # If not set, defaults are:
-#   cli:           hermes-cli            (everything + cronjob management)
+#   cli:           hermes-cli
 
 #
 platform_toolsets:
@@ -1395,12 +1378,11 @@ platform_toolsets:
 #   skills       - skills_list, skill_view
 #   skills_hub   - skill_hub (search/install/manage from online registries — user-driven only)
 #   todo         - todo (in-memory task planning, no deps)
-#   tts          - text_to_speech  (Edge TTS free, or ELEVENLABS/OPENAI/MINIMAX/MISTRAL key)
-#   cronjob      - cronjob (create/list/update/pause/resume/run/remove scheduled tasks)
+
 #
 # PRESETS (curated bundles):
 #   hermes-cli       - All of the above
-#   hermes-cron      - Scheduled task tools
+
 #   hermes-api-server - Agent tools without interactive UI
 #   hermes-webhook   - Restricted tools for external webhook events
 #
@@ -1420,8 +1402,7 @@ platform_toolsets:
 #   todo         - Task planning and tracking for multi-step work
 #   memory       - Persistent memory across sessions (personal notes + user profile)
 #   session_search - Search and recall past conversations (FTS5 + Gemini Flash summarization)
-#   tts          - Text-to-speech (Edge TTS free, ElevenLabs, OpenAI, MiniMax, Mistral)
-#   cronjob      - Schedule and manage automated tasks (CLI-only)
+
 #
 # Composite toolsets:
 #   debugging    - terminal + web + file (for troubleshooting)
@@ -1502,141 +1483,6 @@ platform_toolsets:
 #   feeds:
 #     url: https://feeds.example.com/mcp
 #     events: true
-
-# =============================================================================
-# Text-to-Speech
-# =============================================================================
-# TTS defaults to Edge TTS unless changed in ~/.hermes/config.yaml.
-# Gemini TTS supports persona/director prompt files, and Gemini 3.1 Flash TTS
-# can use a hidden auxiliary rewrite pass to insert expressive square-bracket
-# audio tags into the TTS script without showing tags in chat.
-#
-# tts:
-#   provider: "gemini"
-#   speed: 1.0              # global speed multiplier (provider-specific overrides this)
-
-#   gemini:
-#     model: "gemini-3.1-flash-tts-preview"
-#     voice: "Kore"
-#     audio_tags: false
-#     persona_prompt_file: ""  # e.g. ~/.hermes/tts/radio-host.md
-#   xai:
-#     voice_id: "eve"       # built-in or custom voice ID from xAI Console
-#     language: "en"        # BCP-47 code ("en", "pt-BR") or "auto"
-#     speed: 1.0            # 0.7-1.5 playback speed
-#     auto_speech_tags: false  # insert expressive audio tags via LLM rewrite
-#     text_normalization: false  # normalize numbers/abbreviations/symbols
-#     optimize_streaming_latency: 0  # 0-2, trades quality for lower latency
-#     sample_rate: 24000    # 22050 / 24000 / 44100 / 48000
-#     bit_rate: 128000      # MP3 bitrate (codec=mp3 only)
-
-# =============================================================================
-# Voice Transcription (Speech-to-Text)
-# =============================================================================
-# Transcribe audio input.
-# Providers: local (free, faster-whisper) | groq (free tier) | openai (Whisper API) | mistral (Voxtral Transcribe)
-# Set the corresponding API key in .env: GROQ_API_KEY, OPENAI_API_KEY, or MISTRAL_API_KEY.
-stt:
-  enabled: true
-  # provider: "local"          # auto-detected if omitted
-  # --- Cloud pre-upload silence trim (groq/openai/mistral/xai/elevenlabs/deepinfra) ---
-  # Local whisper gets Silero VAD; cloud endpoints otherwise receive raw audio —
-  # silence inflates upload time, per-audio-minute billing, and hallucination risk.
-  # Collapses pauses with ffmpeg client-side; clips under 12s skip the trim, and
-  # on any failure the original uploads untouched.
-  # cloud_trim_silence: true   # set false to always upload the original audio
-  # cloud_trim_threshold_db: -40  # audio quieter than this counts as silence
-  # cloud_trim_keep_ms: 300    # how much of each pause survives (keeps natural pacing)
-  # Optional static transcription prompt: vocabulary/context hints for
-  # prompt-capable backends. Composition is deterministic: this config value
-  # is the base, then `pre_transcription` hooks run in registration order with
-  # last-writer-wins semantics per field.
-  #
-  # Privacy: the final prompt is sent to the configured STT provider alongside
-  # the audio. Do not include secrets or session context you would not send to
-  # that provider.
-  #
-  # Length / truncation contract: Whisper-family backends (local, openai,
-  # groq, deepinfra) only use the final ~224 prompt tokens, so Hermes
-  # truncates longer prompts client-side (keeping the tail) with a WARNING
-  # log — never an error. Other backends own their own validation.
-  #
-  # Provider behavior:
-  #   local (faster-whisper)  -> `initial_prompt`, forwarded unchanged
-  #   openai / groq          -> `prompt`, forwarded unchanged
-  #   mistral                -> `prompt`, forwarded unchanged
-  #   deepinfra              -> OpenAI-compatible `prompt`, unchanged
-  #   local_command/xai/
-  #   elevenlabs             -> unsupported; DEBUG log, then continue
-  #   plugin providers       -> `prompt` in `**extra`; plugin owns limits
-  # prompt: "Hermes, Teknium, Nous Research"
-  local:
-    model: "base"              # tiny | base | small | medium | large-v3 | turbo
-    # language: ""             # blank = inherit stt.language; set "en", "es", "fr", etc. to force
-    # initial_prompt: ""       # Optional faster-whisper prompt, e.g. bias Chinese output to simplified Chinese
-    # --- Anti-hallucination hardening (whisper decodes junk from silence without these) ---
-    # vad: true                # Silero VAD filter (default on) — silence never reaches whisper.
-    #                          # Set false to restore raw behavior (e.g. transcribing music/ambient audio).
-    # vad_min_silence_ms: 500  # min silence (ms) that splits speech chunks when vad is on
-    # no_speech_prob_threshold: 0.6  # drop a segment only if no_speech_prob > this...
-    # logprob_threshold: -1.0       # ...AND avg_logprob < this (both must hit — quiet real speech survives)
-    # unload_after_idle_seconds: 0  # 0=never unload (default); e.g. 300 releases the model after 5min idle (frees VRAM on GPU; next voice message reloads it)
-  language: "en"               # Global hint; a nonempty provider language wins. Blank falls back to HERMES_LOCAL_STT_LANGUAGE, then auto-detect.
-  # groq:
-  #   model: "whisper-large-v3-turbo"
-  #   language: ""             # blank inherits stt.language, then HERMES_LOCAL_STT_LANGUAGE
-  openai:
-    model: "whisper-1"         # whisper-1 | gpt-4o-mini-transcribe | gpt-4o-transcribe | gpt-transcribe
-    language: ""               # blank = inherit stt.language; set "en", "es", "fr", etc. to force
-    timeout: 60                # request timeout in seconds; increase for self-hosted model cold starts
-    max_retries: 1             # OpenAI SDK transport retries; set 0 to disable
-  # mistral:
-  #   model: "voxtral-mini-latest"  # voxtral-mini-latest | voxtral-mini-2602
-  # xai:
-  #   # Sent as the multipart ``model`` field. Hermes uses 2.0 by default;
-  #   # pin 1.0 only if a rollback is needed.
-  #   model: "grok-voice-transcribe-2.0"  # or grok-voice-transcribe-1.0
-  #   # language: ""             # blank = stt.language > HERMES_LOCAL_STT_LANGUAGE > auto-detect
-  # deepinfra:
-  #   # Model id is discovered live from the DeepInfra catalog filtered
-  #   # by the `stt` surface tag — leave `model` blank to take the first
-  #   # live result. Pin only when you need a specific Whisper variant.
-  #   model: ""
-  # Custom command providers (stt.providers.<name>: type: command) can
-  # normalize browser WebM/Opus and other input formats to 16 kHz mono m4a
-  # before substituting {input_path}. This is opt-in so CLIs that already
-  # accept arbitrary containers (e.g. whisper.cpp) remain unchanged.
-  # providers:
-  #   custom-asr:
-  #     type: "command"
-  #     command: "custom-asr --input {input_path} --output {output_path}"
-  #     normalize: true  # requires ffmpeg; default false
-
-# Text-to-speech. Only the deepinfra block is documented here — the
-# remaining providers (edge, openai, xai, minimax, mistral, gemini,
-# elevenlabs, neutts, kittentts, piper) inherit sensible defaults from
-# DEFAULT_CONFIG in hermes_cli/config.py.
-# tts:
-#   provider: "deepinfra"
-#   deepinfra:
-#     # Model id is discovered live from the DeepInfra catalog filtered
-#     # by the `tts` surface tag — leave `model` blank to take the first
-#     # live result.
-#     model: ""
-#     voice: "default"
-
-# "Hey Hermes" hands-free wake word (off by default; toggle with /wake).
-# Full engine/provider options inherit from DEFAULT_CONFIG in
-# hermes_cli/config_defaults.py — only capture placement is documented here.
-# wake_word:
-#   enabled: false
-#   capture: "auto"    # auto | local | client
-#                      # auto: backend PortAudio mic when one exists; a remote
-#                      #       desktop on a mic-less (headless/VPS) backend
-#                      #       streams its own mic via the wake.feed RPC.
-#                      # local: always the backend mic (wake_word.input_device).
-#                      # client: always desktop-streamed PCM (detection stays
-#                      #         on the backend).
 
 # Image generation. Each provider plugin reads its own ``image_gen.<name>``
 # block; deepinfra discovers models live from
@@ -1729,7 +1575,7 @@ delegation:
   # subagent_auto_approve: false              # When a subagent hits a dangerous-command approval prompt, auto-deny (default: false)
                                               # or auto-approve "once" (true) instead of blocking on stdin.
                                               # The parent TUI owns stdin, so blocking would deadlock; non-interactive resolution is required.
-                                              # Both choices emit a logger.warning audit line. Flip to true only for cron/batch pipelines.
+                                              # Both choices emit a logger.warning audit line. Flip to true only for batch pipelines.
   # inherit_mcp_toolsets: true                # When explicit child toolsets are narrowed, also keep the parent's MCP toolsets (default: true). Set false for strict intersection.
   # model: "google/gemini-3-flash-preview"    # Override model for subagents (empty = inherit parent)
   # provider: "openrouter"                    # Override provider for subagents (empty = inherit parent)
@@ -1784,7 +1630,7 @@ display:
 
   # Opt-in: hide automatic warning/diagnostic notifications (compression, retry
   # and fallback notices, credit/subagent failure lines, inactivity and watchdog
-  # stalls, media-delivery fallbacks, cron failure alerts) on this surface.
+  # stalls and media-delivery fallbacks) on this surface.
   # Requested results, approvals, clarifications and command outcomes are never
   # hidden, and nothing is removed from the logs. Per-platform override under
   # display.platforms.<platform>.suppress_warning_notifications.
@@ -1964,7 +1810,7 @@ display:
 #
 # First-use consent: each (event, command) pair prompts once on a TTY, then
 # is persisted to ~/.hermes/shell-hooks-allowlist.json.  Non-interactive
-# runs (gateway, cron) need --accept-hooks, HERMES_ACCEPT_HOOKS=1, or the
+# runs (gateway, batch) need --accept-hooks, HERMES_ACCEPT_HOOKS=1, or the
 # hooks_auto_accept key below.
 #
 # See website/docs/user-guide/features/hooks.md for the full JSON wire
@@ -2012,7 +1858,7 @@ updates:
   # Explicit `hermes update --check` and `hermes update` remain available.
   check: true
   # Backup taken before every `hermes update`:
-  #   quick - snapshot of small critical state (pairing, cron jobs, config.yaml,
+  #   quick - snapshot of small critical state (pairing, config.yaml,
   #           .env, auth.json, profile databases) in state-snapshots/ (default)
   #   full  - quick plus a zip of HERMES_HOME in backups/; slow on large homes
   #   off   - no backup

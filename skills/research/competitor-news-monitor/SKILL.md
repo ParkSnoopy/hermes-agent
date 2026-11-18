@@ -13,7 +13,7 @@ metadata:
 
 # Competitor News Monitor
 
-Track a declared company set and report only material, new developments with primary-source evidence. This is not a generic page-diff watcher: it applies company-news categories, source hierarchy, event deduplication, and business significance. Setup runs once in the foreground; the recurring check runs as a `cronjob` tick (the `competitor-watch` automation blueprint scaffolds this).
+Track a declared company set and report only material, new developments with primary-source evidence. This is not a generic page-diff watcher: it applies company-news categories, source hierarchy, event deduplication, and business significance.
 
 ## When to Use
 
@@ -21,7 +21,6 @@ Track a declared company set and report only material, new developments with pri
 - "Tell me when Company X changes pricing or launches a product."
 - "Create a competitor intelligence digest."
 - "Track funding, partnerships, executive moves, and incidents."
-- A cron tick fires for an existing competitor watch (steps 3-6).
 
 Don't use for: one-off company research (use `web_search`/`web_extract` directly) or plain feed reading (`blogwatcher`).
 
@@ -31,7 +30,7 @@ Don't use for: one-off company research (use `web_search`/`web_extract` directly
 
 Record canonical company names, domains, products, aliases, geography/language, event categories, cadence, audience, and materiality threshold. Done when a candidate article can be accepted or rejected consistently.
 
-### 2. Build source coverage, then schedule
+### 2. Build source coverage
 
 For each company include, where available:
 
@@ -42,18 +41,12 @@ For each company include, where available:
 5. reputable trade and financial press
 6. job postings as weak supporting evidence
 
-Use `rss-feeds` (optional) or `blogwatcher` (optional, stateful) for feeds, `reddit-reading` for community discussion, and `web_search`/`web_extract` for pages. Write the watch contract (watchlist, categories, materiality threshold, last cutoff) to a state file under `~/.hermes/competitor-watches/<watch-slug>.json`, then create the job:
+Use `rss-feeds` (optional) or `blogwatcher` (optional, stateful) for feeds, `reddit-reading` for community discussion, and `web_search`/`web_extract` for pages. Write the watch contract (watchlist, categories, materiality threshold, last cutoff) to a state file under `~/.hermes/competitor-watches/<watch-slug>.json`.
 
-```
-cronjob(action="create",
-        schedule="every monday 9am",
-        prompt="Load the competitor-news-monitor skill and run the tick for the watch contract at ~/.hermes/competitor-watches/<watch-slug>.json.",
-        deliver=<user's destination>)
-```
 
-Done when each requested event category has at least one intended primary source or a documented gap, and the job exists.
+Done when each requested event category has at least one intended primary source or a documented gap,.
 
-## Procedure — Tick (each scheduled run)
+## Procedure — Recheck on request
 
 ### 3. Collect incrementally
 

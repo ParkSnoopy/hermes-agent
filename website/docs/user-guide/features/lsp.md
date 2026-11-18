@@ -96,7 +96,7 @@ Hermes therefore treats every workspace as untrusted unless it is:
   directory below one).
 
 A `cd` in the agent's terminal does not move the session's workspace.
-Cron jobs and Kanban workers get no automatic trust, because the agent
+Kanban workers get no automatic trust, because the agent
 can choose their workdir or workspace; list the directories they should
 trust under `lsp.trusted_workspaces`. A checkout nested inside a trusted
 worktree has its own `.git`, so it is not trusted, and neither is a git
@@ -186,7 +186,7 @@ module bundle launched by a `pwsh` (PowerShell 7+) or `powershell`
 host. Setup:
 
 1. Install [PowerShell](https://github.com/PowerShell/PowerShell) so
-   `pwsh` (or Windows `powershell`) is on PATH.
+   `pwsh` is on PATH.
 2. Download the latest release zip from
    [PowerShellEditorServices releases](https://github.com/PowerShell/PowerShellEditorServices/releases)
    and extract it.
@@ -493,8 +493,7 @@ the named tool through your OS package manager:
 
 ```
 apt install shellcheck      # Debian / Ubuntu
-brew install shellcheck     # macOS
-scoop install shellcheck    # Windows
+
 ```
 
 The same warning is logged once at server spawn time in

@@ -1,12 +1,11 @@
 """Why a background process has no writable stdin, phrased as the fix the agent can act on."""
 import importlib.util
-import sys
 
 _NON_INTERACTIVE = "Pass input non-interactively instead (arguments, a here-doc, or `printf ... | cmd`)."
 
 
 def _pty_available() -> bool:
-    return importlib.util.find_spec("winpty" if sys.platform == "win32" else "ptyprocess") is not None
+    return importlib.util.find_spec("ptyprocess") is not None
 
 
 def _no_pty_reason(session) -> str:
@@ -19,7 +18,7 @@ def _no_pty_reason(session) -> str:
     if session.output_log:
         return "background processes here run in an isolated worker that cannot give them a pseudo-terminal"
     if not _pty_available():
-        return "the PTY library (ptyprocess/pywinpty) is not installed"
+        return "the PTY library (ptyprocess) is not installed"
     return ""
 
 

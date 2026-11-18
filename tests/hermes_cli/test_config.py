@@ -913,7 +913,7 @@ class TestConfigSupportFloor:
     # ── Parity fixtures ──────────────────────────────────────────────
     # Expected outputs captured by running migrate_config from origin/main
     # (commit 28524adb0e, pre-floor) in a subprocess against these exact
-    # fixtures. The floor must not change behavior for v12+ configs.
+    # fixtures. Retired speech settings are now preserved without migration.
 
     _V12_FIXTURE = {
         "_config_version": 12,
@@ -946,7 +946,7 @@ class TestConfigSupportFloor:
         # the shipped ttl_minutes (20) applies.
         "model_catalog": {},
         "plugins": {"enabled": []},
-        "stt": {"provider": "local"},
+        "stt": {"model": "base", "provider": "local"},
     }
 
     _V20_FIXTURE = {
@@ -1261,7 +1261,7 @@ class TestMigrationPreservesCustomProviders:
         # File must NOT be a defaults dump — assert specific DEFAULT_CONFIG
         # top-level keys are absent (they should only appear via load_config's
         # deep-merge, not be written to the user's file by migration).
-        for default_key in ("tts", "compression", "security", "bedrock"):
+        for default_key in ("compression", "security", "bedrock"):
             assert default_key not in raw, (
                 f"{default_key} should not be in migrated config file — "
                 f"migration should use read_raw_config() to avoid defaults dump"
@@ -1546,7 +1546,7 @@ class TestMigrationWriteInvariant:
         # No default-only top-level section the user never wrote lands on disk —
         # neither from per-version seeds nor the catch-all finalizer.
         for default_key in (
-            "timezone", "curator", "auxiliary", "tts", "compression",
+            "timezone", "curator", "auxiliary", "compression",
             "whatsapp", "bedrock",
         ):
             assert default_key not in raw, (

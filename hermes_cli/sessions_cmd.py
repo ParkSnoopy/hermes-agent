@@ -46,9 +46,7 @@ def _confirm_prompt(prompt: str) -> bool | None:
         return input(prompt).strip().lower() in {"y", "yes"}
     except EOFError:
         print()
-        # isatty() alone is True for Windows NUL; the console check keeps `< NUL` unattended (#113977).
-        from hermes_cli.gateway_windows import _stdin_console_mode_ok, _stdin_is_interactive
-        return False if _stdin_is_interactive(isatty=sys.stdin.isatty(), console_mode_ok=_stdin_console_mode_ok()) else None
+        return False if sys.stdin.isatty() else None
 
 
 def _confirm_or_exit_code(prompt: str, *, declined: str = "Cancelled.", unattended: str | None = "--yes") -> int | None:
@@ -290,13 +288,6 @@ def _print_recovery_verdict(report, output, allow_partial) -> int:
         "  Do not install it. Review the JSON report for partial data or errors."
     )
     return 1
-
-
-def _cmd_import(args):
-    from hermes_cli.foreign_sessions import run_sessions_import
-    # Explicit path but nothing imported -> non-zero for scripts. Picker cancel (no path) -> exit 0.
-    if run_sessions_import(args) is None and getattr(args, "path", None):
-        return 1
 
 
 # -- handlers that receive an open SessionDB ----------------------------------
@@ -1368,7 +1359,7 @@ def _cmd_discard(args):
 
 
 _PRE_DB_HANDLERS = {
-    "repair": _cmd_repair, "recover": _cmd_recover, "import": _cmd_import,
+    "repair": _cmd_repair, "recover": _cmd_recover,
     "repair-profiles": _cmd_repair_profiles,  # opens every profile's store itself
     "set-journal-mode": _cmd_set_journal_mode,  # offline: must not open the store it converts
     "discard": _cmd_discard,  # a gateway control (prompt.resolve_unknown), never a direct store write

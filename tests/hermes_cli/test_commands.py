@@ -22,9 +22,26 @@ def _completions(completer: SlashCommandCompleter, text: str):
 
 class TestCommandRegistry:
 
+    def test_retired_voice_commands_are_not_registered(self):
+        for name in ("voice", "wake"):
+            assert resolve_command(name) is None
+            assert name not in GATEWAY_KNOWN_COMMANDS
+
+    def test_retired_voice_configuration_is_not_offered(self):
+        from hermes_cli.config_defaults import DEFAULT_CONFIG, OPTIONAL_ENV_VARS
+
+        assert not {"tts", "stt", "voice", "wake_word"} & DEFAULT_CONFIG.keys()
+        assert not {"VOICE_TOOLS_OPENAI_KEY", "ELEVENLABS_API_KEY", "PORCUPINE_ACCESS_KEY"} & OPTIONAL_ENV_VARS.keys()
+        assert not {"tts_audio_tags", "voice_chat"} & DEFAULT_CONFIG["auxiliary"].keys()
+
     def test_retired_native_commands_are_not_registered(self):
         for name in ("start", "topic", "handoff", "kanban", "platforms", "platform", "sethome", "gateway"):
             assert resolve_command(name) is None
+
+    def test_retired_scheduler_commands_and_aliases_are_not_registered(self):
+        for name in ("cron", "suggestions", "suggest", "blueprint", "bp"):
+            assert resolve_command(name) is None
+            assert name not in GATEWAY_KNOWN_COMMANDS
 
 
     def test_no_duplicate_canonical_names(self):

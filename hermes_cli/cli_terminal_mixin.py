@@ -643,8 +643,7 @@ class CLITerminalMixin:
         (approval/sudo prompts touch the tty), and on Windows (no termios).
         """
         from cli import _DIM, _RST, _cprint, _heal_cooked_mode_drift, logger
-        if os.name == "nt":
-            return
+
         app = getattr(self, "_app", None)
         if app is None or not getattr(app, "_is_running", False):
             return

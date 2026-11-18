@@ -23,7 +23,7 @@ TOOL_KIND_MAP: dict[str, ToolKind] = {
         "edit": ("write_file", "patch", "skill_manage"),
         "search": ("search_files",),
         "execute": ("terminal", "process", "execute_code", "browser_click", "browser_type", "browser_scroll",
-                    "browser_press", "browser_back", "delegate_task", "image_generate", "text_to_speech"),
+                    "browser_press", "browser_back", "delegate_task", "image_generate"),
         "fetch": ("web_search", "web_extract", "browser_navigate"),
         "other": ("todo",),
         "think": ("_thinking",),
@@ -42,9 +42,9 @@ _POLISHED_TOOLS = {
     "skill_view", "skills_list", "skill_manage", "web_search", "web_extract",
     "browser_navigate", "browser_click", "browser_type", "browser_press", "browser_scroll",
     "browser_back", "browser_snapshot", "browser_console", "browser_get_images", "browser_vision",
-    "vision_analyze", "image_generate", "text_to_speech",
-    # Scheduler and user-interaction tools
-    "cronjob", "clarify",
+    "vision_analyze", "image_generate",
+    # User-interaction tools
+    "clarify",
 }
 
 _EMPTYISH = (None, "", [], {})
@@ -507,10 +507,10 @@ def _format_browser_result(tool_name: str, data: Args, args: Args) -> Optional[s
 
 
 @_structured(text_fallback=True)
-def _format_media_or_cron_result(tool_name: str, data: Args, args: Args) -> Optional[str]:
+def _format_media_result(tool_name: str, data: Args, args: Args) -> Optional[str]:
     if failed := _failure(data, f"{tool_name} failed"):
         return failed
-    keys = ("file_path", "path", "url", "image_url", "job_id", "id", "status", "message", "next_run")
+    keys = ("file_path", "path", "url", "image_url", "id", "status", "message")
     return "\n".join([f"✅ {tool_name} completed", *(f"- **{k}:** {data.get(k)}" for k in keys if data.get(k))])
 
 
@@ -625,7 +625,7 @@ _COMPLETION_FORMATTERS: dict[str, _Formatter] = {
     "skill_manage": _format_skill_manage_result,
     "web_search": _format_web_search_result,
     **{n: _format_browser_result for n in ("browser_navigate", "browser_snapshot", "browser_vision", "browser_get_images")},
-    **{n: _format_media_or_cron_result for n in ("vision_analyze", "image_generate", "cronjob")},
+    **{n: _format_media_result for n in ("vision_analyze", "image_generate")},
 }
 
 

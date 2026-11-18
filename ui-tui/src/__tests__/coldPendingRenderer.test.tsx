@@ -44,8 +44,7 @@ async function coldResume(control: boolean) {
     queue = useQueue()
     lifecycle = useSessionLifecycle({ colsRef: { current: 80 }, composerActions: { setComposerTokens: vi.fn() },
       gw: { isCanonical: true, request }, rpc: async () => ({}), scrollRef: { current: null }, panel: vi.fn(), sys: vi.fn(),
-      setHistoryItems: vi.fn(), setLastUserMsg: vi.fn(), setSessionStartedAt: vi.fn(), setStickyPrompt: vi.fn(),
-      setVoiceProcessing: vi.fn(), setVoiceRecording: vi.fn() } as any)
+      setHistoryItems: vi.fn(), setLastUserMsg: vi.fn(), setSessionStartedAt: vi.fn(), setStickyPrompt: vi.fn(), } as any)
 
     return <Text>{queue.queuedDisplay.join('|')}</Text>
   }

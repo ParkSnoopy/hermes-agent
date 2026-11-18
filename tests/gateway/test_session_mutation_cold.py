@@ -1,31 +1,47 @@
-"""Cold history authorization does not manufacture an execution route."""
-import asyncio
-import httpx
+"""Cold imported history remains bound and editable after owner restart."""
+from types import SimpleNamespace
+
 import pytest
-from tests.gateway.test_native_http_auth import daemon, ticket, headers
-from tests.gateway.test_session_mutation_retirement import create
+
+from gateway.session_authority import SessionAuthority
+from gateway.session_controls import AuthorityConnection
+from hermes_state import SessionDB
+from hermes_state_runtime import begin_runtime_epoch
 
 
-@pytest.mark.platforms("linux")
-def test_cold_import_mutation_binds_owner_across_restart(tmp_path):
-    with daemon(tmp_path) as (home, descriptor), httpx.Client(base_url=descriptor['api_origin'], trust_env=False) as client:
-        # Native creation remains independently authorized while cold history binds.
-        asyncio.run(create(home, descriptor))
-        response = client.post('/api/sessions/import', headers=headers(ticket(home, descriptor)), json={
-            'request_id': 'import', 'expected_revision': 0, 'sessions': [
-                {'id': 'cold', 'source': 'cli', 'messages': [{'role': 'user', 'content': 'history'}]}]})
-        assert response.status_code == 200, response.text
-        snapshot = client.get('/api/sessions/cold/mutation-snapshot', headers=headers(ticket(home, descriptor)))
-        assert snapshot.status_code == 200, snapshot.text
-        body = {'request_id': 'edit', 'expected_revision': snapshot.json()['runtime_revision'], 'title': 'Cold history'}
-        edited = client.patch('/api/sessions/cold', headers=headers(ticket(home, descriptor)), json=body)
-        assert edited.status_code == 200, edited.text
-        stale = client.patch('/api/sessions/cold', headers=headers(ticket(home, descriptor)), json=body | {'request_id': 'competitor', 'title': 'stale'})
-        assert stale.status_code == 409 and 'revision_conflict' in stale.text
-    with daemon(tmp_path) as (home, descriptor), httpx.Client(base_url=descriptor['api_origin'], trust_env=False) as client:
-        assert client.patch('/api/sessions/cold', headers=headers(ticket(home, descriptor)), json=body).json() == edited.json()
-        assert client.get('/api/sessions/cold/mutation-snapshot', headers=headers(ticket(home, descriptor))).status_code == 200
-        # The dashboard login is the owner the binding names: a new request on the stale revision is
-        # an ordinary revision conflict, not an ownership refusal.
-        login = client.patch('/api/sessions/cold', headers={'Authorization': 'Bearer normal-http-owner'}, json=body | {'request_id': 'login'})
-        assert login.status_code == 409 and 'revision_conflict' in login.text, login.text
+@pytest.mark.asyncio
+async def test_cold_import_mutation_binds_owner_across_restart(tmp_path):
+    path = tmp_path / 'state.db'
+    with SessionDB(db_path=path) as db:
+        authority = SessionAuthority(SimpleNamespace(_draining=False), profile_id='owned', instance_id='first',
+                                     db=db, epoch=begin_runtime_epoch(db, instance_id='first'))
+        owner = AuthorityConnection(authority, object(), {'user_id': 'human'})
+        imported = await owner.dispatch({'id': 1, 'method': 'session.mutate', 'params': {
+            'session_id': 'cold', 'request_id': 'import', 'expected_revision': 0, 'operation': 'import',
+            'payload': {'sessions': [{'id': 'cold', 'source': 'cli',
+                                      'messages': [{'role': 'user', 'content': 'history'}]}]}}})
+        assert imported['result']['imported_ids'] == ['cold'], imported
+        assert db.get_messages('cold')[0]['content'] == 'history'
+        assert 'cold' not in authority.sessions
+        edit = {'id': 2, 'method': 'session.mutate', 'params': {'session_id': 'cold', 'request_id': 'edit',
+                'expected_revision': db.get_session('cold')['runtime_revision'], 'operation': 'rename',
+                'payload': {'title': 'Cold history'}}}
+        edited = await owner.dispatch(edit)
+        assert edited['result']['title'] == 'Cold history', edited
+        stale = await owner.dispatch({**edit, 'params': {**edit['params'], 'request_id': 'competitor'}})
+        assert stale['error']['message'] == 'revision_conflict', stale
+        await owner.close()
+    with SessionDB(db_path=path) as db:
+        authority = SessionAuthority(SimpleNamespace(_draining=False), profile_id='owned', instance_id='second',
+                                     db=db, epoch=begin_runtime_epoch(db, instance_id='second'))
+        owner = AuthorityConnection(authority, object(), {'user_id': 'human'})
+        stranger = AuthorityConnection(authority, object(), {'user_id': 'stranger'})
+        try:
+            assert await owner.dispatch(edit) == edited
+            denied = await stranger.dispatch({**edit, 'params': {**edit['params'], 'request_id': 'stranger',
+                'expected_revision': db.get_session('cold')['runtime_revision']}})
+            assert denied['error']['message'] == 'permission_denied', denied
+            assert db.get_session('cold')['title'] == 'Cold history'
+        finally:
+            await owner.close()
+            await stranger.close()

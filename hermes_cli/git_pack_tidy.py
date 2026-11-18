@@ -34,7 +34,6 @@ from typing import Dict, Iterable, Iterator, List, Optional
 from hermes_cli._subprocess_compat import (
     NO_LAZY_FETCH_ENV,
     noninteractive_git_env,
-    windows_hide_flags,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,8 +125,6 @@ def _pinned(pack: Path, cutoff: float) -> bool:
 
 
 def _unlink(part: Path) -> None:
-    if os.name == "nt":
-        os.chmod(part, 0o666)  # git writes packs read-only; Windows refuses to unlink those
     part.unlink()
 
 
@@ -268,20 +265,16 @@ def _erase_redundant_packs(pack_dir: Path, deadline: float, result: TidyResult, 
 
 def _merge_git(repo_root: Path, staging: Path, batch: list[Path], timeout: float):
     """``git pack-objects --stdin-packs`` over *batch* into *staging*, in the update's custody (a
-    mutator: it holds the checkout lock fd, and inside an update it is job-bound on Windows).
+    mutator: it holds the checkout lock fd).
 
-    ``None`` when it ran out of time or could not start; a custody refusal propagates, so an update
-    stops the way it does for any updater git Windows will not bind."""
-    from hermes_cli.update_custody import CustodyRefused, run_git
+    ``None`` when it ran out of time or could not start."""
+    from hermes_cli.update_custody import run_git
 
     try:
         return run_git(
             ["git"], ["-c", "pack.packSizeLimit=0", "pack-objects", "-q", "--stdin-packs", str(staging / "pack")],
             cwd=str(repo_root), env=_git_env(), input="".join(p.name + "\n" for p in batch),
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
-            creationflags=windows_hide_flags())
-    except CustodyRefused:
-        raise
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return None
 
@@ -363,7 +356,7 @@ def tidy_partial_clone_packs(repo_root: Path, *, budget_seconds: float = TIDY_BU
     result = TidyResult()
     pack_dir = Path(repo_root) / ".git" / "objects" / "pack"
     try:
-        if not pack_dir.is_dir() or _partial_clone_filter(repo_root, creationflags=windows_hide_flags()) is None:
+        if not pack_dir.is_dir() or _partial_clone_filter(repo_root) is None:
             return result
         deadline = time.monotonic() + budget_seconds
         lock = _take_lock(pack_dir.parent.parent)

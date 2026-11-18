@@ -5,20 +5,15 @@ unmanaged processes. Client startup must not call those helpers.
 """
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
 import hashlib
-import io
 import os
 from pathlib import Path
-import plistlib
 import subprocess
-import sys
 import time
 from xml.parsers.expat import ExpatError
 
 from gateway.runtime_contract import RuntimeState
-from hermes_cli._subprocess_compat import windows_hide_flags
 
 
 class RuntimeStartError(RuntimeError):
@@ -68,7 +63,7 @@ class ExistingService:
 def _run(argv: list[str] | tuple[str, ...], deadline: float, *, encoding: str | None = "utf-8"):
     return subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True,
                           text=encoding is not None, encoding=encoding, errors="strict" if encoding else None,
-                          creationflags=windows_hide_flags(), timeout=remaining(deadline), check=False)
+                          timeout=remaining(deadline), check=False)
 
 
 def _verify_binding(verify, *args, **kwargs):
@@ -183,88 +178,10 @@ def _s6(home: Path, deadline: float) -> ExistingService | None:
     return ExistingService("s6", (service_name,), manager.is_running(service_name))
 
 
-def _launchd(home: Path, deadline: float) -> ExistingService | None:
-    import pwd
-    suffix = service_suffix(home)
-    label = f"ai.hermes.gateway{'-' + suffix if suffix else ''}"
-    account = pwd.getpwuid(os.getuid())  # windows-footgun: ok — native launchd only
-    account_home = Path(account.pw_dir)
-    plist = account_home / "Library/LaunchAgents" / f"{label}.plist"
-    from hermes_cli.gateway_runtime_service_identity import verify_launchd_loaded, verify_launchd_plist, read_definition
-    installed = _exists(plist)
-    domains = [f"gui/{os.getuid()}", f"user/{os.getuid()}"]  # windows-footgun: ok — native launchd only
-    found = []
-    loaded = []
-    for domain in domains:
-        result = _run(["launchctl", "print", f"{domain}/{label}"], deadline)
-        if result.returncode == 0:
-            loaded.append(result.stdout)
-            found.append(ExistingService("launchd", ("launchctl", "kickstart", f"{domain}/{label}"),
-                                         "state = running" in result.stdout))
-            continue
-        # launchctl's native absent-service code; other errors retain uncertainty.
-        if result.returncode != 113:
-            raise RuntimeStartError("service_manager_unavailable")
-    if len(found) > 1:
-        raise RuntimeStartError("service_scope_conflict", "conflict")
-    if found:
-        _verify_binding(verify_launchd_loaded, loaded[0], home, uid=os.getuid(), username=account.pw_name)  # windows-footgun: ok — native launchd only
-        return found[0]
-    if installed:
-        definition = _verify_binding(plistlib.loads, read_definition(plist))
-        _verify_binding(verify_launchd_plist, definition, label, home)
-        # Load ONLY the existing file, never bootout/rewrite or kickstart -k.
-        return ExistingService("launchd", ("launchctl", "bootstrap", domains[0], str(plist)))
-    return None
-
-
-def _windows(home: Path, deadline: float) -> ExistingService | None:
-    from hermes_cli.gateway_windows import _decode_schtasks_output
-    suffix = service_suffix(home)
-    name = f"Hermes_Gateway{'_' + suffix if suffix else ''}"
-
-    def query(refusal: str, *argv: str) -> str:
-        # schtasks/whoami write the console code page, and /XML declares UTF-16 over those bytes:
-        # decode like the drift check does (#116193) instead of the locale codec or raw bytes (#139083).
-        result = _run(list(argv), deadline, encoding=None)
-        if result.returncode:
-            raise RuntimeStartError(refusal)
-        return _decode_schtasks_output(result.stdout or b"")
-
-    rows = csv.reader(io.StringIO(query("service_manager_unavailable", "schtasks.exe", "/Query", "/FO", "CSV", "/NH")))
-    # Orphaned TaskCache entries print localized one-field diagnostics among the rows (#142140). Only a
-    # well-formed row can name our task, so skipping the rest can only fall through to the unmanaged path.
-    if any(len(row) == 3 and row[0].lstrip("\\") == name for row in rows):
-        from hermes_cli.gateway_runtime_service_identity import verify_windows_task
-        unverified = "service_identity_unverified"
-        definition = query(unverified, "schtasks.exe", "/Query", "/TN", name, "/XML")
-        accounts = list(csv.reader(io.StringIO(query(unverified, "whoami.exe", "/USER", "/FO", "CSV", "/NH"))))
-        if len(accounts) != 1 or len(accounts[0]) != 2:
-            raise RuntimeStartError("service_identity_unverified")
-        _verify_binding(verify_windows_task, definition, home, *accounts[0])
-        return ExistingService("windows", ("schtasks.exe", "/Run", "/TN", name))
-    # A Startup-folder entry (the fallback when Scheduled Task install was declined/blocked) is login
-    # persistence only, with no start verb or identity to verify. Starting a stopped owner is the
-    # same detached direct spawn manual `hermes gateway start` uses beside it; the unmanaged path
-    # pins the explicit home and refuses a job-bound (no-breakaway) child, and the runtime lock
-    # plus host attach arbitrate against the entry firing again at the next login.
-    return None
-
-
-def _no_supervisor(home: Path, deadline: float) -> None:
-    """Android/Termux has no service manager (main refuses `gateway install/start` there and says
-    "Run manually: hermes gateway"): an unmanaged detached start is its only owner. Python 3.13+
-    reports ``sys.platform == "android"``; older Termux interpreters report linux and reach the
-    systemd probe, which finds no unit and lands on the same unmanaged start."""
-
-
 def discover_existing_gateway_service(home: Path, *, deadline: float) -> ExistingService | None:
     from hermes_cli.service_manager import _s6_running
 
-    backend = _s6 if _s6_running() else {"linux": _systemd, "darwin": _launchd, "win32": _windows,
-                                         "android": _no_supervisor}.get(sys.platform)
-    if backend is None:
-        raise RuntimeStartError("unsupported_supervisor_platform")
+    backend = _s6 if _s6_running() else _systemd
     try:
         return backend(home, deadline)
     except subprocess.TimeoutExpired:

@@ -45,7 +45,6 @@ describe('free_tier.challenge', () => {
       submission: { submitRef: { current: vi.fn() } },
       system: { bellOnComplete: false, sys },
       transcript: {},
-      voice: {}
     } as any
 
     createGatewayEventHandler(ctx)({ payload: challenge(true), type: 'free_tier.challenge' } as any)

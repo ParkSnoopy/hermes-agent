@@ -611,9 +611,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         """Platform stream consumer for the proxy path when streaming is enabled, else ``None``."""
         from gateway.run import _load_gateway_config, _platform_config_key
         _scfg = getattr(getattr(self, "config", None), "streaming", None)
-        # #60671 — streaming TTS consumer is created on the outer event-loop thread before run_sync
-        # launches.  run_sync only reads it via ``streaming_tts_consumer_holder[0]`` for delta callback
-        # wiring.
+
         if _scfg is None:
             from gateway.config import StreamingConfig
             _scfg = StreamingConfig()
@@ -997,38 +995,6 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                 for handler in tool_logger.handlers:
                     handler.flush()
 
-    def _run_agent_start_streaming_tts(
-        self, source: SessionSource, message_type: Optional[str],
-        _status_thread_metadata: Optional[dict[str, Any]], streaming_tts_consumer_holder: list,
-    ) -> None:
-        """Start the streaming-TTS consumer for a voice-input turn on an auto-TTS chat.
-
-        Created on the gateway loop thread (not run_sync's executor); an inactive consumer leaves
-        the holder None so the whole-file fallback path runs."""
-        # Skip when streaming TTS already delivered audio for this turn (#60671).
-        # This avoids a cross-scope NameError: the outer interrupt / finalisation paths reference the
-        # consumer via ``streaming_tts_consumer_holder[0]``. Gates: voice input, auto-TTS enabled for this
-        # chat, adapter supports streaming, and a usable streaming TTS provider configured. See #60671.
-        _stts_adapter = self._delivery_adapter_for(source)
-        _is_voice_input = (
-            message_type is not None
-            and str(getattr(message_type, "value", message_type)).lower() == "voice"
-        )
-        if _stts_adapter is None or not _is_voice_input or not _stts_adapter._should_auto_tts_for_chat(source.chat_id):
-            return
-        try:
-            from gateway.streaming_tts_consumer import StreamingTTSConsumer
-            from tools.tts_tool import _load_tts_config
-            _stts_consumer = StreamingTTSConsumer(
-                adapter=_stts_adapter, chat_id=source.chat_id, tts_config=_load_tts_config(),
-                loop=self._gateway_loop or asyncio.get_event_loop(),
-                metadata=_status_thread_metadata,
-            )
-            if _stts_consumer.active:
-                streaming_tts_consumer_holder[0] = _stts_consumer
-                _stts_consumer.start()
-        except Exception as _stts_err:
-            logger.debug("Could not set up streaming TTS consumer: %s", _stts_err)
 
     async def _run_agent_stream_consumer_task(self, stream_consumer_holder: list) -> None:
         """Wait (up to 10s) for the stream consumer to be created inside run_sync, then run it."""
@@ -1069,41 +1035,20 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
 
     async def _run_agent_fire_pending_interrupt(
         self, adapter: Any, agent: Any, source: SessionSource, session_key: str,
-        _interrupt_detected: asyncio.Event, streaming_tts_consumer_holder: list, *,
-        log_context: str, log: Callable[[], None],
+        _interrupt_detected: asyncio.Event, *, log: Callable[[], None],
     ) -> None:
-        """Peek the adapter's pending event, transcribe voice, then signal the agent + abort streaming TTS.
-
-        Peek WITHOUT consuming: the event must stay for the post-run ``_dequeue_pending_event()``
-        (popping races the agent finishing). Transcribe BEFORE signaling so voice interrupts carry
-        the real transcript."""
+        """Signal the agent without consuming the pending event needed by the drain path."""
         from gateway.run import _build_media_placeholder
         _peek_event = adapter._pending_messages.get(session_key)
         pending_text = None
         if _peek_event is not None:
             pending_text = _peek_event.text or ""
-            if self._pending_event_audio_paths(_peek_event):
-                pending_text, _ = await self._transcribe_and_echo_pending_voice(
-                    _peek_event, adapter, source, pending_text, log_context=log_context,
-                    metadata={"thread_id": source.thread_id} if source.thread_id else None,
-                )
-            elif not pending_text and (getattr(_peek_event, "media_urls", None) or []):
+            if not pending_text and (getattr(_peek_event, "media_urls", None) or []):
                 pending_text = _build_media_placeholder(_peek_event)
         log()
         agent.interrupt(pending_text)
         _interrupt_detected.set()
-        # Abort streaming TTS on barge-in.
-        # See #60671.
-        # See #60671.
-        # See #60671.
-        # Finalize the streaming-TTS consumer (#60671). finish() is called from the outer event-loop thread
-        # (not the executor worker) so early returns from run_sync are also finalised.  wait_complete()
-        # drains queued audio; on timeout the consumer is aborted unconditionally — if audio was audible,
-        # suppression is preserved so the gateway does not replay from the beginning; if no audio was
-        # audible, the whole-file fallback path is permitted.
-        _stts = streaming_tts_consumer_holder[0]
-        if _stts is not None:
-            _stts.abort("barge-in")
+
 
     async def _run_agent_monitor_for_interrupt(self, turn_ctx: TurnContext, _interrupt_detected: asyncio.Event) -> None:
         """Poll the adapter for interrupts (new messages) every 200ms and signal the agent.
@@ -1111,7 +1056,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         Level 1 (base.py) catches regular text before _handle_message(); the inactivity poll loop
         has a BACKUP check in case this task dies. Keyed by session_key, NOT source.chat_id."""
         source, session_key, agent_holder = turn_ctx.source, turn_ctx.session_key, turn_ctx.agent_holder
-        streaming_tts_consumer_holder = turn_ctx.streaming_tts_consumer_holder
+
         if not session_key:
             return
         while True:
@@ -1126,7 +1071,6 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                     if agent:
                         await self._run_agent_fire_pending_interrupt(
                             _adapter, agent, source, session_key, _interrupt_detected,
-                            streaming_tts_consumer_holder, log_context="Voice-interrupt",
                             log=lambda: logger.debug("Interrupt detected from adapter, signaling agent..."),
                         )
                         break
@@ -1149,8 +1093,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                 and _backup_adapter.has_pending_interrupt(session_key)):
             await self._run_agent_fire_pending_interrupt(
                 _backup_adapter, _backup_agent, source, session_key, _interrupt_detected,
-                turn_ctx.streaming_tts_consumer_holder,
-                log_context="Voice-backup-interrupt",
+
                 log=lambda: logger.info(
                     "Backup interrupt detected for session %s (monitor task state: %s)",
                     session_key, "done" if interrupt_monitor.done() else "running",
@@ -1374,25 +1317,6 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
         _agent._evicted_on_fallback = session_key or True
         self._evict_cached_agent(session_key)
 
-    async def _run_agent_finalize_streaming_tts(self, turn_ctx: TurnContext, adapter: Any) -> None:
-        """Finalize the streaming-TTS consumer on the outer event-loop thread (covers early returns
-        from run_sync). On drain timeout abort to free the task — audible streams keep whole-file
-        suppression, silent streams stay eligible for the whole-file fallback."""
-        _stts = turn_ctx.streaming_tts_consumer_holder[0]
-        if _stts is None:
-            return
-        _stts.finish()
-        try:
-            await _stts.wait_complete(timeout=10.0)
-        except Exception as _stts_done_err:
-            logger.debug("streaming TTS wait_complete error: %s", _stts_done_err)
-        if not _stts.done:
-            _stts.abort("streaming TTS finalisation timeout")
-            await _stts.wait_complete(timeout=2.0)
-        if _stts.suppress_whole_file and adapter is not None:
-            _mark_turn = getattr(adapter, "_mark_streaming_tts_completed_turn", None)
-            if callable(_mark_turn):
-                _mark_turn(turn_ctx.session_key, turn_ctx.run_generation)
 
     async def _run_agent_drain_pending(
         self, result: Any, adapter: Any, source: SessionSource, session_key: Optional[str]
@@ -1423,16 +1347,8 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
                     # FIFO already has this send.
                     pending = None if executing_admission.get() else interrupt_message
             elif pending_event:
-                # Transcribe audio BEFORE it becomes the next user turn (real transcript, not a path).
                 _pending_text = pending_event.text or ""
-                if self._pending_event_audio_paths(pending_event):
-                    pending, _ = await self._transcribe_and_echo_pending_voice(
-                        pending_event, adapter, source, _pending_text, log_context="Voice-drain",
-                        metadata={"thread_id": source.thread_id} if source.thread_id else None,
-                    )
-                    pending = pending or _build_media_placeholder(pending_event)
-                else:
-                    pending = _pending_text or _build_media_placeholder(pending_event)
+                pending = _pending_text or _build_media_placeholder(pending_event)
                 if pending:
                     logger.debug("Processing queued message after agent completion: '%s...'", pending[:40])
 
@@ -1577,7 +1493,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
 
         updated_history = result.get("messages", history)
         next_source, next_message, next_session_key = source, pending, session_key
-        # message_type is carried into the recursive call so queued voice turns can stream TTS.
+        # Preserve the message type for the recursive follow-up.
         next_message_id = next_channel_prompt = next_message_type = None
         # The raw inbound id keys the delivery-ledger obligation for the follow-up's own final send,
         # distinct from the reply anchor above (None in forum topics). Carry it or two chained
@@ -1626,14 +1542,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             # of the turn they are recursively following.
             next_channel_prompt = turn_ctx.channel_prompt
 
-        # Clear the prior turn's streaming-TTS completion marker so the recursive turn isn't suppressed (#60671).
         _clear_adapter = self._delivery_adapter_for(source)
-        _completed_turns = getattr(_clear_adapter, "_streaming_tts_completed_turns", None)
-        _prior_key = getattr(_clear_adapter, "_streaming_tts_turn_key", None)
-        if _completed_turns is not None and callable(_prior_key) and session_key and run_generation is not None:
-            _pk = _prior_key(session_key, run_generation)
-            if _pk:
-                _completed_turns.discard(_pk)
 
         # Restart the typing indicator; the outer typing task may be stale.
         if _clear_adapter:
@@ -1721,13 +1630,6 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             else:
                 await self._await_stream_task(stream_task)
 
-        # Abort + bounded wait for streaming TTS: covers paths where normal finalisation was skipped.
-        _stts_finally = turn_ctx.streaming_tts_consumer_holder[0]
-        # See #60671.
-        if _stts_finally is not None and not _stts_finally.done:
-            _stts_finally.abort("cleanup")
-            with suppress(Exception):
-                await _stts_finally.wait_complete(timeout=2.0)
 
         tracking_task.cancel()
         if session_key:
@@ -2042,16 +1944,12 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             persist_user_display_kind=persist_user_display_kind,
             reply_expected=reply_expected,
             persist_user_display_metadata=persist_user_display_metadata, scheduled_heartbeat=scheduled_heartbeat,
-            voice_turn=str(getattr(message_type, "value", message_type) or "").lower() == "voice",
+
         )
         _status_thread_metadata = self._run_agent_bind_turn_wiring(
             turn_ctx, turn_runner, source, event_message_id,
         )
-        # Two independent quiet reasons: a muted diagnostic wake (ours) and a scheduled heartbeat.
-        if not (scheduled_heartbeat or turn_ctx.mute_notification_reply):
-            self._run_agent_start_streaming_tts(
-                source, message_type, _status_thread_metadata, turn_ctx.streaming_tts_consumer_holder,
-            )
+
 
         # Progress sender drains BOTH tool-progress lines and thinking bubbles (needs_progress_queue).
         spawn = asyncio.create_task
@@ -2081,7 +1979,7 @@ class GatewayTurnMixin(GatewayBackgroundMixin, GatewayTurnPrepareMixin, GatewayT
             # Interrupted OR queued message (/queue)?
             result = turn_ctx.result_holder[0]
             adapter = self._delivery_adapter_for(source)
-            await self._run_agent_finalize_streaming_tts(turn_ctx, adapter)
+
             pending_event, pending = await self._run_agent_drain_pending(result, adapter, source, session_key)
             if pending_event or pending:
                 return await self._run_agent_queued_followup(

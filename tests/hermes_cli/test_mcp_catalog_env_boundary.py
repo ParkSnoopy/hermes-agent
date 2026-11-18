@@ -1,4 +1,4 @@
-"""Security boundary tests for dashboard MCP catalog credential writes."""
+"""Security boundary tests for MCP catalog credential writes and child environments."""
 
 from __future__ import annotations
 
@@ -7,12 +7,7 @@ from pathlib import Path
 
 import pytest
 import hermes_yaml as yaml
-from fastapi.testclient import TestClient
 
-from hermes_cli.web_server import _SESSION_TOKEN, app
-
-
-HEADERS = {"X-Hermes-Session-Token": _SESSION_TOKEN}
 
 
 @pytest.fixture
@@ -29,7 +24,7 @@ def catalog_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _isolate_hermes
             {
                 "manifest_version": 1,
                 "name": "demo",
-                "description": "Synthetic dashboard boundary fixture",
+                "description": "Synthetic catalog boundary fixture",
                 "source": "https://example.test/demo",
                 "transport": {
                     "type": "stdio",
@@ -54,40 +49,26 @@ def catalog_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _isolate_hermes
     return get_hermes_home()
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as test_client:
-        yield test_client
-
-
 def test_catalog_rejects_undeclared_key_before_any_write_or_install(
-    client: TestClient,
     catalog_env: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from hermes_cli import mcp_catalog
+    from hermes_cli import mcp_config
 
     installs: list[str] = []
     monkeypatch.setattr(
-        mcp_catalog,
-        "install_entry",
-        lambda entry, enable=True, preloaded_env=None: installs.append(entry.name),
+        mcp_config,
+        "_probe_single_server",
+        lambda name, config: installs.append(name),
     )
 
-    response = client.post(
-        "/api/mcp/catalog/install",
-        headers=HEADERS,
-        json={
-            "name": "demo",
-            "env": {
-                "DEMO_API_KEY": "valid-demo-value",
-                "UNRELATED_SETTING": "must-not-land",
-            },
-        },
-    )
+    from tools.connectors.mcp import _CatalogBackend
 
-    assert response.status_code == 400
-    detail = response.json()["detail"]
+    with pytest.raises(ValueError) as exc:
+        _CatalogBackend().install("demo", {
+            "DEMO_API_KEY": "valid-demo-value", "UNRELATED_SETTING": "must-not-land",
+        })
+    detail = str(exc.value)
     assert "UNRELATED_SETTING" in detail
     assert "valid-demo-value" not in detail
     assert "must-not-land" not in detail
@@ -97,11 +78,10 @@ def test_catalog_rejects_undeclared_key_before_any_write_or_install(
 
 
 def test_catalog_cannot_declare_reserved_control_key(
-    client: TestClient,
     catalog_env: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from hermes_cli import mcp_catalog
+    from hermes_cli import mcp_config
 
     catalog_root = Path(os.environ["HERMES_OPTIONAL_MCPS"])
     manifest_path = catalog_root / "demo" / "manifest.yaml"
@@ -117,19 +97,15 @@ def test_catalog_cannot_declare_reserved_control_key(
 
     installs: list[str] = []
     monkeypatch.setattr(
-        mcp_catalog,
-        "install_entry",
-        lambda entry, enable=True, preloaded_env=None: installs.append(entry.name),
+        mcp_config,
+        "_probe_single_server",
+        lambda name, config: installs.append(name),
     )
 
-    response = client.post(
-        "/api/mcp/catalog/install",
-        headers=HEADERS,
-        json={"name": "demo", "env": {"HERMES_YOLO_MODE": "1"}},
-    )
+    from tools.connectors.mcp import _CatalogBackend
 
-    assert response.status_code == 400
-    assert "denylist" in response.json()["detail"]
+    with pytest.raises(ValueError, match="denylist"):
+        _CatalogBackend().install("demo", {"HERMES_YOLO_MODE": "1"})
     assert installs == []
     env_path = catalog_env / ".env"
     assert not env_path.exists() or "HERMES_YOLO_MODE" not in env_path.read_text(
@@ -138,7 +114,6 @@ def test_catalog_cannot_declare_reserved_control_key(
 
 
 def test_catalog_accepts_declared_credential(
-    client: TestClient,
     catalog_env: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -168,14 +143,40 @@ def test_catalog_accepts_declared_credential(
     ).read_text(encoding="utf-8")
 
 
+def test_failed_catalog_probe_does_not_persist_credentials_or_config(catalog_env, monkeypatch):
+    from hermes_cli import mcp_config
+    from tools.connectors.mcp import _CatalogBackend
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("probe failed")
+
+    monkeypatch.setattr(mcp_config, "_probe_single_server", fail)
+    with pytest.raises(RuntimeError, match="probe failed"):
+        _CatalogBackend().install("demo", {"DEMO_API_KEY": "valid-demo-value"})
+    assert not (catalog_env / ".env").exists()
+    assert "demo" not in mcp_config._get_mcp_servers()
+
+
+def test_stdio_environment_filters_ambient_secrets_and_keeps_explicit_values(catalog_env, monkeypatch):
+    from tools.mcp_tool_config import _build_safe_env
+
+    monkeypatch.setenv("UNRELATED_PRIVATE_TOKEN", "ambient-secret")
+    monkeypatch.setenv("XDG_TEST_SETTING", "safe-setting")
+    child = _build_safe_env({"DEMO_API_KEY": "explicit-secret"})
+    assert "UNRELATED_PRIVATE_TOKEN" not in child
+    assert child["DEMO_API_KEY"] == "explicit-secret"
+    assert child["XDG_TEST_SETTING"] == "safe-setting"
+    assert child["HERMES_HOME"] == str(catalog_env)
+
+
 def test_catalog_non_secret_env_never_lands_in_env_file(
-    client: TestClient,
     catalog_env: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     """Non-secret declared env vars (e.g. a base URL) are not written to .env:
     install_entry inlines them into the server config instead."""
-    from hermes_cli import mcp_catalog
+    from hermes_cli import mcp_config
+    from tools.connectors.mcp import _CatalogBackend
 
     catalog_root = Path(os.environ["HERMES_OPTIONAL_MCPS"])
     manifest_path = catalog_root / "demo" / "manifest.yaml"
@@ -196,27 +197,10 @@ def test_catalog_non_secret_env_never_lands_in_env_file(
         {"name": "DEMO_BASE_URL", "prompt": "Demo base URL", "secret": False},
     ]
     manifest_path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
-    # The real install_entry probes the server after writing config; avoid
-    # launching a nonexistent binary in tests.
-    monkeypatch.setattr(
-        mcp_catalog,
-        "_probe_tools",
-        lambda name: None,
-    )
-
-    response = client.post(
-        "/api/mcp/catalog/install",
-        headers=HEADERS,
-        json={
-            "name": "demo",
-            "env": {
-                "MCP_DEMO_API_KEY": "valid-demo-value",
-                "DEMO_BASE_URL": "https://demo.example.test",
-            },
-        },
-    )
-
-    assert response.status_code == 200
+    monkeypatch.setattr(mcp_config, "_probe_single_server", lambda *a, **k: [("demo_tool", "")])
+    assert _CatalogBackend().install("demo", {
+        "MCP_DEMO_API_KEY": "valid-demo-value", "DEMO_BASE_URL": "https://demo.example.test",
+    }) == ["demo_tool"]
     env_text = (catalog_env / ".env").read_text(encoding="utf-8")
     assert "MCP_DEMO_API_KEY=valid-demo-value" in env_text
     assert "DEMO_BASE_URL" not in env_text
@@ -241,18 +225,14 @@ def test_catalog_non_secret_env_never_lands_in_env_file(
         "HERMES_COPILOT_ACP_ARGS",
     ],
 )
-def test_generic_env_endpoint_rejects_protected_key(
-    client: TestClient,
+def test_env_writer_rejects_protected_key(
     catalog_env: Path,
     protected_key: str,
 ):
-    response = client.put(
-        "/api/env",
-        headers=HEADERS,
-        json={"key": protected_key, "value": "must-not-land"},
-    )
+    from hermes_cli.config import save_env_value
 
-    assert response.status_code == 400
+    with pytest.raises(ValueError, match="denylist"):
+        save_env_value(protected_key, "must-not-land")
     env_path = catalog_env / ".env"
     assert not env_path.exists() or protected_key not in env_path.read_text(
         encoding="utf-8"
@@ -292,10 +272,10 @@ def _acp_launch_resolvers(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_rejected_acp_launch_controls_do_not_change_live_resolvers(
-    client: TestClient,
     catalog_env: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
+    from hermes_cli.config import save_env_value
     _resolve_command, _resolve_args = _acp_launch_resolvers(monkeypatch)
 
     monkeypatch.setenv("HERMES_ACME_ACP_COMMAND", "/opt/trusted/acme")
@@ -308,12 +288,8 @@ def test_rejected_acp_launch_controls_do_not_change_live_resolvers(
         "HERMES_ACME_ACP_ARGS": "--malicious-transport",
     }
     for key, value in attempts.items():
-        response = client.put(
-            "/api/env",
-            headers=HEADERS,
-            json={"key": key, "value": value},
-        )
-        assert response.status_code == 400
+        with pytest.raises(ValueError, match="denylist"):
+            save_env_value(key, value)
 
     assert _resolve_command() == expected_command
     assert _resolve_args() == expected_args
@@ -349,7 +325,6 @@ def test_preexisting_acp_launch_controls_remain_usable(
 
 
 def test_connection_card_install_keeps_env_file_secrets_only(
-    client: TestClient,
     catalog_env: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):

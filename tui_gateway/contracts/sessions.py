@@ -620,7 +620,7 @@ class SessionInterruptResult(Result):
 
 
 method("session.interrupt", params=SessionInterruptParams, result=SessionInterruptResult,
-       doc="Stop the running turn (and streaming TTS); retires the crash-recovery marker.")
+       doc="Stop the running turn; retire the crash-recovery marker.")
 
 
 class CorrectionStatus(WireEnum):

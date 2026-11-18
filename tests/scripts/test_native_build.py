@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
@@ -16,7 +15,7 @@ SCRIPT = ROOT / "scripts/bundles/native_build.py"
 
 
 def test_payload_transport_does_not_require_or_export_desktop_inputs(tmp_path):
-    from scripts.ci.desktop_build_cache import describe_cache
+    from scripts.ci.native_build_cache import describe_cache
 
     source = tmp_path / "source"
     source.mkdir()
@@ -29,17 +28,17 @@ def test_payload_transport_does_not_require_or_export_desktop_inputs(tmp_path):
 
 def test_native_worker_passes_shared_toolchain_to_native_owner(tmp_path, monkeypatch):
     from scripts.bundles import native_build
-    from scripts.bundles import desktop_toolchain, native
+    from scripts.bundles import toolchain, native
 
     request = {name: str(tmp_path / name) for name in ("source", "work", "cache", "out")}
     request["ref"] = "a" * 40
     selected = {"UV_CACHE_DIR": str(tmp_path / "native-wheel-identity"), "CC": "prepared-compiler"}
-    monkeypatch.setattr("scripts.bundles.desktop_prepare.require_source", lambda *args: None)
+    monkeypatch.setattr("scripts.bundles.source.require_source", lambda *args: None)
     prepared_tools = []
     def tools(source, work, cache, inherited):
         prepared_tools.append((source, work, cache))
         return Path("python"), Path("node"), selected
-    monkeypatch.setattr(desktop_toolchain, "prepare_tools", tools)
+    monkeypatch.setattr(toolchain, "prepare_tools", tools)
     calls = []
     def prepare_native(**kwargs):
         calls.append(kwargs)
@@ -49,6 +48,66 @@ def test_native_worker_passes_shared_toolchain_to_native_owner(tmp_path, monkeyp
     assert prepared_tools == [(tmp_path / "source", tmp_path / "work", tmp_path / "cache")]
     assert calls == [{"source": tmp_path / "source", "out": tmp_path / "out", "ref": request["ref"],
                       "cache": Path(selected["UV_CACHE_DIR"]), "tools": tmp_path / "cache/tools", "env": selected}]
+
+
+@pytest.mark.parametrize("target", ["darwin-arm64", "win32-x64"])
+def test_native_rejects_retired_target_before_preparation_or_finish(tmp_path, monkeypatch, target):
+    from scripts.bundles import native
+
+    out = tmp_path / "payload"
+    monkeypatch.setattr(native, "current_target", lambda: target)
+    with pytest.raises(ValueError, match="unsupported target"):
+        native.prepare_native(out=out, ref="HEAD", source=tmp_path, cache=tmp_path / "cache")
+    assert not out.exists()
+    prepared = tmp_path / "payload.prepared.json"
+    prepared.write_text(json.dumps({"inputs": {"target": target}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="unsupported target"):
+        native.finish_native(prepared, {})
+    assert not out.exists()
+    monkeypatch.setattr(native, "current_target", lambda: "linux-x64")
+    with pytest.raises(ValueError, match="unsupported target"):
+        native.finish_native(prepared, {})
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("target", ["darwin-arm64", "darwin-x64", "win32-x64", "win32-arm64"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_outer_build_entrypoints_reject_retired_targets_before_writes(tmp_path, monkeypatch, target, existing):
+    from pm import store
+    from scripts.bundles import native_build, source, stage, toolchain
+
+    out = tmp_path / "payload"
+    manifest = out / "manifest.json"
+    if existing:
+        out.mkdir()
+        manifest.write_text("previous accepted payload", encoding="utf-8")
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("retired target reached source preparation or staging")
+
+    monkeypatch.setattr(store, "current_target", lambda: target)
+    monkeypatch.setattr(stage, "current_target", lambda: target)
+    monkeypatch.setattr(source, "git", forbidden)
+    monkeypatch.setattr(source, "require_source", forbidden)
+    monkeypatch.setattr(toolchain, "run_preparation", forbidden)
+    monkeypatch.setattr(toolchain, "prepare_tools", forbidden)
+    monkeypatch.setattr(stage, "stage_native", forbidden)
+    request = {name: str(tmp_path / name) for name in ("source", "work", "cache")}
+    request.update(out=str(out), ref="a" * 40)
+    with pytest.raises(ValueError, match="unsupported target"):
+        native_build.prepare(*(Path(request[name]) for name in ("source", "work", "cache", "out")), request["ref"])
+    with pytest.raises(ValueError, match="unsupported target"):
+        native_build.prepare_in_worker(request)
+    for products in ([], ["--tui", str(tmp_path / "tui")]):
+        with pytest.raises(ValueError, match="unsupported target"):
+            stage.main(["--out", str(out), *products])
+    assert not (tmp_path / "work").exists()
+    assert not (tmp_path / "cache").exists()
+    if existing:
+        assert manifest.read_text(encoding="utf-8") == "previous accepted payload"
+        assert list(out.iterdir()) == [manifest]
+    else:
+        assert not out.exists()
 
 
 @pytest.mark.platforms("posix")
@@ -96,3 +155,23 @@ def test_native_cli_consumes_real_minimal_preparation_without_bootstrap(tmp_path
     assert result.returncode != 0
     assert "prepare" in result.stderr
     assert not (out / "manifest.json").exists()
+
+
+def test_source_custody_rejects_changed_revision_and_dirty_checkout(tmp_path, monkeypatch):
+    from scripts.bundles import source
+
+    calls = []
+    def git(checkout, *args):
+        calls.append((checkout, args))
+        return responses.pop(0)
+
+    monkeypatch.setattr(source, "git", git)
+    responses = ["admitted", ""]
+    source.require_source(tmp_path, "admitted")
+    assert len(calls) == 2
+    responses = ["different"]
+    with pytest.raises(ValueError, match="changed revision"):
+        source.require_source(tmp_path, "admitted")
+    responses = ["admitted", "?? untracked"]
+    with pytest.raises(ValueError, match="clean source checkout"):
+        source.require_source(tmp_path, "admitted")

@@ -504,35 +504,8 @@ def _env_has_content(env_path) -> bool:
     return any(s and not s.startswith("#") for s in map(str.strip, lines))
 
 
-def _mirror_voice_sections(path) -> bool:
-    """Copy stt/tts/voice sections from the launch profile (a fresh profile has only ``model``,
-    so voice fell back to defaults); True if written."""
-    try:
-        from hermes_cli.config import read_user_config_raw, save_config
-        # Launch file RAW too: the loaded config has ${VAR} refs expanded, and the new profile
-        # must get the ref (resolved against its own .env), never the launch profile's secret.
-        src_cfg = read_user_config_raw()
-        sections = {k: src_cfg[k] for k in ("stt", "tts", "voice") if src_cfg.get(k)}
-        if not sections:
-            return False
-        with _hermes_home_scope(path):
-            # RAW file: load_config() merges DEFAULT_CONFIG (every section would look present).
-            dst_cfg = read_user_config_raw() or {}
-            missing = {k: v for k, v in sections.items() if k not in dst_cfg}
-            if missing:
-                save_config({**dst_cfg, **missing})
-        return bool(missing)
-    except Exception:
-        return False
-
-
 def _inherit_launch_model(path) -> bool:
-    """Inherit launch model.provider/default when the new profile has none. Gate on the MODEL
-    SECTION, not config.yaml existing: voice mirroring creates the file first."""
-    # Gate on the MODEL SECTION being absent, not on config.yaml existing — earlier mirroring steps (voice
-    # sections, #85755) legitimately create the file first, and a file-existence gate silently skipped
-    # inheritance for every non-clone bot ("No inference provider configured" on first message, tester
-    # report). Clones bring their own model section and stay untouched.
+    """Inherit launch model.provider/default when the new profile has none."""
     from hermes_cli.config import load_config_readonly, read_user_config_raw
     with _hermes_home_scope(path):
         dst_model = (read_user_config_raw() or {}).get("model") or {}
@@ -569,12 +542,11 @@ def _inherit_launch_model(path) -> bool:
 
 
 def _mirror_launch_credentials(path, params: dict) -> dict:
-    """Copy launch .env / auth.json / voice sections into a new profile (best-effort per item).
+    """Copy launch .env / auth.json into a new profile (best-effort per item).
     ``share_auth`` reports ``auth: "shared"`` and skips the auth copy; ``mirror_credentials``
     false skips everything. ``model_inherited`` is filled in by the caller."""
     share_auth = is_truthy_value(params.get("share_auth", False))
-    mirrored = {"env": False, "auth": "shared" if share_auth else False, "model_inherited": False,
-                "voice": False}
+    mirrored = {"env": False, "auth": "shared" if share_auth else False, "model_inherited": False}
     if not is_truthy_value(params.get("mirror_credentials", True)):
         return mirrored
     launch_home = get_hermes_home()
@@ -592,7 +564,6 @@ def _mirror_launch_credentials(path, params: dict) -> dict:
             # Drop single-use OAuth grants (first refresh strands every sibling); they read from the
             # root grant via the pool fallback. API keys stay.
             _best_effort(lambda: _lazy("hermes_cli.auth", "strip_cloned_single_use_oauth_grants")(path))
-    mirrored["voice"] = _mirror_voice_sections(path)
     return mirrored
 
 

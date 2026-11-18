@@ -124,13 +124,9 @@ screen is started.
 
 ## Using it
 
-Every bot's computer is one click away in three places of Hermes Desktop:
+Every bot's computer is one click away in Hermes Desktop:
 
-- **Bots → a bot → Scheduled Jobs**: the bot's screen is the hero at the very
-  top of the pane, above the title and the routines: a live preview of the
-  desktop (refreshed every few seconds while the pane is visible) with who holds
-  control; click the picture to expand into live access. While the screen is off
-  or not installed the same box says so and offers Start / Install.
+
 - **Bots → right-click a bot → Open Screen**. The same menu has **Open Screen
   when the bot uses it**: with it checked, the Screen tab comes forward on the
   bot's first `computer_use` or browser call of a run, so you watch it work

@@ -18,7 +18,7 @@ Not using OpenAI Codex? `hermes setup --portal` configures a non-Codex backend w
 - Run OpenAI agent turns against your **ChatGPT subscription** (no API key required) using the same auth flow Codex CLI uses.
 - Use **Codex's own toolset and sandbox** — `shell` for terminal/read/write/search, `apply_patch` for structured edits, `update_plan` for planning, all running inside seatbelt/landlock sandboxing.
 - **Native Codex plugins** — Linear, GitHub, Gmail, Calendar, Canva, etc. — installed via `codex plugin` are auto-migrated and active in your Hermes session.
-- **Hermes' richer tools come along** — web_search, web_extract, vision, image generation, skills, and TTS work via an MCP callback. Codex calls back into Hermes for tools it doesn't have built in.
+- **Hermes' richer tools come along** — web_search, web_extract, vision, image generation, and skills work via an MCP callback. Codex calls back into Hermes for tools it doesn't have built in.
 - **Memory and skill nudges keep working** — Codex's events are projected into Hermes' message shape so the self-improvement loop sees a normal-looking transcript.
 - **Your Hermes persona rides along** — the composed system prompt (SOUL.md, MEMORY.md/USER.md, per-channel `system_prompt` overrides) is sent to the codex thread once as developer instructions when the thread starts, and Codex's built-in personality is disabled so it cannot compete with yours.
 
@@ -64,7 +64,6 @@ Hermes registers itself as an MCP server so codex can call back for tools codex 
 - **`vision_analyze`** — call a separate vision model to inspect an image (different from codex's `view_image` which loads it into the conversation).
 - **`image_generate`** — image generation through Hermes' image_gen plugin chain.
 - **`skill_view` / `skills_list`** — read from Hermes' skill library.
-- **`text_to_speech`** — TTS through Hermes' configured provider.
 
 When the model wants one of these, codex spawns the `hermes_tools_mcp_server` subprocess via stdio MCP, the call is dispatched through `model_tools.handle_function_call()` (same code path as Hermes' default runtime), and the result is returned to codex like any other MCP response.
 
@@ -77,7 +76,7 @@ These four Hermes tools require the running AIAgent context (mid-loop state) to 
 - **`session_search`** — cross-session search
 - **`todo`** — Hermes' todo store (codex's `update_plan` is the in-runtime equivalent)
 
-## Workflow features (`/goal`, kanban, cron)
+## Workflow features (`/goal`, kanban)
 
 ### `/goal` (the Ralph loop)
 
@@ -92,7 +91,7 @@ These four Hermes tools require the running AIAgent context (mid-loop state) to 
 What works inside a codex-runtime worker:
 - Codex's full toolset (shell, apply_patch, update_plan, view_image, web_search) — the worker does its actual task work natively
 - The migrated codex plugins — Linear, GitHub, etc.
-- The Hermes tool callback for web, vision, image_gen, skills, TTS
+- The Hermes tool callback for web, vision, image_gen, skills
 
 What also works because the MCP callback exposes them:
 - **`kanban_complete` / `kanban_request_review` / `kanban_request_changes` / `kanban_block` / `kanban_comment` / `kanban_heartbeat`** — the worker handoff tools. These read `HERMES_KANBAN_TASK` from env (set by the dispatcher), gate access correctly, and write to the per-board SQLite DB pinned by `HERMES_KANBAN_DB`. Without these in the callback, a worker on this runtime could do its task but couldn't report back, hanging until the dispatcher's timeout.
@@ -100,10 +99,6 @@ What also works because the MCP callback exposes them:
 - **`kanban_create` / `kanban_unblock` / `kanban_link`** — orchestrator-only operations. Available for orchestrator agents running on the codex runtime that need to dispatch new tasks.
 
 The kanban tools are gated by `HERMES_KANBAN_TASK` env var the dispatcher sets — that var is propagated to the codex subprocess (codex inherits env) and from there to the spawned `hermes-tools` MCP server subprocess. So the tools see the right task id and gate correctly. For Codex app-server workers, Hermes also passes narrow app-server sandbox overrides when `HERMES_KANBAN_TASK` is present: keep `workspace-write` sandboxing, add the **board DB directory plus every Kanban path the dispatcher pinned** as extra writable roots (`HERMES_KANBAN_WORKSPACES_ROOT`, `HERMES_KANBAN_WORKSPACE`, legacy `HERMES_KANBAN_ROOT` — deduplicated, DB-dir first), and keep network disabled by default. This avoids the brittle `:danger-no-sandbox` workaround while letting `kanban_complete` / `kanban_block` update the board DB **and** letting workers write reports/artifacts under workspace mounts that live outside the DB directory (e.g. `/media/.../kanban-workspaces/...` on a separate drive — [issue #27941](https://github.com/NousResearch/hermes-agent/issues/27941)).
-
-### Cron jobs
-
-**Not specifically tested.** Cron jobs run via `cronjob` → `AIAgent.run_conversation`, the same code path as the CLI. If the cron job's config has `openai_runtime: codex_app_server` it'll run on codex. The same tool-availability rules apply — codex built-ins + plugins + MCP callback work, agent-loop tools (delegate_task, memory, session_search, todo) don't. If your cron job relies on those, scope the cron to a profile that uses the default runtime.
 
 ## Trade-offs
 
@@ -116,7 +111,6 @@ The kanban tools are gated by `HERMES_KANBAN_TASK` env var the dispatcher sets �
 | `vision_analyze`, `image_generate` | yes | yes (via MCP callback) |
 | Image attachments in the user turn (screenshots, pasted images, `/image`) | yes (native multimodal) | yes — sent natively as app-server image inputs (data/http URLs) or local-image paths, never flattened to a text marker |
 | `skill_view`, `skills_list` | yes | yes (via MCP callback) |
-| `text_to_speech` | yes | yes (via MCP callback) |
 | Codex `shell` (terminal/read/write/search/find/run) | — | yes (Codex built-in) |
 | Codex `apply_patch` (structured multi-file edits) | — | yes (Codex built-in) |
 | Codex `update_plan` (in-runtime todo) | — | yes (Codex built-in) |
@@ -232,7 +226,7 @@ model:
 ```
 
 If the Hermes process cannot resolve `codex` from `PATH` — typical for gateway services,
-cron and Kanban workers, or a desktop-bundled CLI — and the first turn fails with
+Kanban workers, or a desktop-bundled CLI — and the first turn fails with
 `No such file or directory: 'codex'`, point the runtime at the executable explicitly:
 
 ```yaml
@@ -437,7 +431,7 @@ tool_timeout_sec = 600.0
 
 When the model calls `web_search` (or another exposed Hermes tool), codex spawns the `hermes_tools_mcp_server` subprocess via stdio, the request is dispatched through `model_tools.handle_function_call()`, and the result is projected back to codex like any other MCP response.
 
-**Tools available via the callback:** `web_search`, `web_extract`, `vision_analyze`, `image_generate`, `skill_view`, `skills_list`, `text_to_speech`.
+**Tools available via the callback:** `web_search`, `web_extract`, `vision_analyze`, `image_generate`, `skill_view`, `skills_list`.
 
 **Tools NOT available:** `delegate_task`, `memory`, `session_search`, `todo`, and the browser tools. These need the running AIAgent context to dispatch (mid-loop state) and a stateless MCP callback can't drive them. Use the default Hermes runtime (`/codex-runtime auto`) when you need these.
 
@@ -481,7 +475,7 @@ If you find a bug, [open an issue](https://github.com/NousResearch/hermes-agent/
 ```
                 ┌─── Hermes shell (CLI / TUI / gateway) ───┐
                 │  sessions DB · slash commands · memory   │
-                │  & skill review · cron · session pickers │
+                │  & skill review · session pickers        │
                 └──┬──────────────────────────────────────┬┘
                    │ user_message               final     │
                    ▼                            text +    │
@@ -517,7 +511,7 @@ If you find a bug, [open an issue](https://github.com/NousResearch/hermes-agent/
         ┌──────────────────────────────────────────────────────────┐
         │  hermes_tools_mcp_server.py (subprocess on demand)        │
         │   web_search, web_extract, vision_analyze,               │
-        │   image_generate, skill_view, skills_list, text_to_speech│
+        │   image_generate, skill_view, skills_list│
         └──────────────────────────────────────────────────────────┘
 ```
 

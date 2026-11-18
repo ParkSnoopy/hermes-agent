@@ -1319,48 +1319,10 @@ export interface DisplayStopResult {
   profile_key: string
   stopped: boolean
 }
-export interface DisplayObserveParams {
-  profile?: string | null
-  viewer_id?: string | null
-}
-export interface DisplayObserveResult {
-  profile: string
-  supported: boolean
-  installed: boolean
-  missing: string[]
-  running: boolean
-  pid?: number | null
-  display?: string | null
-  socket?: string | null
-  geometry: string
-  install_command?: string | null
-  browser?: string | null
-  blocker?: string | null
-  memory_available_mb?: number | null
-  memory_limit_mb?: number | null
-  lease: DisplayLease
-  profile_key: string
-  ticket: string
-  path: string
-  viewer_id: string
-}
 export interface DisplayInstallResult {
   started: boolean
   command?: string | null
   profile_key: string
-}
-export interface DisplayLeaseAcquireParams {
-  profile?: string | null
-  viewer_id: string
-  reason?: string | null
-}
-export interface DisplayLeaseResult {
-  lease: DisplayLease
-}
-export interface DisplayLeaseReleaseParams {
-  profile?: string | null
-  viewer_id?: string | null
-  force?: boolean | null
 }
 export interface GroupsCapabilitiesParams {
   profile?: string | null
@@ -1830,7 +1792,7 @@ export interface MachineFactsResult {
   machine: MachineInfo
   machine_kind: string
   has_nvidia_gpu: boolean
-  nvidia_platform?: 'rtx_spark' | 'dgx_spark' | 'discrete' | null
+  nvidia_platform?: 'dgx_spark' | 'discrete' | null
 }
 /** Measured hardware; a key that was not measured is absent. */
 export interface MachineInfo {
@@ -1983,7 +1945,6 @@ export interface ProfileMirrored {
   env?: boolean
   auth?: boolean | 'shared'
   model_inherited?: boolean
-  voice?: boolean
 }
 export interface ProfileNameParams {
   profile?: string | null
@@ -2155,51 +2116,6 @@ export interface VaultRemoveParams {
 }
 export interface VaultRemoveResult {
   removed: boolean
-}
-export interface SessionForeignListParams {
-  profile?: string | null
-  source?: ForeignSource | null
-  offset?: number | null
-  limit?: number | null
-}
-export type ForeignSource = 'claude' | 'codex'
-/** ``unreadable`` counts logs on this page that failed to parse. */
-export interface SessionForeignListResult {
-  sessions?: ForeignSessionRow[]
-  next_offset?: number | null
-  host: string
-  unreadable?: number
-}
-/** ``hermes_cli/foreign_sessions_browser.py::list_foreign_sessions`` — ``id`` is an opaque handle, never a path. */
-export interface ForeignSessionRow {
-  id: string
-  source: ForeignSource
-  label: string
-  title?: string
-  cwd?: string | null
-  mtime: number
-  turn_count?: number
-  excerpt?: string
-}
-export interface SessionForeignIdParams {
-  profile?: string | null
-  id?: string | null
-}
-/** Bounded to the last 40 turns / 8000 chars each; ``already_imported`` is the local id. */
-export interface SessionForeignPreviewResult {
-  messages?: ForeignTurn[]
-  total?: number
-  truncated?: boolean
-  already_imported?: string | null
-  cwd?: string | null
-}
-export interface ForeignTurn {
-  role: string
-  content: string
-}
-export interface SessionForeignImportResult {
-  session_id: string
-  already_imported?: boolean
 }
 /** Any method addressed at one live session. */
 export interface SessionParams {
@@ -2599,11 +2515,8 @@ export interface PromptSubmitParams {
   profile?: string | null
   text?: unknown
   display_kind?: string | null
-  interrupted?: boolean | null
   queued?: boolean | null
   surface?: string | null
-  voice_context?: string | null
-  voice_turn?: boolean | null
   title_preview?: string | null
   truncate_before_user_ordinal?: number | null
   truncate_before_row_id?: number | null
@@ -2613,10 +2526,9 @@ export interface PromptSubmitParams {
   confirm_deep_truncate?: boolean | null
   rebind_survivor_row_ids?: number[] | null
 }
-/** ``status`` is absent only on the typed-stop-phrase reply (``voice_stopped``). After a truncation the survivor row ids let the client rebind its cached ``rowId``s (``None`` map entries: drop the cached id). ``turn_isolation`` marks a compute-host dispatch. */
+/** After a truncation the survivor row ids let the client rebind its cached ``rowId``s (``None`` map entries: drop the cached id). ``turn_isolation`` marks a compute-host dispatch. */
 export interface PromptSubmitResult {
-  status?: PromptSubmitStatus | null
-  voice_stopped?: boolean | null
+  status: PromptSubmitStatus
   user_row_id?: number | null
   survivor_user_row_ids?: (number | null)[] | null
   survivor_row_id_map?: Record<string, number | null> | null
@@ -2808,126 +2720,6 @@ export interface ApprovalRespondParams {
 }
 export interface ApprovalRespondResult {
   resolved: number
-}
-export interface VoiceToggleParams {
-  action?: VoiceToggleAction
-  profile?: string | null
-}
-export type VoiceToggleAction = 'status' | 'on' | 'off' | 'tts'
-/** ``methods_voice.py::_voice_status_payload`` (+ the requirements probe on ``status``, the spoken stop hint on ``on``). */
-export interface VoiceToggleResult {
-  enabled: boolean
-  record_key: string
-  tts: boolean
-  stop_hint?: string | null
-  available?: boolean | null
-  audio_available?: boolean | null
-  stt_available?: boolean | null
-  details?: string | null
-}
-export interface VoiceRecordParams {
-  action?: VoiceRecordAction
-  session_id?: string | null
-  profile?: string | null
-}
-export type VoiceRecordAction = 'start' | 'stop'
-export interface VoiceRecordResult {
-  status: VoiceRecordStatus
-  reason?: string | null
-}
-export type VoiceRecordStatus = 'recording' | 'stopped' | 'busy'
-export interface VoiceTtsParams {
-  text: string
-  profile?: string | null
-}
-export interface VoiceTtsResult {
-  status: string
-}
-/** ``surface`` names the caller ("tui" | "gui"); ``persist`` is the explicit gesture that also flips ``wake_word.enabled`` on; ``client_capture`` asks for PCM streamed via wake.feed. */
-export interface WakeStartParams {
-  surface?: string | null
-  persist?: boolean | null
-  client_capture?: boolean | null
-  session_id?: string | null
-  profile?: string | null
-}
-/** ``started: false`` carries ``reason`` (unavailable / disabled / disabled_for_surface / owned); ``sample_rate`` / ``frame_length`` describe the PCM frames the armed detector expects. */
-export interface WakeStartResult {
-  started: boolean
-  reason?: string | null
-  hint?: string | null
-  phrase?: string | null
-  provider?: string | null
-  owner_surface?: string | null
-  enabled_persisted?: boolean | null
-  capture?: string | null
-  sample_rate?: number | null
-  frame_length?: number | null
-}
-export interface WakeStopParams {
-  persist?: boolean | null
-  profile?: string | null
-}
-export interface WakeStopResult {
-  reason?: string | null
-  stopped: boolean
-  disabled_persisted: boolean
-}
-export interface WakeControlParams {
-  profile?: string | null
-}
-export interface WakePauseResult {
-  reason?: string | null
-  paused: boolean
-}
-export interface WakeResumeResult {
-  reason?: string | null
-  resumed: boolean
-}
-export interface WakeStatusParams {
-  surface?: string | null
-  client_capture?: boolean | null
-  profile?: string | null
-}
-/** ``enabled`` is config truth; ``listening`` is this caller's armed detector; ``audio_silent`` means armed but deaf (see ``hint``). */
-export interface WakeStatusResult {
-  listening: boolean
-  owned_by_caller: boolean
-  owner_surface?: string | null
-  phrase: string
-  provider: string
-  configured_surface: string
-  input_device: WakeInputDevice
-  available: boolean
-  hint: string
-  enabled: boolean
-  audio_silent: boolean
-  capture: string
-  local_input_available: boolean
-  sample_rate: number
-  frame_length: number
-}
-/** ``tools/wake_word.py::_describe_input_device`` — PortAudio diagnostics for the configured mic. */
-export interface WakeInputDevice {
-  selector?: number | string | null
-  name?: string | null
-  error?: string | null
-  max_input_channels?: number | null
-  default_samplerate?: number | null
-  hostapi_index?: number | null
-  hostapi?: string | null
-  [key: string]: unknown
-}
-/** ``pcm`` (or the ``pcm_b64`` alias): base64 int16 mono little-endian, 16 kHz only. */
-export interface WakeFeedParams {
-  pcm?: string | null
-  pcm_b64?: string | null
-  sample_rate?: number | null
-  profile?: string | null
-}
-export interface WakeFeedResult {
-  reason?: string | null
-  fed: boolean
 }
 export interface SessionCreateParams {
   profile?: string | null
@@ -3790,83 +3582,6 @@ export interface RollbackDiffResult {
   stat?: string
   diff?: string
   rendered?: string | null
-}
-export interface CronManageParams {
-  action?: CronAction
-  name?: string | null
-  include_disabled?: boolean | string | null
-  schedule?: string | null
-  prompt?: string | null
-  repeat?: number | string | null
-  continuity?: boolean | string | null
-  deliver?: string | null
-  profile?: string | null
-}
-export type CronAction = 'list' | 'add' | 'remove' | 'pause' | 'resume'
-/** Pass-through of ``tools/cronjob_tools.py::cronjob`` JSON: ``list`` → ``jobs``/``count`` (+ ``scoped`` when profile-scoped); ``add`` → the created job's summary + ``job``; ``remove`` → ``removed_job``; ``pause``/``resume`` → ``job``. A tool-level failure lands in ``error``. */
-export interface CronManageResult {
-  success?: boolean | null
-  error?: string | null
-  count?: number | null
-  jobs?: CronJobRow[] | null
-  scoped?: string | null
-  gateway_running?: boolean | null
-  warning?: string | null
-  job_id?: string | null
-  name?: string | null
-  skill?: string | null
-  skills?: string[] | null
-  schedule?: string | null
-  repeat?: number | string | null
-  deliver?: string | null
-  next_run_at?: string | null
-  job?: CronJobRow | null
-  message?: string | null
-  guidance?: unknown | null
-  removed_job?: CronRemovedJob | null
-  [key: string]: unknown
-}
-/** ``tools/cronjob_job_args.py::_format_job``. */
-export interface CronJobRow {
-  job_id: string
-  name?: string
-  skill?: string | null
-  skills?: string[]
-  prompt_preview?: string
-  model?: string | null
-  provider?: string | null
-  base_url?: string | null
-  schedule?: string
-  repeat?: number | string | null
-  deliver?: string | null
-  next_run_at?: string | null
-  last_run_at?: string | null
-  last_status?: string | null
-  last_delivery_error?: string | null
-  last_delivery_unverified?: string[] | null
-  last_fire_error?: string | null
-  last_error?: string | null
-  enabled?: boolean
-  state?: string | null
-  paused_at?: string | null
-  paused_reason?: string | null
-  workdir?: string | null
-  script?: string | null
-  reasoning_effort?: string | null
-  monitor_script?: string | null
-  monitor_url?: string | null
-  monitor_state?: unknown | null
-  no_agent?: boolean | null
-  enabled_toolsets?: string[] | null
-  continuity?: boolean | null
-  context_from?: string[] | null
-  attach_to_session?: boolean | null
-  [key: string]: unknown
-}
-export interface CronRemovedJob {
-  id: string
-  name?: string
-  schedule?: string | null
 }
 export interface BrowserManageParams {
   action?: BrowserAction
@@ -4745,30 +4460,6 @@ export interface PromptResponseResult {
   status: 'resolved' | 'already_resolved'
   prompt_id: string
 }
-export interface CronRunParams {
-  job_id: string
-  request_id: string
-  extra_prompt: string | null
-}
-export interface CronSubmitResult {
-  session_id: string
-  admission_id: string
-}
-/** ``result`` is the ``run_job`` tuple once terminal; ``recover`` adds the frozen ``job`` and answers ``status='missing'`` for a firing that was never admitted. */
-export interface CronStatusResult {
-  status: string
-  result: unknown[] | null
-  job_flags?: Record<string, unknown> | null
-  job?: Record<string, unknown> | null
-  [key: string]: unknown
-}
-export interface CronAdmissionParams {
-  session_id: string
-  admission_id: string
-}
-export interface CronCancelResult {
-  ok: boolean
-}
 export interface A2aForwardParams {
   agent: string
   tenant: string
@@ -5047,18 +4738,14 @@ export interface CanonicalCorrectionParams {
   execution_generation: number
   text: string
 }
-/** ``session.steer`` / ``session.redirect``: the correction verdict, or ``{voice_stopped: true}`` when the busy-time text was a bare stop phrase that ended the LOCAL voice chat. */
-export type CanonicalCorrectionResult = CanonicalCorrectionAck | CanonicalVoiceStopped
+/** ``session.steer`` / ``session.redirect`` correction verdict. */
+export type CanonicalCorrectionResult = CanonicalCorrectionAck
 export interface CanonicalCorrectionAck {
   status: 'queued' | 'redirected' | 'rejected'
   text: string
   execution_generation: number
   authority_epoch: number
   delivered?: false | null
-}
-/** A bare stop phrase typed while the session's voice chat is on: the chat ended, nothing was admitted (TUI-26). */
-export interface CanonicalVoiceStopped {
-  voice_stopped: true
 }
 export interface CanonicalEventsParams {
   profile?: string | null
@@ -5099,9 +4786,6 @@ export interface CanonicalSubmitParams {
   finite?: boolean
   unattended?: boolean
   surface?: string | null
-  voice_context?: string | null
-  interrupted?: boolean
-  voice_turn?: boolean
   display_kind?: 'hidden' | null
   title_preview?: string | null
   turn_author?: CanonicalTurnAuthor | null
@@ -5124,8 +4808,8 @@ export interface CanonicalModelOverride {
   provider?: string | null
   reasoning?: string | null
 }
-/** ``prompt.submit``: the admission receipt, or ``{voice_stopped: true}``. */
-export type CanonicalSubmitResult = AdmissionStatus | CanonicalVoiceStopped
+/** ``prompt.submit`` admission receipt. */
+export type CanonicalSubmitResult = AdmissionStatus
 export interface CanonicalApprovalParams {
   profile?: string | null
   session_id: string
@@ -5802,27 +5486,6 @@ export interface BrowserProgressPayload {
   message: string
   level: string
 }
-/** ``methods_voice._vr_on_status``; states come from the recorder (idle / listening / transcribing …). */
-export interface VoiceStatusPayload {
-  state: string
-}
-/** ``methods_voice`` voice.record ``on_partial`` — live STT text so far (``stt.streaming``). */
-export interface VoicePartialPayload {
-  text: string
-}
-/** ``methods_voice._vr_transcript`` / ``_deliver_fd_transcript`` / typed stop phrase in methods_prompt. */
-export interface VoiceTranscriptPayload {
-  text?: string | null
-  stop_phrase?: boolean | null
-  typed?: boolean | null
-  no_speech_limit?: boolean | null
-}
-/** ``methods_voice`` wake detector ``_on_detect``. */
-export interface WakeDetectedPayload {
-  phrase: string
-  profile?: string | null
-  start_new_session: boolean
-}
 /** ``change_watcher._pet_changed_payload`` — ``pet.info.meta``-shaped; ``{enabled: false}`` when off. */
 export interface PetChangedPayload {
   enabled: boolean
@@ -5933,8 +5596,6 @@ export interface RpcMethods {
   'connectors.policy.set': { params: ConnectorPolicySetParams; result: ConnectorPolicySetResult }
   /** The scoped profile's cached or current tool list for one connector. */
   'connectors.tools': { params: ConnectorToolsParams; result: ConnectorToolsResult }
-  /** List/add/remove/pause/resume cron jobs in the (optionally profile-scoped) cron store. */
-  'cron.manage': { params: CronManageParams; result: CronManageResult }
   /** Block/unblock NEW spawns globally (active children keep running); returns the new state. */
   'delegation.pause': { params: DelegationPauseParams; result: DelegationPauseResult }
   /** Running subagent tree plus the spawn pause flag and limits. */
@@ -5943,12 +5604,6 @@ export interface RpcMethods {
   'diagnostics.share_nous': { params: DiagnosticsShareNousParams; result: DiagnosticsShareNousResult }
   /** Run the distro package install on the gateway host; progress streams as display.install.log/.done. */
   'display.install': { params: ProfileParams; result: DisplayInstallResult }
-  /** Take over: the human named by a viewer id this connection minted controls the screen. */
-  'display.lease.acquire': { params: DisplayLeaseAcquireParams; result: DisplayLeaseResult }
-  /** Hand back. Without a viewer id the release is refused while a human holds unless force. */
-  'display.lease.release': { params: DisplayLeaseReleaseParams; result: DisplayLeaseResult }
-  /** Mint a single-use ticket for /api/display/ws and the server-minted viewer id for this connection. */
-  'display.observe': { params: DisplayObserveParams; result: DisplayObserveResult }
   /** Start this profile's Xvnc + Xfce (idempotent); blocks until the display is published. */
   'display.start': { params: ProfileParams; result: DisplayStatus }
   /** Runtime + lease snapshot for this profile's screen. */
@@ -6217,15 +5872,9 @@ export interface RpcMethods {
   'session.events.since': { params: SessionEventsSinceParams; result: SessionEventsSinceResult }
   /** Replay-buffer occupancy telemetry (ops/debug). */
   'session.events.stats': { params: SessionEventsStatsParams; result: SessionEventsStatsResult }
-  /** Import a foreign session into this profile's history (idempotent per origin). */
-  'session.foreign.import': { params: SessionForeignIdParams; result: SessionForeignImportResult }
-  /** One page of Claude Code / Codex sessions found on the serving backend. */
-  'session.foreign.list': { params: SessionForeignListParams; result: SessionForeignListResult }
-  /** Preview a foreign session's tail before importing it. */
-  'session.foreign.preview': { params: SessionForeignIdParams; result: SessionForeignPreviewResult }
   /** The durable display transcript (ancestors included, row ids attached). */
   'session.history': { params: SessionHistoryParams; result: SessionHistoryResult }
-  /** Stop the running turn (and streaming TTS); retires the crash-recovery marker. */
+  /** Stop the running turn; retire the crash-recovery marker. */
   'session.interrupt': { params: SessionInterruptParams; result: SessionInterruptResult }
   /** Human-facing stored sessions, most recent first (sub-agent / kanban sources denied). */
   'session.list': { params: SessionListParams; result: SessionListResult }
@@ -6319,24 +5968,6 @@ export interface RpcMethods {
   'vault.unlock': { params: VaultUnlockParams; result: VaultUnlockResult }
   /** Best known verification evidence for a cwd/session; read-only, never runs checks. */
   'verification.status': { params: VerificationStatusParams; result: VerificationStatusResult }
-  /** VAD-bounded push-to-talk; the transcript arrives as a voice.transcript event. */
-  'voice.record': { params: VoiceRecordParams; result: VoiceRecordResult }
-  /** /voice parity: report, flip voice mode on/off, or toggle speech output. */
-  'voice.toggle': { params: VoiceToggleParams; result: VoiceToggleResult }
-  /** Speak text through the backend TTS engine (barge-in aware). */
-  'voice.tts': { params: VoiceTtsParams; result: VoiceTtsResult }
-  /** Push client-captured PCM into the armed detector (mic-less remote backends). */
-  'wake.feed': { params: WakeFeedParams; result: WakeFeedResult }
-  /** Release the mic (e.g. while the desktop's browser captures audio). */
-  'wake.pause': { params: WakeControlParams; result: WakePauseResult }
-  /** Reclaim the mic after a pause; no-op if the listener isn't armed. */
-  'wake.resume': { params: WakeControlParams; result: WakeResumeResult }
-  /** Arm the wake-word listener for the calling surface; refusals explain why. */
-  'wake.start': { params: WakeStartParams; result: WakeStartResult }
-  /** Everything a client needs to draw the wake-word state and decide whether to (re)arm. */
-  'wake.status': { params: WakeStatusParams; result: WakeStatusResult }
-  /** Stop this surface's listener; persist also writes wake_word.enabled: false. */
-  'wake.stop': { params: WakeStopParams; result: WakeStopResult }
 }
 export type RpcMethod = keyof RpcMethods
 export const RPC_METHODS = [
@@ -6379,14 +6010,10 @@ export const RPC_METHODS = [
   'connectors.policy.get',
   'connectors.policy.set',
   'connectors.tools',
-  'cron.manage',
   'delegation.pause',
   'delegation.status',
   'diagnostics.share_nous',
   'display.install',
-  'display.lease.acquire',
-  'display.lease.release',
-  'display.observe',
   'display.start',
   'display.status',
   'display.stop',
@@ -6521,9 +6148,6 @@ export const RPC_METHODS = [
   'session.delete',
   'session.events.since',
   'session.events.stats',
-  'session.foreign.import',
-  'session.foreign.list',
-  'session.foreign.preview',
   'session.history',
   'session.interrupt',
   'session.list',
@@ -6571,16 +6195,7 @@ export const RPC_METHODS = [
   'vault.source.set',
   'vault.sources',
   'vault.unlock',
-  'verification.status',
-  'voice.record',
-  'voice.toggle',
-  'voice.tts',
-  'wake.feed',
-  'wake.pause',
-  'wake.resume',
-  'wake.start',
-  'wake.status',
-  'wake.stop'
+  'verification.status'
 ] as const satisfies readonly RpcMethod[]
 
 // ── Canonical (hermes-gateway-v1) methods only the session authority serves ──
@@ -6599,14 +6214,6 @@ export interface CanonicalRpcMethods {
   'command.observe': { params: CommandObserveParams; result: CommandObserveResult }
   'config.get': { params: ConfigGetParams; result: CanonicalConfigGetResult }
   'config.set': { params: CanonicalConfigSetParams; result: ConfigSetResult }
-  /** Cancel a queued cron admission or latch cancellation on a started one. */
-  'cron.cancel': { params: CronAdmissionParams; result: CronCancelResult }
-  /** Re-observe a firing after a scheduler restart (same request identity). */
-  'cron.recover': { params: CronRunParams; result: CronStatusResult }
-  /** Status and, once terminal, the result of one cron admission. */
-  'cron.status': { params: CronAdmissionParams; result: CronStatusResult }
-  /** Admit one cron firing into the owning profile's durable FIFO. */
-  'cron.submit': { params: CronRunParams; result: CronSubmitResult }
   'groups.approve': { params: CanonicalRoomApproveParams; result: GroupsApproveResult }
   /** Read one committed attachment for a live room viewer. */
   'groups.attachment.download': { params: GroupsAttachmentDownloadParams; result: RoomAttachmentBytes }
@@ -6683,10 +6290,6 @@ export const CANONICAL_RPC_METHODS = [
   'command.observe',
   'config.get',
   'config.set',
-  'cron.cancel',
-  'cron.recover',
-  'cron.status',
-  'cron.submit',
   'groups.approve',
   'groups.attachment.download',
   'groups.attachment.upload',
@@ -6787,8 +6390,6 @@ export interface BackendGatewayEventMap {
   'connection.request': ConnectionRequestPayload
   /** One transition or the settlement of an open connection operation. */
   'connection.update': ConnectionUpdatePayload
-  /** cron/jobs.json moved; refetch the cron list. */
-  'cron.changed': ChangeSignalPayload
   /** The install ended (0 ok, -1 cancelled, -2 no sudo: the command to run by hand was streamed). */
   'display.install.done': DisplayInstallDonePayload
   /** One line of package-manager output. */
@@ -6903,16 +6504,6 @@ export interface BackendGatewayEventMap {
   'tool.progress': ToolProgressPayload
   /** A tool call began (stable id + full args). */
   'tool.start': ToolStartPayload
-  /** Barge-in: the spoken interjection interrupted the turn; no payload. */
-  'voice.interrupted': Record<string, never>
-  /** Live STT text so far while the user is still speaking. */
-  'voice.partial': VoicePartialPayload
-  /** Voice recorder state changed. */
-  'voice.status': VoiceStatusPayload
-  /** A voice capture produced text (or a stop phrase / silence limit). */
-  'voice.transcript': VoiceTranscriptPayload
-  /** A wake phrase fired. */
-  'wake.detected': WakeDetectedPayload
 }
 export type BackendGatewayEventName = keyof BackendGatewayEventMap
 export const GATEWAY_EVENT_TYPES = [
@@ -6926,7 +6517,6 @@ export const GATEWAY_EVENT_TYPES = [
   'btw.complete',
   'connection.request',
   'connection.update',
-  'cron.changed',
   'display.install.done',
   'display.install.log',
   'display.lease',
@@ -6983,10 +6573,5 @@ export const GATEWAY_EVENT_TYPES = [
   'tool.generating',
   'tool.output_risk',
   'tool.progress',
-  'tool.start',
-  'voice.interrupted',
-  'voice.partial',
-  'voice.status',
-  'voice.transcript',
-  'wake.detected'
+  'tool.start'
 ] as const satisfies readonly BackendGatewayEventName[]

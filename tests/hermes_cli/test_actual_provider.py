@@ -412,22 +412,6 @@ def test_actual_profile_translates_explicit_reasoning_controls():
         else:
             assert top_level["reasoning_effort"] == expected_effort
 
-@pytest.mark.platforms("macos")
-def test_actual_hosted_client_uses_scoped_macos_certifi(monkeypatch):
-    import certifi
-
-    _clear_ca_bundle_env(monkeypatch)
-
-    profile = get_provider_profile("actual")
-
-    assert profile.build_client_kwargs_extras(base_url=DEFAULT_ACTUAL_BASE_URL) == {
-        "ssl_ca_cert": certifi.where()
-    }
-    assert (
-        profile.build_client_kwargs_extras(base_url=DEFAULT_ACTUAL_LOCAL_BASE_URL) == {}
-    )
-
-@pytest.mark.platforms("macos")
 def test_actual_client_tls_default_does_not_override_explicit_config(monkeypatch):
     from agent.agent_runtime_helpers import create_openai_client
 
@@ -475,7 +459,7 @@ def test_actual_client_tls_default_does_not_override_explicit_config(monkeypatch
         shared=False,
     )
 
-    assert Path(captured[0]["ca_bundle"]).name == "cacert.pem"
+    assert captured[0]["ca_bundle"] is None
     assert captured[0]["base_url"] == DEFAULT_ACTUAL_BASE_URL
     assert captured[1]["ca_bundle"] == "/explicit/corporate-ca.pem"
     assert defaults["http_client"] == "http-client"

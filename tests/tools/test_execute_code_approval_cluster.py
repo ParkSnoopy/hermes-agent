@@ -7,7 +7,7 @@ Covers the canonical fix for issues #4146, #27303, #30882, #33057:
      threads, and clears the callbacks on teardown.
   2. Local file-RPC carries the cell's authority in real processes.
   3. tools.approval.check_execute_code_guard — the entry-point guard decision
-     matrix (retired backend refusal, yolo/off, cron-deny, headless-local,
+     matrix (retired backend refusal, yolo/off, headless-local,
      gateway approve/deny/timeout/missing-notify, smart mode).
   4. tools.code_execution_env._scrub_child_env — broad HERMES_ prefix dropped,
      operational allowlist kept, DSN/WEBHOOK blocked, passthrough precedence.
@@ -27,7 +27,6 @@ from tools import approval_detection
 from tools import approval_context
 from tools import approval_smart
 from tools.thread_context import propagate_context_to_thread
-from gateway.session_context import clear_session_vars, reset_session_vars, set_session_vars
 from tests.tools._child_env_fixtures import child_env
 
 
@@ -134,7 +133,7 @@ def gw_session(monkeypatch):
     key, and isolated gateway queues/callbacks. Yields the session_key."""
     monkeypatch.setenv("HERMES_GATEWAY_SESSION", "1")
     monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
-    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+
     monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
     # Force manual mode regardless of host config and disable any process-level
     # yolo inherited from the developer's live environment.
@@ -200,54 +199,16 @@ def test_guard_headless_local_approved(monkeypatch):
     # Documented #30882 limitation: no approval surface → preserve auto-run.
     monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
     monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
-    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+
     monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
     monkeypatch.setattr(approval_context, "_get_approval_mode", lambda: "manual")
     assert A.check_execute_code_guard("import os", "local")["approved"] is True
 
 
-def test_guard_cron_deny_blocks(monkeypatch):
-    monkeypatch.setattr(A, "_YOLO_MODE_FROZEN", False)
-    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
-    monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-    monkeypatch.setattr(approval_context, "_get_approval_mode", lambda: "manual")
-    monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "deny")
-    tokens = set_session_vars(cron_session="1")
-    try:
-        res = A.check_execute_code_guard("import os", "local")
-    finally:
-        clear_session_vars(tokens)
-    assert res["approved"] is False
-    assert res["outcome"] == "blocked"
 
 
-def test_guard_explicit_non_cron_masks_leaked_env(monkeypatch):
-    monkeypatch.setattr(A, "_YOLO_MODE_FROZEN", False)
-    monkeypatch.setenv("HERMES_CRON_SESSION", "1")
-    monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-    monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
-    monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
-    monkeypatch.setattr(approval_context, "_get_approval_mode", lambda: "manual")
-    monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "deny")
-    tokens = set_session_vars(cron_session="")
-    try:
-        res = A.check_execute_code_guard("import os", "local")
-    finally:
-        clear_session_vars(tokens)
-        reset_session_vars()
-    assert res["approved"] is True
 
 
-def test_guard_legacy_env_cron_still_blocks(monkeypatch):
-    reset_session_vars()
-    monkeypatch.setattr(A, "_YOLO_MODE_FROZEN", False)
-    monkeypatch.setenv("HERMES_CRON_SESSION", "1")
-    monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-    monkeypatch.setattr(approval_context, "_get_approval_mode", lambda: "manual")
-    monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "deny")
-    res = A.check_execute_code_guard("import os", "local")
-    assert res["approved"] is False
-    assert res["outcome"] == "blocked"
 
 
 def test_guard_gateway_user_approves_is_one_shot(gw_session):
@@ -474,7 +435,7 @@ def test_env_scrub_hermes_allowlist_and_secret_blocks():
         # safe prefix → kept; uncategorized → dropped
         "PATH": "/usr/bin", "RANDOM_X": "y",
     }
-    out = _scrub_child_env(env, is_passthrough=lambda _: False, is_windows=False)
+    out = _scrub_child_env(env, is_passthrough=lambda _: False)
 
     for kept in (
         "HERMES_HOME", "HERMES_PROFILE", "HERMES_CONFIG", "HERMES_ENV",
@@ -494,7 +455,7 @@ def test_env_scrub_marks_in_process_delegation():
     from tools.code_execution_env import _scrub_child_env
 
     with delegated_child_context():
-        out = _scrub_child_env({"PATH": "/usr/bin"}, is_passthrough=lambda _: False, is_windows=False)
+        out = _scrub_child_env({"PATH": "/usr/bin"}, is_passthrough=lambda _: False)
     assert out[DELEGATED_CHILD_ENV_MARKER] == "1"
 
 
@@ -504,8 +465,7 @@ def test_env_scrub_passthrough_overrides_secret_block():
     from tools.code_execution_env import _scrub_child_env
 
     env = {"MY_SERVICE_DSN": "value"}
-    out = _scrub_child_env(env, is_passthrough=lambda k: k == "MY_SERVICE_DSN",
-                           is_windows=False)
+    out = _scrub_child_env(env, is_passthrough=lambda k: k == "MY_SERVICE_DSN")
     assert out.get("MY_SERVICE_DSN") == "value"
 
 

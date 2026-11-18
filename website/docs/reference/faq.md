@@ -21,7 +21,7 @@ Quick answers and fixes for the most common questions and issues.
 Hermes Agent works with any OpenAI-compatible API. Supported providers include:
 
 - **[OpenRouter](https://openrouter.ai/)** — access hundreds of models through one API key (recommended for flexibility)
-- **[Nous Portal](../integrations/nous-portal.md)** — Nous Research's subscription gateway — 300+ models plus web/image/TTS/browser through one OAuth login (recommended for newcomers)
+- **[Nous Portal](../integrations/nous-portal.md)** — Nous Research's subscription gateway — 300+ models plus web/image/browser through one OAuth login (recommended for newcomers)
 - **OpenAI** — GPT-5.4, GPT-5-codex, GPT-4.1, GPT-4o, etc.
 - **Anthropic** — Claude models (direct API, OAuth via `hermes auth add anthropic`, OpenRouter, or any compatible proxy)
 - **Google** — Gemini models (direct API via `gemini` provider, OpenRouter, or compatible proxy)
@@ -34,24 +34,6 @@ Set your provider with `hermes model` or by editing `~/.hermes/.env`. See the [E
 
 ### Does it work on Windows/Android/my platform??
 See **[Platform Support](../getting-started/platform-support.md)** for the full platform availability matrix.
-
-### I run Hermes in WSL2. What's the best way to control my normal Windows Chrome?
-
-Prefer an MCP bridge over `/browser connect`.
-
-Recommended pattern:
-
-- run Hermes inside WSL2
-- keep using your normal signed-in Chrome on Windows
-- add `chrome-devtools-mcp` as an MCP server through `cmd.exe` or `powershell.exe`
-- let Hermes use the resulting MCP browser tools
-
-This is more reliable than trying to force Hermes core browser transport to attach directly across the WSL2/Windows boundary.
-
-See:
-
-- [Use MCP with Hermes](../guides/use-mcp-with-hermes.md#wsl2-bridge-hermes-in-wsl-to-windows-chrome)
-- [Browser Automation](../user-guide/features/browser.md#wsl2--windows-chrome-prefer-mcp-over-browser-connect)
 
 ### Is my data sent anywhere?
 
@@ -88,7 +70,7 @@ If you set a custom `num_ctx` in Ollama (e.g., `ollama run --num_ctx 64000`), ma
 :::
 
 :::tip Timeouts with local models
-Hermes auto-detects local endpoints and relaxes streaming timeouts (read timeout raised from 120s to 1800s, stale stream detection disabled). If you still hit timeouts on very large contexts, set `HERMES_STREAM_READ_TIMEOUT=1800` in your `.env`. See the [Local LLM guide](../guides/local-llm-on-mac.md#timeouts) for details.
+Hermes auto-detects local endpoints and relaxes streaming timeouts (read timeout raised from 120s to 1800s, stale stream detection disabled). If you still hit timeouts on very large contexts, set `HERMES_STREAM_READ_TIMEOUT=1800` in your `.env`.
 :::
 
 ### How much does it cost?
@@ -197,21 +179,6 @@ terminal:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source ~/.bashrc
 ```
-
-#### Permission denied errors during install
-
-**Cause:** Insufficient permissions to write to the install directory.
-
-**Solution:**
-```bash
-# Don't use sudo with the installer — it installs to ~/.local/bin
-# If you previously installed with sudo, clean up:
-sudo rm /usr/local/bin/hermes
-# Then re-run the standard installer
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
-```
-
----
 
 ### Provider & Model Issues
 
@@ -379,63 +346,6 @@ This is working as intended — Hermes never silently runs destructive commands.
 :::
 
 
-### Gateway Issues
-
-#### WSL: Gateway keeps disconnecting or `hermes gateway start` fails
-
-**Cause:** WSL's systemd support is unreliable. Many WSL2 installations don't have systemd enabled, and even when enabled, services may not survive WSL restarts or Windows idle shutdowns.
-
-**Solution:** Use foreground mode instead of the systemd service:
-
-```bash
-# Option 1: Direct foreground (simplest)
-hermes gateway run
-
-# Option 2: Persistent via tmux (survives terminal close)
-tmux new -s hermes 'hermes gateway run'
-# Reattach later: tmux attach -t hermes
-
-# Option 3: Background via nohup
-nohup hermes gateway run > ~/.hermes/logs/gateway.log 2>&1 &
-```
-
-If you want to try systemd anyway, make sure it's enabled:
-
-1. Open `/etc/wsl.conf` (create it if it doesn't exist)
-2. Add:
-   ```ini
-   [boot]
-   systemd=true
-   ```
-3. From PowerShell: `wsl --shutdown`
-4. Reopen your WSL terminal
-5. Verify: `systemctl is-system-running` should say "running" or "degraded"
-
-:::tip Auto-start on Windows boot
-For reliable auto-start, use Windows Task Scheduler to launch WSL + the gateway on login:
-1. Create a task that runs `wsl -d Ubuntu -- bash -lc 'hermes gateway run'`
-2. Set it to trigger on user logon
-:::
-
-#### macOS: Node.js / ffmpeg / other tools not found by gateway
-
-**Cause:** launchd services inherit a minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) that doesn't include Homebrew, nvm, cargo, or other user-installed tool directories. This can affect voice transcription (`ffmpeg not found`).
-
-**Solution:** The gateway captures your shell PATH when you run `hermes gateway install`. If you installed tools after setting up the gateway, re-run the install to capture the updated PATH:
-
-```bash
-hermes gateway install    # Re-snapshots your current PATH
-hermes gateway start      # Detects the updated plist and reloads
-```
-
-You can verify the plist has the correct PATH:
-```bash
-/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:PATH" \
-  ~/Library/LaunchAgents/ai.hermes.gateway.plist
-```
-
----
-
 ### Performance Issues
 
 #### Slow responses
@@ -585,7 +495,7 @@ This isolation is also the reason to never run two agents against the *same* pro
 
 ### How many profiles can I run?
 
-There is no hard limit. Each profile is a directory under `~/.hermes/profiles/` that carries at least one identity file (`config.yaml`, `.env`, `SOUL.md`, `profile.yaml`, `auth.json` or `state.db`); a bare directory without one (a leftover from a log rotation or cron tick) is not a profile — it is not listed or served, `-p <name>` reports it as missing, and `hermes profile create <name>` refuses to overwrite it until you move or remove it. The practical limit depends on your disk space and how many concurrent gateways your system can handle (each gateway is a lightweight Python process). Running dozens of profiles is fine; each idle profile uses no resources.
+There is no hard limit. Each profile is a directory under `~/.hermes/profiles/` that carries at least one identity file (`config.yaml`, `.env`, `SOUL.md`, `profile.yaml`, `auth.json` or `state.db`); a bare directory without one (a leftover from a log rotation) is not a profile — it is not listed or served, `-p <name>` reports it as missing, and `hermes profile create <name>` refuses to overwrite it until you move or remove it. The practical limit depends on your disk space and how many concurrent gateways your system can handle (each gateway is a lightweight Python process). Running dozens of profiles is fine; each idle profile uses no resources.
 
 ---
 
@@ -624,13 +534,13 @@ See [Subagent Delegation](../user-guide/features/delegation.md) for more on how 
 
 ### Exporting Hermes to another machine
 
-**Scenario:** You've built up skills, cron jobs, and memories on one machine and want to move everything to a new dedicated Linux box.
+**Scenario:** You've built up skills and memories on one machine and want to move everything to a new dedicated Linux box.
 
 **Solution:**
 
 1. Install Hermes Agent on the new machine:
    ```bash
-   curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+   source ./activate
    ```
 
 2. On the **source machine**, create a full backup:
@@ -681,7 +591,7 @@ The full backup excludes:
 - The source checkout, dependency environments, and downloaded tools, models, and runtimes.
 - Build caches, checkpoints, previous backups, and quick snapshots.
 - Browser profiles, including copies of real-browser credentials.
-- Bytecode, SQLite sidecars, `gateway.pid`, `cron.pid`, and `.backup.lock`.
+- Bytecode, SQLite sidecars, `gateway.pid` and `.backup.lock`.
 
 `hermes backup --quick` saves selected state files instead of a full archive.
 It is not a replacement for the full backup before a machine migration.
@@ -698,7 +608,7 @@ rsync -av --exclude='hermes-agent' ~/.hermes/ newmachine:~/.hermes/
 ```
 
 :::tip
-`hermes backup` produces a consistent snapshot even while Hermes is actively running. The restored archive excludes machine-local runtime files like `gateway.pid` and `cron.pid`.
+`hermes backup` produces a consistent snapshot even while Hermes is actively running. The restored archive excludes machine-local runtime files like `gateway.pid`.
 :::
 
 ### Permission denied when reloading shell after install

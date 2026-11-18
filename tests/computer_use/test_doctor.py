@@ -55,12 +55,12 @@ def _ok_report() -> dict:
     """Minimal well-formed health_report response."""
     return {
         "schema_version": "1",
-        "platform": "darwin",
+        "platform": "linux",
         "driver_version": "0.5.8",
         "overall": "ok",
         "checks": [
             {"name": "binary_version", "status": "pass", "message": "cua-driver 0.5.8"},
-            {"name": "tcc_accessibility", "status": "pass", "message": "Accessibility is granted."},
+            {"name": "ax_capability", "status": "pass", "message": "list_apps succeeded."},
         ],
     }
 
@@ -69,17 +69,17 @@ def _degraded_report() -> dict:
     """Report with one failing check — overall=degraded."""
     return {
         "schema_version": "1",
-        "platform": "darwin",
+        "platform": "linux",
         "driver_version": "0.5.8",
         "overall": "degraded",
         "checks": [
             {"name": "binary_version", "status": "pass", "message": "cua-driver 0.5.8"},
             {
-                "name": "bundle_identity",
+                "name": "screen_capture_capability",
                 "status": "fail",
-                "message": "Process has no CFBundleIdentifier.",
-                "hint": "Run inside CuaDriver.app",
-                "data": {"executable_path": "/tmp/cua-driver"},
+                "message": "No capturable display.",
+                "hint": "Configure an active display session.",
+                "data": {"display_count": 0},
             },
         ],
     }
@@ -105,6 +105,24 @@ def _default_cli_version_matches_report(monkeypatch):
 
 
 class TestDoctorExitCodes:
+    @pytest.mark.parametrize("display_count,exit_code", [(0, 1), (1, 0), (None, 0)])
+    def test_capture_requires_a_display_when_count_is_known(self, display_count, exit_code):
+        from tools.computer_use import doctor
+
+        report = _ok_report()
+        report["checks"].append({"name": "screen_capture_capability", "status": "pass",
+                                 "message": "Capture accessible", "data": {"display_count": display_count}})
+        proc = _fake_proc_with_responses(
+            {"jsonrpc": "2.0", "id": 1, "result": {}},
+            {"jsonrpc": "2.0", "id": 2, "result": {"structuredContent": report}},
+        )
+        with _pm_driver("/fake/cua-driver"), \
+             patch("subprocess.Popen", return_value=proc), \
+             patch("sys.stdout", new_callable=StringIO) as out:
+            assert doctor.run_doctor() == exit_code
+        if display_count == 0:
+            assert "virtual display" in out.getvalue()
+
     def test_ok_exits_0(self):
         from tools.computer_use import doctor
 
@@ -149,8 +167,7 @@ class TestDoctorExitCodes:
         assert code == 1
 
     def test_spawn_denied_exits_2_with_diagnosis(self, capsys):
-        """The runtime interpreter cannot execute the resolved binary (Windows WinError 5 on a
-        `WindowsApps` install): a diagnosis + exit 2, never a raw traceback."""
+        """An unexecutable resolved binary produces a diagnosis + exit 2, not a traceback."""
         from tools.computer_use import doctor
 
         with _pm_driver("/protected/cua-driver"), \
@@ -217,13 +234,13 @@ class TestArgPassthrough:
         with _pm_driver("/fake/cua-driver"), \
              patch("subprocess.Popen", return_value=proc), \
              patch("sys.stdout", new_callable=StringIO):
-            doctor.run_doctor(include=["binary_version", "tcc_accessibility"])
+            doctor.run_doctor(include=["binary_version", "ax_capability"])
 
         # Inspect the second write to stdin — the tools/call payload.
         writes = [call.args[0] for call in proc.stdin.write.call_args_list]
         call_payload = next(json.loads(w) for w in writes if "tools/call" in w)
         assert call_payload["params"]["arguments"]["include"] == [
-            "binary_version", "tcc_accessibility",
+            "binary_version", "ax_capability",
         ]
 
 
@@ -356,8 +373,7 @@ class TestHealthReportFallback:
 
 class TestDoctorVersionIdentity:
     def test_header_prefers_cli_version_on_mismatch(self):
-        """Windows has been observed reporting 0.8.3 via health_report while
-        the resolved binary is 0.12.6 — doctor must surface the real version."""
+        """Doctor surfaces the binary's real version when health_report is stale."""
         from tools.computer_use import doctor
 
         proc = _fake_proc_with_responses(
@@ -392,28 +408,3 @@ class TestDoctorVersionIdentity:
         assert code == 0
         payload = json.loads(out.getvalue())
         assert payload["hermes_identity"]["version_mismatch"] is False
-
-
-def test_failed_tcc_row_from_health_report_names_the_stale_row_reset_for_that_service():
-    """A failed ``tcc_*`` row from the driver's own health_report (0.22+, not only the 0.10 fallback probes) must
-    carry the stale-grant recovery for its own TCC service, because System Settings can show the toggle ON while
-    the daemon is denied (trycua/cua#3170)."""
-    from tools.computer_use import doctor
-
-    report = _ok_report()
-    report["checks"] = [{"name": "tcc_screen_recording", "status": "fail", "message": "Screen Recording is not granted.",
-                         "hint": "Grant it in System Settings."},
-                        {"name": "tcc_accessibility", "status": "pass", "message": "granted"}]
-    proc = _fake_proc_with_responses(
-        {"jsonrpc": "2.0", "id": 1, "result": {}},
-        {"jsonrpc": "2.0", "id": 2, "result": {"structuredContent": report}},
-    )
-    with _pm_driver("/fake/cua-driver"), patch("subprocess.Popen", return_value=proc), \
-         patch("sys.stdout", new_callable=StringIO) as out:
-        doctor.run_doctor(json_output=True)
-    checks = {c["name"]: c for c in json.loads(out.getvalue())["checks"]}
-
-    assert checks["tcc_screen_recording"]["hint"].startswith("Grant it in System Settings.")
-    assert "tccutil reset ScreenCapture com.trycua.driver" in checks["tcc_screen_recording"]["hint"]
-    assert "reset Accessibility" not in checks["tcc_screen_recording"]["hint"]
-    assert "tccutil" not in checks["tcc_accessibility"].get("hint", "")

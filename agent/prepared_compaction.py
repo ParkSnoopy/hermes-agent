@@ -200,7 +200,7 @@ def _blocked_for_platform(agent: Any, origin: str) -> bool:
     used."""
     if origin != "turn-end":
         return False
-    if getattr(agent, "platform", None) in ("cron", "subagent") or getattr(agent, "_delegate_depth", 0) > 0:
+    if getattr(agent, "platform", None) == "subagent" or getattr(agent, "_delegate_depth", 0) > 0:
         return True
     from agent.oneshot_footprint import agent_is_oneshot
 

@@ -26,7 +26,7 @@ import pytest
 
 import hermes_cli.macos_tcc_anchor as tcc
 from pm.environments import venv_python
-from hermes_cli import doctor_platform
+
 
 
 def _build_store(tmp_path, version: str = "3.11.15", *, with_libpython: bool = False) -> Path:
@@ -504,26 +504,6 @@ class TestTccAnchorState:
         status, _ = tcc.tcc_anchor_state(root)
         assert status == "active"
 
-
-class TestDoctorCheck:
-
-
-
-    def test_skip_is_silent_on_non_macos(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            tcc, "tcc_anchor_state", lambda *a, **k: ("skip", "not macOS")
-        )
-        doctor_platform.check_macos_tcc_anchor(should_fix=False)
-        assert capsys.readouterr().out == ""
-
-    def test_never_crashes_on_exception(self, monkeypatch, capsys):
-        def boom(*a, **k):
-            raise RuntimeError("tccd down")
-
-        monkeypatch.setattr(tcc, "tcc_anchor_state", boom)
-        doctor_platform.check_macos_tcc_anchor(should_fix=False)
-        out = capsys.readouterr().out
-        assert "macOS TCC anchor check failed" in out
 
 
 @pytest.mark.platforms("macos")

@@ -36,11 +36,7 @@ const config: Config = {
         // Static-host redirects for renamed doc pages (GitHub Pages can't
         // do server-side redirects). Paths are relative to baseUrl (/docs/).
         redirects: [
-          {
-            // Renamed in #44470 (Automation Blueprints terminology rebrand)
-            from: '/guides/automation-templates',
-            to: '/guides/automation-blueprints',
-          },
+
           {
             // Moved when the Plugins subcategory was created under
             // Developer Guide > Extending (docs restructure, July 2026)

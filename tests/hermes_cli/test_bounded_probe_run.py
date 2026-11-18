@@ -1,32 +1,19 @@
-"""``bounded_probe_run`` — deadlock-safe capture for fail-open probes (#87134).
+"""Deadlock-safe Linux probe capture, cleanup and captured PID identities.
 
-On Windows, ``subprocess.run(..., capture_output=True, timeout=N)`` can hang
-FOREVER after its timeout fires: run()'s cleanup kills the direct child and
-then joins the pipe reader threads with an unbounded ``communicate()``.  A
-descendant (``conhost.exe`` under wmic/powershell, ``git.exe`` under a
-launcher shim) holding duplicated pipe handles keeps the pipes from EOF and
-the join never returns.  ``hermes update`` wedged exactly there inside
-``_scan_gateway_pids`` on machines where the full ``Win32_Process`` scan
-exceeds its budget.
-
-``bounded_probe_run`` is the shared, generalized form of the fix that
-``bounded_git_probe`` already proved for git probes (#68609 / #66037):
-explicit ``communicate(timeout)``, tree-kill on failure, bounded 1s drain,
-then abandon.
-
-These tests use REAL subprocesses (no mocks) for the semantics: a mock cannot
-reproduce pipe-handle inheritance or timeout behavior.  The POSIX-only
-descendant-survival cases live in ``test_git_probe_tree_kill.py`` and now
-exercise the same code path through the ``bounded_git_probe`` delegation.
+Real child-process cases cover pipe inheritance and process-group semantics;
+mocked contract cases cover spawn options, failure handling and PID validation.
+Descendant-survival cases also live in ``test_git_probe_tree_kill.py``.
 """
 
 import subprocess
 import sys
 import time
+from unittest.mock import Mock
 
 import pytest
 
 from hermes_cli._subprocess_compat import bounded_git_probe, bounded_probe_run
+from hermes_cli import _subprocess_compat as compat
 
 _PY = sys.executable
 
@@ -110,3 +97,89 @@ def test_posix_child_gets_own_process_group():
     )
     assert result is not None
     assert result.stdout.strip() == "True"
+
+
+@pytest.mark.parametrize("input_value", [None, "payload"])
+@pytest.mark.parametrize("returncode", [0, 3])
+def test_mocked_probe_preserves_spawn_and_output_contract(monkeypatch, tmp_path, input_value, returncode):
+    proc = Mock(returncode=returncode)
+    proc.communicate.return_value = ("output\n", "diagnostic\n")
+    spawn = Mock(return_value=proc)
+    monkeypatch.setattr(compat.subprocess, "Popen", spawn)
+    env = {"SENTINEL": "kept"}
+    result = bounded_probe_run(["probe", "--status"], timeout=2, errors="ignore",
+                               env=env, cwd=tmp_path, input=input_value)
+    assert result is not None
+    assert (result.args, result.returncode, result.stdout, result.stderr) == (
+        ["probe", "--status"], returncode, "output\n", "diagnostic\n",
+    )
+    spawn.assert_called_once_with(
+        ["probe", "--status"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL if input_value is None else subprocess.PIPE,
+        text=True, encoding="utf-8", errors="ignore", env=env, cwd=tmp_path, process_group=0,
+    )
+    proc.communicate.assert_called_once_with(input=input_value, timeout=2)
+    proc.kill.assert_not_called()
+
+
+@pytest.mark.parametrize("raise_on_failure", [False, True])
+def test_mocked_probe_spawn_failure_policy(monkeypatch, raise_on_failure):
+    monkeypatch.setattr(compat.subprocess, "Popen", Mock(side_effect=FileNotFoundError("missing probe")))
+    if raise_on_failure:
+        with pytest.raises(FileNotFoundError, match="missing probe"):
+            bounded_probe_run(["probe"], timeout=2, raise_on_spawn_failure=True)
+    else:
+        assert bounded_probe_run(["probe"], timeout=2) is None
+
+
+@pytest.mark.parametrize("failure", [subprocess.TimeoutExpired("probe", 2), ValueError("closed pipe")])
+def test_mocked_probe_communication_failure_is_drained_bounded(monkeypatch, failure):
+    proc = Mock()
+    proc.communicate.side_effect = failure
+    monkeypatch.setattr(compat.subprocess, "Popen", Mock(return_value=proc))
+    drain = Mock()
+    monkeypatch.setattr(compat, "kill_and_drain", drain)
+    assert bounded_probe_run(["probe"], timeout=2) is None
+    drain.assert_called_once_with(proc, 1)
+
+
+@pytest.mark.parametrize("pid", [-1, 0, "not-a-pid", True])
+def test_mocked_pid_validation_rejects_invalid_inputs(monkeypatch, pid):
+    probe = Mock()
+    monkeypatch.setattr(compat, "_process_start_time", probe)
+    assert compat.pid_is_hermes(pid) is False
+    probe.assert_not_called()
+
+
+@pytest.mark.parametrize("current,accepted", [(17, True), (18, False), (None, False)])
+def test_mocked_pid_validation_checks_captured_identity(monkeypatch, current, accepted):
+    monkeypatch.setattr(compat, "_process_start_time", Mock(return_value=current))
+    assert compat.pid_is_hermes(1234, expected_start_time=17) is accepted
+
+
+def test_mocked_pid_validation_fails_closed_when_identity_is_unreadable(monkeypatch):
+    monkeypatch.setattr(compat, "_process_start_time", Mock(side_effect=OSError("unreadable process")))
+    assert compat.pid_is_hermes(1234, expected_start_time=17) is False
+
+
+def test_mocked_pid_validation_without_fingerprint_does_not_probe(monkeypatch):
+    probe = Mock()
+    monkeypatch.setattr(compat, "_process_start_time", probe)
+    assert compat.pid_is_hermes(1234) is True
+    probe.assert_not_called()
+
+
+@pytest.mark.parametrize("group", [4321, 4320])
+def test_mocked_fallback_cleanup_only_signals_owned_group(monkeypatch, group):
+    import signal
+
+    proc = Mock(pid=4321)
+    monkeypatch.setattr(compat.os, "getpgid", Mock(return_value=group))
+    killpg = Mock()
+    monkeypatch.setattr(compat.os, "killpg", killpg)
+    compat._legacy_kill_process_tree(proc)
+    if group == proc.pid:
+        killpg.assert_called_once_with(group, signal.SIGKILL)
+    else:
+        killpg.assert_not_called()
+    proc.kill.assert_called_once_with()

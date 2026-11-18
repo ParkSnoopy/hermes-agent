@@ -59,7 +59,6 @@ import {
   switchCanonicalModel
 } from './slash/canonicalSessionControls.js'
 import { loadSlashCatalog, refreshSlashCatalogOnSkillsChange } from './slashCatalog.js'
-import { markNextSubmitVoice } from './submissionCore.js'
 import { captureDestination, isCurrentDestination } from './submissionDestination.js'
 import { turnController } from './turnController.js'
 import { getTurnState } from './turnStore.js'
@@ -73,18 +72,11 @@ import {
   stderrLooksLikeProblem,
   stderrProblemActivity
 } from './userMessages.js'
-import { handleVoiceCapture } from './voicePartialStore.js'
-import { isWakeUserDisabled } from './wakeState.js'
 
 const NO_PROVIDER_RE = /\bNo (?:LLM|inference) provider configured\b/i
 
 const NOTICE_LEVELS: readonly NoticeLevel[] = ['error', 'info', 'success', 'warn']
 const isNoticeLevel = (value: unknown): value is NoticeLevel => NOTICE_LEVELS.includes(value as NoticeLevel)
-
-type VoiceSubmitMode = 'direct' | 'draft'
-
-const normalizeVoiceSubmitMode = (value: unknown): VoiceSubmitMode =>
-  typeof value === 'string' && value.trim().toLowerCase() === 'draft' ? 'draft' : 'direct'
 
 // Shallow-compare Usage to avoid creating a new object reference when values
 // haven't changed. A fresh reference on every streaming event forces every
@@ -460,95 +452,6 @@ const normalizeSubagentStatus = (status: unknown, fallback: SubagentStatus): Sub
   return KNOWN_SUBAGENT_STATUSES.has(normalized) ? normalized : fallback
 }
 
-interface VoiceTranscriptDeps {
-  enqueue: GatewayEventHandlerContext['composer']['enqueue']
-  getFullConfigOnce: () => Promise<ConfigFullResponse | null>
-  setInput: GatewayEventHandlerContext['composer']['setInput']
-  setVoiceEnabled: GatewayEventHandlerContext['voice']['setVoiceEnabled']
-  setVoiceProcessing: GatewayEventHandlerContext['voice']['setProcessing']
-  setVoiceRecording: GatewayEventHandlerContext['voice']['setRecording']
-  submitRef: GatewayEventHandlerContext['submission']['submitRef']
-  sys: GatewayEventHandlerContext['system']['sys']
-}
-
-function handleVoiceTranscript(
-  payload: Extract<AnyGatewayEvent, { type: 'voice.transcript' }>['payload'],
-  deps: VoiceTranscriptDeps
-): void {
-  const {
-    enqueue,
-    getFullConfigOnce,
-    setInput,
-    setVoiceEnabled,
-    setVoiceProcessing,
-    setVoiceRecording,
-    submitRef,
-    sys
-  } = deps
-
-  // Explicit user-intent stop: the user said (or typed) a bare stop
-  // phrase. The backend already halted the capture loop and flipped
-  // voice mode off — mirror it here like a manual /voice off, and say
-  // so (this is intent, not the no-speech timeout below).
-  if (payload?.stop_phrase) {
-    setVoiceEnabled(false)
-    setVoiceRecording(false)
-    setVoiceProcessing(false)
-    sys(gatewayMsgEn.gatewayMsg.voice.stopPhrase)
-
-    return
-  }
-
-  // CLI parity: the 3-strikes silence detector flipped off automatically.
-  // Mirror that on the UI side and tell the user why the mode is off.
-  if (payload?.no_speech_limit) {
-    setVoiceEnabled(false)
-    setVoiceRecording(false)
-    setVoiceProcessing(false)
-    sys(gatewayMsgEn.gatewayMsg.voice.noSpeechLimit)
-
-    return
-  }
-
-  const text = String(payload?.text ?? '').trim()
-
-  if (!text) {
-    return
-  }
-
-  const destination = captureDestination()
-  void getFullConfigOnce().then(cfg => {
-    if (!isCurrentDestination(destination)) {
-      enqueue?.(text, text, destination)
-
-      return
-    }
-
-    const submitMode = normalizeVoiceSubmitMode(cfg?.config?.voice?.submit_mode)
-
-    if (submitMode === 'draft') {
-      setInput(current => (current.trim() ? `${current.trimEnd()} ${text}` : text))
-
-      return
-    }
-
-    // Default to CLI parity. Clear + defer submit so the cleared input
-    // is committed before submit reads it; invalid config also falls
-    // back to this established direct-submit behavior.
-    setInput('')
-    setTimeout(() => {
-      if (isCurrentDestination(destination)) {
-        // Only a transcript submitted where it was spoken is a voice turn;
-        // one re-routed to its own session's queue lands as typed text.
-        markNextSubmitVoice(text)
-        submitRef.current(text)
-      } else {
-        enqueue?.(text, text, destination)
-      }
-    }, 0)
-  })
-}
-
 interface ErrorEventSinks {
   panel: GatewayEventHandlerContext['transcript']['panel']
   setStatus: (status: string) => void
@@ -824,9 +727,7 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
   }
 
   const { appendMessage, panel, setHistoryItems } = ctx.transcript
-  const { setInput, enqueue } = ctx.composer
-  const { submitLiteralRef, submitRef } = ctx.submission
-  const { setProcessing: setVoiceProcessing, setRecording: setVoiceRecording, setVoiceEnabled } = ctx.voice
+  const { submitLiteralRef } = ctx.submission
 
   let pendingThinkingStatus = ''
   let thinkingStatusTimer: null | ReturnType<typeof setTimeout> = null
@@ -1075,14 +976,6 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
     // "too many re-renders" guard in embedded dashboard PTYs.
     ensureAgentsNudgeConfig()
 
-    // Arm "Hey Hermes" if this surface owns it (server gates on config).
-    // Fire-and-forget + idempotent server-side, so reconnects are harmless.
-    // Skipped when the user explicitly ran `/wake off` this session — an
-    // explicit opt-out must survive gateway reconnects (see wakeState.ts).
-    if (!isWakeUserDisabled()) {
-      void rpc('wake.start', { surface: 'tui' }).catch(() => undefined)
-    }
-
     // The pre-session catalog; useSlashCatalog owns every session-bound load, reconnects included.
     if (!getUiState().sid) {
       void loadSlashCatalog(rpc, null, setCatalog)
@@ -1195,10 +1088,6 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
     }
 
     if (handledBeforeSwitch(ev)) {
-      return
-    }
-
-    if (handleVoiceCapture(ev, ctx.voice)) {
       return
     }
 
@@ -1402,65 +1291,6 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         if (message) {
           sys(message)
         }
-
-        return
-      }
-
-      case 'voice.transcript':
-        // Pass the handler-construction captures (same references as before extraction).
-        handleVoiceTranscript(ev.payload, {
-          enqueue,
-          getFullConfigOnce,
-          setInput,
-          setVoiceEnabled,
-          setVoiceProcessing,
-          setVoiceRecording,
-          submitRef,
-          sys
-        })
-
-        return
-      case 'wake.detected': {
-        // "Hey Hermes": optionally open a fresh session (start_new_session),
-        // then arm voice capture so the user can speak hands-free. Mirrors CLI.
-        void (async () => {
-          // Multi-profile routing: the TUI is a single-profile process, so a
-          // phrase enrolled by ANOTHER profile can't be routed here — surface
-          // the switch command instead of starting voice on the wrong profile.
-          const wakeProfile = ev.payload?.profile?.trim()
-          const ownProfile = getUiState().info?.profile_name || 'default'
-
-          if (wakeProfile && wakeProfile !== ownProfile) {
-            sys(gatewayMsgEn.gatewayMsg.wake.otherProfile(wakeProfile))
-            await rpc('wake.resume', {}).catch(() => undefined)
-
-            return
-          }
-
-          if (ev.payload?.start_new_session !== false) {
-            await newSession()
-          }
-
-          const sid = getUiState().sid
-
-          if (!sid) {
-            await rpc('wake.resume', {}).catch(() => undefined)
-
-            return
-          }
-
-          setVoiceEnabled(true)
-          // A shared-owner session's voice mode is the owner's per-session /voice state (T9), the
-          // one voice.record gates on; the sidecar's voice.toggle flips only its global flag.
-          await (gw.isCanonical
-            ? gw.request('slash.exec', { command: 'voice on', session_id: sid })
-            : rpc('voice.toggle', { action: 'on' }))
-          await rpc('voice.record', { action: 'start', session_id: sid })
-        })().catch((e: unknown) => {
-          sys(gatewayMsgEn.gatewayMsg.wake.failed(rpcErrorMessage(e)))
-
-          void rpc('wake.resume', {}).catch(() => undefined)
-        })
 
         return
       }

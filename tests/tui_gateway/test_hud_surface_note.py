@@ -8,7 +8,7 @@ panes, which is the wrong half of the screen.
 The same desktop session can be driven from the app window on one turn and the
 HUD on the next, so this cannot live in the system prompt — that has to stay
 byte-stable for the life of a conversation. It rides the model-bound message
-instead, beside the reaction and speech-interrupted notes.
+instead, beside the reaction notes.
 """
 
 import threading

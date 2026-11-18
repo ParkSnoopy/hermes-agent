@@ -111,12 +111,12 @@ def _spawn_worker(env: dict[str, str]) -> subprocess.Popen:
     worker_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_search_worker.py")
     # Own process group/session. The 30 s cap terminates then kills the worker's pid only, not its group.
     # detached-spawn: ok — awaited under a 30 s cap that kills the worker; an owner killed mid-search leaves it running until that search returns (unbounded if primp hangs)
-    extra_kwargs: dict[str, Any] = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {"start_new_session": True}
+
     # stdin/stdout/stderr stay explicit keyword args so scripts/check_subprocess_stdin.py sees them
     # (TUI gateway inherits stdin). stderr=DEVNULL: a chatty child would deadlock a stdout-only drain.
     return subprocess.Popen(
         [sys.executable, worker_path], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        env=env, text=True, encoding="utf-8", errors="replace", **extra_kwargs,
+        env=env, text=True, encoding="utf-8", errors="replace", start_new_session=True,
     )
 
 

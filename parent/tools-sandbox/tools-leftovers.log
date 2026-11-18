@@ -1,0 +1,122 @@
+tests/hermes_cli/test_gateway_restart_loop.py:879:    """Direct tests for cron.lifecycle_guard.check_gateway_lifecycle."""
+tests/hermes_cli/test_gateway_restart_loop.py:955:        from tools.gateway_lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
+tests/hermes_cli/test_gateway_restart_loop.py:956:        with pytest.raises(GatewayLifecycleBlocked):
+tests/hermes_cli/test_gateway_restart_loop.py:957:            check_gateway_lifecycle("please run hermes gateway restart", None)
+tests/hermes_cli/test_gateway_restart_loop.py:961:        from tools.gateway_lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
+tests/hermes_cli/test_gateway_restart_loop.py:964:        with pytest.raises(GatewayLifecycleBlocked):
+tests/hermes_cli/test_gateway_restart_loop.py:965:            check_gateway_lifecycle("clean prompt", str(script))
+tests/hermes_cli/test_gateway_restart_loop.py:977:        from tools.gateway_lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
+tests/hermes_cli/test_gateway_restart_loop.py:980:        with pytest.raises(GatewayLifecycleBlocked):
+tests/hermes_cli/test_gateway_restart_loop.py:981:            check_gateway_lifecycle("clean prompt", str(script))
+tests/hermes_cli/test_gateway_restart_loop.py:987:        from tools.gateway_lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
+tests/hermes_cli/test_gateway_restart_loop.py:990:        with pytest.raises(GatewayLifecycleBlocked):
+tests/hermes_cli/test_gateway_restart_loop.py:991:            check_gateway_lifecycle("", str(script))
+tests/hermes_cli/test_gateway_restart_loop.py:998:        from tools.gateway_lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
+tests/hermes_cli/test_gateway_restart_loop.py:1005:        with pytest.raises(GatewayLifecycleBlocked):
+tests/hermes_cli/test_gateway_restart_loop.py:1006:            check_gateway_lifecycle("daily", "restart.sh")
+tests/hermes_cli/test_gateway_restart_loop.py:1020:        from tools.gateway_lifecycle_guard import check_gateway_lifecycle
+tests/hermes_cli/test_gateway_restart_loop.py:1027:        check_gateway_lifecycle("clean prompt", str(script))
+tests/hermes_cli/test_gateway_restart_loop.py:1035:        from tools.gateway_lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
+tests/hermes_cli/test_gateway_restart_loop.py:1038:        with pytest.raises(GatewayLifecycleBlocked):
+tests/hermes_cli/test_gateway_restart_loop.py:1039:            check_gateway_lifecycle("clean prompt", str(script))
+tests/hermes_cli/test_gateway_restart_loop.py:1046:        ``read_remote_script`` fallback (SSH/Modal/Daytona backends read the
+tests/hermes_cli/test_gateway_restart_loop.py:1067:            read_remote_script=_remote_read,
+tests/hermes_cli/test_gateway_restart_loop.py:1074:        from tools.gateway_lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
+tests/hermes_cli/test_gateway_restart_loop.py:1078:        with pytest.raises(GatewayLifecycleBlocked):
+tests/hermes_cli/test_gateway_restart_loop.py:1079:            check_gateway_lifecycle("daily ops", str(script))
+tests/hermes_cli/test_gateway_restart_loop.py:1161:        check_gateway_lifecycle) must also refuse a cloud-resident script
+tests/hermes_cli/test_gateway_restart_loop.py:1166:            GatewayLifecycleBlocked,
+tests/hermes_cli/test_gateway_restart_loop.py:1167:            check_gateway_lifecycle,
+tests/hermes_cli/test_gateway_restart_loop.py:1190:        with pytest.raises(GatewayLifecycleBlocked) as excinfo:
+tests/hermes_cli/test_gateway_restart_loop.py:1191:            check_gateway_lifecycle("nightly job", str(script))
+tests/hermes_cli/test_gateway_restart_loop.py:1201:        (``_resolve_script_path`` / ``check_gateway_lifecycle``)."""
+tests/hermes_cli/test_gateway_restart_loop.py:1202:        from tools.gateway_lifecycle_guard import check_gateway_lifecycle
+tests/hermes_cli/test_gateway_restart_loop.py:1207:        check_gateway_lifecycle("daily ops", "~jenkins\x00broken/payload.sh")
+tests/hermes_cli/test_gateway_restart_loop.py:1210:        """T3: a ``read_remote_script`` callback returning NUL-bearing binary
+tests/hermes_cli/test_gateway_restart_loop.py:1225:            read_remote_script=_remote_read,
+tests/hermes_cli/test_gateway_restart_loop.py:1243:            read_remote_script=lambda _path: big,
+tests/hermes_cli/test_gateway_restart_loop.py:1299:        from tools.gateway_lifecycle_guard import check_gateway_lifecycle
+tests/hermes_cli/test_gateway_restart_loop.py:1313:        check_gateway_lifecycle("daily ops", "relative-script.sh")
+tests/hermes_cli/test_gateway_restart_loop.py:1558:        from tools.gateway_lifecycle_guard import GatewayLifecycleBlocked
+tests/hermes_cli/test_gateway_restart_loop.py:1559:        with pytest.raises(GatewayLifecycleBlocked):
+tests/hermes_cli/test_gateway_restart_loop.py:1782:        """check_gateway_lifecycle's .py branch scans the combined
+tests/hermes_cli/test_gateway_restart_loop.py:1789:        from tools.gateway_lifecycle_guard import check_gateway_lifecycle
+tests/hermes_cli/test_gateway_restart_loop.py:1796:        check_gateway_lifecycle(prompt, str(script))
+tests/hermes_cli/test_gateway_restart_loop.py:1874:    def test_check_gateway_lifecycle_adversarial_script_values(self, tmp_path):
+tests/hermes_cli/test_gateway_restart_loop.py:1875:        """check_gateway_lifecycle must never raise anything but the
+tests/hermes_cli/test_gateway_restart_loop.py:1876:        documented GatewayLifecycleBlocked for junk script values."""
+tests/hermes_cli/test_gateway_restart_loop.py:1878:            GatewayLifecycleBlocked,
+tests/hermes_cli/test_gateway_restart_loop.py:1879:            check_gateway_lifecycle,
+tests/hermes_cli/test_gateway_restart_loop.py:1884:            check_gateway_lifecycle("clean prompt", value)  # must not raise
+tests/hermes_cli/test_gateway_restart_loop.py:1886:            with pytest.raises(GatewayLifecycleBlocked):
+tests/hermes_cli/test_gateway_restart_loop.py:1887:                check_gateway_lifecycle("clean prompt", "/dev/null")
+tools/write_approval.py:169:    contexts — cron (``HERMES_CRON_SESSION``), kanban (``HERMES_KANBAN_TASK``) and the unattended
+tools/write_approval.py:181:        if is_truthy_value(_env("HERMES_CRON_SESSION")):
+tools/approval.py:1226:    the LLM cannot skip it. Cron honors ``approvals.cron_mode``; any OTHER non-interactive
+tools/approval.py:1328:    or ``approvals.cron_mode`` to require approval). See #30882.
+tools/environments/base_session_env.py:31:    "HERMES_CRON_SESSION|HERMES_DELEGATED_CHILD_CONTEXT|"
+tools/environments/base_session_env.py:110:        "HERMES_DELEGATED_CHILD_CONTEXT HERMES_CRON_SESSION "
+tests/tools/test_cli_approval_exec_ask_leak.py:37:        "HERMES_CRON_SESSION",
+tests/tools/test_request_tool_approval.py:6:the gateway submit_pending path, cron_mode, and fail-closed timeouts.
+tests/tools/test_request_tool_approval.py:120:        monkeypatch.setattr(approval, "_is_cron_approval_context", lambda: True)
+tests/tools/test_request_tool_approval.py:121:        monkeypatch.setattr(tools_approval_context, "_is_cron_approval_context", lambda: True)
+tests/tools/test_request_tool_approval.py:122:        monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "deny")
+tests/tools/test_request_tool_approval.py:131:        monkeypatch.setattr(approval, "_is_cron_approval_context", lambda: True)
+tests/tools/test_request_tool_approval.py:132:        monkeypatch.setattr(tools_approval_context, "_is_cron_approval_context", lambda: True)
+tests/tools/test_request_tool_approval.py:133:        monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "approve")
+tests/tools/test_request_tool_approval.py:165:        monkeypatch.setattr(approval, "_is_cron_approval_context", lambda: False)
+tests/tools/test_request_tool_approval.py:166:        monkeypatch.setattr(tools_approval_context, "_is_cron_approval_context", lambda: False)
+tests/tools/test_request_tool_approval.py:176:        monkeypatch.setattr(approval, "_is_cron_approval_context", lambda: False)
+tests/tools/test_request_tool_approval.py:177:        monkeypatch.setattr(tools_approval_context, "_is_cron_approval_context", lambda: False)
+tests/tools/test_request_tool_approval.py:206:        monkeypatch.setattr(approval, "_is_cron_approval_context", lambda: False)
+tests/tools/test_request_tool_approval.py:207:        monkeypatch.setattr(tools_approval_context, "_is_cron_approval_context", lambda: False)
+tools/approval_context.py:169:# ``/approve`` surface. Governed by ``approvals.unattended_mode`` (default deny), mirroring ``cron_mode`` — never an
+tests/tools/test_hardline_blocklist.py:515:    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_hardline_blocklist.py:605:    """Cron sessions with cron_mode=approve must not bypass hardline."""
+tests/tools/test_hardline_blocklist.py:606:    monkeypatch.setenv("HERMES_CRON_SESSION", "1")
+tests/tools/test_hardline_blocklist.py:607:    monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "approve")
+tests/tools/test_approval_content_rule_keys.py:22:        "HERMES_CRON_SESSION")
+tests/tools/test_approval_content_rule_keys.py:63:    monkeypatch.setenv("HERMES_CRON_SESSION", "1")
+tests/tools/test_approval_content_rule_keys.py:64:    monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "deny")
+tests/tools/test_approval_unattended_presence.py:19:    for var in ("HERMES_CRON_SESSION", "HERMES_GATEWAY_SESSION", "HERMES_INTERACTIVE"):
+tests/tools/test_protected_instruction_cli_channel.py:19:    for name in ("HERMES_SINGLE_QUERY_SESSION", "HERMES_CRON_SESSION", "HERMES_SESSION_PLATFORM"):
+tests/tools/test_protected_instruction_cli_channel.py:28:    {"HERMES_CRON_SESSION": "1"},
+tests/tools/test_approval_cancelled_attribution.py:24:    for k in ("HERMES_CRON_SESSION", "HERMES_YOLO_MODE", "HERMES_INTERACTIVE"):
+tests/tools/test_approval_cancelled_attribution.py:135:    for k in ("HERMES_CRON_SESSION", "HERMES_YOLO_MODE", "HERMES_GATEWAY_SESSION", "HERMES_EXEC_ASK"):
+tests/tools/test_execute_code_approval_cluster.py:137:    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_execute_code_approval_cluster.py:203:    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_execute_code_approval_cluster.py:211:    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_execute_code_approval_cluster.py:214:    monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "deny")
+tests/tools/test_execute_code_approval_cluster.py:226:    monkeypatch.setenv("HERMES_CRON_SESSION", "1")
+tests/tools/test_execute_code_approval_cluster.py:231:    monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "deny")
+tests/tools/test_execute_code_approval_cluster.py:244:    monkeypatch.setenv("HERMES_CRON_SESSION", "1")
+tests/tools/test_execute_code_approval_cluster.py:247:    monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "deny")
+tests/tools/test_approval_config_readonly.py:20:from tools.approval_context import _get_cron_approval_mode
+tests/tools/test_approval_config_readonly.py:29:        "approvals:\n  mode: manual\n  timeout: 300\n  cron_mode: deny\n"
+tests/tools/test_approval_config_readonly.py:49:    _get_cron_approval_mode()
+tests/tools/test_write_approval.py:350:    monkeypatch.setenv(*{"single_query": ("HERMES_SINGLE_QUERY_SESSION", "1"), "cron": ("HERMES_CRON_SESSION", "1"),
+tests/tools/test_write_approval.py:408:    monkeypatch.setenv("HERMES_CRON_SESSION", "1")
+tests/tools/test_write_approval.py:413:    monkeypatch.delenv("HERMES_CRON_SESSION")
+tests/tools/test_snapshot_session_id_leak.py:17:run stamps per command (HERMES_DELEGATED_CHILD_CONTEXT, HERMES_CRON_SESSION), or
+tests/tools/test_single_query_approval_mode.py:11:``approvals.single_query_mode`` (default ``deny``, mirror of cron_mode) makes
+tests/tools/test_approval_plugin_hooks.py:153:        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_approval.py:77:        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_approval.py:274:        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_approval.py:878:        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_approval.py:889:        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_approval.py:899:        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_approval.py:909:        monkeypatch.setenv("HERMES_CRON_SESSION", "1")
+tests/tools/test_approval.py:918:        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_approval.py:943:        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_approval.py:959:        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_approval.py:975:        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_approval.py:989:        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_approval.py:1004:        monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_approval.py:1549:            for k in ("HERMES_GATEWAY_SESSION", "HERMES_CRON_SESSION",
+tests/tools/test_approval.py:1555:        # HERMES_CRON_SESSION takes priority over HERMES_GATEWAY_SESSION in
+tests/tools/test_approval.py:1558:        os.environ.pop("HERMES_CRON_SESSION", None)
+tests/tools/test_approval_provenance.py:27:    for var in ("HERMES_GATEWAY_SESSION", "HERMES_EXEC_ASK", "HERMES_YOLO_MODE", "HERMES_CRON_SESSION"):
+tests/tools/test_denial_circuit_breaker.py:37:    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_denial_circuit_breaker.py:170:    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+tests/tools/test_execute_code_local_session_approval.py:72:        for name in ("HERMES_INTERACTIVE", "HERMES_GATEWAY_SESSION", "HERMES_CRON_SESSION"):
+tests/tools/test_approval_deny_rules.py:32:                "HERMES_CRON_SESSION", "HERMES_INTERACTIVE",

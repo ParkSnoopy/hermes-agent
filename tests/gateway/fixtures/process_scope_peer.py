@@ -1,5 +1,6 @@
-"""Authenticated WS fixture: process-global sidecar verbs on the shared owner; no inference."""
+"""Process-scoped verbs on the shared authority; no inference."""
 import asyncio
+from contextlib import AsyncExitStack
 import json
 import os
 from pathlib import Path
@@ -11,26 +12,26 @@ import traceback
 async def probe():
     from gateway.run import GatewayRunner
     from gateway.session_authority import initialize_session_authority
-    from gateway.run_api import start_gateway_api, stop_gateway_api
-    from hermes_cli import web_server
-    from hermes_cli.dashboard_auth.ws_tickets import mint_ticket
-    from tests.gateway.fixtures.local_recovery_probe import rpc
+    from gateway.session_controls import AuthorityConnection
+    from tests.gateway.fixtures.execution_frames_capture import Peer
     from tools.delegate_tool import is_spawn_paused
     from tools.process_registry import process_registry
-    from websockets.asyncio.client import connect
 
     home = Path(os.environ['HERMES_HOME'])
     (home / 'config.yaml').write_text('gateway:\n  multiplex_profiles: false\nmodel:\n  provider: custom\n  default: no-inference\n  base_url: http://127.0.0.1:1/v1\nauxiliary:\n  title_generation:\n    enabled: false\n')
     (home / '.env').write_text('PROCESS_SCOPE_PROBE=from-dotenv\n')
     runner = GatewayRunner()
     authority = await initialize_session_authority(runner, profile_id=str(home), instance_id='process-scope')
-    api = await start_gateway_api(runner)
-    web_server.app.state.auth_required = True
     receipt, processes = {}, []
     command = shlex.quote(sys.executable) + ' -c ' + shlex.quote('import time; time.sleep(60)')
+
+    async def rpc(connection, method, **params):
+        return await connection.dispatch({'jsonrpc': '2.0', 'id': method, 'method': method, 'params': params})
+
     try:
-        ticket = mint_ticket(user_id='owner', provider='fixture')
-        async with connect(api.api_origin.replace('http:', 'ws:') + '/api/ws?ticket=' + ticket) as ws:
+        async with AsyncExitStack() as stack:
+            ws = AuthorityConnection(authority, Peer(), {'user_id': 'owner'}, operator=True)
+            stack.push_async_callback(ws.close)
             sid = (await rpc(ws, 'session.create', request_id='scope', source='tui', toolsets=[]))['result']['session_id']
             route = authority.sessions[sid].route
             # This session's own job (persisted too), another chat's job and another chat's persisted job.
@@ -58,7 +59,7 @@ async def probe():
         for proc in processes:
             if not proc.exited:
                 process_registry.kill_process(proc.id)
-        await stop_gateway_api(api)
+        runner.session_store.close_all_db_handles()
     (home / 'receipt.json').write_text(json.dumps(receipt))
 
 

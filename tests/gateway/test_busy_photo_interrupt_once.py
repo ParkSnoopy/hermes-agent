@@ -38,10 +38,7 @@ async def _followup_while_running(monkeypatch, event, marker, *, fail_admit=Fals
 
     monkeypatch.setattr(adapter, "send", send)
 
-    async def transcribed(self, event, adapter, source, text, *, log_context, metadata=None):
-        return "heard this", []
 
-    monkeypatch.setattr(GatewayRunner, "_transcribe_and_echo_pending_voice", transcribed)
     adapter.gateway_runner = runner
     runner.adapters = {adapter.platform: adapter}
     await initialize_session_authority(runner, profile_id="default", instance_id="owner")
@@ -112,19 +109,12 @@ def _photo(tmp_path):
                         media_urls=[str(photo)], media_types=["image/jpeg"]), "photo.jpg", "caption"
 
 
-def _voice(tmp_path):
-    voice = tmp_path / "note.ogg"
-    voice.write_bytes(b"OggS" + b"\x00" * 32)
-    return MessageEvent(text="", message_type=MessageType.VOICE, message_id="V",
-                        media_urls=[str(voice)], media_types=["audio/ogg"]), "note.ogg", "heard this"
-
-
 def _text(tmp_path):
     return MessageEvent(text="later", message_id="T"), "later", "later"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("make", [_photo, _voice, _text], ids=["photo", "voice", "text"])
+@pytest.mark.parametrize("make", [_photo, _text], ids=["photo", "text"])
 async def test_send_during_a_running_turn_is_admitted_once(monkeypatch, tmp_path, make):
     event, marker, interrupt_text = make(tmp_path)
     followups, interrupt, _ = await _followup_while_running(monkeypatch, event, marker)

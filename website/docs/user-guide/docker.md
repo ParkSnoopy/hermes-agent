@@ -71,10 +71,10 @@ docker run -d \
   nousresearch/hermes-agent gateway run
 ```
 
-Port 8642 exposes the gateway's [OpenAI-compatible API server](./features/api-server.md) and health endpoint. It's optional if you only use chat platforms (Telegram, Discord, etc.), but required if you want the dashboard or external tools to reach the gateway.
+Port 8642 exposes the optional OpenAI-compatible API server and health endpoint for external tools.
 
 :::tip Gateway runs supervised
-Inside the official Docker image, `gateway run` is **automatically supervised by s6-overlay**: if the gateway process crashes it's restarted within a couple of seconds without losing the container, and the dashboard (when `HERMES_DASHBOARD=1` is set) is supervised alongside it. The `gateway run` CMD process itself is a `sleep infinity` heartbeat that keeps the container alive while s6 manages the actual gateway process — so `docker stop` still shuts everything down cleanly, but `docker logs` shows the supervised gateway's output.
+Inside the official Docker image, `gateway run` is **automatically supervised by s6-overlay**: if the gateway process crashes it's restarted within a couple of seconds without losing the container,. The `gateway run` CMD process itself is a `sleep infinity` heartbeat that keeps the container alive while s6 manages the actual gateway process — so `docker stop` still shuts everything down cleanly, but `docker logs` shows the supervised gateway's output.
 
 You'll see a one-line breadcrumb in `docker logs` confirming the upgrade. To opt out — and get the historical "gateway is the container's main process, container exit = gateway exit" semantics — pass `--no-supervise` or set `HERMES_GATEWAY_NO_SUPERVISE=1`. The opt-out is useful for CI smoke tests that want the container to exit with the gateway's status code; for production deployments the supervised default is strictly better.
 
@@ -82,13 +82,13 @@ This behavior applies to the s6-based image only. Earlier (tini-based) images st
 :::
 
 :::note Where gateway logs go
-See the [Where the logs go](#where-the-logs-go) section below for the full routing map (per-profile gateways, dashboard, boot reconciler, container-wide `docker logs`).
+See the [Where the logs go](#where-the-logs-go) section below for the full routing map (per-profile gateways, boot reconciler, container-wide `docker logs`).
 :::
 
 The TUI uses this same supervised gateway as its local backend, including when no messaging platform is configured. An interactive `--tui` launch starts the registered s6 gateway automatically and waits for it to become ready. Normal named profiles attach to the root gateway that serves them. Profiles explicitly configured with `gateway.standalone: true` use their own registered slot. Client startup does not install a service or bypass s6 with an unmanaged process.
 
 :::note Tool-loop hard stops for unattended gateways
-Unattended gateway and cron sessions enable tool-loop hard stops by default through `non_interactive_hard_stop_enabled`. Interactive CLI, TUI, Desktop, and ACP sessions remain warning-only. To opt an unattended deployment out in the profile's `config.yaml`:
+Unattended gateway sessions enable tool-loop hard stops by default through `non_interactive_hard_stop_enabled`. Interactive CLI, TUI, and ACP sessions remain warning-only. To opt an unattended deployment out in the profile's `config.yaml`:
 
 ```yaml
 tool_loop_guardrails:
@@ -112,155 +112,6 @@ docker run -d \
 ```
 
 Opening any port on an internet facing machine is a security risk. You should not do it unless you understand the risks.
-
-## Running the dashboard
-
-The built-in web dashboard runs as a supervised s6-rc service alongside the gateway in the same container. Set `HERMES_DASHBOARD=1` to bring it up:
-
-```sh
-docker run -d \
-  --name hermes \
-  --restart unless-stopped \
-  -v ~/.hermes:/opt/data \
-  -p 8642:8642 \
-  -p 9119:9119 \
-  -e HERMES_DASHBOARD=1 \
-  nousresearch/hermes-agent gateway run
-```
-
-The dashboard is supervised by s6 — if it crashes, `s6-supervise` restarts it automatically after a short backoff. Dashboard stdout/stderr is forwarded to `docker logs <container>` (no prefix; the gateway's own output now lives in a per-profile s6-log file — see [Where the logs go](#where-the-logs-go) below — so the two streams don't clash).
-
-| Environment variable | Description | Default |
-|---------------------|-------------|---------|
-| `HERMES_DASHBOARD` | Set to `1` (or `true` / `yes`) to enable the supervised dashboard service | *(unset — service is registered but stays down)* |
-| `HERMES_DASHBOARD_HOST` | Bind address for the dashboard HTTP server | `0.0.0.0` |
-| `HERMES_DASHBOARD_PORT` | Port for the dashboard HTTP server | `9119` |
-| `HERMES_DASHBOARD_INSECURE` | **Deprecated / no-op.** Formerly bypassed the auth gate; as of the June 2026 hardening it no longer disables authentication. A non-loopback bind always requires an auth provider | *(ignored — configure a provider instead)* |
-
-The dashboard inside the container defaults to binding `0.0.0.0` — without it, the published `-p 9119:9119` port would not be reachable from the host. To restrict the bind to container loopback (for sidecar / reverse-proxy setups), set `HERMES_DASHBOARD_HOST=127.0.0.1`.
-
-The dashboard's auth gate engages automatically when both of the following are true:
-
-1. The bind host is non-loopback (e.g. the default `0.0.0.0` inside the container), **and**
-2. A `DashboardAuthProvider` plugin is registered.
-
-There are three bundled ways to satisfy the second condition:
-
-- **Username/password** — the simplest for a self-hosted / on-prem / homelab container on a trusted network or behind a VPN: set `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` + `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` (and `HERMES_DASHBOARD_BASIC_AUTH_SECRET` for restart-stable sessions). Not suitable for direct public-internet exposure.
-- **OAuth (Nous Portal)** — for hosted/public deploys: the `dashboard_auth/nous` provider activates whenever `HERMES_DASHBOARD_OAUTH_CLIENT_ID` is set.
-- **Self-hosted OIDC** — to authenticate against your own identity provider via standard OpenID Connect: the `dashboard_auth/self_hosted` provider activates when `HERMES_DASHBOARD_OIDC_ISSUER` + `HERMES_DASHBOARD_OIDC_CLIENT_ID` are set.
-
-Whichever you choose, the gate redirects callers to a login page before they can reach any protected route. See [Web Dashboard → Authentication](features/web-dashboard.md#authentication-gated-mode) for all three providers.
-
-When a reverse proxy such as Traefik or nginx runs in another container, its
-bridge-network address is not trusted by default. Set the dashboard's public
-URL and trust only that proxy's exact IP, or a bounded CIDR for a dedicated
-proxy network, in the mounted `config.yaml`:
-
-```yaml
-dashboard:
-  public_url: "https://dashboard.example.com"
-  trusted_proxies:
-    - "172.20.0.5"
-    # Or, if the proxy address is dynamic on a dedicated network:
-    # - "172.20.0.0/24"
-```
-
-This allows the proxy's `X-Forwarded-Proto: https` to control secure OAuth
-cookies while leaving forwarding headers from other peers untrusted. Do not
-use `*`, `0.0.0.0/0`, or `::/0`; Hermes rejects those unbounded entries.
-
-If no provider is registered and the bind is non-loopback, the dashboard **fails closed at startup** with a specific error pointing at the missing env var. There is no longer an escape hatch that serves the dashboard unauthenticated on a public bind: `HERMES_DASHBOARD_INSECURE=1` is now a deprecated no-op (it logs a warning and is ignored). Configure a provider, or bind `HERMES_DASHBOARD_HOST=127.0.0.1` and reach the dashboard over an SSH tunnel / Tailscale instead.
-
-:::warning Why `--insecure` was removed
-An unauthenticated public dashboard was the entry point for the June 2026 MCP-config persistence campaign: internet scanners reached exposed dashboards (and OpenAI API servers) and drove the agent into planting an SSH-key backdoor. The auth gate is now mandatory on every non-loopback bind. For a trusted-LAN / homelab box, the bundled username/password provider (`HERMES_DASHBOARD_BASIC_AUTH_USERNAME` + `_PASSWORD`) is the zero-infra way to satisfy it.
-:::
-
-Running the dashboard as a separate container **is** supported when that container shares the host PID and network namespace (e.g. `network_mode: host`, as the repo's own `docker-compose.yml` does — see its `dashboard` service). Its gateway-liveness detection requires a shared PID namespace with the gateway process, so the limitation only applies to dashboards run in isolated bridge-network containers without a shared PID namespace.
-
-## Running the Webapp {#running-the-webapp}
-
-The image ships the [Webapp](./desktop.md) (Hermes Desktop in a browser) prebuilt; the gateway serves it on its own port when the mounted `config.yaml` turns it on (see [Configuration → Webapp](./configuration.md#webapp)):
-
-```yaml
-webapp:
-  enabled: true
-  host: 0.0.0.0
-  port: 9120
-  public_url: "http://localhost:9120"  # the address your browser opens
-```
-
-Keep `host: 0.0.0.0` in a container. The default, `127.0.0.1`, is the container's own loopback, which neither a published port nor a proxy in another container can reach. `hermes webapp --status` inside the container still reports `Serving at http://127.0.0.1:9120`, because it is serving there.
-
-Publish the port and configure a sign-in provider, as for the dashboard:
-
-```sh
-docker run -d \
-  --name hermes \
-  --restart unless-stopped \
-  -v ~/.hermes:/opt/data \
-  -p 9120:9120 \
-  -e HERMES_DASHBOARD_BASIC_AUTH_USERNAME=admin \
-  -e HERMES_DASHBOARD_BASIC_AUTH_PASSWORD="$(openssl rand -hex 16)" \
-  nousresearch/hermes-agent gateway run
-```
-
-A non-loopback `host` needs one of the [dashboard's auth providers](#running-the-dashboard), and the listener refuses to start without one. Without `public_url`, links printed by `hermes webapp` inside the container use the container's own address, not the published one.
-
-### Behind a tunnel or reverse proxy {#webapp-behind-a-proxy}
-
-When Cloudflare Tunnel, Caddy, Traefik or nginx runs in another container and serves the Webapp at its own HTTPS address, set all three of these:
-
-```yaml
-webapp:
-  enabled: true
-  host: 0.0.0.0                              # reachable from the proxy's container
-  port: 9120
-  public_url: "https://hermes.example.com"   # the address the browser opens
-dashboard:
-  trusted_proxies:
-    - "172.30.0.0/24"                        # a network only the proxy and Hermes are on
-```
-
-- **`host: 0.0.0.0`**: with the default `127.0.0.1` the proxy's connection is refused, which Cloudflare reports as **502 Bad Gateway**.
-- **`public_url`**: the proxy ends TLS and forwards plain HTTP, so without it the Webapp builds its sign-in callback as `http://hermes.example.com/auth/callback`, which does not match the `https://` callback registered with the sign-in provider.
-- **`dashboard.trusted_proxies`**: the Webapp's listener reads the same proxy list as the dashboard, and takes `X-Forwarded-*` headers only from loopback and the addresses on it. With the proxy trusted, its `X-Forwarded-Proto: https` reaches Hermes and the sign-in cookies are set `Secure`. List the proxy's exact IP, or a bounded CIDR for a network only the proxy and Hermes share; Hermes rejects `*`, `0.0.0.0/0` and `::/0`.
-
-Cloudflare Tunnel needs no published port, because `cloudflared` dials out; it only has to share a network with Hermes. A Compose sketch with a fixed subnet for `trusted_proxies`:
-
-```yaml
-services:
-  hermes:
-    image: nousresearch/hermes-agent
-    command: gateway run
-    restart: unless-stopped
-    volumes:
-      - ~/.hermes:/opt/data
-    networks: [tunnel]
-  cloudflared:
-    image: cloudflare/cloudflared
-    command: tunnel --no-autoupdate run
-    environment:
-      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
-    restart: unless-stopped
-    networks: [tunnel]
-networks:
-  tunnel:
-    ipam:
-      config:
-        - subnet: 172.30.0.0/24
-```
-
-Give the tunnel's public hostname the service `http://hermes:9120`.
-
-### Next to the dashboard {#webapp-next-to-the-dashboard}
-
-The dashboard (`HERMES_DASHBOARD=1`, port 9119) and the Webapp (port 9120) can run in one container, each at its own hostname: `dashboard.public_url` is the dashboard's address and `webapp.public_url` the Webapp's, and neither reads the other's. They share their sign-in providers, so the username/password, Nous and OIDC settings above sign in to both.
-
-A username and password work on both as they are. Nous sign-in needs one more step: a Nous Portal sign-in client is registered with one callback address, and the Webapp signs in with the same `HERMES_DASHBOARD_OAUTH_CLIENT_ID` (or `dashboard.oauth.client_id`) as the dashboard. One client therefore serves one of the two hostnames.
-
-- **Nous sign-in on the Webapp only:** register the client with the Webapp's callback, `https://<webapp host>/auth/callback`, on the Portal's [Local Dashboards](https://portal.nousresearch.com/local-dashboards) page or with `hermes dashboard register --redirect-uri` (see [Registering a dashboard](features/web-dashboard.md#registering-a-dashboard)). If this install already has a dashboard client, `hermes dashboard register` updates that client in place, which moves the dashboard's callback, and it writes the Webapp's address to `HERMES_DASHBOARD_PUBLIC_URL`.
-- **Nous sign-in on both:** native Desktop's **Settings → Web Access** registers a client of the Webapp's own (kept in `webapp/sign-in-registration.json`) and leaves the dashboard's alone, but it works only from the Desktop app on the same machine, so a headless container has no command for it yet. Until there is one, register the Nous client for one hostname and sign in on the other with a username and password. Both login pages offer both providers; Nous sign-in fails on the hostname its client was not registered for.
 
 ## Running interactively (CLI chat)
 
@@ -291,7 +142,6 @@ The `/opt/data` volume is the single source of truth for all Hermes state. It ma
 | `memories/` | Persistent memory store |
 | `skills/` | Installed skills |
 | `home/` | Per-profile HOME for Hermes tool subprocesses (`git`, `ssh`, `gh`, `npm`, and skill CLIs) |
-| `cron/` | Scheduled job definitions |
 | `hooks/` | Event hooks |
 | `logs/` | Runtime logs |
 | `skins/` | Custom CLI skins |
@@ -307,7 +157,7 @@ What Hermes does about it (since v2026.9.14):
   1. Stop every Hermes process that uses the database, then run a one-time offline conversion with the Python that ships in the image (it has no `sqlite3` shell): `docker exec hermes python3 -c "import sqlite3; print(sqlite3.connect('/opt/data/state.db').execute('PRAGMA journal_mode=DELETE').fetchone()[0])"`. Set `database.journal_mode: delete` in `config.yaml` so a later open does not switch it back to WAL.
   2. Move the data directory onto a native volume — a named Docker volume (`-v hermes-data:/opt/data`) lives on the VM's own ext4 filesystem and supports WAL normally.
 
-Detection reads `/proc/self/mountinfo` inside the container, so it works regardless of the host operating system. It does not classify NFS, SMB, or generic FUSE mounts; on those, set `database.journal_mode: delete` explicitly. Hermes does not offer SQLite's `locking_mode=EXCLUSIVE` as an alternative because the gateway, cron, and worker processes open the database concurrently.
+Detection reads `/proc/self/mountinfo` inside the container. It does not classify NFS, SMB, or generic FUSE mounts; on those, set `database.journal_mode: delete` explicitly. Hermes does not offer SQLite's `locking_mode=EXCLUSIVE` as an alternative because the gateway and worker processes open the database concurrently.
 
 ### Immutable install tree
 
@@ -360,9 +210,7 @@ Under the hood, `hermes gateway start/stop/restart` inside the container is inte
 
 ### Reaching more than one profile from outside the container
 
-Two different surfaces reach a profile's gateway from outside, and they behave differently — don't conflate them:
-
-**Hermes Desktop (and the web dashboard).** The Desktop app's **Remote Gateway** connection talks to a `hermes dashboard` backend (default **port 9119**, enabled by `HERMES_DASHBOARD=1`) — *not* the OpenAI API server. One dashboard backend serves **every** co-located profile: the app's profile switcher sends the target profile with each request and the backend opens that profile's `HERMES_HOME` on disk. So you do **not** need a second port — or a second connection — per profile for Desktop; one `:9119` connection covers them all through the switcher.
+API clients can reach a profile's gateway from outside the container:
 
 **OpenAI-compatible API clients (Open WebUI, LobeChat, `/v1/...`).** These talk to each profile's **API server**, which binds **port 8642 for every profile** (resolved from `API_SERVER_PORT` / `platforms.api_server.extra.port` — there is no auto-allocation and no `config.yaml`/`gateway.port` key). If you want a client to reach a *specific* second profile, give that profile a distinct `API_SERVER_PORT` in **its own** `.env`, otherwise its gateway tries to bind 8642 too and conflicts with the default profile:
 
@@ -439,11 +287,10 @@ The s6 container has four distinct log surfaces, and "why isn't my gateway showi
 | Source | Where it lands | How to read it |
 |---|---|---|
 | **Per-profile gateway** (`hermes gateway run` and per-profile gateways under s6) | Tee'd to two places: `docker logs <container>` (real time, no extra prefix) **and** `${HERMES_HOME}/logs/gateways/<profile>/current` (rotated, ISO-8601 timestamped, 10 archives × 1 MB each) | `docker logs -f hermes` or `tail -F ~/.hermes/logs/gateways/default/current` on the host |
-| **Dashboard** (when `HERMES_DASHBOARD=1`) | `docker logs <container>` (no prefix) | `docker logs -f hermes` — interleaved with gateway lines |
 | **Boot reconciler** (records which profile gateways were restored on each container start) | `${HERMES_HOME}/logs/container-boot.log` (append-only audit log) | `tail -F ~/.hermes/logs/container-boot.log` |
 | **Generic Hermes logs** (`agent.log`, `errors.log`) | `${HERMES_HOME}/logs/` (profile-aware) | `docker exec hermes hermes logs --follow [--level WARNING] [--session <id>]` |
 
-For an interactive container with terminal input and output (such as `docker run -it ... --tui` or `bash`), the foreground command owns the terminal. The entrypoint defaults to `S6_LOGGING=2` and `S6_CMD_USE_TERMINAL=1` so supervised gateway and dashboard output does not overwrite that screen. Their console output goes to s6's rotated catch-all log at `/run/uncaught-logs/current` inside the container. The per-profile gateway file logs and normal Hermes logs remain available at the paths above. The catch-all directory is runtime storage, so it does not survive a container restart or removal.
+For an interactive container with terminal input and output (such as `docker run -it ... --tui` or `bash`), the foreground command owns the terminal. The entrypoint defaults to `S6_LOGGING=2` and `S6_CMD_USE_TERMINAL=1` so supervised gateway output does not overwrite that screen. Its console output goes to s6's rotated catch-all log at `/run/uncaught-logs/current` inside the container. The per-profile gateway file logs and normal Hermes logs remain available at the paths above. The catch-all directory is runtime storage, so it does not survive a container restart or removal.
 
 Headless containers keep forwarding service output to `docker logs`. Explicit `S6_LOGGING` and `S6_CMD_USE_TERMINAL` settings take precedence over these interactive defaults.
 
@@ -470,7 +317,7 @@ Direct `-e` flags override values from `.env`. This is useful for CI/CD or secre
 
 ## Docker Compose example
 
-For persistent deployment with both the gateway and dashboard, a `docker-compose.yaml` is convenient:
+For persistent deployment with the gateway, a `docker-compose.yaml` is convenient:
 
 ```yaml
 services:
@@ -481,11 +328,9 @@ services:
     command: gateway run
     ports:
       - "8642:8642"   # gateway API
-      - "9119:9119"   # dashboard (only reached when HERMES_DASHBOARD=1)
     volumes:
       - ~/.hermes:/opt/data
     environment:
-      - HERMES_DASHBOARD=1
       # Uncomment to forward specific env vars instead of using .env file:
       # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       # - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -498,86 +343,6 @@ services:
 ```
 
 Start with `docker compose up -d` and view logs with `docker compose logs -f`. The supervised gateway's stdout is also tee'd to `${HERMES_HOME}/logs/gateways/<profile>/current` on the volume — see [Where the logs go](#where-the-logs-go) for the full routing map.
-
-## Optional: Linux desktop audio bridge
-
-Voice mode in Docker needs two separate things to work: Hermes must be allowed to probe audio devices inside the container, and the container must be able to reach your host audio server. The setup below covers the host audio plumbing for Linux desktops that expose a PulseAudio-compatible socket, including many PipeWire setups.
-
-:::caution
-This is a Linux desktop workaround, not a general Docker Desktop feature. It is useful when you already have host audio working and want CLI voice mode inside the Hermes container. If Hermes still reports `Running inside Docker container -- no audio devices`, use a build that includes Docker audio probing support for `PULSE_SERVER` / `PIPEWIRE_REMOTE`.
-:::
-
-First, create an ALSA config next to your Compose file:
-
-```conf title="asound.conf"
-pcm.!default {
-    type pulse
-    hint {
-        show on
-        description "Default ALSA Output (PulseAudio)"
-    }
-}
-
-pcm.pulse {
-    type pulse
-}
-
-ctl.!default {
-    type pulse
-}
-```
-
-Then build a small derived image with the ALSA PulseAudio plugin installed:
-
-```dockerfile title="Dockerfile.audio"
-FROM nousresearch/hermes-agent:latest
-
-USER root
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libasound2-plugins \
-    && rm -rf /var/lib/apt/lists/*
-```
-
-Use that image in Compose and pass through the host user's PulseAudio socket and cookie:
-
-```yaml
-services:
-  hermes:
-    build:
-      context: .
-      dockerfile: Dockerfile.audio
-    image: hermes-agent-audio
-    container_name: hermes
-    restart: unless-stopped
-    command: gateway run
-    volumes:
-      - ~/.hermes:/opt/data
-      - /run/user/${HERMES_UID}/pulse:/run/user/${HERMES_UID}/pulse
-      # no-tmp: ok — path inside the container
-      - ~/.config/pulse/cookie:/tmp/pulse-cookie:ro
-      - ./asound.conf:/etc/asound.conf:ro
-    environment:
-      - HERMES_UID=${HERMES_UID}
-      - HERMES_GID=${HERMES_GID}
-      - XDG_RUNTIME_DIR=/run/user/${HERMES_UID}
-      - PULSE_SERVER=unix:/run/user/${HERMES_UID}/pulse/native
-      # no-tmp: ok — path inside the container
-      - PULSE_COOKIE=/tmp/pulse-cookie
-```
-
-Start it with your host UID/GID so the container process can access the per-user audio socket:
-
-```sh
-export HERMES_UID="$(id -u)"
-export HERMES_GID="$(id -g)"
-docker compose up -d --build
-```
-
-To verify what PortAudio sees inside the container:
-
-```sh
-docker exec hermes /opt/hermes/.venv/bin/python -c "import sounddevice as sd; print(sd.query_devices())"
-```
 
 ## Resource limits
 
@@ -614,7 +379,7 @@ The image uses Debian 13.4 and includes:
 - Node.js 26 and npm from the digest-pinned Node source image.
 - PM-pinned uv, full Chromium, FFmpeg, and ripgrep in `/opt/hermes/tools`.
 - System Git, OpenSSH, Docker CLI, and Chromium shared libraries.
-- Prebuilt TUI/dashboard assets and baked Photon sidecar dependencies.
+- Prebuilt TUI assets and baked Photon sidecar dependencies.
 - s6-overlay for supervision and zombie-process cleanup.
 
 Chromium is staged through PM, not `npx playwright install`. The build records
@@ -628,7 +393,7 @@ checksummed browser serves both headless browsing and headed Bot Screen
 sessions. The cost is image size — the full build is larger than the headless
 shell earlier images shipped.
 
-Opt-in backend SDKs (Edge TTS, Firecrawl, Exa, platform adapters, plugin
+Opt-in backend SDKs (Firecrawl, Exa, platform adapters, plugin
 dependencies) install on first use into PM dependency generations under
 `/opt/data/installs`, so they survive container recreation and image updates.
 The image's own `/opt/hermes/.venv` is never modified. On each boot the
@@ -644,12 +409,12 @@ A local build without a supplied stamp reports an unknown revision rather than
 inventing a commit. `hermes update` refuses image-owned code changes; replace
 the image to update the application.
 
-The container's `ENTRYPOINT` is a small dispatcher (`docker/entrypoint-dispatch.sh`). When the container owns PID 1 (normal Docker / Podman), it exec's s6-overlay's `/init` and you get the full supervision tree described below. When a platform wraps the image entrypoint under its own PID-1 init (Fly.io Machines, `docker run --init`, some Nomad/Kubernetes setups), `/init` would abort with `s6-overlay-suexec: fatal: can only run as pid 1` — so the dispatcher instead runs the stage2 bootstrap directly and exec's the main wrapper without s6. On that fallback path the requested command still runs, but supervised services (dashboard, per-profile gateways) are unavailable.
+The container's `ENTRYPOINT` is a small dispatcher (`docker/entrypoint-dispatch.sh`). When the container owns PID 1 (normal Docker / Podman), it exec's s6-overlay's `/init` and you get the full supervision tree described below. When a platform wraps the image entrypoint under its own PID-1 init (Fly.io Machines, `docker run --init`, some Nomad/Kubernetes setups), `/init` would abort with `s6-overlay-suexec: fatal: can only run as pid 1` — so the dispatcher instead runs the stage2 bootstrap directly and exec's the main wrapper without s6. On that fallback path the requested command still runs, but supervised per-profile gateways are unavailable.
 
 On the PID-1 path, `/init`:
 1. Runs `/etc/cont-init.d/01-hermes-setup` (= `docker/stage2-hook.sh`) as root: optional UID/GID remap, fixes volume ownership, seeds `.env` / `config.yaml` / `SOUL.md` on first boot, runs non-interactive config-schema migrations unless `HERMES_SKIP_CONFIG_MIGRATION=1`, syncs bundled skills.
 2. Runs `/etc/cont-init.d/02-reconcile-profiles` (= `hermes_cli.container_boot`): walks `$HERMES_HOME/profiles/<name>/`, recreates the per-profile gateway s6 service slot under `/run/hermes-service/gateway-<profile>/`, and auto-starts only those whose last recorded state was `running` (see [Per-profile gateway supervision](#per-profile-gateway-supervision)).
-3. Starts the static `main-hermes` and `dashboard` s6-rc services.
+3. Starts the static `main-hermes` and `profile-gateways` s6-rc services.
 4. Exec's the container's CMD as the main program (`/opt/hermes/docker/main-wrapper.sh`), which routes the arguments the user passed to `docker run`:
    - no args → `hermes` (the default)
    - first arg is an executable on PATH (e.g. `sleep`, `bash`) → exec it directly
@@ -661,24 +426,24 @@ The container ENTRYPOINT is now the `entrypoint-dispatch.sh` dispatcher (which d
 :::
 
 :::warning Privilege model
-Do not override the image entrypoint unless you keep `/init` (or, equivalently, the legacy `docker/entrypoint.sh` shim that forwards to the stage2 hook) in the command chain. s6-overlay's `/init` runs as root so it can chown the volume on first boot, then drops to the `hermes` user via `s6-setuidgid` for every supervised service AND for the main program. Starting `hermes gateway run` as root inside the official image is refused by default because it can leave root-owned files in `/opt/data` and break later dashboard or gateway starts. Set `HERMES_ALLOW_ROOT_GATEWAY=1` only when you intentionally accept that risk.
+Do not override the image entrypoint unless you keep `/init` (or, equivalently, the legacy `docker/entrypoint.sh` shim that forwards to the stage2 hook) in the command chain. s6-overlay's `/init` runs as root so it can chown the volume on first boot, then drops to the `hermes` user via `s6-setuidgid` for every supervised service AND for the main program. Starting `hermes gateway run` as root inside the official image is refused by default because it can leave root-owned files in `/opt/data` and break later gateway starts. Set `HERMES_ALLOW_ROOT_GATEWAY=1` only when you intentionally accept that risk.
 :::
 
 :::warning Overriding `entrypoint:` also removes the zombie reaper
-`/init` is what reaps orphaned grandchildren (headless browsers, MCP servers, `git`/`npm` helpers spawned by tools). A Compose service that overrides `entrypoint:` to call `hermes` directly — for example to run the dashboard as a non-root user — makes the hermes process itself PID 1, and nothing above it ever calls `wait()`: every orphan stays a `<defunct>` entry forever (one deployment reached 284 zombies in under three hours). Hermes prints `[hermes] WARNING: this process is PID 1 with no init above it` at startup in that configuration.
+`/init` is what reaps orphaned grandchildren (headless browsers, MCP servers, `git`/`npm` helpers spawned by tools). A Compose service that overrides `entrypoint:` to call `hermes` directly — for example to run the gateway as a non-root user — makes the hermes process itself PID 1, and nothing above it ever calls `wait()`: every orphan stays a `<defunct>` entry forever (one deployment reached 284 zombies in under three hours). Hermes prints `[hermes] WARNING: this process is PID 1 with no init above it` at startup in that configuration.
 
 If you must override the entrypoint, add Docker's init as PID 1 so orphans are reaped:
 
 ```yaml
 services:
-  hermes-dashboard:
+  hermes:
     image: nousresearch/hermes-agent:latest
     init: true                                      # docker-init becomes PID 1 and reaps orphans
     entrypoint: ["/opt/hermes/.venv/bin/hermes"]
-    command: ["dashboard", "--host", "0.0.0.0", "--port", "9119", "--no-open", "--skip-build"]
+    command: ["gateway", "run"]
 ```
 
-(`docker run --init …` is the equivalent flag.) This fixes the zombie accumulation only — with `/init` out of the chain, the s6 supervision tree is still gone: the dashboard, `hermes gateway run` and per-profile gateways are unsupervised, exactly as the dispatcher's own non-PID-1 warning says. Keep the default `ENTRYPOINT` whenever you can.
+(`docker run --init …` is the equivalent flag.) This fixes the zombie accumulation only — with `/init` out of the chain, the s6 supervision tree is still gone: `hermes gateway run` and per-profile gateways are unsupervised, exactly as the dispatcher's own non-PID-1 warning says. Keep the default `ENTRYPOINT` whenever you can.
 :::
 
 ### `docker exec` automatically drops to the `hermes` user
@@ -882,26 +647,7 @@ model:
 
 ### Standalone Docker run (no Compose)
 
-If your inference server runs directly on the host (not in Docker), use `host.docker.internal` on macOS/Windows, or `--network host` on Linux:
-
-**macOS / Windows:**
-
-```sh
-docker run -d \
-  --name hermes \
-  -v ~/.hermes:/opt/data \
-  -p 8642:8642 \
-  nousresearch/hermes-agent gateway run
-```
-
-```yaml
-# config.yaml
-model:
-  provider: custom
-  model: my-model
-  base_url: http://host.docker.internal:8000/v1
-  api_key: "none"
-```
+If your inference server runs directly on the Linux host (not in Docker), use `--network host`:
 
 **Linux (host networking):**
 
@@ -941,7 +687,7 @@ You should see a JSON response listing your served model. If this fails, check:
 
 ### Ollama
 
-Ollama works the same way. If Ollama runs on the host, use `host.docker.internal:11434` (macOS/Windows) or `127.0.0.1:11434` (Linux with `--network host`). If Ollama runs in its own container on the same Docker network:
+Ollama works the same way. If Ollama runs on the Linux host, use `127.0.0.1:11434` with `--network host`. If Ollama runs in its own container on the same Docker network:
 
 ```yaml
 model:
@@ -980,7 +726,7 @@ docker run -d \
 
 ### Shared data directory keeps resetting to `0700`
 
-Outside a container Hermes locks `HERMES_HOME` (and its `cron/`, `sessions/`, `logs/`, `memories/` subdirectories) to owner-only `0700` on every start. Inside a container it leaves directory modes alone, so a bind mount shared with a sibling container running as a different UID (a web UI, a permissions fixer) keeps whatever mode and ACLs you set on the host. To force a specific directory mode anyway, set `HERMES_HOME_MODE` (octal, e.g. `HERMES_HOME_MODE=0755`); it is applied in containers too.
+Outside a container Hermes locks `HERMES_HOME` (and its `sessions/`, `logs/`, `memories/` subdirectories) to owner-only `0700` on every start. Inside a container it leaves directory modes alone, so a bind mount shared with a sibling container running as a different UID (a web UI, a permissions fixer) keeps whatever mode and ACLs you set on the host. To force a specific directory mode anyway, set `HERMES_HOME_MODE` (octal, e.g. `HERMES_HOME_MODE=0755`); it is applied in containers too.
 
 ### "Permission denied" on every `docker exec` (install dir locked to 0700)
 

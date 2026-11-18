@@ -1,0 +1,20 @@
+▶ not activated — using HERMES_PYTHON: /home/admin/host/tmp/hermes-agent-fix-workspace/source/.venv/bin/python
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 2 test files (~17 tests) under ['tests/tools/test_gateway_lifecycle_guard_budget.py', 'tests/tools/test_approval_lifecycle_guard_parity.py']; running with -j 1
+[ 17.6% |     3/~17 | ✓3 | ✗0] ✓ tests/tools/test_approval_lifecycle_guard_parity.py (3✓, 1.8s)
+[100.0% |    17/~17 | ✓13 | ✗ 0] ✓ tests/tools/test_gateway_lifecycle_guard_budget.py (10✓, 5.2s)
+
+=== Summary: 2 files, 13 tests passed, 0 failed (100% complete) in 7.0s (1 workers) ===
+  Durations cached to test_durations.json (2 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   2
+  Total subprocess CPU-wall: 7.0s  (runner wall: 7.0s, parallelism: 1x)
+  P50: 5.21s  P90: 5.21s  P95: 5.21s  P99: 5.21s  Max: 5.21s
+  <1s: 0 files (0%)  <2s: 1 files (50%)
+  Top 10 slowest:
+      5.21s  tests/tools/test_gateway_lifecycle_guard_budget.py
+      1.80s  tests/tools/test_approval_lifecycle_guard_parity.py

@@ -55,38 +55,13 @@ if CASE == "systemd_resume":
     unit_name = gateway.get_service_name()
     (gateway._SYSTEM_UNIT_DIR / f"{unit_name}.service").write_text(
         f"[Service]\nUser={os.environ.get('USER') or 'nobody'}\nExecStart=/bin/false\n")
-if CASE == "launchd_resume":
-    from hermes_cli import gateway  # loaded by the pause that stopped the job
-    plist = Path(ROOT) / "job.plist"
-    plist.write_text("<plist/>")
-    gateway.get_launchd_plist_path = lambda: plist
+
 token = None
 if CASE == "lost_completion":
     token = posix_token(bare=[{"pid": GONE, "home": str(Path(ROOT) / "bare-home"), "argv": [sys.executable, "-c", f"open({str(Path(ROOT) / 'supervisor.log')!r}, 'a').write('bare-replay\\n')"]}])
 if CASE == "systemd_resume":
     token = posix_token({"kind": "systemd", "scope": "system", "unit": unit_name, "pid": GONE})
-if CASE == "launchd_resume":
-    token = posix_token({"kind": "launchd", "label": LABEL, "domain": "gui/0", "plist": str(plist), "pid": GONE})
-if CASE == "windows_resume":
-    import subprocess
-    real_popen = subprocess.Popen
 
-    class Watcher:
-        pid, returncode = GONE + 4, None
-
-        def poll(self):
-            return None
-
-    def record_watcher(args, *rest, **kwargs):
-        # The restart watcher (``python -c <watcher> <pid> <argv>``) would start a real gateway.
-        if isinstance(args, (list, tuple)) and len(args) > 2 and args[1] == "-c" and "start_gateway_job" in args[2]:
-            with open(Path(ROOT) / "supervisor.log", "a", encoding="utf-8") as log:
-                log.write("restart watcher\n")
-            return Watcher()
-        return real_popen(args, *rest, **kwargs)
-    subprocess.Popen = record_watcher
-    token = {"platform": "windows", "resume_needed": True, "profiles": {"default": GONE}, "unmapped": [],
-             "services": []}
 if CASE == "shallow_count":
     import urllib.error, urllib.request
 
@@ -130,7 +105,7 @@ try:
             raise OSError("completion process could not start")
         update_cmd.run_completion = lost
         update_cmd._complete_source_update(request(token))
-    elif CASE in ("systemd_resume", "launchd_resume", "windows_resume"):
+    elif CASE == "systemd_resume":
         update_cmd._resume_paused_gateways_at_exit(token, request(token))
     elif CASE == "shallow_count":
         plan = update_cmd._prepare_checkout_for_update(
@@ -147,15 +122,13 @@ print("RESULT " + json.dumps({"found": found, "outcome": outcome}))
 _SUPERVISOR_CALLS = {
     "lost_completion": "bare-replay",
     "systemd_resume": "start hermes-gateway",
-    "launchd_resume": "bootstrap gui/0",
-    "windows_resume": "restart watcher",
+
 }
 _OUTCOMES = {
     "interrupt_after_commit": "SystemExit: 130",
     "lost_completion": "returned",
     "systemd_resume": "returned",
-    "launchd_resume": "returned",
-    "windows_resume": "returned",
+
     "shallow_count": "commit_count=-1",
 }
 
@@ -178,7 +151,7 @@ def _shallow_clone_behind(tmp_path: Path, env: dict) -> Path:
     return tmp_path / "clone"
 
 
-_POSIX_CASES = sorted(set(_OUTCOMES) - {"windows_resume"})
+_POSIX_CASES = sorted(_OUTCOMES)
 
 
 @pytest.mark.platforms("posix")
@@ -187,9 +160,6 @@ def test_post_move_path_imports_nothing_from_the_checkout(case, tmp_path, monkey
     _run_case(case, tmp_path, monkeypatch)
 
 
-@pytest.mark.platforms("windows")
-def test_windows_restart_after_the_move_imports_nothing_from_the_checkout(tmp_path, monkeypatch):
-    _run_case("windows_resume", tmp_path, monkeypatch)
 
 
 def _run_case(case, tmp_path, monkeypatch):
@@ -212,11 +182,7 @@ def _run_case(case, tmp_path, monkeypatch):
            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_NOSYSTEM": "1"}
     env.pop("PYTEST_CURRENT_TEST", None)
     label = clone = ""
-    if case == "launchd_resume":
-        monkeypatch.setenv("HERMES_HOME", env["HERMES_HOME"])
-        from hermes_cli.gateway_launchd import get_launchd_label
 
-        label = get_launchd_label()
     if case == "shallow_count":
         clone = str(_shallow_clone_behind(tmp_path, env))
     driver = tmp_path / "driver.py"

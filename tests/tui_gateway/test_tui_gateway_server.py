@@ -25,7 +25,7 @@ from tui_gateway.transport import bind_transport, reset_transport
 def _dispatch_sync(req: dict, transport=None) -> dict | None:
     """Run one RPC to completion synchronously, regardless of pool routing.
 
-    Voice RPCs (voice.toggle/record/tts) are in ``_LONG_HANDLERS`` so they run
+    Slow RPCs are in ``_LONG_HANDLERS`` so they run
     on the RPC pool and ``server.dispatch`` returns None — the pool worker
     writes the response via the bound transport. These tests exercise the
     handler's business logic, not the routing, so they drive the handler
@@ -1666,698 +1666,30 @@ def test_config_set_battery_explicit_off(monkeypatch):
     assert writes == {"display.battery": False}
 
 
-def test_voice_toggle_returns_configured_record_key(monkeypatch):
-    monkeypatch.setattr(
-        server,
-        "_load_cfg",
-        lambda: {"voice": {"record_key": "ctrl+o"}},
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "tools.voice_mode",
-        types.SimpleNamespace(
-            check_voice_requirements=lambda: {"available": True, "details": ""}
-        ),
-    )
-    # ``voice.toggle`` action=on mutates ``os.environ["HERMES_VOICE"]``
-    # directly (CLI parity, runtime-only flag). Take monkeypatch
-    # ownership of the var so the change is reverted at teardown and
-    # later tests don't inherit a stale ON state (Copilot round-5
-    # review on #19835).
-    monkeypatch.setenv("HERMES_VOICE", "0")
 
-    on_resp = _dispatch_sync(
-        {"id": "voice-on", "method": "voice.toggle", "params": {"action": "on"}}
-    )
-    status_resp = _dispatch_sync(
-        {"id": "voice-status", "method": "voice.toggle", "params": {"action": "status"}}
-    )
 
-    assert on_resp["result"]["record_key"] == "ctrl+o"
-    assert status_resp["result"]["record_key"] == "ctrl+o"
 
 
-def test_voice_toggle_handles_non_dict_voice_cfg(monkeypatch):
-    """Round-3 Copilot review regression on #19835.
 
-    ``_load_cfg()`` is raw ``yaml.safe_load()`` output — a hand-edited
-    ``voice: true`` / ``voice: cmd+b`` / ``voice: null`` leaves ``voice``
-    as a bool/str/None, not a dict. Previously ``.get("record_key")``
-    on a non-dict broke every ``voice.toggle`` branch. Now it falls
-    back to the documented default.
-    """
-    monkeypatch.setitem(
-        sys.modules,
-        "tools.voice_mode",
-        types.SimpleNamespace(
-            check_voice_requirements=lambda: {"available": True, "details": ""}
-        ),
-    )
 
-    for bad in (True, "cmd+b", None, 42, ["ctrl+b"]):
-        monkeypatch.setattr(server, "_load_cfg", lambda b=bad: {"voice": b})
 
-        status_resp = _dispatch_sync(
-            {
-                "id": "voice-status",
-                "method": "voice.toggle",
-                "params": {"action": "status"},
-            }
-        )
 
-        assert (
-            status_resp["result"]["record_key"] == "ctrl+b"
-        ), f"voice.record_key fell back to default for voice={bad!r}"
 
-    # Round-4 follow-up: the YAML root itself may be a non-dict. A
-    # hand-edit that collapses config.yaml to a scalar / list would
-    # otherwise crash ``.get("voice")`` before the inner isinstance
-    # guard gets a chance to run.
-    for bad_root in (True, None, [], "ctrl+b", 42):
-        monkeypatch.setattr(server, "_load_cfg", lambda r=bad_root: r)
 
-        status_resp = _dispatch_sync(
-            {
-                "id": "voice-status-root",
-                "method": "voice.toggle",
-                "params": {"action": "status"},
-            }
-        )
 
-        assert (
-            status_resp["result"]["record_key"] == "ctrl+b"
-        ), f"voice.record_key fell back to default for root={bad_root!r}"
 
 
-def test_voice_record_start_handles_non_dict_voice_cfg(monkeypatch):
-    """Round-7 Copilot review regression on #19835.
 
-    The ``voice.record`` start path previously read
-    ``_load_cfg().get("voice", {}).get(...)`` without any shape checks.
-    When ``voice`` is a non-dict (bool/scalar/list) ``get`` raises
-    AttributeError and the handler returns 5025 instead of falling
-    back to the VAD defaults. Now it uses ``_voice_cfg_dict()`` and
-    non-numeric silence values are coerced to the documented defaults.
-    """
-    captured: dict = {}
 
-    def fake_start_continuous(**kwargs):
-        captured.update(kwargs)
 
-    monkeypatch.setitem(
-        sys.modules,
-        "hermes_cli.voice",
-        types.SimpleNamespace(
-            start_continuous=fake_start_continuous, stop_continuous=lambda: None
-        ),
-    )
-    monkeypatch.setenv("HERMES_VOICE", "1")
 
-    for bad in (True, "cmd+b", None, 42, ["ctrl+b"], {"silence_threshold": "loud"}):
-        captured.clear()
-        monkeypatch.setattr(server, "_load_cfg", lambda b=bad: {"voice": b})
 
-        resp = _dispatch_sync(
-            {
-                "id": "voice-record",
-                "method": "voice.record",
-                "params": {"action": "start"},
-            }
-        )
 
-        assert (
-            "result" in resp
-        ), f"voice.record raised for voice={bad!r}: {resp.get('error')}"
-        assert resp["result"]["status"] == "recording"
-        assert captured["silence_threshold"] == 200
-        assert captured["silence_duration"] == 3.0
-        assert captured["auto_restart"] is False
 
 
-    # Round-12 Copilot review regression on #19835: ``bool`` is a subclass
-    # of ``int``, so the naive ``isinstance(threshold, (int, float))``
-    # guard would forward ``silence_threshold: true`` as ``1`` instead
-    # of falling back to the documented 200 default.
-    for bad_bool_cfg in (
-        {"silence_threshold": True, "silence_duration": False},
-        {"silence_threshold": False},
-        {"silence_duration": True},
-    ):
-        captured.clear()
-        monkeypatch.setattr(server, "_load_cfg", lambda c=bad_bool_cfg: {"voice": c})
 
-        resp = _dispatch_sync(
-            {
-                "id": "voice-record-bool",
-                "method": "voice.record",
-                "params": {"action": "start"},
-            }
-        )
 
-        assert "result" in resp, f"voice.record raised for bool cfg={bad_bool_cfg!r}"
-        assert (
-            captured["silence_threshold"] == 200
-        ), f"bool silence_threshold leaked through for {bad_bool_cfg!r}"
-        assert (
-            captured["silence_duration"] == 3.0
-        ), f"bool silence_duration leaked through for {bad_bool_cfg!r}"
-        assert captured["auto_restart"] is False
 
-
-def test_prompt_submit_typed_stop_phrase_ends_voice_chat(monkeypatch):
-    """Typed bare stop phrase during an active voice chat is consumed at the
-    prompt.submit choke point: voice mode flips off, a distinct
-    voice.transcript {stop_phrase, typed} event fires, and NO turn starts.
-    """
-    calls = {"stop_continuous": 0}
-    emitted = []
-    monkeypatch.setattr(
-        server, "_emit", lambda event, sid, payload=None: emitted.append((event, payload))
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "tools.voice_mode",
-        types.SimpleNamespace(
-            is_voice_stop_phrase=lambda t: t.strip().lower().strip(".!?") == "stop"
-        ),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "hermes_cli.voice",
-        types.SimpleNamespace(
-            stop_continuous=lambda force_transcribe=False: calls.__setitem__(
-                "stop_continuous", calls["stop_continuous"] + 1
-            )
-        ),
-    )
-    monkeypatch.setattr(server, "_tts_stream_stop", lambda user_barge=False: None)
-    monkeypatch.setenv("HERMES_VOICE", "1")
-    monkeypatch.setenv("HERMES_VOICE_TTS", "1")
-
-    resp = server.dispatch(
-        {
-            "id": "typed-stop",
-            "method": "prompt.submit",
-            "params": {"session_id": "any-sid", "text": "Stop."},
-        }
-    )
-
-    assert resp["result"] == {"voice_stopped": True}
-    assert os.environ["HERMES_VOICE"] == "0"
-    assert os.environ["HERMES_VOICE_TTS"] == "0"
-    assert calls["stop_continuous"] == 1
-    assert ("voice.transcript", {"stop_phrase": True, "typed": True}) in emitted
-
-
-def test_prompt_submit_typed_stop_passes_through_when_voice_off(monkeypatch):
-    """Outside a voice chat, typed "stop" is a normal message — the stop
-    matcher must not even be consulted (guard is on voice mode)."""
-    monkeypatch.setitem(
-        sys.modules,
-        "tools.voice_mode",
-        types.SimpleNamespace(
-            is_voice_stop_phrase=lambda t: (_ for _ in ()).throw(
-                AssertionError("stop matcher must not run when voice is off")
-            )
-        ),
-    )
-    monkeypatch.setenv("HERMES_VOICE", "0")
-
-    resp = server.dispatch(
-        {
-            "id": "typed-stop-off",
-            "method": "prompt.submit",
-            "params": {"session_id": "missing-sid", "text": "stop"},
-        }
-    )
-
-    # The submit proceeds into normal handling (here: unknown session error),
-    # NOT the voice_stopped consumption path.
-    assert resp.get("result") != {"voice_stopped": True}
-
-
-def test_wake_owner_is_sticky_and_routes_detection_to_first_transport(monkeypatch):
-    from tools import wake_word
-
-    state = {"owner": None, "callback": None, "paused": False}
-    voice_callbacks = {}
-
-    def start_listening(callback, *, owner, config, external_audio=False):
-        if state["owner"] is not None and state["owner"] is not owner:
-            raise wake_word.WakeWordInUse
-        state.update(
-            owner=owner,
-            callback=callback,
-            paused=False,
-            external_audio=bool(external_audio),
-        )
-
-    def pause_listening(*, owner):
-        if state["owner"] is not owner:
-            return False
-        state["paused"] = True
-        return True
-
-    def stop_listening(*, owner):
-        if state["owner"] is not owner:
-            return False
-        state.update(owner=None, callback=None, paused=False)
-        return True
-
-    def resume_listening(*, owner):
-        if state["owner"] is not owner:
-            return False
-        state["paused"] = False
-        return True
-
-    def start_continuous(**callbacks):
-        voice_callbacks.update(callbacks)
-        return True
-
-    monkeypatch.setattr(wake_word, "load_wake_word_config", lambda: {
-        "enabled": True,
-        "phrase": "hey hermes",
-        "surface": "auto",
-        "start_new_session": True,
-    })
-    monkeypatch.setattr(wake_word, "check_wake_word_requirements", lambda _cfg: {
-        "available": True,
-        "phrase": "hey hermes",
-        "provider": "test",
-        "hint": "",
-    })
-    monkeypatch.setattr(wake_word, "start_listening", start_listening)
-    monkeypatch.setattr(wake_word, "pause_listening", pause_listening)
-    monkeypatch.setattr(wake_word, "stop_listening", stop_listening)
-    monkeypatch.setattr(wake_word, "owns_listener", lambda owner: state["owner"] is owner)
-    monkeypatch.setattr(
-        wake_word,
-        "is_listening",
-        lambda: state["owner"] is not None and not state["paused"],
-    )
-    monkeypatch.setattr(
-        wake_word,
-        "resume_listening",
-        resume_listening,
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "hermes_cli.voice",
-        types.SimpleNamespace(
-            start_continuous=start_continuous,
-            stop_continuous=lambda **_kwargs: None,
-        ),
-    )
-    monkeypatch.setenv("HERMES_VOICE", "1")
-
-    first = types.SimpleNamespace(_closed=False)
-    second = types.SimpleNamespace(_closed=False)
-    emitted = []
-    monkeypatch.setattr(
-        server,
-        "_emit",
-        lambda event, sid, payload: emitted.append(
-            (event, sid, payload, server.current_transport())
-        ),
-    )
-    server._wake_owner_transport = None
-    server._wake_owner_surface = ""
-    try:
-        started = _dispatch_sync({
-            "id": "wake-1",
-            "method": "wake.start",
-            "params": {"surface": "gui", "session_id": "first-session"},
-        }, transport=first)
-        denied = _dispatch_sync({
-            "id": "wake-2",
-            "method": "wake.start",
-            "params": {"surface": "tui", "session_id": "second-session"},
-        }, transport=second)
-        denied_stop = server.dispatch({
-            "id": "wake-stop-2",
-            "method": "wake.stop",
-            "params": {},
-        }, transport=second)
-        denied_voice_stop = _dispatch_sync({
-            "id": "voice-stop-2",
-            "method": "voice.record",
-            "params": {"action": "stop"},
-        }, transport=second)
-
-        assert started["result"]["started"] is True
-        assert denied["result"] == {
-            "started": False,
-            "reason": "owned",
-            "owner_surface": "gui",
-        }
-        assert denied_stop["result"] == {
-            "stopped": False,
-            "reason": "not_owner",
-            "disabled_persisted": False,
-        }
-        assert denied_voice_stop["result"] == {
-            "status": "busy",
-            "reason": "wake_owned",
-        }
-
-        state["callback"]()
-        assert emitted == [(
-            "wake.detected",
-            "first-session",
-            {"phrase": "hey hermes", "profile": None, "start_new_session": True},
-            first,
-        )]
-        assert state["paused"] is True
-
-        voice_started = _dispatch_sync({
-            "id": "voice-start-1",
-            "method": "voice.record",
-            "params": {"action": "start", "session_id": "first-session"},
-        }, transport=first)
-        assert voice_started["result"]["status"] == "recording"
-        voice_callbacks["on_status"]("idle")
-        assert state["paused"] is False
-
-        stopped = server.dispatch({
-            "id": "wake-stop-1",
-            "method": "wake.stop",
-            "params": {},
-        }, transport=first)
-        assert stopped["result"] == {
-            "stopped": True,
-            "reason": None,
-            "disabled_persisted": False,
-        }
-
-        reclaimed = _dispatch_sync({
-            "id": "wake-reclaim-2",
-            "method": "wake.start",
-            "params": {"surface": "tui", "session_id": "second-session"},
-        }, transport=second)
-        assert reclaimed["result"]["started"] is True
-        assert state["owner"] is second
-
-        state["callback"]()
-        assert emitted[-1] == (
-            "wake.detected",
-            "second-session",
-            {"phrase": "hey hermes", "profile": None, "start_new_session": True},
-            second,
-        )
-
-        stopped_again = server.dispatch({
-            "id": "wake-stop-2-after-reclaim",
-            "method": "wake.stop",
-            "params": {},
-        }, transport=second)
-        assert stopped_again["result"] == {
-            "stopped": True,
-            "reason": None,
-            "disabled_persisted": False,
-        }
-    finally:
-        server._wake_owner_transport = None
-        server._wake_owner_surface = ""
-
-
-def test_wake_toggle_persists_enabled_flag_only_on_explicit_gesture(monkeypatch):
-    """The ear toggle / /wake on|off write wake_word.enabled; auto-arm never does."""
-    from tools import wake_word
-
-    config = {"enabled": False, "phrase": "hey hermes", "surface": "auto",
-              "start_new_session": True}
-    persisted = []
-
-    def fake_persist(enabled):
-        persisted.append(enabled)
-        config["enabled"] = enabled
-        return True
-
-    monkeypatch.setattr(server, "_persist_wake_enabled", fake_persist)
-    monkeypatch.setattr(wake_word, "load_wake_word_config", lambda: dict(config))
-    monkeypatch.setattr(wake_word, "check_wake_word_requirements", lambda _cfg: {
-        "available": True,
-        "phrase": "hey hermes",
-        "provider": "test",
-        "hint": "",
-    })
-    listener = {"owner": None}
-    monkeypatch.setattr(
-        wake_word, "start_listening",
-        lambda callback, *, owner, config, external_audio=False: listener.update(
-            owner=owner, external_audio=bool(external_audio)
-        ),
-    )
-    monkeypatch.setattr(
-        wake_word, "stop_listening",
-        lambda *, owner: listener["owner"] is owner and not listener.update(owner=None),
-    )
-    monkeypatch.setattr(wake_word, "owns_listener", lambda owner: listener["owner"] is owner)
-
-    transport = types.SimpleNamespace(_closed=False)
-    server._wake_owner_transport = None
-    server._wake_owner_surface = ""
-    try:
-        # Passive auto-arm (no persist): refused, config untouched.
-        passive = _dispatch_sync({
-            "id": "wake-passive",
-            "method": "wake.start",
-            "params": {"surface": "gui"},
-        }, transport=transport)
-        assert passive["result"] == {"started": False, "reason": "disabled"}
-        assert persisted == []
-
-        # Explicit gesture: enables in config AND arms.
-        clicked = _dispatch_sync({
-            "id": "wake-click",
-            "method": "wake.start",
-            "params": {"surface": "gui", "persist": True},
-        }, transport=transport)
-        assert clicked["result"]["started"] is True
-        assert clicked["result"]["enabled_persisted"] is True
-        assert persisted == [True]
-
-        # Explicit stop: disables in config.
-        stopped = server.dispatch({
-            "id": "wake-click-off",
-            "method": "wake.stop",
-            "params": {"persist": True},
-        }, transport=transport)
-        assert stopped["result"]["stopped"] is True
-        assert stopped["result"]["disabled_persisted"] is True
-        assert persisted == [True, False]
-
-        # persist does NOT override an explicit surface scoping.
-        config.update(enabled=True, surface="tui")
-        scoped = _dispatch_sync({
-            "id": "wake-scoped",
-            "method": "wake.start",
-            "params": {"surface": "gui", "persist": True},
-        }, transport=transport)
-        assert scoped["result"] == {"started": False, "reason": "disabled_for_surface"}
-        assert persisted == [True, False]
-    finally:
-        server._wake_owner_transport = None
-        server._wake_owner_surface = ""
-
-
-def test_voice_record_start_forwards_max_recording_seconds(monkeypatch):
-    """voice.max_recording_seconds must reach start_continuous from the TUI.
-
-    The CLI wiring alone doesn't cover TUI recordings: the gateway forwards
-    recorder params explicitly, so a missing kwarg here silently leaves the
-    cap dead in the TUI while CLI tests stay green. Semantics mirror the
-    silence params: non-numeric / bool / missing falls back to the documented
-    120 default, an explicit numeric value <= 0 disables the cap.
-    """
-    captured: dict = {}
-
-    def fake_start_continuous(**kwargs):
-        captured.update(kwargs)
-
-    monkeypatch.setitem(
-        sys.modules,
-        "hermes_cli.voice",
-        types.SimpleNamespace(
-            start_continuous=fake_start_continuous, stop_continuous=lambda: None
-        ),
-    )
-    monkeypatch.setenv("HERMES_VOICE", "1")
-
-    for cfg, expected in (
-        ({"max_recording_seconds": 45}, 45),        # explicit cap forwarded as-is
-        ({"max_recording_seconds": 0}, 0.0),        # explicit 0 = disabled
-        ({"max_recording_seconds": -5}, 0.0),       # negative = disabled
-        ({}, 120.0),                                # missing = documented default
-        ({"max_recording_seconds": True}, 120.0),   # bool must not become 1s cap
-        ({"max_recording_seconds": "long"}, 120.0), # garbage = documented default
-    ):
-        captured.clear()
-        monkeypatch.setattr(server, "_load_cfg", lambda c=cfg: {"voice": c})
-
-        resp = _dispatch_sync(
-            {
-                "id": "voice-record-cap",
-                "method": "voice.record",
-                "params": {"action": "start"},
-            }
-        )
-
-        assert "result" in resp, f"voice.record raised for cfg={cfg!r}: {resp.get('error')}"
-        assert resp["result"]["status"] == "recording"
-        assert (
-            captured["max_recording_seconds"] == expected
-        ), f"cfg={cfg!r} forwarded {captured.get('max_recording_seconds')!r}, expected {expected!r}"
-
-
-def test_voice_record_start_cuts_inflight_tts(monkeypatch):
-    """PTT barge-in (#40010): arming the mic cuts in-flight streaming TTS.
-
-    The CLI record-key handler already cuts TTS before starting a capture;
-    the gateway's ``voice.record`` start path did not, so a TUI/Desktop user
-    pressing push-to-talk mid-reply kept hearing the agent talk over them.
-    The cut must happen before ``start_continuous`` arms the mic, and must
-    latch as a user barge (the next turn's model note), not a mode change.
-    """
-    order: list[str] = []
-    tts_calls: list[bool] = []
-
-    def fake_start_continuous(**_kwargs):
-        order.append("start_continuous")
-        return True
-
-    monkeypatch.setitem(
-        sys.modules,
-        "hermes_cli.voice",
-        types.SimpleNamespace(
-            start_continuous=fake_start_continuous, stop_continuous=lambda **_kwargs: None
-        ),
-    )
-    monkeypatch.setattr(server, "_load_cfg", lambda: {"voice": {}})
-    monkeypatch.setattr(
-        server, "_tts_stream_stop", lambda user_barge=True: tts_calls.append(user_barge)
-    )
-    monkeypatch.setenv("HERMES_VOICE", "1")
-
-    resp = _dispatch_sync(
-        {
-            "id": "voice-record-tts-cut",
-            "method": "voice.record",
-            "params": {"action": "start"},
-        }
-    )
-
-    assert resp is not None and "result" in resp, f"voice.record raised: {resp and resp.get('error')}"
-    assert tts_calls == [True], "PTT start must cut TTS as a user barge"
-    assert order == ["start_continuous"], "start_continuous must still arm the mic"
-
-
-def test_voice_record_stop_forces_transcription(monkeypatch):
-    captured: dict = {}
-
-    def fake_stop_continuous(**kwargs):
-        captured.update(kwargs)
-
-    monkeypatch.setitem(
-        sys.modules,
-        "hermes_cli.voice",
-        types.SimpleNamespace(
-            start_continuous=lambda **_kwargs: None,
-            stop_continuous=fake_stop_continuous,
-        ),
-    )
-
-    resp = _dispatch_sync(
-        {
-            "id": "voice-record-stop",
-            "method": "voice.record",
-            "params": {"action": "stop"},
-        }
-    )
-
-    assert resp["result"]["status"] == "stopped"
-    assert captured["force_transcribe"] is True
-
-
-def test_voice_record_stop_updates_event_session_id(monkeypatch):
-    monkeypatch.setitem(
-        sys.modules,
-        "hermes_cli.voice",
-        types.SimpleNamespace(
-            start_continuous=lambda **_kwargs: True,
-            stop_continuous=lambda **_kwargs: None,
-        ),
-    )
-    monkeypatch.setattr(server, "_voice_event_sid", "old-session")
-
-    resp = _dispatch_sync(
-        {
-            "id": "voice-record-stop-session",
-            "method": "voice.record",
-            "params": {"action": "stop", "session_id": "new-session"},
-        }
-    )
-
-    assert resp["result"]["status"] == "stopped"
-    assert server._voice_event_sid == "new-session"
-
-
-def test_voice_record_start_reports_busy_when_stop_is_in_progress(monkeypatch):
-    monkeypatch.setitem(
-        sys.modules,
-        "hermes_cli.voice",
-        types.SimpleNamespace(
-            start_continuous=lambda **_kwargs: False,
-            stop_continuous=lambda **_kwargs: None,
-        ),
-    )
-    monkeypatch.setenv("HERMES_VOICE", "1")
-    monkeypatch.setattr(server, "_load_cfg", lambda: {"voice": {}})
-
-    resp = _dispatch_sync(
-        {
-            "id": "voice-record-busy",
-            "method": "voice.record",
-            "params": {"action": "start"},
-        }
-    )
-
-    assert resp["result"]["status"] == "busy"
-
-
-def test_voice_toggle_tts_branch_also_carries_record_key(monkeypatch):
-    """Round-2 Copilot review regression on #19835.
-
-    The ``tts`` branch used to omit ``record_key`` from its response, so a
-    TUI client would parse ``r.record_key ?? 'ctrl+b'`` and reset a
-    custom binding to the default on every TTS toggle. Every branch of
-    ``voice.toggle`` now carries the configured key so frontend state
-    stays authoritative.
-    """
-    monkeypatch.setattr(
-        server,
-        "_load_cfg",
-        lambda: {"voice": {"record_key": "ctrl+space"}},
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "tools.voice_mode",
-        types.SimpleNamespace(
-            check_voice_requirements=lambda: {"available": True, "details": ""}
-        ),
-    )
-    monkeypatch.setenv("HERMES_VOICE", "1")
-    # setenv (not delenv) — the handler writes HERMES_VOICE_TTS directly, and
-    # delenv on an absent var registers no teardown, leaking TTS=1 into every
-    # later test in the file (which now spins up the streaming TTS pipeline).
-    monkeypatch.setenv("HERMES_VOICE_TTS", "0")
-
-    tts_resp = _dispatch_sync(
-        {"id": "voice-tts", "method": "voice.toggle", "params": {"action": "tts"}}
-    )
-
-    assert tts_resp["result"]["record_key"] == "ctrl+space"
-    assert tts_resp["result"]["tts"] is True
 
 
 def test_load_enabled_toolsets_prefers_tui_env(monkeypatch):
@@ -7763,7 +7095,7 @@ def _configure_immediate_prompt_run(
         server, "_sync_session_key_after_compress", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(server, "_drain_queued_prompt", lambda *_args: False)
-    monkeypatch.setattr(server, "_voice_tts_enabled", lambda: False)
+
     monkeypatch.setattr(server, "_get_db", lambda: None)
 
 
@@ -14171,149 +13503,12 @@ def test_interrupt_only_clears_own_session_pending():
         server_requests.reset_for_tests()
 
 
-def _wake_lease_double():
-    """Owner-gated pause/resume stand-in: only the lease holder can re-arm."""
-    from tools import wake_word
-
-    state = {"lease": None, "paused": False, "resumed": []}
-
-    def pause_listening(*, owner):
-        if state["lease"] is not owner:
-            return False
-        state["paused"] = True
-        return True
-
-    def resume_listening(*, owner):
-        if state["lease"] is not owner:
-            return False
-        state["paused"] = False
-        state["resumed"].append(owner)
-        return True
-
-    return wake_word, state, pause_listening, resume_listening
 
 
-def test_accepted_interrupt_resumes_wake_mismatch_does_not(monkeypatch):
-    """An accepted interrupt re-arms the caller's paused detector; a hosted-task mismatch does not."""
-    wake_word, state, pause_listening, resume_listening = _wake_lease_double()
-    owner = types.SimpleNamespace(_closed=False)
-    state["lease"] = owner
-    session = _session(
-        agent=types.SimpleNamespace(interrupt=lambda: None),
-        running=True,
-        _hosted_room_task={"task_id": "active"},
-    )
-    server._sessions["sid"] = session
-    monkeypatch.setattr(wake_word, "pause_listening", pause_listening)
-    monkeypatch.setattr(wake_word, "resume_listening", resume_listening)
-    monkeypatch.setattr(server, "_voice_wake_owner", None)
-    try:
-        paused = _dispatch_sync(
-            {"id": "pause", "method": "wake.pause", "params": {}}, transport=owner
-        )
-        mismatch = _dispatch_sync(
-            {
-                "id": "mismatch",
-                "method": "session.interrupt",
-                "params": {"session_id": "sid", "expected_hosted_task_id": "stale"},
-            },
-            transport=owner,
-        )
-        assert paused["result"]["paused"] is True
-        assert mismatch["result"] == {"status": "not_interrupted", "interrupted": False}
-        assert state["paused"] is True
-        assert state["resumed"] == []
-
-        accepted = _dispatch_sync(
-            {"id": "ok", "method": "session.interrupt", "params": {"session_id": "sid"}},
-            transport=owner,
-        )
-        assert accepted.get("result", {}).get("status") == "interrupted"
-        assert state == {"lease": owner, "paused": False, "resumed": [owner]}
-    finally:
-        server._sessions.pop("sid", None)
 
 
-def test_interrupt_error_after_tts_stop_still_resumes_wake(monkeypatch):
-    """TTS is cut before session lookup and the compute-host call; a later error must still re-arm."""
-    wake_word, state, pause_listening, resume_listening = _wake_lease_double()
-    owner = types.SimpleNamespace(_closed=False)
-    state["lease"] = owner
-    session = _session(agent=types.SimpleNamespace(interrupt=lambda: None), running=True)
-    server._sessions["sid"] = session
-    monkeypatch.setattr(wake_word, "pause_listening", pause_listening)
-    monkeypatch.setattr(wake_word, "resume_listening", resume_listening)
-    monkeypatch.setattr(server, "_voice_wake_owner", None)
-    monkeypatch.setattr(server, "_session_uses_compute_host", lambda _session: True)
-
-    def _host_failed(*_args, **_kwargs):
-        raise RuntimeError("host failed")
-
-    monkeypatch.setattr(server, "_interrupt_session_turn", _host_failed)
-    try:
-        paused = _dispatch_sync(
-            {"id": "pause", "method": "wake.pause", "params": {}}, transport=owner
-        )
-        missing = _dispatch_sync(
-            {"id": "missing", "method": "session.interrupt", "params": {"session_id": "gone"}},
-            transport=owner,
-        )
-        assert paused["result"]["paused"] is True
-        assert missing["error"]["code"] == 4001
-        assert state["paused"] is False
-        assert state["resumed"] == [owner]
-
-        _dispatch_sync({"id": "pause-2", "method": "wake.pause", "params": {}}, transport=owner)
-        failed = _dispatch_sync(
-            {"id": "host", "method": "session.interrupt", "params": {"session_id": "sid"}},
-            transport=owner,
-        )
-        assert failed["result"] == {"status": "interrupted", "turn_isolation": True}
-        assert state["paused"] is False
-        assert state["resumed"] == [owner, owner]
-    finally:
-        server._sessions.pop("sid", None)
 
 
-def test_interrupt_resumes_voice_wake_owner_not_a_foreign_lease(monkeypatch):
-    """Interrupt resumes a voice-owned pause even when the caller differs, and leaves a foreign lease paused."""
-    wake_word, state, pause_listening, resume_listening = _wake_lease_double()
-    voice_owner = types.SimpleNamespace(_closed=False, role="voice")
-    caller = types.SimpleNamespace(_closed=False, role="caller")
-    foreign = types.SimpleNamespace(_closed=False, role="foreign")
-    state["lease"] = voice_owner
-    session = _session(agent=types.SimpleNamespace(interrupt=lambda: None), running=True)
-    server._sessions["sid"] = session
-    monkeypatch.setattr(wake_word, "pause_listening", pause_listening)
-    monkeypatch.setattr(wake_word, "resume_listening", resume_listening)
-    monkeypatch.setattr(server, "_voice_wake_owner", voice_owner)
-    try:
-        paused = _dispatch_sync(
-            {"id": "pause", "method": "wake.pause", "params": {}}, transport=voice_owner
-        )
-        accepted = _dispatch_sync(
-            {"id": "ok", "method": "session.interrupt", "params": {"session_id": "sid"}},
-            transport=caller,
-        )
-        assert paused["result"]["paused"] is True
-        assert accepted.get("result", {}).get("status") == "interrupted"
-        assert state["paused"] is False
-        assert any(item is voice_owner for item in state["resumed"])
-        assert all(item is not caller for item in state["resumed"])
-
-        state["lease"] = foreign
-        state["paused"] = True
-        state["resumed"] = []
-        monkeypatch.setattr(server, "_voice_wake_owner", None)
-        foreign_held = _dispatch_sync(
-            {"id": "foreign", "method": "session.interrupt", "params": {"session_id": "sid"}},
-            transport=caller,
-        )
-        assert foreign_held.get("result", {}).get("status") == "interrupted"
-        assert state["paused"] is True
-        assert state["resumed"] == []
-    finally:
-        server._sessions.pop("sid", None)
 
 
 def test_run_prompt_submit_registers_turn_thread_for_interrupt(monkeypatch):
@@ -15803,8 +14998,9 @@ def test_session_list_honors_params_profile_opens_profile_db(monkeypatch, tmp_pa
             return [{"id": "launch-1", "source": "tui", "title": "L"}]
 
     class ProfileDB:
-        def __init__(self, db_path=None):
+        def __init__(self, db_path=None, *, read_only=False):
             seen["db_path"] = db_path
+            seen["read_only"] = read_only
 
         def list_sessions_rich(self, **kwargs):
             seen["profile"] = True
@@ -15824,10 +15020,8 @@ def test_session_list_honors_params_profile_opens_profile_db(monkeypatch, tmp_pa
 
     monkeypatch.setattr(server, "_profile_home", lambda p: profile_home if p == "mlperf" else None)
     monkeypatch.setattr(server, "_get_db", lambda: LaunchDB())
-    monkeypatch.setattr(
-        "hermes_cli.web_server_sessions._open_session_db_at_path",
-        lambda db_path, *, read_only: ProfileDB(db_path=db_path),
-    )
+    monkeypatch.setattr(server, "_bootstrap_served_profile_store", lambda path: None)
+    monkeypatch.setattr("hermes_state.SessionDB", ProfileDB)
 
     resp = server.handle_request(
         {
@@ -15841,6 +15035,7 @@ def test_session_list_honors_params_profile_opens_profile_db(monkeypatch, tmp_pa
     assert seen.get("profile") is True
     assert seen.get("launch") is None
     assert str(seen.get("db_path")).endswith("state.db")
+    assert seen.get("read_only") is True
     assert seen.get("closed") is True
 
 
@@ -15854,7 +15049,7 @@ def test_session_most_recent_honors_params_profile(monkeypatch, tmp_path):
             return [{"id": "launch-tip", "source": "tui", "title": "L", "started_at": 9}]
 
     class ProfileDB2:
-        def __init__(self, db_path=None):
+        def __init__(self, db_path=None, *, read_only=False):
             self.db_path = db_path
 
         def list_sessions_rich(self, **kwargs):
@@ -15868,10 +15063,8 @@ def test_session_most_recent_honors_params_profile(monkeypatch, tmp_path):
 
     monkeypatch.setattr(server, "_profile_home", lambda p: profile_home if p == "mlperf" else None)
     monkeypatch.setattr(server, "_get_db", lambda: LaunchDB())
-    monkeypatch.setattr(
-        "hermes_cli.web_server_sessions._open_session_db_at_path",
-        lambda db_path, *, read_only: ProfileDB2(db_path=db_path),
-    )
+    monkeypatch.setattr(server, "_bootstrap_served_profile_store", lambda path: None)
+    monkeypatch.setattr("hermes_state.SessionDB", ProfileDB2)
 
     resp = server.handle_request(
         {
@@ -20012,366 +19205,30 @@ def test_get_usage_clamps_post_compression_sentinel():
     assert "context_percent" not in usage
 
 
-# ---------------------------------------------------------------------------
-# Streaming TTS — per-turn pipeline + barge-in
-# ---------------------------------------------------------------------------
-
-def _fake_tts_modules(monkeypatch, *, requirements=True, playback_stops=None, listen=None, transcribe=None):
-    """Install lightweight tools.tts_tool / tools.voice_mode fakes."""
-    started = {}
-
-    def fake_stream(text_queue, stop, done, **_kw):
-        started["queue"] = text_queue
-        stop.wait(5)
-        done.set()
-
-    def default_listen(should_stop, capture=False, on_trigger=None, **_kw):
-        return None if capture else False
-
-    def default_fd_listen(should_stop, is_playing=None, on_trigger=None, **_kw):
-        return None
-
-    monkeypatch.setitem(
-        sys.modules,
-        "tools.tts_tool",
-        types.SimpleNamespace(
-            check_tts_requirements=lambda: requirements,
-            _get_provider=lambda cfg: "edge",
-            _load_tts_config=dict,
-            get_env_value=lambda key, default="": default,
-        ),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "tools.tts_tool_speaker",
-        types.SimpleNamespace(stream_tts_to_speaker=fake_stream),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "tools.voice_mode",
-        types.SimpleNamespace(
-            stop_playback=lambda: (playback_stops.append(True) if playback_stops is not None else None),
-            listen_for_speech=listen or default_listen,
-            full_duplex_listen=listen or default_fd_listen,
-            is_audio_output_active=lambda: False,
-            transcribe_recording=transcribe or (lambda path, model=None: {"success": True, "transcript": ""}),
-        ),
-    )
-    # Fresh listener slot per test — the arm is idempotent per process.
-    monkeypatch.setattr(server, "_fd_listener_active", False)
-    return started
-
-
-def test_tts_stream_begin_requires_voice_tts(monkeypatch):
-    monkeypatch.setenv("HERMES_VOICE_TTS", "0")
-    assert server._tts_stream_begin() is None
-
-
-def test_tts_stream_begin_requires_working_provider(monkeypatch):
-    monkeypatch.setenv("HERMES_VOICE_TTS", "1")
-    _fake_tts_modules(monkeypatch, requirements=False)
-    assert server._tts_stream_begin() is None
-
-
-def test_tts_stream_begin_and_stop_lifecycle(monkeypatch):
-    """begin() spawns the consumer; stop() cuts it and clears the slot."""
-    monkeypatch.setenv("HERMES_VOICE_TTS", "1")
-    monkeypatch.setenv("HERMES_VOICE", "0")  # no barge-in monitor (no mic)
-    playback_stops: list = []
-    started = _fake_tts_modules(monkeypatch, playback_stops=playback_stops)
-
-    text_queue = server._tts_stream_begin()
-    assert text_queue is not None
-    assert started["queue"] is text_queue
-
-    with server._tts_stream_lock:
-        state = server._tts_stream_state
-    assert state is not None and not state["stop"].is_set()
-
-    server._tts_stream_stop()
-    assert state["stop"].is_set()
-    assert playback_stops == [True]
-    with server._tts_stream_lock:
-        assert server._tts_stream_state is None
-
-
-def test_tts_stream_begin_barges_in_on_previous_pipeline(monkeypatch):
-    """A new turn's pipeline stops the previous turn's speech (one speaker)."""
-    monkeypatch.setenv("HERMES_VOICE_TTS", "1")
-    monkeypatch.setenv("HERMES_VOICE", "0")
-    _fake_tts_modules(monkeypatch)
-
-    server._tts_stream_begin()
-    with server._tts_stream_lock:
-        first = server._tts_stream_state
-    server._tts_stream_begin()
-    assert first is not None and first["stop"].is_set()
-    server._tts_stream_stop()
-
-
-def test_tts_stream_stop_latches_interruption_for_next_turn(monkeypatch):
-    """Cutting live speech (interrupt / typing barge) marks the latch the next
-    turn's model note consumes; a mode change (user_barge=False) does not."""
-    import tools.tts_streaming as ts
-
-    ts._interrupted_at = None
-    monkeypatch.setenv("HERMES_VOICE_TTS", "1")
-    monkeypatch.setenv("HERMES_VOICE", "0")
-    _fake_tts_modules(monkeypatch)
-
-    server._tts_stream_begin()
-    server._tts_stream_stop()  # default: user barge
-    assert ts.take_speech_interrupted() is True
-
-    server._tts_stream_begin()
-    server._tts_stream_stop(user_barge=False)  # /voice off
-    assert ts.take_speech_interrupted() is False
-
-
-def test_tts_stream_stop_after_natural_finish_does_not_latch(monkeypatch):
-    """Speech that already finished (done set) isn't an interruption."""
-    import tools.tts_streaming as ts
-
-    ts._interrupted_at = None
-    monkeypatch.setenv("HERMES_VOICE_TTS", "1")
-    monkeypatch.setenv("HERMES_VOICE", "0")
-    _fake_tts_modules(monkeypatch)
-
-    server._tts_stream_begin()
-    with server._tts_stream_lock:
-        server._tts_stream_state["done"].set()
-    server._tts_stream_stop()
-    assert ts.take_speech_interrupted() is False
-
-
-def test_tts_stream_vad_barge_in_cuts_pipeline_and_submits_capture(monkeypatch, tmp_path):
-    """User speech during playback cuts TTS at the moment of detection
-    (voice.interrupted), then the captured interruption is transcribed and
-    emitted as voice.transcript so the TUI submits it — complete from its
-    first syllable, no re-record round trip. The cut also latches the
-    speech-interrupted note for the next turn."""
-    import tools.tts_streaming as ts
-
-    ts._interrupted_at = None
-    monkeypatch.setenv("HERMES_VOICE_TTS", "1")
-    monkeypatch.setenv("HERMES_VOICE", "1")
-    monkeypatch.setattr(server, "_load_cfg", lambda: {"voice": {"barge_in": True}})
-    events: list = []
-    monkeypatch.setattr(
-        server, "_voice_emit", lambda event, payload=None: events.append((event, payload))
-    )
-
-    wav = tmp_path / "barge.wav"
-    wav.write_bytes(b"RIFF")
-
-    def fake_listen(should_stop, is_playing=None, on_trigger=None, **_kw):
-        on_trigger("playback")  # playback cut happens at detection
-        return str(wav)
-
-    _fake_tts_modules(
-        monkeypatch,
-        listen=fake_listen,
-        transcribe=lambda path, model=None: {"success": True, "transcript": "stop, actually—"},
-    )
-
-    server._tts_stream_begin()
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline and wav.exists():
-        time.sleep(0.01)  # unlink (finally) runs after the transcript emit
-    assert ("voice.interrupted", None) in events
-    assert ("voice.transcript", {"text": "stop, actually—"}) in events
-    assert not wav.exists()  # capture temp file cleaned up
-    assert ts.take_speech_interrupted() is True  # VAD cut latches the model note
-    server._tts_stream_stop()
-
-
-def test_full_duplex_generation_phase_interrupts_running_turn(monkeypatch, tmp_path):
-    """Speech DURING LLM generation (no TTS audio yet) must interrupt the
-    in-flight agent turn via the same seam session.interrupt uses, and the
-    captured interjection is emitted as voice.transcript. This is the
-    half-duplex gap: previously no listener existed until playback started."""
-    import tools.tts_streaming as ts
-
-    ts._interrupted_at = None
-    monkeypatch.setenv("HERMES_VOICE", "1")
-    monkeypatch.setenv("HERMES_VOICE_TTS", "0")
-    monkeypatch.setattr(server, "_load_cfg", lambda: {"voice": {"barge_in": True}})
-    events: list = []
-    monkeypatch.setattr(
-        server, "_voice_emit", lambda event, payload=None: events.append((event, payload))
-    )
-
-    wav = tmp_path / "interject.wav"
-    wav.write_bytes(b"RIFF")
-
-    interrupted = threading.Event()
-    fake_agent = types.SimpleNamespace(interrupt=lambda: interrupted.set())
-    fake_session = {"running": True, "agent": fake_agent}
-    monkeypatch.setattr(server, "_sessions", {"sid-fd": fake_session})
-
-    def fake_listen(should_stop, is_playing=None, on_trigger=None, **_kw):
-        assert is_playing is not None and is_playing() is False  # generation phase
-        on_trigger("generation")
-        return str(wav)
-
-    _fake_tts_modules(
-        monkeypatch,
-        listen=fake_listen,
-        transcribe=lambda path, model=None: {"success": True, "transcript": "wait, try another way"},
-    )
-
-    server._arm_full_duplex_listener()
-
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline and wav.exists():
-        time.sleep(0.01)
-    assert interrupted.is_set()  # the running turn was interrupted
-    assert ("voice.interrupted", None) in events
-    assert ("voice.transcript", {"text": "wait, try another way"}) in events
-    assert not wav.exists()
-
-
-def test_full_duplex_stop_phrase_mid_generation_ends_voice_chat(monkeypatch, tmp_path):
-    """Bare 'stop' during generation = interrupt the turn AND end the voice
-    chat ('stop everything'), emitted as the explicit stop_phrase signal."""
-    monkeypatch.setenv("HERMES_VOICE", "1")
-    monkeypatch.setattr(server, "_load_cfg", lambda: {"voice": {"barge_in": True}})
-    events: list = []
-    monkeypatch.setattr(
-        server, "_voice_emit", lambda event, payload=None: events.append((event, payload))
-    )
-
-    wav = tmp_path / "stop.wav"
-    wav.write_bytes(b"RIFF")
-
-    interrupted = threading.Event()
-    fake_agent = types.SimpleNamespace(interrupt=lambda: interrupted.set())
-    monkeypatch.setattr(
-        server, "_sessions", {"sid-fd": {"running": True, "agent": fake_agent}}
-    )
-
-    def fake_listen(should_stop, is_playing=None, on_trigger=None, **_kw):
-        on_trigger("generation")
-        return str(wav)
-
-    _fake_tts_modules(
-        monkeypatch,
-        listen=fake_listen,
-        transcribe=lambda path, model=None: {"success": True, "transcript": "stop"},
-    )
-    # is_voice_stop_phrase lives in the faked tools.voice_mode namespace.
-    sys.modules["tools.voice_mode"].is_voice_stop_phrase = (
-        lambda text: text.strip().lower() == "stop"
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "hermes_cli.voice",
-        types.SimpleNamespace(stop_continuous=lambda **_kw: None, speak_text=lambda *a, **k: None),
-    )
-
-    server._arm_full_duplex_listener()
-
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline and wav.exists():
-        time.sleep(0.01)
-    assert interrupted.is_set()
-    assert ("voice.transcript", {"stop_phrase": True, "text": "stop"}) in events
-    assert os.environ.get("HERMES_VOICE") == "0"  # voice chat ended
-
-
-def test_speak_text_with_barge_arms_monitor_and_cuts_playback(monkeypatch, tmp_path):
-    """The fallback whole-reply speak path (streaming pipeline couldn't
-    start) and the voice.tts RPC must be barge-able too: speaking over the
-    reply cuts playback and the captured interruption is emitted as
-    voice.transcript — previously these paths called speak_text bare and
-    were uninterruptible by voice."""
-    import tools.tts_streaming as ts
-
-    ts._interrupted_at = None
-    monkeypatch.setenv("HERMES_VOICE", "1")
-    monkeypatch.setenv("HERMES_VOICE_TTS", "1")
-    monkeypatch.setattr(
-        server,
-        "_load_cfg",
-        lambda: {"voice": {"barge_in": True, "barge_in_grace_seconds": 0}},
-    )
-    events: list = []
-    monkeypatch.setattr(
-        server, "_voice_emit", lambda event, payload=None: events.append((event, payload))
-    )
-
-    wav = tmp_path / "barge.wav"
-    wav.write_bytes(b"RIFF")
-
-    speak_calls = {}
-    speak_started = threading.Event()
-    release_speak = threading.Event()
-
-    def fake_speak_text(text, stop_event=None):
-        speak_calls["text"] = text
-        speak_calls["stop_event"] = stop_event
-        speak_started.set()
-        release_speak.wait(5)
-
-    monkeypatch.setitem(
-        sys.modules,
-        "hermes_cli.voice",
-        types.SimpleNamespace(speak_text=fake_speak_text),
-    )
-
-    def fake_listen(should_stop, is_playing=None, on_trigger=None, **_kw):
-        speak_started.wait(5)
-        on_trigger("playback")  # user talks over the reply → cut now
-        return str(wav)
-
-    _fake_tts_modules(
-        monkeypatch,
-        listen=fake_listen,
-        transcribe=lambda path, model=None: {"success": True, "transcript": "hang on"},
-    )
-
-    server._speak_text_with_barge("a long spoken reply")
-
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline and ("voice.transcript", {"text": "hang on"}) not in events:
-        time.sleep(0.01)
-    release_speak.set()
-
-    assert speak_calls["text"] == "a long spoken reply"
-    # The pipeline stop event is shared with speak_text so a streaming
-    # dispatch inside it is cut too.
-    assert speak_calls["stop_event"] is not None
-    assert speak_calls["stop_event"].is_set()
-    assert ("voice.interrupted", None) in events
-    assert ("voice.transcript", {"text": "hang on"}) in events
-    assert ts.take_speech_interrupted() is True
-
-
-def test_speak_text_with_barge_no_monitor_when_voice_mode_off(monkeypatch):
-    """Auto-speak with voice mode off (no mic loop) must not open the mic."""
-    monkeypatch.setenv("HERMES_VOICE", "0")
-    monkeypatch.setenv("HERMES_VOICE_TTS", "1")
-    monkeypatch.setattr(server, "_load_cfg", lambda: {"voice": {"barge_in": True}})
-
-    listened = threading.Event()
-
-    def fake_listen(should_stop, capture=False, on_trigger=None, **_kw):
-        listened.set()
-
-    done_speaking = threading.Event()
-    monkeypatch.setitem(
-        sys.modules,
-        "hermes_cli.voice",
-        types.SimpleNamespace(
-            speak_text=lambda text, stop_event=None: done_speaking.set()
-        ),
-    )
-    _fake_tts_modules(monkeypatch, listen=fake_listen)
-
-    server._speak_text_with_barge("quiet reply")
-    assert done_speaking.wait(5)
-    time.sleep(0.1)
-    assert not listened.is_set()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def _capture_server_request(monkeypatch, result):

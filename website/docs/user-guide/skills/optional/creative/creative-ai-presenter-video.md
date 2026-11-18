@@ -21,7 +21,7 @@ Make a verified AI presenter video from script + image.
 | License | MIT |
 | Platforms | linux, macos |
 | Tags | `video`, `presenter`, `avatar`, `lipsync`, `tts`, `captions`, `creative` |
-| Related skills | [`hyperframes`](../../optional/creative/creative-hyperframes.md), [`kanban-video-orchestrator`](../../optional/creative/creative-kanban-video-orchestrator.md), [`comfyui`](../../optional/creative/creative-comfyui.md) |
+| Related skills | [`hyperframes`](../../optional/creative/creative-hyperframes.md), [`comfyui`](../../optional/creative/creative-comfyui.md) |
 
 ## Reference: full SKILL.md
 
@@ -40,8 +40,8 @@ Use this skill for new presenter videos AND for continuing, revising,
 captioning, lip-sync-repairing, or re-exporting an existing presenter-video
 job. The workflow is provider-neutral: pick generation capabilities from what
 is actually available in the session (FAL video/image models via
-`image_generate` and the video-gen plugin, TTS via `text_to_speech`, ASR via
-the whisper/STT tooling, ffmpeg for everything deterministic).
+`image_generate` and the video-gen plugin, external narration and ASR tools,
+and ffmpeg for everything deterministic).
 
 > Ported from cclank/lanshu-create-ai-presenter-video (MIT). Upstream body
 > kept substantively verbatim in `references/`; Hermes adaptations live in
@@ -60,11 +60,11 @@ the whisper/STT tooling, ffmpeg for everything deterministic).
   Shell variables do not persist between tool calls — re-paste the assignment
   (or the expanded path) in each terminal call that uses it.
 - **Capability mapping** — where the references say "a voice generation
-  capability", use `text_to_speech` (OpenAI/Edge/ElevenLabs per user config);
+  capability", use a separately available voice provider;
   "presenter/avatar generation" → FAL image-to-video families (Kling, Wan,
   MiniMax H3 etc.) through the configured video tooling, or an avatar/lipsync
-  endpoint the user has access to; "word-timestamp ASR" → whisper via the STT
-  tooling or `faster-whisper` in a venv; "deterministic compositor" → ffmpeg
+  endpoint the user has access to; "word-timestamp ASR" → an external ASR tool such as
+  `faster-whisper`; "deterministic compositor" → ffmpeg
   filtergraphs, or the `hyperframes` skill when installed (the editing
   reference has a HyperFrames section that maps directly onto it).
 - **Visual QA** — do the "normal-speed visual review" steps with
@@ -131,7 +131,7 @@ the whisper/STT tooling, ffmpeg for everything deterministic).
    a stale copy.
 
 3. **Lock content and audio** — read `references/generation.md`. Script →
-   full narration via `text_to_speech` → ASR-verify the narration against the
+   full narration from an external provider → ASR-verify the narration against the
    script → record real durations. The locked audio is the master clock for
    everything downstream.
 

@@ -305,7 +305,7 @@ def test_x_search_prefers_explicit_api_key_over_oauth(monkeypatch):
     """#88040: with a paid XAI_API_KEY configured alongside subscription
     OAuth, x_search must use the API key — the OAuth path authorizes but
     answers /v1/responses in a degraded Grok explanatory mode with no
-    citations. Same prefer-API-key root cause as the TTS fix (#87045/#87081);
+    citations. The shared resolver prefers the explicit API key when requested;
     the precedence lives in the shared resolver behind ``prefer_api_key``."""
     from tools.registry import invalidate_check_fn_cache
     from tools.x_search_tool import x_search_tool

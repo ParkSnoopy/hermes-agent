@@ -1,5 +1,4 @@
 """Tests for hermes_logging — centralized logging setup."""
-import importlib.util
 import io
 import logging
 import os
@@ -12,12 +11,6 @@ from unittest.mock import patch
 import pytest
 
 import hermes_logging
-# Use whatever RotatingFileHandler class hermes_logging actually resolved so
-# the autouse fixture's isinstance checks (which strip rotating handlers
-# between tests) match the real handlers on every platform. hermes_logging
-# aliases concurrent-log-handler's ConcurrentRotatingFileHandler on Windows
-# (the #44873 fix) but keeps stdlib RotatingFileHandler on POSIX, so importing
-# the name from the module under test keeps the two in lockstep.
 from hermes_logging import RotatingFileHandler
 
 
@@ -111,7 +104,7 @@ def test_repeated_setup_routes_records_once(hermes_home, mode, component, config
 
 class TestSetupLogging:
     def test_profile_routing_follows_context_home(self, hermes_home, tmp_path):
-        """Desktop multiplex cron records are written to their owning profile."""
+        """Records are written to their owning profile."""
         from hermes_constants import reset_hermes_home_override, set_hermes_home_override
 
         profile_home = tmp_path / "profile-b"
@@ -121,19 +114,19 @@ class TestSetupLogging:
             [hermes_home, profile_home]
         ) is True
 
-        logger = logging.getLogger("cron.scheduler.profile-routing-test")
+        logger = logging.getLogger("agent.profile_test.profile-routing-test")
         token = set_hermes_home_override(profile_home)
         try:
-            logger.info("profile-routed cron record")
+            logger.info("profile-routed record")
         finally:
             reset_hermes_home_override(token)
         hermes_logging.flush_log_queue()
 
-        assert "profile-routed cron record" in (
+        assert "profile-routed record" in (
             profile_home / "logs" / "agent.log"
         ).read_text(encoding="utf-8-sig")
         default_log = hermes_home / "logs" / "agent.log"
-        assert not default_log.exists() or "profile-routed cron record" not in default_log.read_text(encoding="utf-8-sig")
+        assert not default_log.exists() or "profile-routed record" not in default_log.read_text(encoding="utf-8-sig")
 
     @pytest.mark.parametrize("launch_redacts, routed_opt_out, routed_redacted", [
         (False, None, True),      # the launch profile opted out, the routed one did not
@@ -246,7 +239,7 @@ class TestSetupLogging:
         assert "turn of the launch profile" in a_log and "turn of the launch profile" not in b_log
 
     def test_setup_for_an_already_routed_home_adds_no_duplicate_writer(self, hermes_home, tmp_path):
-        """Routing already on (multiplexed gateway, Desktop cron ticker): a profile's agent starting
+        """Routing already on (multi-profile process): a profile's agent starting
         up must not add a second writer for its home on top of the router."""
         from logging.handlers import RotatingFileHandler
 
@@ -313,7 +306,7 @@ class TestSetupLogging:
             [hermes_home, profile_home]
         ) is True
 
-        logger = logging.getLogger("cron.scheduler.profile-routing-deleted-test")
+        logger = logging.getLogger("agent.profile_test.profile-routing-deleted-test")
         # The default home's agent.log must exist before the fallback assertion
         # can mean anything (lazy-opening handlers may not have created it yet).
         logger.info("routing fallback default-home probe record")
@@ -368,7 +361,7 @@ class TestSetupLogging:
         profile_home.mkdir(parents=True)
         hermes_logging.setup_logging(hermes_home=hermes_home)
         assert hermes_logging.enable_profile_log_routing([hermes_home, profile_home]) is True
-        logger = logging.getLogger("cron.scheduler.out-of-band-delete-test")
+        logger = logging.getLogger("agent.profile_test.out-of-band-delete-test")
 
         def emit(message):
             token = set_hermes_home_override(profile_home)
@@ -406,8 +399,7 @@ class TestSetupLogging:
     ):
         """A live routed profile must not pay the delete check (two stats) on every record.
 
-        ``closed-per-write`` is how concurrent-log-handler behaves on Windows: the stream is
-        closed after every write, which must not read as a skipped write.
+        A stream closed after a write must not read as a skipped write.
         """
         from hermes_constants import reset_hermes_home_override, set_hermes_home_override
 
@@ -426,7 +418,7 @@ class TestSetupLogging:
         profile_home.mkdir(parents=True)
         hermes_logging.setup_logging(hermes_home=hermes_home)
         assert hermes_logging.enable_profile_log_routing([hermes_home, profile_home]) is True
-        logger = logging.getLogger("cron.scheduler.liveness-rate-limit-test")
+        logger = logging.getLogger("agent.profile_test.liveness-rate-limit-test")
         calls = []
         real = hermes_logging.named_profile_is_deleted
 
@@ -537,184 +529,6 @@ class TestAddRotatingHandler:
 
         assert log_path.exists()
         assert stat.S_IMODE(log_path.stat().st_mode) == 0o660
-
-
-
-class TestWindowsConcurrentLogLockTimeout:
-    """Windows concurrent-log-handler lock timeouts stay inside logging."""
-
-    def _make_logger_and_handler(self, log_path: Path):
-        logger = logging.getLogger(f"_test_concurrent_lock_timeout_{log_path.stem}")
-        logger.handlers.clear()
-        logger.propagate = False
-        logger.setLevel(logging.INFO)
-
-        handler = hermes_logging._ManagedRotatingFileHandler(
-            str(log_path), maxBytes=1, backupCount=1, encoding="utf-8",
-        )
-        handler.setFormatter(logging.Formatter("%(message)s"))
-        logger.addHandler(handler)
-        return logger, handler
-
-    @pytest.mark.platforms("windows")
-    def test_helper_only_matches_windows_concurrent_lock_timeout(self):
-        # Windows-only: concurrent-log-handler (and therefore its cross-process
-        # lock timeout) is only installed on Windows — faking sys.platform
-        # exercised the string check without the handler that raises it.
-        assert hermes_logging._is_windows_concurrent_log_lock_timeout(
-            RuntimeError("Cannot acquire lock after 20 attempts")
-        )
-        assert not hermes_logging._is_windows_concurrent_log_lock_timeout(
-            RuntimeError("some other logging failure")
-        )
-
-    @pytest.mark.platforms("linux")
-    def test_helper_never_matches_off_windows(self):
-        # On POSIX the suppression must stay inert: stdlib RotatingFileHandler
-        # is in use, so this RuntimeError text is never a CLH lock timeout.
-        assert not hermes_logging._is_windows_concurrent_log_lock_timeout(
-            RuntimeError("Cannot acquire lock after 20 attempts")
-        )
-
-    @pytest.mark.platforms("windows")
-    def test_lock_timeout_routed_to_handle_error_is_suppressed(self, tmp_path, capsys):
-        """Mirror CLH's real control flow.
-
-        ``concurrent-log-handler``'s ``emit()`` wraps its whole body in
-        ``try/except Exception: self.handleError(record)``, so the lock
-        RuntimeError raised in ``_do_lock()`` is caught *inside* CLH and routed
-        to ``handleError`` with the exception live in ``sys.exc_info()``.  We
-        invoke ``handleError`` the same way CLH would and assert no traceback
-        reaches stderr (the slash-worker surface) — but the suppression must
-        still surface once through the logging system, not stay a black hole.
-
-        Windows-only: the suppression is keyed on the real host, and only on
-        Windows is the base handler CLH at all — the fake platform gave us the
-        branch without the handler that raises."""
-        logger, handler = self._make_logger_and_handler(tmp_path / "agent.log")
-        record = logger.makeRecord(
-            logger.name, logging.INFO, __file__, 0, "force rollover", (), None,
-        )
-        captured_warnings: list[logging.LogRecord] = []
-
-        class _Capture(logging.Handler):
-            def emit(self, record: logging.LogRecord) -> None:
-                captured_warnings.append(record)
-
-        listener = _Capture()
-        logging.getLogger("hermes_logging").addHandler(listener)
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setattr(hermes_logging, "_windows_lock_timeout_warned", False)
-        try:
-            try:
-                raise RuntimeError("Cannot acquire lock after 20 attempts")
-            except RuntimeError:
-                handler.handleError(record)
-            try:
-                raise RuntimeError("Cannot acquire lock after 20 attempts")
-            except RuntimeError:
-                handler.handleError(record)
-
-            captured = capsys.readouterr()
-            assert "Cannot acquire lock after 20 attempts" not in captured.err
-            assert "--- Logging error ---" not in captured.err
-            # One-shot warning: the second suppressed emit must not re-warn.
-            assert len(captured_warnings) == 1
-            assert "concurrent-log-handler" in captured_warnings[0].getMessage()
-        finally:
-            monkeypatch.undo()
-            logging.getLogger("hermes_logging").removeHandler(listener)
-            logger.removeHandler(handler)
-            handler.close()
-
-    def test_lock_timeout_warning_is_one_shot(self, caplog):
-        """The suppressed-timeout warning is exactly-once per process.
-
-        Every emit after the first CLH lock failure raises the same
-        RuntimeError, so warn-once is what keeps errors.log from being spammed
-        as badly as the stderr noise the suppression replaces."""
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setattr(hermes_logging, "_windows_lock_timeout_warned", False)
-        try:
-            with caplog.at_level(logging.WARNING, logger="hermes_logging"):
-                hermes_logging._warn_windows_lock_timeout_once()
-                hermes_logging._warn_windows_lock_timeout_once()
-        finally:
-            monkeypatch.undo()
-        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-        assert len(warnings) == 1
-        assert "concurrent-log-handler" in warnings[0].getMessage()
-
-    @pytest.fixture
-    def fresh_logging(self):
-        def load():
-            spec = importlib.util.spec_from_file_location(
-                "_hermes_logging_import_test", hermes_logging.__file__,
-            )
-            assert spec is not None and spec.loader is not None
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            return module
-        return load
-
-    @pytest.mark.platforms("windows")
-    def test_fresh_import_selects_working_concurrent_handler(self, tmp_path, fresh_logging):
-        """Native locking must work at import, before the handler class is defined."""
-        from concurrent_log_handler import ConcurrentRotatingFileHandler
-
-        module = fresh_logging()
-        assert module.RotatingFileHandler is ConcurrentRotatingFileHandler
-        assert module._WINDOWS_CLH_FALLBACK is False
-        assert module._WINDOWS_CLH_FALLBACK_REASON == ""
-
-        log_path = tmp_path / "agent.log"
-        handler = module._new_file_handler(
-            log_path, level=logging.INFO, max_bytes=1, backup_count=1,
-            formatter=logging.Formatter("%(message)s"),
-        )
-        try:
-            for message in ("before rollover", "after rollover"):
-                handler.handle(logging.LogRecord("test", logging.INFO, "", 0, message, (), None))
-            handler.flush()
-            assert log_path.read_text(encoding="utf-8-sig").splitlines() == ["after rollover"]
-            assert (tmp_path / "agent.log.1").read_text(encoding="utf-8-sig").splitlines() == ["before rollover"]
-        finally:
-            handler.close()
-
-    @pytest.mark.platforms("windows")
-    def test_fresh_import_retains_lock_failure_and_writes_without_rollover(
-        self, tmp_path, monkeypatch, fresh_logging,
-    ):
-        """A post-import platform fake misses both handler selection and fallback resets."""
-        import portalocker
-        from logging.handlers import RotatingFileHandler as StdlibRotatingFileHandler
-
-        failure = ImportError("pywintypes is required for Win32Locker but not found")
-
-        def fail_lock(stream, flags):
-            raise failure
-
-        monkeypatch.setattr(portalocker, "lock", fail_lock)
-        module = fresh_logging()
-        assert module.RotatingFileHandler is StdlibRotatingFileHandler
-        assert module._WINDOWS_CLH_FALLBACK is True
-        assert module._WINDOWS_CLH_FALLBACK_REASON == repr(failure)
-
-        log_path = tmp_path / "agent.log"
-        handler = module._new_file_handler(
-            log_path, level=logging.INFO, max_bytes=1, backup_count=1,
-            formatter=logging.Formatter("%(message)s"),
-        )
-        try:
-            assert handler.maxBytes == 0
-            assert handler.backupCount == 0
-            for message in ("first message", "second message"):
-                handler.handle(logging.LogRecord("test", logging.INFO, "", 0, message, (), None))
-            handler.flush()
-            assert log_path.read_text(encoding="utf-8-sig").splitlines() == ["first message", "second message"]
-            assert not list(tmp_path.glob("agent.log.*"))
-        finally:
-            handler.close()
 
 
 
@@ -928,15 +742,15 @@ def test_eio_after_successful_reopen_still_names_the_path_once(tmp_path, capsys)
 
 
 class TestSafeStderr:
-    """Tests for _safe_stderr() — Unicode tolerance on Windows console."""
+    """Tests for _safe_stderr() with a non-UTF-8 stream."""
 
 
     def test_wraps_non_utf8_stderr(self, monkeypatch):
-        """On non-UTF-8 systems (e.g. Windows cp949), wraps stderr with UTF-8."""
+        """Wrap a non-UTF-8 stderr with UTF-8."""
         import io
 
         class FakeStderr:
-            """Simulates a Windows stderr with legacy encoding."""
+            """Simulates stderr with a legacy encoding."""
             encoding = "cp949"
             buffer = io.BytesIO()
 
@@ -998,6 +812,36 @@ class TestLineBufferPipedStdout:
 class TestRolloverPreservesLogOwnership:
     """#120151: the stdlib rollover opens a fresh ``agent.log`` owned by the rotating process; a root
     gateway sharing a profile's log with a worker on another uid must hand the new file back."""
+
+    def test_configured_stdlib_rotation_writes_backup(self, tmp_path):
+        path = tmp_path / "agent.log"
+        handler = hermes_logging._new_file_handler(
+            path, level=logging.INFO, max_bytes=16, backup_count=1,
+            formatter=logging.Formatter("%(message)s"),
+        )
+        try:
+            assert isinstance(handler, RotatingFileHandler)
+            assert (handler.maxBytes, handler.backupCount) == (16, 1)
+            for message in ("first record", "second record"):
+                handler.handle(logging.LogRecord("test", logging.INFO, "", 0, message, (), None))
+            handler.flush()
+            assert path.read_text().strip() == "second record"
+            assert path.with_suffix(".log.1").read_text().strip() == "first record"
+        finally:
+            handler.close()
+
+    def test_other_handler_errors_use_standard_error_reporting(self, tmp_path, capsys, monkeypatch):
+        handler = hermes_logging._ManagedRotatingFileHandler(str(tmp_path / "agent.log"))
+        record = logging.LogRecord("test", logging.ERROR, __file__, 0, "record", (), None)
+        monkeypatch.setattr(logging, "raiseExceptions", True)
+        try:
+            try:
+                raise RuntimeError("unexpected logging failure")
+            except RuntimeError:
+                handler.handleError(record)
+            assert "unexpected logging failure" in capsys.readouterr().err
+        finally:
+            handler.close()
 
     @staticmethod
     def _rolled_handler(log_path: Path):
@@ -1081,8 +925,8 @@ def test_profile_router_close_is_never_undone_by_a_record_in_flight(hermes_home,
     """T23 follow-up: with no router lock across ``emit``, ``logging.shutdown`` (uvicorn's
     ``dictConfig``) can close the router and its per-home handler while a routed record is in
     flight. ``after_pick``: the record picked the per-home handler, then it was closed; a
-    ``RotatingFileHandler`` in append mode reopens on emit, so the closed file came back (on
-    Windows its lock then stays held and the profile's logs/ cannot be removed). ``before_publish``:
+    ``RotatingFileHandler`` in append mode reopens on emit, so the closed file came back.
+    ``before_publish``:
     the record built a new home's handler, and its ``setdefault`` landed in the closed router (a
     leaked fd). Real handlers; only the interleaving is forced."""
     profile = hermes_home / "profiles" / "t23b"

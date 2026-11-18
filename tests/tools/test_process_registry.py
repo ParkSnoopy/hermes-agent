@@ -121,30 +121,6 @@ def _wait_until(predicate, timeout: float = 5.0, interval: float = 0.05) -> bool
     return False
 
 
-@pytest.mark.platforms("windows")
-def test_write_stdin_uses_str_for_windows_pty(registry):
-    """pywinpty expects str input; bytes raises a PyString conversion error.
-
-    Windows-only: the str-vs-bytes choice IS the ``_IS_WINDOWS`` branch, and
-    the real pty handle it must satisfy (pywinpty) does not exist elsewhere.
-    """
-    written = []
-
-    class _FakePty:
-        def write(self, value):
-            written.append(value)
-
-    session = _make_session(sid="pty-win")
-    session._pty = _FakePty()
-    registry._running[session.id] = session
-
-    result = registry.write_stdin(session.id, "hello\n")
-
-    assert result == {"status": "ok", "bytes_written": 6}
-    assert written == ["hello\n"]
-    assert isinstance(written[0], str)
-
-
 @pytest.mark.platforms("linux")
 def test_write_stdin_uses_bytes_for_posix_pty(registry):
     """The POSIX counterpart: ptyprocess expects bytes, not str."""
@@ -1379,42 +1355,6 @@ def test_drain_notifications_owns_event_callback_beats_key_equality():
 # _terminate_host_pid — cross-platform process-tree termination
 # ---------------------------------------------------------------------------
 
-
-class TestTerminateHostPidWindows:
-    """Windows branch uses ``taskkill /T /F`` — the documented MS tree-kill
-    primitive. We can't use psutil's ``children(recursive=True)`` /
-    ``.terminate()`` path on Windows because (1) Windows doesn't maintain
-    a Unix-style process tree so the walk is unreliable, and (2)
-    ``Process.terminate()`` on Windows is ``TerminateProcess()`` for the
-    target handle only, not the tree.
-    """
-
-    @pytest.mark.platforms("windows")
-    def test_windows_invokes_taskkill_with_tree_and_force_flags(self, monkeypatch):
-        """The Windows branch must shell out to ``taskkill /PID N /T /F``.
-
-        Windows-only: ``taskkill.exe`` is the thing under test and only exists
-        here — with a faked ``_IS_WINDOWS`` the argv was asserted against a
-        binary that could never have run.
-        """
-        from tools import process_registry as pr
-
-        captured = {}
-
-        def fake_run(args, **kwargs):
-            captured["args"] = args
-            captured["kwargs"] = kwargs
-            return MagicMock(returncode=0, stderr="", stdout="")
-
-        monkeypatch.setattr(pr.subprocess, "run", fake_run)
-
-        pr.ProcessRegistry._terminate_host_pid(12345)
-
-        assert captured["args"][0] == "taskkill"
-        assert "/PID" in captured["args"]
-        assert "12345" in captured["args"]
-        assert "/T" in captured["args"], "Tree flag required to reach descendants"
-        assert "/F" in captured["args"], "Force flag required for headless Chromium"
 
 class TestTerminateHostPidPosix:
     """POSIX branch gives a managed parent its shutdown window first."""

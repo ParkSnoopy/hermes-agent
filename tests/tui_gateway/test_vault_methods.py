@@ -149,8 +149,7 @@ def test_undetected_manager_stays_off(home, monkeypatch):
 def test_source_set_tolerates_scalar_vault_section(home, monkeypatch):
     """A hand-edited ``vault: true`` in config.yaml must not crash the Desktop
     Credential Vault source toggle: the malformed section is coerced to a dict
-    before the opt-out is written (same YAML-shape hazard class _voice_cfg_dict
-    documents for voice.*, #19835)."""
+    before the opt-out is written."""
     monkeypatch.setattr(
         "agent.vault_backends.base.is_installed", lambda name: name == "bitwarden"
     )

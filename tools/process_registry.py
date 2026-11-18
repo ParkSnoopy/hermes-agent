@@ -18,13 +18,13 @@ import time
 import uuid
 from pathlib import Path
 
-_IS_WINDOWS = platform.system() == "Windows"
+
 # systemd transient scopes exist only on Linux; gate every scope-path branch on this
 # (not merely "not Windows") so macOS and other POSIX platforms never touch systemd.
 # See #70716.
 _IS_LINUX = platform.system() == "Linux"
 from tools.environments.local import _append_dropped_path_entries, _find_shell, _resolve_safe_cwd, _sanitize_subprocess_env, _terminal_env
-from hermes_cli._subprocess_compat import windows_hide_flags
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, NamedTuple, Optional
 
@@ -355,7 +355,7 @@ class RestartSafeScopeUnavailable(RuntimeError):
 
 def _warn_scope_degraded_once(detail: str, *, consequence: str) -> None:
     """Warn once per process: the condition is host-level and the probe verdict
-    is cached, so this would otherwise fire on every cron dispatch."""
+    is cached, so this would otherwise fire on every dispatch."""
     global _scope_degraded_warned
     if _scope_degraded_warned:
         return
@@ -363,10 +363,9 @@ def _warn_scope_degraded_once(detail: str, *, consequence: str) -> None:
     logger.warning("%s; %s", detail, consequence)
 
 
-_CRON_DEGRADED_CONSEQUENCE = (
-    "cron children are dispatched as direct external subprocesses without restart-safe "
-    "cgroup isolation (killed if the gateway restarts mid-job). Set "
-    "cron.require_restart_safe_scope=true in config.yaml to fail closed instead."
+_GATEWAY_DEGRADED_CONSEQUENCE = (
+    "gateway children are dispatched as direct external subprocesses without restart-safe "
+    "cgroup isolation and may be killed if the gateway restarts."
 )
 _UNIT_DEGRADED_CONSEQUENCE = (
     "workers are spawned unmanaged inside this systemd unit's cgroup and will be KILLED when the "
@@ -421,11 +420,11 @@ def restart_safe_gateway_child_argv(
     A systemd-supervised gateway restart kills every process in the service
     cgroup, so children that must survive it run in a transient user scope.
     Hosts with no user systemd session (containers, LXCs without linger) cannot
-    create one; hard-failing there is a silent cron outage, so callers state the
+    create one; callers state the
     policy: ``require_restart_safe_scope=True`` raises
     :class:`RestartSafeScopeUnavailable` (kanban's long-lived workers), ``False``
     degrades to a direct external subprocess with a once-per-process warning
-    (cron, behind ``cron.require_restart_safe_scope``).
+    when restart-safe scope is optional.
 
     ``outlives_parent=True`` (fire-and-forget kanban workers): any *other*
     systemd unit — a ``Type=oneshot`` dispatch timer, an operator's sequencer
@@ -433,8 +432,7 @@ def restart_safe_gateway_child_argv(
     there too (#113612). Whether that unit actually kills its children
     (``KillMode``, lifetime) is not knowable here, so without a user bus it
     degrades with a loud warning instead of refusing: a long-lived
-    ``Type=simple`` sequencer without linger keeps working. A cron job blocks its
-    caller until it finishes and never needs this.
+    ``Type=simple`` sequencer without linger keeps working.
     """
     if not _IS_LINUX:
         return GatewayChildDispatch("in_process", command)
@@ -447,11 +445,10 @@ def restart_safe_gateway_child_argv(
     def _degrade(detail: str) -> GatewayChildDispatch:
         if supervised_gateway:
             if require_restart_safe_scope:
-                # Stored as the cron execution's error and shown on the job row: name the remedy.
                 raise RestartSafeScopeUnavailable(
                     f"cannot create restart-safe systemd scope for gateway child: {detail}"
                 )
-            _warn_scope_degraded_once(f"managed gateway: {detail}", consequence=_CRON_DEGRADED_CONSEQUENCE)
+            _warn_scope_degraded_once(f"managed gateway: {detail}", consequence=_GATEWAY_DEGRADED_CONSEQUENCE)
         else:
             _warn_scope_degraded_once(f"systemd unit dispatch: {detail}", consequence=_UNIT_DEGRADED_CONSEQUENCE)
         return GatewayChildDispatch("degraded", command)
@@ -1138,10 +1135,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
         """PTY spawn for interactive CLI tools (Codex, Claude Code, REPLs).
         Raises ImportError when no PTY backend is installed and re-raises any spawn
         failure; ``spawn_local`` falls back to pipe mode in both cases."""
-        if _IS_WINDOWS:
-            from winpty import PtyProcess as _PtyProcessCls
-        else:
-            from ptyprocess import PtyProcess as _PtyProcessCls
+        from ptyprocess import PtyProcess as _PtyProcessCls
         pty_argv = self._scope_argv(session, safe_command, session.id, "PTY")
         pty_env = self._spawn_env(env_vars)
         if session.systemd_unit:
@@ -1193,7 +1187,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
                         ) from e
                     session.systemd_unit = ""
         # Pipe path (non-PTY or PTY fallback).
-        _popen_kwargs = {"creationflags": windows_hide_flags()} if _IS_WINDOWS else {}
+
         unit_suffix = f"{session.id}-pipe-fallback" if pty_scope_attempted else session.id
         spawn_argv = self._scope_argv(session, record_exit_command(log, safe_command) if log else safe_command,
                                       unit_suffix, "Local")
@@ -1210,7 +1204,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
             proc = self._spawn_job(
                 session, spawn_argv, persist_on_release, text=True, cwd=session.cwd, env=spawn_env,
                 encoding="utf-8", errors="replace", stdout=output, stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL, **_popen_kwargs)
+                stdin=subprocess.DEVNULL)
         finally:
             if log:
                 os.close(output)
@@ -1293,7 +1287,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
             # select() needs a real OS fd; mocked streams (tests, adapters) may lack
             # fileno() and use the blocking read instead.
             try:
-                fd = stdout.fileno() if raw_read is not None and not _IS_WINDOWS else None
+                fd = stdout.fileno() if raw_read is not None else None
             except Exception:
                 fd = None
             if not (isinstance(fd, int) and fd >= 0):
@@ -1374,12 +1368,9 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         # Programs in a PTY can block waiting for replies to device-status / window-size /
         # cursor-position / DEC private-mode queries. Answer the bounded set and strip the
-        # queries from captured output. POSIX only: Windows ConPTY is a real console host that
-        # answers itself (and pywinpty yields str chunks, not bytes).
-        responder = None
-        if not _IS_WINDOWS:
-            from tools.pty_query_responder import PtyQueryResponder
-            responder = PtyQueryResponder(rows=30, cols=120)
+        # queries from captured output.
+        from tools.pty_query_responder import PtyQueryResponder
+        responder = PtyQueryResponder(rows=30, cols=120)
 
         def ingest(text: str) -> None:
             # A kill can leave this reader running while a detached descendant holds the
@@ -1522,13 +1513,12 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
             # the slave side is gone. A descendant that setsid()s past the kill
             # keeps it open, so close() here would block forever (under _lock on
             # the prune path). The reader closes the PTY itself via
-            # _finish_reader once its read ends. pywinpty reads don't block, so
-            # Windows closes here as before.
+            # _finish_reader once its read ends.
             reader = session._reader_thread
-            if (not _IS_WINDOWS and reader is not None and reader.is_alive()
+            if (reader is not None and reader.is_alive()
                     and reader is not threading.current_thread()):
                 return
-            # ptyprocess/pywinpty close() is idempotent (``closed`` flag) and
+            # ptyprocess close() is idempotent (``closed`` flag) and
             # closes the master fd exactly once; it raises only if the child
             # ignores SIGKILL, which we don't want to surface on the finish path.
             with suppress(Exception):
@@ -1826,8 +1816,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
             return  # Direct child still running — reader block is legitimate.
         reader = session._reader_thread
         if (
-            not _IS_WINDOWS
-            and session._reader_selectable
+            session._reader_selectable
             and reader is not None
             and reader.is_alive()
         ):
@@ -1850,7 +1839,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
             return
         # Best-effort non-blocking drain of whatever the reader hasn't consumed.
         stdout = getattr(proc, "stdout", None)
-        if stdout is not None and not _IS_WINDOWS:
+        if stdout is not None:
             try:
                 import fcntl
                 fd = stdout.fileno()
@@ -2191,13 +2180,8 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
         """Send raw data to a running process's stdin (no newline appended)."""
 
         def via_pty(pty):
-            # pywinpty expects str on Windows; ptyprocess expects bytes on POSIX.
-            if _IS_WINDOWS:
-                pty.write(data.decode("utf-8") if isinstance(data, bytes) else str(data))
-            else:
-                # surrogateescape: a PTY is a byte stream — round-trip the original
-                # bytes instead of crashing on surrogate content.
-                pty.write(data.encode("utf-8", "surrogateescape") if isinstance(data, str) else data)
+            # A PTY is a byte stream; preserve surrogateescaped bytes.
+            pty.write(data.encode("utf-8", "surrogateescape") if isinstance(data, str) else data)
 
         def via_pipe(stdin):
             stdin.write(data)
@@ -2206,10 +2190,10 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin, ProcessOu
 
     def submit_stdin(self, session_id: str, data: str = "") -> dict:
         """Send data + Enter. On a PTY Enter is the CR a keyboard sends: raw-mode TUIs (prompt_toolkit,
-        Ink) read ``\\n`` as Ctrl+J and canonical children still get ``\\n`` via ICRNL; a Windows PTY
-        gets ``\\r\\n`` (a bare ``\\n`` through pywinpty never ends a ConPTY line read). Pipes keep ``\\n``."""
+        Ink) read ``\\n`` as Ctrl+J and canonical children still get ``\\n`` via ICRNL.
+        Pipes keep ``\\n``."""
         session = self.get(session_id)
-        pty_enter = "\r\n" if _IS_WINDOWS else "\r"
+        pty_enter = "\r"
         return self.write_stdin(session_id, data + (pty_enter if session is not None and session._pty else "\n"))
 
     def request_close_terminal(self, session_id: str) -> dict:

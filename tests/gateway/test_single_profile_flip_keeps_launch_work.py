@@ -123,13 +123,6 @@ async def test_default_profiles_mcp_connections_survive_the_flip(standalone_host
             core._server_tool_scopes.pop(stale, None)
 
 
-def test_default_cron_fire_after_the_flip_keeps_env_injected_credentials(standalone_host):
-    from cron.scheduler import _fire_secret_scope
-    runner, home = standalone_host
-    _mkprofile(home, "daily-news-bot")
-    assert asyncio.run(runner._multiplex_for_added_profile())
-    with _fire_secret_scope():
-        assert _read() == "launch-env-key"
 
 
 

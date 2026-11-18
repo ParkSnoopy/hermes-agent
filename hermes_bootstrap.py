@@ -1,13 +1,4 @@
-"""Process bootstrap for Hermes entry points: Windows UTF-8 stdio and ANSI console, import-path
-hardening, durable lazy-install target, and dual-stack (Happy Eyeballs) connects.
-
-Windows binds stdio to the console code page (cp1252), so ``print("café")`` raises
-``UnicodeEncodeError``, and Python children inherit the same default unless
-``PYTHONUTF8``/``PYTHONIOENCODING`` are set. Import this module first in every entry
-point (``hermes``, ``hermes-agent``, ``hermes-acp``, ``gateway.run``, ``batch_runner``,
-``cron/scheduler``). It does NOT re-exec with ``-X utf8``: ``open()`` in the current
-process still needs an explicit ``encoding="utf-8"`` (ruff ``PLW1514``). POSIX is left
-alone deliberately — users' ``LANG``/``LC_*`` choices are respected.
+"""Linux process bootstrap, import-path hardening and dual-stack connects.
 
 Stdlib only: entry points import this before ``harden_import_path()`` runs, so nothing
 here may pull in a Hermes package that a project-local directory could shadow.
@@ -24,8 +15,8 @@ import socket
 import sys
 import time
 
-_IS_WINDOWS = sys.platform == "win32"
-_bootstrap_applied = False
+if not (sys.platform.startswith("linux") or sys.platform == "android"):
+    raise RuntimeError(f"Hermes requires Linux; unsupported host: {sys.platform}")
 _HAPPY_EYEBALLS_DELAY_SECONDS = 0.25
 _URLLIB3_CONNECTION_MODULE = "urllib3.util.connection"
 
@@ -224,103 +215,6 @@ def install_happy_eyeballs_socket_connect() -> None:
         sys.meta_path.insert(0, _Urllib3ConnectionPatcher())
 
 
-def apply_windows_utf8_bootstrap() -> bool:
-    """Apply the Windows UTF-8 bootstrap once; True only when it was applied this call."""
-    global _bootstrap_applied
-
-    if not _IS_WINDOWS or _bootstrap_applied:
-        return False
-
-    # setdefault() so a user can opt out with PYTHONUTF8=0 / PYTHONIOENCODING=...
-    os.environ.setdefault("PYTHONUTF8", "1")
-    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
-
-    # os.environ changes don't rebind streams bound at interpreter startup, so
-    # reconfigure them in-process. errors="replace" keeps a non-UTF-8 legacy
-    # pipe on stdin from crashing us (U+FFFD instead of an exception).
-    # Non-TextIOWrapper streams (BytesIO in tests, embedded hosts) have no
-    # reconfigure(): skip — the env-var fix for children is the bigger win.
-    for stream_name in ("stdout", "stderr", "stdin"):
-        reconfigure = getattr(getattr(sys, stream_name, None), "reconfigure", None)
-        if reconfigure is None:
-            continue
-        try:
-            reconfigure(encoding="utf-8", errors="replace")
-        except (OSError, ValueError):
-            pass  # closed, or replaced with something non-reconfigurable
-
-    _bootstrap_applied = True
-    return True
-
-
-_ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
-
-
-def enable_windows_vt(streams=None) -> bool:
-    """Opt the console behind stdout/stderr in to ANSI escape processing.
-
-    ``hermes_cli.colors`` and the skins emit raw SGR codes whenever stdout is a TTY. A
-    conhost console (PowerShell 5.1, cmd.exe, the installer's ``hermes setup``) prints
-    them as ``←[35m`` until the output handle has ENABLE_VIRTUAL_TERMINAL_PROCESSING, and
-    shells hand native children a console with it off. The mode belongs to the console
-    buffer, so setting it here also covers the relaunched child. Handles that are not a
-    console (pipes, files, NUL, a windowless pythonw) fail GetConsoleMode and are left
-    alone. A console that refuses VT (pre-Windows 10) gets NO_COLOR instead, which
-    ``should_use_color`` and rich honour, so it shows plain text rather than garbage.
-    Returns False only in that fallback case.
-    """
-    if not _IS_WINDOWS:
-        return True
-    import ctypes
-    import msvcrt
-    from ctypes import wintypes
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    enabled = True
-    for stream in (sys.stdout, sys.stderr) if streams is None else streams:
-        try:
-            handle = msvcrt.get_osfhandle(stream.fileno())
-        except (AttributeError, OSError, ValueError):
-            continue  # no fd (None under pythonw, StringIO in embedders)
-        mode = wintypes.DWORD()
-        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
-            continue
-        if mode.value & _ENABLE_VIRTUAL_TERMINAL_PROCESSING:
-            continue
-        if not kernel32.SetConsoleMode(handle, mode.value | _ENABLE_VIRTUAL_TERMINAL_PROCESSING):
-            enabled = False
-    if not enabled:
-        os.environ.setdefault("NO_COLOR", "1")
-    return enabled
-
-
-def suppress_platform_ver_console() -> None:
-    """Stub ``platform._syscmd_ver`` on Windows — decode-crash + console-flash guard.
-
-    ``platform.win32_ver()`` (reached via ``platform.platform()``, which the OpenAI SDK
-    calls) shells out ``cmd /c ver`` with ``shell=True`` and no ``CREATE_NO_WINDOW``: a
-    windowless parent (pythonw gateway, managed workers) flashes a console per call,
-    and Python 3.11.0/3.11.1 (no ``encoding="locale"`` fix) strict-utf-8-decodes the OEM
-    code page output under PEP 540 mode and raises (#69413). Returning the inputs makes
-    ``win32_ver()`` fall back to ``sys.getwindowsversion()`` — same data, no subprocess.
-    Mirrors ``hermes_cli._subprocess_compat.suppress_platform_ver_console`` for callers
-    that never import ``hermes_cli.main``; double application is harmless.
-    """
-    if not _IS_WINDOWS:
-        return
-    try:
-        import platform
-
-        if hasattr(platform, "_syscmd_ver"):
-            def _quiet_syscmd_ver(system="", release="", version="",
-                                  supported_platforms=("win32", "win16", "dos")):
-                return system, release, version
-
-            platform._syscmd_ver = _quiet_syscmd_ver
-    except Exception:
-        pass  # hardening only — never break an entry point
-
-
 def _glibc_frees_environ() -> bool:
     """True on glibc < 2.41, whose ``setenv`` of a NEW name reallocs the ``environ`` array
     and frees the old one (2.41+ never frees it, so a concurrent ``getenv`` stays safe)."""
@@ -467,13 +361,7 @@ def export_scratch_tmp_env() -> None:
         pass  # a missing/unwritable home just leaves the system temp dir in place
 
 
-# Apply on import — entry points just need ``import hermes_bootstrap``
-# (or ``from hermes_bootstrap import apply_windows_utf8_bootstrap``) at
-# the very top of their module, before importing anything else.  The
-# import side effect does the right thing.
-apply_windows_utf8_bootstrap()
-enable_windows_vt()
-suppress_platform_ver_console()
+# Entry points import this module before their dependency graph.
 install_never_free_environ()
 
 # Every entry point imports this module before its dependency graph.
@@ -499,7 +387,7 @@ def _settle_interrupted_update() -> None:
     any Hermes package imports from it (``hermes_cli._early_recovery``; ``hermes_cli.main`` repeats the
     call for entries that never reach this module). A killed ZIP swap can leave ``hermes_cli/`` itself
     moved aside: the journal-driven restore then runs from that moved-aside copy, the code that wrote
-    the journal. Root files are never absent mid-swap (``update_cmd_zip._commit_staged_replacements``)."""
+    the journal. Root files are never absent mid-swap."""
     try:
         from hermes_cli import _early_recovery as recovery
     except ImportError:
@@ -567,10 +455,6 @@ if not _pm_repair:
                 _launch_python, _root, sys.argv, sys.orig_argv,
                 getattr(_main_spec, "name", None),
             )
-            if os.name == "nt":
-                import subprocess
-
-                raise RelaunchExit(subprocess.call(_command))
             os.execv(str(_launch_python), _command)
     except Exception as exc:
         if isinstance(exc, PermissionError) and (message := install_state_permission_message(_root, exc)):

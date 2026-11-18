@@ -67,7 +67,7 @@ def _bootstrap(authority, ref, row, policy, scope, text=None):
     live = authority.sessions[ref.session_id]
     # This turn's facts ride the per-turn hydrated request (the bootstrap field set is closed):
     # the admission's one-shot flags, the route's YOLO as of now (never the frozen launch flag) and
-    # the committed surface (HUD / live voice / voice turn) when admission recorded one.
+    # the committed HUD surface when admission recorded one.
     request = dict(json.loads(policy.request_json), turn_v1={
         'finite': row['payload'].get('finite', False), 'unattended': row['payload'].get('unattended') is True,
         'yolo': _session_yolo(authority, live.route, policy),
@@ -120,8 +120,8 @@ def _session_yolo(authority, route, policy):
 def worker_turn_scope(frame):
     """Child side of ``turn_v1``: bind what the in-process turn binds on the owner
     (execute_finite_admission, the route's YOLO, the committed surface), so ``chat -q``/``-z``
-    never park a prompt, the session's current YOLO governs this child and a HUD / live-voice /
-    voice turn reaches the model as it does in process. Frames without it bind nothing."""
+    never park a prompt, the session's current YOLO governs this child and a HUD turn reaches the
+    model as it does in process. Frames without it bind nothing."""
     from gateway.session_finite import finite_turn_scope
     from gateway.session_display import display_turn_scope, restore_display
     from gateway.session_surface import restore_surface, surface_turn_scope

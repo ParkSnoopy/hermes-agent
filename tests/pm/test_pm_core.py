@@ -654,45 +654,8 @@ def test_python_package_url_carries_release_tag():
         pass
 
 
-@pytest.mark.platforms("macos")
-def test_python_package_stably_signs_macos_runtime(tmp_path):
-    import shutil
-    import subprocess
-    import sys
-    from pm.registry import get_package
-
-    python = get_package("python")
-    staged = tmp_path / "staged"
-    binary = staged / "python" / "bin" / "python3"
-    binary.parent.mkdir(parents=True)
-    (staged / "python" / "lib").mkdir()
-    shutil.copy2(Path(sys._base_executable).resolve(), binary)
-    subprocess.run(
-        ["codesign", "--force", "--sign", "-", "--timestamp=none",
-         "--identifier", "test.hermes.downloaded", "--requirements",
-         '=designated => identifier "test.hermes.downloaded"', str(binary)],
-        check=True, capture_output=True, timeout=30,
-    )
-    python.stage(Store(tmp_path / "store"), staged, "fixture", current_target())
-    binary = python.binary(staged, current_target())
-    subprocess.run(["codesign", "--verify", "--deep", "--strict", str(binary)],
-                   check=True, capture_output=True, timeout=30)
-    identity = subprocess.run(["codesign", "-d", "-r-", str(binary)],
-                              check=True, capture_output=True, text=True, timeout=30)
-    assert 'designated => identifier "com.nousresearch.hermes.managed-python"' in identity.stdout + identity.stderr
 
 
-@pytest.mark.platforms("not macos")
-def test_python_package_does_not_sign_non_macos_runtime(monkeypatch, tmp_path):
-    import hermes_cli.macos_signing as signing
-
-    monkeypatch.setattr(
-        signing.subprocess,
-        "run",
-        lambda *args, **kwargs: pytest.fail("codesign must not run outside macOS"),
-    )
-
-    assert signing.sign_managed_python(tmp_path / "python") is False
 
 
 def test_machine_matches_binary_pe_headers(tmp_path):
@@ -785,66 +748,20 @@ def test_arch_guard_allows_emulated_x64_on_win32_arm64(monkeypatch, tmp_path):
     assert problems == []
 
 
-def test_python_stage_drops_unloadable_x64_vc_runtime_on_arm64(monkeypatch, tmp_path):
-    from pm.registry import get_package
-
-    staged = tmp_path / "staged"
-    staged.mkdir()
-    (staged / "python.exe").write_bytes(b"launcher")
-    (staged / "vcruntime140_1.dll").write_bytes(b"x64")
-    (staged / "vcruntime140.dll").write_bytes(b"arm64")
-
-    monkeypatch.setattr("hermes_cli.macos_signing.sign_managed_python", lambda p: False)
-    get_package("python").stage(None, staged, "3.14.7", "win32-arm64")
-
-    assert not (staged / "vcruntime140_1.dll").exists()
-    assert (staged / "vcruntime140.dll").is_file()
 
 
-def test_python_stage_keeps_vc_runtimes_on_other_targets(monkeypatch, tmp_path):
-    from pm.registry import get_package
-
-    staged = tmp_path / "staged"
-    staged.mkdir()
-    (staged / "python.exe").write_bytes(b"launcher")
-    (staged / "vcruntime140_1.dll").write_bytes(b"x64")
-
-    monkeypatch.setattr("hermes_cli.macos_signing.sign_managed_python", lambda p: False)
-    get_package("python").stage(None, staged, "3.14.7", "win32-x64")
-
-    assert (staged / "vcruntime140_1.dll").is_file()
 
 
-@pytest.mark.parametrize("target", ["win32-x64", "win32-arm64"])
-def test_windows_python_also_answers_to_python3(monkeypatch, tmp_path, target):
-    """`python3` must reach the pinned interpreter, not the Microsoft Store alias stub."""
-    from pm.registry import get_package
-
-    python = get_package("python")
-    staged = tmp_path / "staged"
-    staged.mkdir()
-    (staged / "python.exe").write_bytes(b"launcher")
-    monkeypatch.setattr("hermes_cli.macos_signing.sign_managed_python", lambda p: False)
-    python.stage(None, staged, "3.14.7", target)
-    assert (staged / "python3.exe").read_bytes() == b"launcher"
-    assert python.verify(staged, target) == ""
-    # An entry staged before the copy existed (or with a stale one) restages on install.
-    (staged / "python3.exe").write_bytes(b"older launcher")
-    assert "differs" in python.verify(staged, target)
-    (staged / "python3.exe").unlink()
-    assert "python3.exe is missing" in python.verify(staged, target)
 
 
-def test_python3_alias_is_windows_only(monkeypatch, tmp_path):
+def test_linux_python_stages_and_verifies(tmp_path):
     from pm.registry import get_package
 
     python = get_package("python")
     staged = tmp_path / "staged"
     (staged / "bin").mkdir(parents=True)
     (staged / "bin/python3").write_bytes(b"interpreter")
-    monkeypatch.setattr("hermes_cli.macos_signing.sign_managed_python", lambda p: False)
     python.stage(None, staged, "3.14.7", "linux-x64")
-    assert not (staged / "python3.exe").exists()
     assert python.verify(staged, "linux-x64") == ""
 
 

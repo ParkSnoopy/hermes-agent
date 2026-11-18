@@ -37,7 +37,7 @@ pull_request / push main
  │                                                   (+ the CI timing report steps)
  ├─ docker.yml   (own run; build/test, push :main on main)
  ├─ nix.yml      (own run; nix flake check)
- └─ path-filtered: pm-bundle, termux-verify, plugin-catalog-ci, windows-bundle-sdk
+ └─ path-filtered: pm-bundle, termux-verify, plugin-catalog-ci
 
 workflow_run CI started  → ci-review-comment.yml (live PR comment)
 PR labeled run-e2e       → label-rerun.yml (reruns CI, Docker, Nix)
@@ -62,7 +62,7 @@ Stable Release completed (failed) → stable-release-publication.yml (rerun fail
 | Kind | What starts it | Files |
 |---|---|---|
 | Entry point | `pull_request`, `push`, `schedule`, `workflow_run`, `workflow_dispatch`, `release` | `ci.yaml`, `docker.yml`, `nix.yml`, `canary-release.yml`, `stable-release.yml`, and the others under the headings below |
-| Reusable only | Another workflow's `uses: ./.github/workflows/<file>` | Most `ci.yaml` children (`tests.yml`, `lint.yml`, …), `install-e2e-run.yml`, `install-e2e-{windows,macos}-run.yml` |
+| Reusable only | Another workflow's `uses: ./.github/workflows/<file>` | Most `ci.yaml` children (`tests.yml`, `lint.yml`, …), `install-e2e-run.yml` |
 | Both | Its own triggers **and** a caller | `nix.yml`, `docker.yml`, `pm-bundle.yml`, `termux-release.yml`, `termux-verify.yml`, `windows-venv-e2e.yml`, `windows-install-update-e2e.yml`, `install-e2e.yml`, `ci.yaml`, `archive-inputs.yml` |
 
 A reusable workflow does not show up as its own run in the Actions tab. Its
@@ -191,7 +191,7 @@ Then a gate step in `ci.yaml` rewrites the result:
 | `catalog` | `plugin-catalog/*.yaml`, `contributors/emails/` (a diff with only these runs catalog tests **instead of** the Python suite) |
 | `site` | the Docusaurus site |
 | `bootstrap` | `install.sh` and its pin fragments and stamp |
-| `desktop_updater` | `scripts/desktop-update/` and its Windows hand-off tests |
+| `desktop_updater` | `scripts/desktop-update/` and its hand-off tests |
 | `uv_lock` | `pyproject.toml` or `uv.lock` |
 | `deps` | `pyproject.toml` |
 | `scan` | Python files, `.pth`, setup hooks |
@@ -308,10 +308,10 @@ branch protection.
 |---|---|---|---|
 | `docker.yml`, **Docker Build, Test, and Publish** | `pull_request`, `push: main`, `workflow_call` (stable) | **PR:** `mode` (phase + classification, one job) → `build` only when the `docker` slow lane is on (Docker meta, dependency manifests, `pm/`, `tests/docker/`, webapp build recipe, or the `run-e2e` label). Builds slim+desktop × amd64+arm64 and runs the docker integration tests. Never pushes. **Push to `main` on the upstream repo:** always builds, then `publish` (env `container-publish`) and `merge` push `:main` / `:main-desktop` only (never `:latest`). **Stable `release-phase: test`:** builds the claim commit, tests it (unless the claim has no `docker-tests` lane), and archives the exact image. **`release-phase: publish`:** pushes the archived bytes under the attempt ref and returns the manifest digest. No `release: published` trigger, on purpose. | none (`gh run rerun`) |
 | `nix.yml`, **Nix flake check** | `pull_request`, `push: main`, `workflow_call` | `flake-check` runs when the `nix` lane is on (`nix/`, `flake.*`, dependency/npm manifests, `.github/`, `run-e2e` label). Every push to `main` turns it on. `release: true` forces it. | none |
-| `pm-bundle.yml`, **PM Bundle** | `pull_request` on `pm/**` (not `*.md`), `scripts/bundles/**`, the Windows build deps, `uv.lock`, `pyproject.toml`, itself; `workflow_dispatch`; `workflow_call` (stable) | Stages and smoke-tests `hermes pm bundle` on darwin-arm64, win32-x64, win32-arm64. Linux targets are commented out; there is no Intel macOS leg. | `gh workflow run pm-bundle.yml [-f ref=<sha>]` |
+| `pm-bundle.yml`, **PM Bundle** | `pull_request` on `pm/**` (not `*.md`), `scripts/bundles/**`, desktop build cache inputs, `uv.lock`, `pyproject.toml`, itself; `workflow_dispatch`; `workflow_call` (stable) | Stages and smoke-tests `hermes pm bundle` on linux-x64 and linux-arm64. | `gh workflow run pm-bundle.yml [-f ref=<sha>]` |
 | `termux-verify.yml`, **Termux verification** | `push: main` / `pull_request` on `scripts/termux/**`, `pm/**` (not `*.md`), `tests/scripts/test_termux*`, itself; `workflow_dispatch`; `workflow_call` (stable) | `contracts` and `tui` always run. `r2-provisioned` is skipped on PRs. `native-runtime` (arm64) runs only when R2 secrets exist or `release: true`. A release run fails loudly without R2. | `gh workflow run termux-verify.yml` |
 | `plugin-catalog-ci.yml`, **Plugin Catalog CI** | `pull_request` on `plugin-catalog/**` | `structural` (schema) and `pinned-source-validate` (the pinned SHA is reachable and the plugin passes `hermes plugins validate`; inner steps skip when no entry file changed). | none |
-| `windows-bundle-sdk.yml`, **Windows bundle SDK** | `pull_request` on the Windows bundle and signing scripts plus their tests; `workflow_dispatch` | Runs the real Windows SDK downloader on cold Windows runners. | `gh workflow run windows-bundle-sdk.yml --ref <branch>` |
+
 
 ---
 
@@ -460,15 +460,13 @@ selected job fails the aggregate gate.
 
 | Workflow | Triggers | Notes |
 |---|---|---|
-| `install-e2e.yml`, **Install & Update E2E** | `workflow_dispatch`; `workflow_call` from stable (`route=all`) | "Can a user on a released version get to this commit?" `pick-releases` samples release tags (newest, oldest, spread; `tag-count` or `install-ref`). `generate-matrix` expands `scripts/sandbox/generate-e2e-matrix.mjs` into linux/windows/macos legs. The bundled legs need `windows-bundle-manifest` / `macos-bundle-manifest` and a matching `route`. **Never runs on PRs, pushes, or a schedule.** |
-| `install-e2e-run.yml` | `workflow_call` | Linux/OS-agnostic leg: real `curl \| bash` install, then update. Unsupported method pairs skip (grey). |
-| `install-e2e-windows-run.yml` | `workflow_call` | Windows leg (Hermes-Setup.exe via AutoHotkey, `install.ps1`, app "Update now" under Playwright). Packaged-bundle arm only with `install-method=packaged-app`. Also called by stable for signed acceptance. |
-| `install-e2e-macos-run.yml` | `workflow_call` | macOS leg (script installs, Hermes-Setup.dmg, packaged-bundle arm). Also called by stable. |
+| `install-e2e.yml`, **Install & Update E2E** | `workflow_dispatch`; `workflow_call` from stable (`route=all`) | "Can a user on a released version get to this commit?" `pick-releases` samples release tags (newest, oldest, spread; `tag-count` or `install-ref`). `generate-matrix` expands `scripts/sandbox/generate-e2e-matrix.mjs` into Linux legs. **Never runs on PRs, pushes, or a schedule.** |
+| `install-e2e-run.yml` | `workflow_call` | Linux leg: real `curl \| bash` install, then update. Unsupported method pairs fail in the driver. |
 | `install-e2e-red.yml`, **Install & Update E2E red tracker** | `workflow_run` of Install & Update E2E; `workflow_dispatch` (`run-id`, `dry-run` default true) | Keeps one `install-e2e-red` issue in sync. The automatic path runs only when the watched run was a `schedule` event (see [dormant paths](#known-dormant-or-inert-paths)). |
 
 ```sh
 gh workflow run install-e2e.yml --ref main -f route=all
-gh workflow run install-e2e.yml --ref main -f route=windows-desktop -f install-ref=v0.21.5
+
 gh workflow run install-e2e-red.yml -f run-id=<id> -f dry-run=false
 ```
 
@@ -481,21 +479,6 @@ gh workflow run install-e2e-red.yml -f run-id=<id> -f dry-run=false
 
 ---
 
-## Manual-only and iteration-branch workflows
-
-These let you iterate on Windows behaviour without the rest of CI. Push to a
-matching branch, or dispatch:
-
-| Workflow | Branch pattern | Dispatch | Other callers |
-|---|---|---|---|
-| `windows-venv-e2e.yml`, venv-holder live E2E | `wine2e/**` | no | stable (`windows-live` lane) |
-| `windows-install-update-e2e.yml`, install.ps1 + `hermes update` | `wine2e-install/**` | yes (`strict_acceptance`) | `tests-os.yml` (`e2e_upgrade` lane) |
-
-```sh
-gh workflow run windows-install-update-e2e.yml --ref <branch> -f strict_acceptance=upd-txn
-```
-
----
 
 ## Full index
 
@@ -513,10 +496,8 @@ gh workflow run windows-install-update-e2e.yml --ref <branch> -f strict_acceptan
 | `docker.yml` | Docker Build, Test, and Publish | PR, main, call | stable |
 | `docs-search-monitor.yml` | Docs Search Monitor | cron 6 h, workflow_run(Deploy Site), dispatch | none |
 | `docs-site-checks.yml` | Docs Site Checks | R | ci |
-| `install-e2e-macos-run.yml` | install-e2e macos leg | R | install-e2e, stable |
 | `install-e2e-red.yml` | Install & Update E2E red tracker | workflow_run(Install & Update E2E), dispatch | none |
-| `install-e2e-run.yml` | Install & Update E2E (reusable) | R | install-e2e, macos leg |
-| `install-e2e-windows-run.yml` | install-e2e windows leg | R | install-e2e, stable |
+| `install-e2e-run.yml` | Install & Update E2E (reusable) | R | install-e2e |
 | `install-e2e.yml` | Install & Update E2E | dispatch, call | stable |
 | `js-autofix.yml` | auto-fix lint issues & formatting | main (paths), dispatch | none |
 | `js-tests.yml` | JS Tests | R | ci |
@@ -534,11 +515,8 @@ gh workflow run windows-install-update-e2e.yml --ref <branch> -f strict_acceptan
 | `stable-release.yml` | Stable Release | dispatch | release.py |
 | `termux-release.yml` | Termux Release | dispatch, call | stable; canary/release.py (dispatch) |
 | `termux-verify.yml` | Termux verification | PR/main (paths), dispatch, call | stable |
-| `tests-os.yml` | OS-specific tests | R | ci |
 | `tests.yml` | Tests | R | ci |
-| `windows-bundle-sdk.yml` | Windows bundle SDK | PR (paths), dispatch | none |
-| `windows-install-update-e2e.yml` | Windows install + update E2E | push `wine2e-install/**`, dispatch, call | tests-os |
-| `windows-venv-e2e.yml` | Windows venv-holder live E2E | push `wine2e/**`, call | stable |
+
 
 ---
 

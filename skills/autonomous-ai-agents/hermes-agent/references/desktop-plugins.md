@@ -74,7 +74,7 @@ The ONLY import surface is `@hermes/plugin-sdk` (plus `react` /
   in handlers,
   `useValue(atom)` in components.
 - `host.request(method, params)` — gateway JSON-RPC (sessions, config,
-  skills, cron — everything the app uses).
+  skills — everything the app uses).
 - `host.onEvent(type, fn)` — live gateway events (`'*'` for all). Returns a
   disposer.
 - `host.notify({ kind, message })`, `host.navigate(path)`, `host.logs(...)`,

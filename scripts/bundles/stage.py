@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from scripts.bundles.native import stage_native
+from pm.store import current_target
+from scripts.build.inputs import validate_target
 
 
 def main(argv=None) -> int:
@@ -21,6 +23,7 @@ def main(argv=None) -> int:
     parser.add_argument("--cache", type=Path, help="persistent uv build cache")
     parser.add_argument("--tui", type=Path)
     args = parser.parse_args(argv)
+    validate_target(current_target())
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     (out / "manifest.json").unlink(missing_ok=True)

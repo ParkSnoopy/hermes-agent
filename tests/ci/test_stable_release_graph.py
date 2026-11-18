@@ -9,7 +9,7 @@ from ruamel.yaml import YAML
 
 from scripts.releases import lanes as lane_set
 
-from tests.ci.desktop_release_roles import gate
+from tests.ci.workflow_conditions import gate
 from tests.ci.workflow_steps import is_checkout
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -50,13 +50,13 @@ def test_release_reuses_whole_ci_and_docker_before_publication():
     assert jobs["docker"]["with"]["release-phase"] == "test"
     # Every gate and the retained package candidate starts straight after admit.
     # The acceptance join requires CI, so a slow gate cannot delay a build.
-    for parallel in ("docker", "nix", "pm-bundle", "termux-checks", "windows-live", "install-e2e"):
+    for parallel in ("docker", "nix", "pm-bundle", "termux-checks", "install-e2e"):
         assert direct_needs(jobs, parallel) == ["admit"], parallel
     candidate_calls = ["candidates-termux"]
     for call in candidate_calls:
         assert direct_needs(jobs, call) == ["admit"], call
     required = {"ci", "docker", "nix", "pm-bundle", "install-e2e", "termux-checks",
-                "windows-live", "candidate-manifest", *candidate_calls}
+                "candidate-manifest", *candidate_calls}
     assert required <= ancestors(jobs, "acceptance")
     assert "candidates" not in jobs
     for name in candidate_calls:

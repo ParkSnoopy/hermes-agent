@@ -171,10 +171,7 @@ CASES = {
     ),
     # Prose cannot change the closure or the binary.
     "docs-only → no nix": (["README.md"], _lanes()),
-    # install.ps1 and its PowerShell suites are exercised by platforms("windows")
-    # pytest files, so they must turn on python (which gates tests-os).
-    "install.ps1 → python + bootstrap + e2e_upgrade": (["scripts/install.ps1"], _lanes(python=True, bootstrap=True, e2e_upgrade=True)),
-    "installer suite → python": (["scripts/tests/test-install-ps1-longpath.ps1"], _lanes(python=True)),
+
 
     # Unknown top-level file keeps Python on rather than risk a silent skip.
     "unknown toplevel → python": (["Makefile"], _lanes(python=True)),
@@ -297,10 +294,7 @@ CASES = {
     ),
     # Catalog entry data runs the catalog tests INSTEAD of the Python suite.
     "catalog entry → catalog only": (["plugin-catalog/foo.yaml"], _lanes(catalog=True)),
-    "catalog entry + email map → catalog only": (
-        ["plugin-catalog/foo.yaml", "contributors/emails/a@example.com"],
-        _lanes(catalog=True),
-    ),
+
     # The rules README is mirrored by a docs-page test, so it keeps the suite.
     "catalog README → python": (["plugin-catalog/README.md"], _lanes(python=True)),
     # Its code examples are held to the plugin API by a Python test.
@@ -381,7 +375,7 @@ _UPDATE_PATH_FILES = (
     "hermes_cli/process_identity.py",
     "hermes_cli/relaunch.py",
     "hermes_cli/gateway.py",
-    "hermes_cli/gateway_windows.py",
+
     "hermes_cli/gateway_migrate.py",
     "hermes_bootstrap.py",
     "hermes_constants.py",
@@ -455,9 +449,7 @@ def _iter_if_expressions(job: object):
 # suite: each runs on a PR exactly when its lane fires and then gates the merge.
 _REAL_UPDATE_LANES = (
     ("ci.yaml", "tests", "tests.yml", "e2e_upgrade"),
-    ("ci.yaml", "tests-os", "tests-os.yml", "e2e_upgrade"),
 
-    ("tests-os.yml", "install-update-e2e", "windows-install-update-e2e.yml", "e2e_upgrade"),
     # Catalog-only PRs skip the suite, so their catalog tests must gate the merge.
     ("ci.yaml", "catalog-tests", "catalog-tests.yml", "catalog"),
     ("ci.yaml", "bootstrap-installer", "bootstrap-installer.yml", "bootstrap"),
@@ -482,15 +474,6 @@ def test_real_update_suites_gate_the_merge_when_their_lane_fires(caller, job, ca
     for name, body in _yaml(f".github/workflows/{called}")["jobs"].items():
         assert not body.get("continue-on-error"), f"{called}::{name} cannot fail the merge"
 
-
-
-def test_windows_venv_e2e_runs_only_test_files_that_exist():
-    """``run_tests.sh`` drops a missing path (or a ``::node`` selector) without
-    a word, so a stale entry silently stops running on every wine2e push."""
-    text = (_REPO / ".github/workflows/windows-venv-e2e.yml").read_text(encoding="utf-8-sig")
-    paths = re.findall(r"(tests/[\w/.:-]+)", text)
-    assert paths
-    assert [p for p in paths if "::" in p or not (_REPO / p).is_file()] == []
 
 
 def _write_event(tmp_path, number: int | None = 88442) -> Path:
@@ -610,7 +593,7 @@ def test_catalog_lane_runs_every_test_that_reads_the_shipped_catalog():
     for must in (
         "tests/hermes_cli/test_plugin_catalog.py",
         "tests/scripts/test_validate_plugin_catalog.py",
-        "tests/scripts/test_contributor_map.py",
+
         "tests/website/test_extract_plugins.py",
     ):
         assert must in files

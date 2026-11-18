@@ -18,7 +18,7 @@ The security model has eight layers:
 4. **Container isolation** — Docker (and the Singularity plugin) sandboxing with hardened settings
 5. **MCP credential filtering** — environment variable isolation for MCP subprocesses
 6. **Context file scanning** — prompt injection detection in project files
-7. **Cross-session isolation** — sessions cannot access each other's data or state; cron job storage paths are hardened against path traversal attacks
+7. **Cross-session isolation** — sessions cannot access each other's data or state
 8. **Input sanitization** — working directory parameters in terminal tool backends are validated against an allowlist to prevent shell injection
 
 ## Dangerous Command Approval
@@ -33,7 +33,7 @@ The approval system supports three modes, configured via `approvals.mode` in `~/
 approvals:
   mode: smart                     # smart | manual | off
   timeout: 300                    # seconds to wait for user response (default: 300)
-  cron_mode: deny                 # deny | approve — what cron jobs do when they hit a dangerous command
+
   single_query_mode: deny         # deny | approve — what single-query (-q) sessions do on a dangerous command
   unattended_mode: deny           # deny | approve — what webhook/API sessions do on a dangerous command
   mcp_reload_confirm: true        # /reload-mcp asks before invalidating the MCP tool cache
@@ -47,9 +47,8 @@ The full set of keys:
 | `mode` | `smart` | Approval policy for dangerous shell commands — see the table below. |
 | `timeout` | `300` | Seconds Hermes waits for an approval reply before timing out. |
 | `discord_prompt_timeout` | `300` | Seconds Discord's interactive buttons (approvals, clarify, update and slash-command prompts) stay clickable; minimum 30. See Discord. |
-| `cron_mode` | `deny` | How [cron jobs](./features/cron.md) behave headlessly when they trigger a dangerous-command prompt. `deny` blocks the command (the agent must find another path); `approve` auto-approves everything in cron context. |
-| `single_query_mode` | `deny` | How one-shot [`hermes chat -q`](./cli.md) sessions behave when they trigger a dangerous-command prompt. A `-q` session runs a single turn and exits with no user waiting to answer prompts; `deny` blocks the command (the agent must find another path), `approve` auto-approves everything in single-query context. Mirrors `cron_mode`. |
-| `unattended_mode` | `deny` | How sessions on unattended programmatic platforms (webhook, msgraph_webhook, api_server) behave when they trigger a dangerous-command prompt. These surfaces have no human who can answer `/approve`, so instead of blocking for the full approval timeout, `deny` blocks the command instantly (the agent must find another path) and `approve` auto-approves everything in unattended context. Exception: an api_server session whose client can answer the card (`/v1/runs` and streaming chat completions, via `POST /v1/runs/{id}/approval`) still gets the approval request. Mirrors `cron_mode`. |
+| `single_query_mode` | `deny` | How one-shot [`hermes chat -q`](./cli.md) sessions behave when they trigger a dangerous-command prompt. A `-q` session runs a single turn and exits with no user waiting to answer prompts; `deny` blocks the command (the agent must find another path), `approve` auto-approves everything in single-query context. |
+| `unattended_mode` | `deny` | How sessions on unattended programmatic platforms (webhook, msgraph_webhook, api_server) behave when they trigger a dangerous-command prompt. These surfaces have no human who can answer `/approve`, so instead of blocking for the full approval timeout, `deny` blocks the command instantly (the agent must find another path) and `approve` auto-approves everything in unattended context. Exception: an api_server session whose client can answer the card (`/v1/runs` and streaming chat completions, via `POST /v1/runs/{id}/approval`) still gets the approval request. |
 | `approvers` | `["*"]` | Who may answer a pending approval from a messaging chat. `["*"]`: any admitted member. `[]` or a list of user ids: the requester, those ids and the platform admins only — see [Who can answer an approval in a shared chat](#who-can-answer-an-approval-in-a-shared-chat-approvalsapprovers). |
 | `mcp_reload_confirm` | `true` | When true, `/reload-mcp` asks before rebuilding the MCP tool set. Rebuilding invalidates the provider prompt cache (tool schemas live in the system prompt), so the next message re-sends full input tokens. Users who click **Always Approve** flip this key to `false`. |
 | `destructive_slash_confirm` | `true` | When true, destructive session slash commands (`/clear`, `/new`, `/reset`, `/undo`) prompt before discarding conversation state. Three-option dialog (Approve Once / Always Approve / Cancel) routed through native yes/no buttons on Telegram, Discord, and Slack; text fallback elsewhere. Users who click **Always Approve** flip this key to `false`. The TUI also honors this setting for its `/clear`, `/new`, and `/reset` modal; `HERMES_TUI_NO_CONFIRM=1` force-skips that modal regardless of the configured value. |
@@ -93,9 +92,9 @@ When YOLO is active, Hermes shows two persistent visual reminders so it's hard t
 YOLO mode disables **all** dangerous command safety checks for the session — **except** the hardline blocklist (see below). Use only when you fully trust the commands being generated (e.g., well-tested automation scripts in disposable environments).
 :::
 
-YOLO and `approvals.mode: off` also skip the [`trust: untrusted`](../reference/mcp-config-reference.md) MCP prompt: a write-capable tool on an untrusted server runs without asking, with each source's usual reach. `/yolo` covers only the chat it was typed in (another chat is still asked); `--yolo` and `HERMES_YOLO_MODE` cover the sessions of the Hermes process they were given to; `approvals.mode: off` covers every chat and cron job of that profile. They do **not** skip:
+YOLO and `approvals.mode: off` also skip the [`trust: untrusted`](../reference/mcp-config-reference.md) MCP prompt: a write-capable tool on an untrusted server runs without asking, with each source's usual reach. `/yolo` covers only the chat it was typed in (another chat is still asked); `--yolo` and `HERMES_YOLO_MODE` cover the sessions of the Hermes process they were given to; `approvals.mode: off` covers every chat of that profile. They do **not** skip:
 
-- **An MCP server's spend limit.** A call that would take the chat past a declared [`spend_limit`](./features/mcp.md#tool-costs-and-spend-limits) still asks, and where nobody can answer (a cron job, `hermes chat -q`) it is refused. The limit is a budget you set, not a safety prompt.
+- **An MCP server's spend limit.** A call that would take the chat past a declared [`spend_limit`](./features/mcp.md#tool-costs-and-spend-limits) still asks, and where nobody can answer (`hermes chat -q`) it is refused. The limit is a budget you set, not a safety prompt.
 - **Questions from an MCP server** ([elicitation](./features/mcp.md#mcp-elicitation-support)), which ask you for input rather than for permission.
 - **Payment-card fill prompts** from the [credential vault](./features/credential-vault.md#paying-and-filling-addresses), which hand a card to a page, and MCP event subscriptions, which install a standing trigger.
 
@@ -116,23 +115,8 @@ gateway is literally a `python` process and such a command takes it (and the age
 own turn) down. Kills scoped to a process the agent owns pass: the `proc_*` id of a
 background job (`process(action="kill", …)`) or an explicit PID
 (`taskkill /F /PID <pid>`, `kill <pid>`). Other image names (`taskkill /F /IM notepad.exe`)
-are unaffected. The guard is active under every generated launcher — systemd unit,
-launchd plist, s6 run script and the Windows Scheduled Task — via the
+are unaffected. The guard is active under every generated launcher — systemd unit or s6 run script — via the
 `HERMES_SUPERVISED_CHILD` marker they export.
-
-On macOS, executed `launchctl submit` and `launchctl bootstrap` commands are
-restricted **regardless of the job label**. This is a conservative registration
-restriction intended to catch indirect restart helpers with neutral labels, not
-an inspection of the target plist. It also rejects independent scheduled jobs
-with `RunAtLoad=false` and no `KeepAlive` key; rejection does **not** establish that
-the job uses KeepAlive or controls Hermes.
-
-For authorized LaunchAgent maintenance, use a separate shell outside the running
-gateway. Some independent `load`/`unload` commands currently pass the label-based
-checks, but that is not a target-verified exemption or a supported way to evade a
-`bootstrap` rejection. Read-only `launchctl print` is not a lifecycle operation.
-After external maintenance, distinguish the on-disk plist from the loaded job:
-validate the plist and read back the loaded schedule before reporting activation.
 
 A tool rejection means the command did not execute through that tool call. An
 assistant declining to issue a call is a separate model decision; changing models
@@ -144,7 +128,7 @@ Some commands are so catastrophic — irreversible filesystem wipes, fork bombs,
 
 - `--yolo` / `/yolo` toggled on
 - `approvals.mode: off`
-- Cron jobs running in headless `approve` mode
+
 - User explicitly clicking "allow always"
 
 The blocklist is the floor below `--yolo`. It trips **before** the approval layer even sees the command, and there's no override flag. Patterns currently covered (not exhaustive; kept in sync with `tools/approval.py::UNRECOVERABLE_BLOCKLIST`):
@@ -246,7 +230,7 @@ The following patterns trigger approval prompts (defined in `tools/approval.py`)
 
 ### `execute_code` Scripts {#execute-code-scripts}
 
-A script run by [`execute_code`](./features/code-execution.md) can call `subprocess`, `os` or `shutil` directly, and those calls never pass through the patterns above. Messaging, API and other gateway sessions therefore ask once for the whole script before it starts; a denied or unanswered script never runs. `cron_mode`, `single_query_mode` and `unattended_mode` decide the script at once, as they decide a command; YOLO and `mode: off` skip the prompt.
+A script run by [`execute_code`](./features/code-execution.md) can call `subprocess`, `os` or `shutil` directly, and those calls never pass through the patterns above. Messaging, API and other gateway sessions therefore ask once for the whole script before it starts; a denied or unanswered script never runs. `single_query_mode` and `unattended_mode` decide the script at once, as they decide a command; YOLO and `mode: off` skip the prompt.
 
 Local sessions (classic CLI, TUI, Desktop, ACP editor) follow the interactive CLI's rule instead. Under `manual` (and `smart`), a turn the session's viewer typed gets **no whole-script approval**: Python-level file and process operations inside the script run without a prompt, and only the script's `terminal()` calls ask, each on the session's own prompt, as in the CLI before the one-gateway runtime. The exemption needs both a turn the viewer submitted and a viewer attached who can answer approvals when the script starts. These keep the whole-script approval in a local session:
 
@@ -323,8 +307,8 @@ These patterns are loaded at startup and silently approved in all future session
 Entries can be exact command text, a shell-style glob (`podman *`), or a
 dangerous-pattern rule key such as `script execution via heredoc` (the key shown
 in the approval prompt). Rule keys are honored on every surface, including
-unattended ones: a cron job, `hermes chat -q` run or webhook session under
-`cron_mode`/`single_query_mode`/`unattended_mode: deny` still runs a command whose
+unattended ones: a `hermes chat -q` run or webhook session under
+`single_query_mode`/`unattended_mode: deny` still runs a command whose
 detected rule key is in `command_allowlist`.
 
 The setting must be a list of strings. Legacy installs that stored a list as a
@@ -426,7 +410,7 @@ When set, `write_file` and `patch` may only target paths inside the listed direc
 
 - Set automatically in the [official Docker image](https://github.com/NousResearch/hermes-agent) (`HERMES_WRITE_SAFE_ROOT=/opt/data`)
 - Supports multiple roots separated by `:` on Unix or `;` on Windows
-- **Do not add to `~/.hermes/.env` casually.** If you set it to a project directory, the agent cannot write to `~/.hermes/cron/jobs.json`, profile skills, or other Hermes state outside that prefix
+- **Do not add to `~/.hermes/.env` casually.** If you set it to a project directory, the agent cannot write to profile skills or other Hermes state outside that prefix
 
 To allow both a workspace and Hermes home:
 
@@ -435,10 +419,6 @@ export HERMES_WRITE_SAFE_ROOT=/path/to/project:/home/you/.hermes
 ```
 
 Unset the variable to restore unrestricted writes (subject to the protected-path denylist). Full reference: [HERMES_WRITE_SAFE_ROOT](../reference/environment-variables.md#hermes_write_safe_root).
-
-### Cron and other Hermes state
-
-Do not ask the agent to `patch` `~/.hermes/cron/jobs.json` directly. Use the `cronjob_manage` tool, [`hermes cron`](./features/cron.md), or `/cron` — they update the job store through the supported API. The same applies to other Hermes control files when write safety blocks direct edits.
 
 :::note Defense-in-depth, not a hard boundary
 Write guards apply to `write_file` and `patch` only, with one exception: the Windows NT/device-namespace row is also enforced on reads — `read_file`, `search_files`, `@file:`/`@folder:` context references and the ACP file bridge all refuse those paths on the raw string, before anything resolves them. The `terminal` tool runs as the same OS user and can still `cat` or overwrite denied paths via shell commands. The denylist reduces accidental damage and gives models a clear stop signal; it does not sandbox a hostile or compromised agent.
@@ -580,7 +560,7 @@ Command approval and deny rules are guardrails, not containment. Limit credentia
 
 Both `execute_code` and `terminal` strip sensitive environment variables from child processes to prevent credential exfiltration by LLM-generated code. However, skills that declare `required_environment_variables` legitimately need access to those vars.
 
-First-party platform credentials — the `BUZZ_*` variables used by the Buzz messaging platform — are passed through to `terminal` children (foreground and background/PTY spawns) **only when the session is actually operating as a Buzz agent**: the process is a Buzz-ACP managed agent (`BUZZ_MANAGED_AGENT` set by the Buzz Desktop harness) or the live gateway session's platform is `buzz`. This lets a Buzz platform agent invoke its platform-mandated CLI (e.g. `buzz`) from the terminal tool, while Telegram/CLI/cron sessions on the same host keep the variables stripped. Because `_sanitize_subprocess_env` also feeds search workers (e.g. the ddgs web-search subprocess), the computer-use driver binary, and user-script runners (bang `!` commands, quick commands, cron scripts, webhook-filter scripts), those children receive the variables too when spawned from a Buzz session. The carve-out is **terminal-only**: it does not apply to `execute_code`, browser/TUI-host spawns (`hermes_subprocess_env`), Docker children, or `env_passthrough` registration, which remain sealed.
+First-party platform credentials — the `BUZZ_*` variables used by the Buzz messaging platform — are passed through to `terminal` children (foreground and background/PTY spawns) **only when the session is actually operating as a Buzz agent**: the process is a Buzz-ACP managed agent (`BUZZ_MANAGED_AGENT` set by the Buzz Desktop harness) or the live gateway session's platform is `buzz`. This lets a Buzz platform agent invoke its platform-mandated CLI (e.g. `buzz`) from the terminal tool, while Telegram/CLI sessions on the same host keep the variables stripped. Because `_sanitize_subprocess_env` also feeds search workers (e.g. the ddgs web-search subprocess), the computer-use driver binary, and user-script runners (bang `!` commands, quick commands, webhook-filter scripts), those children receive the variables too when spawned from a Buzz session. The carve-out is **terminal-only**: it does not apply to `execute_code`, browser/TUI-host spawns (`hermes_subprocess_env`), Docker children, or `env_passthrough` registration, which remain sealed.
 
 ### How It Works
 
@@ -611,7 +591,7 @@ terminal:
     - ANOTHER_TOKEN
 ```
 
-Both lists apply to `terminal`, `execute_code` and `no_agent` cron scripts alike. A declared variable is forwarded with the value of the profile the child runs for: when one process serves several profiles (multi-profile gateway, Desktop/dashboard backend) each profile's declared value comes from its own `.env` / secret sources, never from the process environment the launch profile populated, and the launch profile's `.env` credentials are dropped from a served profile's children.
+Both lists apply to `terminal` and `execute_code` alike. A declared variable is forwarded with the value of the profile the child runs for: when one process serves several profiles (multi-profile gateway, Desktop/dashboard backend) each profile's declared value comes from its own `.env` / secret sources, never from the process environment the launch profile populated, and the launch profile's `.env` credentials are dropped from a served profile's children.
 
 ### Credential File Passthrough (OAuth tokens, etc.) {#credential-file-passthrough}
 

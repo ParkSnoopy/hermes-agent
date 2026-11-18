@@ -57,12 +57,12 @@ The repo ships these bundled plugins under `plugins/`. All are opt-in — enable
 |---|---|---|
 | `disk-cleanup` | hooks + slash command | Auto-track ephemeral files and clean them on session end |
 | `security-guidance` | hooks | Pattern-match dangerous code on `write_file`/`patch` and append a security warning (or block) — 25 rules (Apache-2.0 fork of Anthropic's `claude-plugins-official` patterns) |
-| `google_meet` | standalone | Join Meet calls, live-caption transcription, optional realtime duplex audio |
+| `google_meet` | standalone | Join Meet calls and capture live captions |
 | `image_gen/openai` | image backend | OpenAI GPT Image 2 and 2.5 Flare/Sunburst generation and editing (API key) |
 | `image_gen/openai-codex` | image backend | OpenAI image generation via Codex OAuth |
 | `image_gen/xai` | image backend | xAI `grok-2-image` backend |
 | `hermes-achievements` | dashboard tab | Steam-style collectible badges generated from your real Hermes session history |
-| `kanban/dashboard` | dashboard tab | Kanban board UI for the multi-agent dispatcher — tasks, comments, fan-out, board switching. See [Kanban Multi-Agent](./kanban.md). |
+| `kanban/dashboard` | dashboard tab | Kanban board UI for the multi-agent dispatcher — tasks, comments, fan-out, board switching. |
 
 Memory providers (`plugins/memory/*`) and context engines (`plugins/context_engine/*`) are listed separately on [Memory Providers](./memory-providers.md) — they're managed through `hermes memory` and `hermes plugins` respectively. The full per-plugin detail for the two long-running hooks-based plugins follows.
 
@@ -146,13 +146,13 @@ Configure Relay middleware through a standard Relay `plugins.toml`. Hermes loads
 
 ### google_meet
 
-Lets the agent **join, transcribe, and participate in Google Meet calls** — take notes on a meeting, summarize the back-and-forth after, follow up on specific points, and (optionally) speak replies back into the call via TTS.
+Lets the agent **join Google Meet calls and collect captions** to take notes, summarize the discussion, and follow up on specific points.
 
 **What it adds:**
 
 - A headless virtual participant that joins a Meet URL using browser automation
-- Live transcription derived from Meet's own live captions (the bot never decodes the meeting audio, so no STT billing — and captions are lossy and English-biased)
-- A `meet_join` / `meet_status` / `meet_transcript` / `meet_leave` / `meet_say` toolset the agent invokes to join calls, poll the live transcript, and act on what it heard
+- Live transcripts derived from Meet's own live captions (captions are lossy and English-biased)
+- A `meet_join` / `meet_status` / `meet_transcript` / `meet_leave` toolset the agent invokes to join calls, poll the live transcript, and work with the captions
 - Post-meeting artifacts (transcript, status) saved under `~/.hermes/workspace/meetings/<meeting_id>/`
 
 **Setup:**
@@ -171,7 +171,6 @@ Usage from chat:
 
 The agent kicks off the meeting join, streams the transcription back into its context as the call proceeds, and produces a structured summary when the meeting ends (or when you tell it to stop).
 
-**Realtime mode (`mode='realtime'`) is speak-only on the audio side.** The bot's replies are synthesized by OpenAI Realtime and played into the call through a virtual microphone; what it *hears* is still the caption stream, not the meeting audio — nothing from the call is sent to the Realtime session. `meet_status` reports `micState` (`unmuted`, `unmuted_clicked` when the bot had to unmute itself after admission, or `unknown` when Meet's toggle was not found) so a silent bot can be diagnosed.
 
 **When to use it:** recurring standups where you want a bot to transcribe + summarize for async attendees; deposition-style interviews where you want structured notes; any case where you'd otherwise need Fireflies / Otter / Grain. When you'd rather not have an AI listening in — don't enable it.
 

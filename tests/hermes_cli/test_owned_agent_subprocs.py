@@ -62,11 +62,7 @@ _OWNERS = {
         "from hermes_cli.git_commit_graph import run_bounded_git\n"
         "threading.Thread(target=run_bounded_git, args=(str(out), ['repack', '-d'], 120.0), daemon=True).start()\n"
     ),
-    # A command provider that stalls: the owner dies inside its 120 s idle timeout.
-    "tts-command": (
-        "from tools.tts_command_provider import run_command_provider\n"
-        "threading.Thread(target=run_command_provider, args=(child_cmd, 120.0), daemon=True).start()\n"
-    ),
+
 }
 
 
@@ -141,11 +137,6 @@ def test_a_sigkilled_owner_takes_its_child_tree_and_spares_a_live_owners(tmp_pat
             owner.wait(timeout=10)
 
 
-def _sleeper() -> subprocess.Popen:
-    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL,
-                            start_new_session=True)
-
-
 @pytest.fixture
 def owned(monkeypatch):
     """In-process cases: record registrations instead of starting a real supervisor in pytest."""
@@ -173,17 +164,6 @@ def test_verify_start_phase_owns_then_releases_the_app_group(monkeypatch, tmp_pa
     result = runner._run_start_phase(Recipe(name="x", start="sleep 30", port=1), tmp_path, 0.3)
     assert not result.ready
     assert len(owned) == 1 and released == [owned]
-
-
-def test_tts_command_owns_then_releases_its_group_after_success_and_idle_kill(monkeypatch, owned):
-    from tools import tts_command_provider as tts
-
-    released = []
-    monkeypatch.setattr(process_identity, "release_process_groups", lambda pgids: released.extend(pgids))
-    assert tts.run_command_provider("echo hi", 10.0).stdout.strip() == "hi"
-    with pytest.raises(subprocess.TimeoutExpired):
-        tts.run_command_provider("sleep 30", 0.3)
-    assert len(owned) == 2 and released == owned
 
 
 

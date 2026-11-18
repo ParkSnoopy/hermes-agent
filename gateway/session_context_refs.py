@@ -1,6 +1,6 @@
 """``@`` references of one turn: expanded once, in the session's workspace, on the text the model reads.
 
-The inbound prepare step, the classic CLI's API-only text (``cli_turn_v1.api_text``: voice prefix,
+The inbound prepare step, the classic CLI's API-only text (``cli_turn_v1.api_text``:
 model-switch and skills notes) and managed workers (``--safe-mode`` / ``--ignore-user-config``,
 which never pass the inbound step) all expand here. A local session's refusal is the turn's reply:
 its adapter delivers through settlement, so a side ``send`` would never reach the viewer.

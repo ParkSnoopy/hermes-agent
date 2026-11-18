@@ -143,13 +143,6 @@ def refuse_foreign_systemd_unit(action: str, system: bool) -> None:
     sys.exit(1)
 
 
-def refuse_foreign_launchd_plist(verb: str) -> None:
-    """The launchd half of ``refuse_foreign_systemd_unit``: exit 1 rather than start/stop/restart/remove a
-    LaunchAgent pinning another HERMES_HOME. (Windows task names derive from LOCALAPPDATA, not HOME.)"""
-    from hermes_cli import gateway as gw
-    if not definition_belongs_to_home(gw.get_launchd_plist_path(), gw.get_hermes_home(), verb):
-        sys.exit(1)
-
 
 def service_definition_homes(definition: str) -> list[str]:
     """Every HERMES_HOME a gateway service definition sets: systemd ``Environment=``, launchd

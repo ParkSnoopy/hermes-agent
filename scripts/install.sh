@@ -44,7 +44,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --branch|-Branch|--commit|-Commit|--channel|-Channel|--dir|--hermes-home|-HermesHome|--stage|-Stage)
             option="$1"
-            if [ $# -lt 2 ] || [ -z "$2" ] || [[ "$2" == -* ]]; then
+            if [ $# -lt 2 ] || [ "$2" = "" ] || [[ "$2" == -* ]]; then
                 printf '%s needs a value\n' "$option" >&2
                 exit 2
             fi
@@ -98,7 +98,7 @@ INSTALL_LOG="$HERMES_HOME/logs/install.log"
 
 # Same glyphs as the pre-pm installer. Colour only on a terminal, so CI
 # transcripts and the Hermes-Setup driver read plain text.
-if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+if [ -t 1 ] && [ "${NO_COLOR:-}" = "" ]; then
     C_RED=$'\033[0;31m' C_GREEN=$'\033[0;32m' C_YELLOW=$'\033[0;33m'
     C_CYAN=$'\033[0;36m' C_MAGENTA=$'\033[0;35m' C_BOLD=$'\033[1m'
     C_DIM=$'\033[2m' C_NC=$'\033[0m'
@@ -114,16 +114,16 @@ fail() { STAGE_REASON="$1"; log_error "$1"; exit 1; }
 # The last failed run_logged command's own error line (git's "fatal: ..."), so a
 # failure reason -- which Hermes-Setup shows as-is -- names the cause, not just the step.
 RUN_LOGGED_ERROR=""
-native_detail() { [ -z "$RUN_LOGGED_ERROR" ] || printf ': %s' "$RUN_LOGGED_ERROR"; }
+native_detail() { [ "$RUN_LOGGED_ERROR" = "" ] || printf ': %s' "$RUN_LOGGED_ERROR"; }
 # Pick the error line from a command's output on stdin: the first fatal:/error:
 # line (git's cause; later ones are generic), else the last non-empty one.
 error_line() {
     local line pick="" last=""
-    while IFS= read -r line || [ -n "$line" ]; do
+    while IFS= read -r line || [ "$line" != "" ]; do
         line="${line%$'\r'}"; line="${line##*$'\r'}"
-        [ -n "${line//[[:space:]]/}" ] || continue
+        [ "${line//[[:space:]]/}" != "" ] || continue
         last="$line"
-        [ -n "$pick" ] || case "$line" in fatal:*|error:*|*" fatal: "*|*" error: "*) pick="$line" ;; esac
+        [ "$pick" != "" ] || case "$line" in fatal:*|error:*|*" fatal: "*|*" error: "*) pick="$line" ;; esac
     done
     pick="${pick:-$last}"
     printf '%s' "${pick:0:240}"
@@ -182,7 +182,7 @@ print_banner() {
 # readers parse.
 quiet_output() {
     [ "$VERBOSE" = true ] && return 1
-    if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${HERMES_INSTALL_VERBOSE:-}" ]; then
+    if [ "${CI:-}" != "" ] || [ "${GITHUB_ACTIONS:-}" != "" ] || [ "${HERMES_INSTALL_VERBOSE:-}" != "" ]; then
         return 1
     fi
     [ -t 1 ]
@@ -224,12 +224,12 @@ run_logged() {
     # stdin closed: under `curl | bash` it is the script itself, and nothing
     # run here may prompt behind a status line.
     "$@" </dev/null 2>&1 | {
-        while IFS= read -r line || [ -n "$line" ]; do
+        while IFS= read -r line || [ "$line" != "" ]; do
             line="${line%$'\r'}"
             printf '%s\n' "$line" >&3
             # git and uv redraw progress with bare CRs; show the newest.
             shown="${line##*$'\r'}"
-            [ -z "$shown" ] || status_line "$label: $shown" "$cols"
+            [ "$shown" = "" ] || status_line "$label: $shown" "$cols"
         done
     } 3>>"$INSTALL_LOG"
     rc=${PIPESTATUS[0]}
@@ -270,16 +270,6 @@ uv_bootstrap_pin() {
             UV_PIN_URL="https://github.com/astral-sh/uv/releases/download/0.13.5/uv-aarch64-unknown-linux-musl.tar.gz"
             UV_PIN_MIRROR="https://hermes-assets.nousresearch.com/upstream/sha256/7906c79adb21c81abd559841ba76bb1d9af9d791acac7a041b2972e03ae16538"
             UV_PIN_SHA256="7906c79adb21c81abd559841ba76bb1d9af9d791acac7a041b2972e03ae16538"
-            ;;
-        darwin-x64)
-            UV_PIN_URL="https://github.com/astral-sh/uv/releases/download/0.13.5/uv-x86_64-apple-darwin.tar.gz"
-            UV_PIN_MIRROR="https://hermes-assets.nousresearch.com/upstream/sha256/b0f52b0e3945b4107d89024ea38e625683011fbfc05a0d98f9fa2d6dcee28c66"
-            UV_PIN_SHA256="b0f52b0e3945b4107d89024ea38e625683011fbfc05a0d98f9fa2d6dcee28c66"
-            ;;
-        darwin-arm64)
-            UV_PIN_URL="https://github.com/astral-sh/uv/releases/download/0.13.5/uv-aarch64-apple-darwin.tar.gz"
-            UV_PIN_MIRROR="https://hermes-assets.nousresearch.com/upstream/sha256/743f85035a1996ecb350659e01cd9faea9709829be09b1b4b03c73eaf3c9cd73"
-            UV_PIN_SHA256="743f85035a1996ecb350659e01cd9faea9709829be09b1b4b03c73eaf3c9cd73"
             ;;
         *)
             UV_PIN_URL=""
@@ -327,7 +317,6 @@ uv_bootstrap_target() {
                 echo "linux-$_arch"
             fi
             ;;
-        Darwin) echo "darwin-$_arch" ;;
         *) return 1 ;;
     esac
 }
@@ -339,7 +328,7 @@ uv_bootstrap_target() {
 # no curl|sh.
 UV_CMD=""
 ensure_uv() {
-    [ -n "$UV_CMD" ] && return 0
+    [ "$UV_CMD" != "" ] && return 0
     # Always the pinned artifact, never a uv already on PATH: Hermes runs only
     # its own packaged toolchain.
     local _target
@@ -368,7 +357,7 @@ ensure_uv() {
                 5|6|7|18|22|28|52|55|56) ;;
                 *) rm -rf "$_tmp"; fail "failed to download pinned uv from $UV_PIN_URL (curl $_curl_status)" download_failed ;;
             esac
-            if [ -n "${UV_PIN_MIRROR:-}" ] && curl -LsSf "$UV_PIN_MIRROR" -o "$_tmp/uv.tar.gz"; then
+            if [ "${UV_PIN_MIRROR:-}" != "" ] && curl -LsSf "$UV_PIN_MIRROR" -o "$_tmp/uv.tar.gz"; then
                 _fetched_from="$UV_PIN_MIRROR"
             else
                 rm -rf "$_tmp"
@@ -391,7 +380,7 @@ ensure_uv() {
         fi
         local _unpacked
         _unpacked="$(find "$_tmp" -mindepth 1 -maxdepth 2 -name uv -type f | head -n1)"
-        if [ -z "$_unpacked" ]; then
+        if [ "$_unpacked" = "" ]; then
             rm -rf "$_tmp"
             fail "uv binary not found in the downloaded archive" uv_unusable
         fi
@@ -413,13 +402,12 @@ check_platform() {
     # Termux is Linux by uname, but this installer builds a glibc source
     # install the phone cannot run (no Android wheels in the lock). The
     # signed APT package is the only supported shape there.
-    if [ -n "${TERMUX_VERSION:-}" ] || case "${PREFIX:-}" in *com.termux/files/usr*) true ;; *) false ;; esac; then
+    if [ "${TERMUX_VERSION:-}" != "" ] || case "${PREFIX:-}" in *com.termux/files/usr*) true ;; *) false ;; esac; then
         fail "Termux is installed from its APT repository, not install.sh: pkg install hermes-agent (setup: https://hermes-agent.nousresearch.com/docs/getting-started/termux)" unsupported_platform
     fi
     case "$(uname -s 2>/dev/null)" in
         Linux*) : ;;
-        Darwin*) : ;;
-        *) fail "unsupported platform: $(uname -s). On Windows use install.ps1." unsupported_platform ;;
+        *) fail "unsupported platform: $(uname -s). Linux is required." unsupported_platform ;;
     esac
 }
 
@@ -438,7 +426,7 @@ json_string() {
 
 json_frame() {
     # $1 ok, $2 stage, $3 skipped, $4 reason
-    if [ -n "${4:-}" ]; then
+    if [ "${4:-}" != "" ]; then
         printf '{"ok":%s,"stage":%s,"skipped":%s,"reason":%s}\n' "$1" "$(json_string "$2")" "$3" "$(json_string "$4")"
     else
         printf '{"ok":%s,"stage":%s,"skipped":%s}\n' "$1" "$(json_string "$2")" "$3"
@@ -496,7 +484,9 @@ stage_record() {
 emit_manifest() {
     printf '%s' '{"protocol_version":1,"stages":['
     _sep=""
-    for _s in $(stage_names); do
+    local -a stages
+    mapfile -t stages < <(stage_names)
+    for _s in "${stages[@]}"; do
         IFS='|' read -r _title _category _needs <<< "$(stage_record "$_s")"
         printf '%s{"name":"%s","title":"%s","category":"%s","needs_user_input":%s}' \
             "$_sep" "$_s" "$_title" "$_category" "$_needs"
@@ -505,58 +495,7 @@ emit_manifest() {
     printf '%s\n' ']}'
 }
 
-git_runs() { command -v git >/dev/null 2>&1 && git --version >/dev/null 2>&1; }
-
-# macOS ships /usr/bin/git as a stub until Apple's Command Line Tools are
-# installed: it is on PATH, but every call fails ("see man xcode-select").
-# Prefer Homebrew (headless); else open Apple's install dialog and wait for the
-# user to finish it, so the install continues in this run.
-install_macos_git() {
-    # Developer tools present with their git (e.g. an Xcode license never
-    # accepted, or a broken ~/.gitconfig): installing another git won't help,
-    # so let the caller report git's own error. A folder alone is not enough:
-    # a macOS upgrade can leave it behind empty.
-    local _dev
-    _dev="$(xcode-select -p 2>/dev/null)" || _dev=""
-    [ -n "$_dev" ] && [ -x "$_dev/usr/bin/git" ] && return 0
-    if command -v brew >/dev/null 2>&1; then
-        # Auto-update runs git (the broken stub here) and can take minutes.
-        run_logged --may-fail "Installing git with Homebrew" env HOMEBREW_NO_AUTO_UPDATE=1 brew install git || true
-        hash -r
-        git_runs && return 0
-    fi
-    # Opens Apple's install dialog. With a leftover folder it may refuse
-    # instead ("already installed"); no dialog opens, so don't wait for one.
-    local _xs
-    if ! _xs="$(xcode-select --install 2>&1)"; then
-        if [ -n "$_dev" ] && [ -d "$_dev" ]; then
-            fail "The developer tools at $_dev are incomplete and xcode-select --install declined to reinstall them. Reinstall the Command Line Tools (run: sudo rm -rf /Library/Developer/CommandLineTools, then xcode-select --install), then re-run this installer." git_missing
-        fi
-        # Say why (e.g. no GUI session over SSH) before any wait.
-        log_warn "xcode-select --install: $(printf '%s\n' "$_xs" | error_line)"
-    fi
-    local _remedy="Install Apple's Command Line Tools (run: xcode-select --install), then re-run this installer."
-    # Hermes-Setup drives stages with --json: no stage timeout, a Cancel
-    # button, and these log lines show as progress, so it waits too.
-    if [ "$JSON" != true ] && { [ "$NON_INTERACTIVE" = true ] || ! has_terminal; }; then
-        fail "git needs Apple's Command Line Tools. $_remedy" git_missing
-    fi
-    log "git needs Apple's Command Line Tools: click Install in the macOS dialog and accept the license"
-    local _waited=0
-    while [ "$_waited" -lt 900 ]; do
-        git_runs && return 0
-        sleep 5
-        _waited=$((_waited + 5))
-        [ $((_waited % 60)) -ne 0 ] || log "Still waiting for the Command Line Tools install ($((_waited / 60))m)"
-    done
-    fail "Command Line Tools did not finish within 15 minutes. $_remedy" git_missing
-}
-
 stage_prerequisites() {
-    # No git on PATH at all is not the stub: report "git is required" below.
-    if [ "$(uname -s 2>/dev/null)" = Darwin ] && command -v git >/dev/null 2>&1 && ! git_runs; then
-        install_macos_git
-    fi
     command -v git >/dev/null 2>&1 || fail "git is required. Install it with your system package manager." git_missing
     local _git_err
     if ! _git_err="$(git --version 2>&1)"; then
@@ -572,7 +511,7 @@ stage_prerequisites() {
         for _libdir in /lib /usr/lib /usr/local/lib; do
             compgen -G "$_libdir/libstdc++.so.6*" >/dev/null && { _stdcxx=yes; break; }
         done
-        [ -n "$_stdcxx" ] || fail "musl host: the Node.js runtime needs the system libstdc++. Install it (Alpine: apk add libstdc++, Void: xbps-install libstdc++) and re-run." libstdcxx_missing
+        [ "$_stdcxx" != "" ] || fail "musl host: the Node.js runtime needs the system libstdc++. Install it (Alpine: apk add libstdc++, Void: xbps-install libstdc++) and re-run." libstdcxx_missing
     fi
     # glibc Node links libatomic.so.1, absent on minimal Debian/RHEL hosts. PM
     # installs the distro package with `sudo -n` under its install lock, so
@@ -651,7 +590,7 @@ valid_stable_tag() {
 # but no release could be looked up: an explicit --channel, else stable for the official
 # repository's main line. $1 is the origin URL.
 stable_target() {
-    [ -z "$INSTALL_COMMIT" ] || return 0
+    [ "$INSTALL_COMMIT" = "" ] || return 0
     case "$CHANNEL" in
         main) return 0 ;;
         stable) ;;
@@ -698,14 +637,14 @@ stage_repository() {
         # channel still says otherwise, and the next check would offer the release as an update.
         # Only an explicit --commit pin outranks the choice.
         # An explicit --channel is a new choice and replaces the recorded one.
-        [ -n "$INSTALL_COMMIT" ] || [ -n "$CHANNEL" ] || channel="$(chosen_channel)"
+        [ "$INSTALL_COMMIT" != "" ] || [ "$CHANNEL" != "" ] || channel="$(chosen_channel)"
         # An explicit HERMES_REPO_URL names the source for reruns too, not
         # just the first clone.
-        if [ -n "${HERMES_REPO_URL:-}" ]; then
+        if [ "${HERMES_REPO_URL:-}" != "" ]; then
             git -C "$INSTALL_DIR" remote set-url origin "$REPO_URL" || fail "cannot point origin at $REPO_URL" git_fetch_failed
         fi
         # No recorded choice: an official checkout tracks stable, as `hermes update` does.
-        if [ -z "$channel" ]; then
+        if [ "$channel" = "" ]; then
             # The configured URL, as hermes_cli.update_channel reads it (`remote get-url`
             # applies insteadOf rewrites).
             origin="$(git -C "$INSTALL_DIR" config --get remote.origin.url 2>/dev/null)" || origin=""
@@ -715,9 +654,9 @@ stage_repository() {
         if [ "$release" = - ]; then
             stable_unreachable "could not look up the latest stable release"
             channel=stable release=""
-        elif [ -n "$channel" ]; then
+        elif [ "$channel" != "" ]; then
             log "Repairing $INSTALL_DIR on the $channel update channel it chose"
-        elif [ -n "$release" ]; then
+        elif [ "$release" != "" ]; then
             log "Updating $INSTALL_DIR to the latest stable release ($release)"
         else
             log "Updating $INSTALL_DIR ($BRANCH)"
@@ -756,15 +695,15 @@ stage_repository() {
                 fi
             fi
         fi
-        if [ -n "$channel" ]; then
+        if [ "$channel" != "" ]; then
             log "Keeping its checkout: \`hermes update\` moves it (\`hermes update --set-channel main\` follows main)"
             return 0
         fi
-        if [ -n "$release" ] && ! fetch_release "$INSTALL_DIR"; then
+        if [ "$release" != "" ] && ! fetch_release "$INSTALL_DIR"; then
             stable_unreachable "could not fetch $release"
             return 0
         fi
-        if [ -n "$release" ]; then
+        if [ "$release" != "" ]; then
             # A rerun only moves a checkout forward onto the release. Any other move (a main
             # checkout diverged from a release cut on release/*, one already past it, a shallow
             # one that cannot tell) is `hermes update`'s: it refuses a release that predates the
@@ -786,12 +725,12 @@ stage_repository() {
         # Park local work BEFORE switching branches: checkout refuses a dirty
         # tree that conflicts, and the reset below would discard it. Work
         # that cannot be parked stops the install -- never overwrite it.
-        if [ -n "$(git -C "$INSTALL_DIR" status --porcelain)" ]; then
+        if [ "$(git -C "$INSTALL_DIR" status --porcelain)" != "" ]; then
             # An interrupted update can leave unmerged index entries, where
             # stash aborts ("could not write index"). Dropping only the
             # index-level conflict state keeps the working-tree changes for
             # the stash below (#4735).
-            if [ -n "$(git -C "$INSTALL_DIR" ls-files --unmerged)" ]; then
+            if [ "$(git -C "$INSTALL_DIR" ls-files --unmerged)" != "" ]; then
                 log_warn "clearing unmerged index entries from a previous conflict"
                 git -C "$INSTALL_DIR" reset -q || fail "cannot clear the unmerged index in $INSTALL_DIR" local_changes_blocked
             fi
@@ -800,7 +739,7 @@ stage_repository() {
                 || fail "could not stash local changes in $INSTALL_DIR; commit or move them aside, then rerun" local_changes_blocked
             log_warn "local changes stashed as hermes-install-autostash-$stamp"
         fi
-        if [ -n "$release" ]; then
+        if [ "$release" != "" ]; then
             # Detached at the release commit, the way `hermes update` places a stable checkout;
             # branches (and any commits on them) stay where they are.
             run_logged "Checking out $release" git -C "$INSTALL_DIR" checkout --detach "$release" \
@@ -849,7 +788,7 @@ stage_repository() {
         # <dir>/tree, so a pre-existing destination must be empty (we take
         # the empty dir over) or we refuse: whatever lives there is not ours.
         if [ -e "$INSTALL_DIR" ] || [ -L "$INSTALL_DIR" ]; then
-            if [ -d "$INSTALL_DIR" ] && [ ! -L "$INSTALL_DIR" ] && [ -z "$(ls -A "$INSTALL_DIR")" ]; then
+            if [ -d "$INSTALL_DIR" ] && [ ! -L "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR")" = "" ]; then
                 rmdir "$INSTALL_DIR" || fail "cannot replace empty $INSTALL_DIR" filesystem_error
             else
                 fail "$INSTALL_DIR exists and is not a Hermes git checkout. Move it aside, or install elsewhere with --dir <path>." dir_not_checkout
@@ -859,8 +798,8 @@ stage_repository() {
         local staged attempt label cloned=false progress=() materialize=(reset --hard HEAD) no_checkout=""
         release="$(stable_target "$REPO_URL")"
         [ "$release" != - ] || stable_unreachable "could not look up the latest stable release"
-        [ -z "$INSTALL_COMMIT$release" ] || no_checkout=--no-checkout
-        [ -z "$release" ] || log "Installing the latest stable release ($release); --channel main follows every commit"
+        [ "$INSTALL_COMMIT$release" = "" ] || no_checkout=--no-checkout
+        [ "$release" = "" ] || log "Installing the latest stable release ($release); --channel main follows every commit"
         # Phase lines ("Receiving objects: 42%") feed the status line; git
         # prints none to a pipe unless asked.
         if quiet_output; then progress=(--progress); fi
@@ -875,8 +814,8 @@ stage_repository() {
             [ "$attempt" = 1 ] || label="$label (attempt $attempt of 3)"
             # A pinned install materializes only the pin (below): checking out the
             # branch tip first fetches and rewrites every file the two differ in.
-            if run_logged "$label" git clone ${progress[@]+"${progress[@]}"} \
-                --filter=blob:none ${no_checkout:+"$no_checkout"} --branch "$BRANCH" "$REPO_URL" "$staged/tree"; then
+            if run_logged "$label" git clone "${progress[@]}" \
+                --filter=blob:none "${no_checkout:+"$no_checkout"}" --branch "$BRANCH" "$REPO_URL" "$staged/tree"; then
                 cloned=true
                 break
             fi
@@ -887,7 +826,7 @@ stage_repository() {
             # The checkout step is where throttled downloads die: clone the
             # graph alone, then retry materializing the tree separately.
             log_warn "direct clone failed; trying deferred checkout"
-            if run_logged "Cloning history" git clone ${progress[@]+"${progress[@]}"} \
+            if run_logged "Cloning history" git clone "${progress[@]}" \
                 --filter=blob:none --no-checkout --branch "$BRANCH" "$REPO_URL" "$staged/tree"; then
                 cloned=deferred
             fi
@@ -896,26 +835,26 @@ stage_repository() {
             rm -rf "$staged"
             fail "git clone failed; no checkout published$(native_detail)" git_clone_failed
         fi
-        if [ -n "$INSTALL_COMMIT" ]; then
+        if [ "$INSTALL_COMMIT" != "" ]; then
             # Pin before publishing: a pinned or deferred clone has no files yet,
             # and an unpublished tree never leaves an empty checkout behind.
             git -C "$staged/tree" merge-base --is-ancestor "$INSTALL_COMMIT" "origin/$BRANCH" 2>/dev/null \
                 || { rm -rf "$staged"; fail "commit $INSTALL_COMMIT is not on branch $BRANCH" commit_not_on_branch; }
         fi
-        if [ -n "$release" ]; then
+        if [ "$release" != "" ]; then
             fetch_release "$staged/tree" || { rm -rf "$staged"; stable_unreachable "could not fetch $release"; }
             materialize=(checkout --force --detach "$release")
         fi
-        if [ -n "$INSTALL_COMMIT$release" ] || [ "$cloned" = deferred ]; then
+        if [ "$INSTALL_COMMIT$release" != "" ] || [ "$cloned" = deferred ]; then
             # The checkout step is where throttled downloads die: retry it alone.
             # A pin detaches HEAD and leaves the branch at its tip, as the published pin did.
-            [ -z "$INSTALL_COMMIT" ] || materialize=(checkout --force --detach "$INSTALL_COMMIT")
+            [ "$INSTALL_COMMIT" = "" ] || materialize=(checkout --force --detach "$INSTALL_COMMIT")
             cloned=false
             for attempt in 1 2; do
                 if run_logged "Checking out ${INSTALL_COMMIT:-${release:-files}} (attempt $attempt of 2)" \
                     git -C "$staged/tree" "${materialize[@]}"; then
                     cloned=true
-                    [ -z "$INSTALL_COMMIT" ] || pinned=true
+                    [ "$INSTALL_COMMIT" = "" ] || pinned=true
                     break
                 fi
                 [ "$attempt" = 2 ] || sleep 5
@@ -942,7 +881,7 @@ stage_repository() {
             || log_warn "could not disable fetch.writeCommitGraph in $INSTALL_DIR"
         log_success "Hermes Agent cloned"
     fi
-    if [ -n "$INSTALL_COMMIT" ] && [ "$pinned" = false ]; then
+    if [ "$INSTALL_COMMIT" != "" ] && [ "$pinned" = false ]; then
         # A rerun over an existing checkout pins here (a fresh clone pinned
         # before publishing). A pin must come from the branch being installed:
         # the complete marker records both, and a commit off that branch would
@@ -973,7 +912,7 @@ bootstrap_python() {
         /^[[:space:]]*\}[[:space:]]*,?[[:space:]]*$/ { delete path[depth--]; next }
         path[2] == "packages" && path[3] == "python" && $2 == "version" && depth == 3 { print $4; exit }
     ' "$INSTALL_DIR/pm/lock.json" | cut -d+ -f1 | cut -d. -f1,2)"
-    [ -n "$_py" ] || _py="3.14"
+    [ "$_py" != "" ] || _py="3.14"
     # Only base interpreters qualify: an activated app venv must not become
     # PM's bootstrap parent. Prefer the existing managed Python, then a host
     # Python of the same supported minor before attempting a download (#10778).
@@ -1143,13 +1082,13 @@ stage_gateway() {
 stage_complete() {
     local commit
     commit="$INSTALL_COMMIT"
-    [ -n "$commit" ] || commit=$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null) || commit=""
-    if [ -n "$commit" ]; then
+    [ "$commit" != "" ] || commit=$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null) || commit=""
+    if [ "$commit" != "" ]; then
         printf '{\n  "schemaVersion": 1,\n  "pinnedCommit": "%s",\n  "pinnedBranch": "%s",\n  "completedAt": "%s"\n}\n' \
             "$commit" "$BRANCH" "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" > "$INSTALL_DIR/.hermes-bootstrap-complete.tmp"
         mv -f "$INSTALL_DIR/.hermes-bootstrap-complete.tmp" "$INSTALL_DIR/.hermes-bootstrap-complete"
     fi
-    if [ -n "$CHANNEL" ]; then
+    if [ "$CHANNEL" != "" ]; then
         "$INSTALL_DIR/.hermes/bin/hermes" update --set-channel "$CHANNEL" \
             || fail "could not save the $CHANNEL update channel" other
     fi
@@ -1216,9 +1155,9 @@ if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
         exit 0
     fi
 
-    if [ -n "$STAGE" ] && [ "$JSON" = true ]; then
+    if [ "$STAGE" != "" ] && [ "$JSON" = true ]; then
         trap 'stage_result "$?"' EXIT
-    elif [ -z "$STAGE" ]; then
+    elif [ "$STAGE" = "" ]; then
         INSTALL_LADDER=true
         # Ctrl-C, SIGTERM or a closed terminal (SIGHUP) stops the run.
         trap 'install_signal INT' INT
@@ -1228,7 +1167,7 @@ if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
     check_platform
     trap - EXIT
 
-    if [ -n "$STAGE" ]; then
+    if [ "$STAGE" != "" ]; then
         run_stage "$STAGE"
         exit "$?"
     fi
@@ -1236,9 +1175,10 @@ if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
     # No --stage: run the whole ladder — the same authoritative list the
     # manifest prints, so --include-desktop inserts desktop here too.
     print_banner
-    for s in $(stage_names); do
+    mapfile -t stages < <(stage_names)
+    for s in "${stages[@]}"; do
         # A TERM/HUP noted while the previous stage ran stops the run before this one.
-        [ -z "$INSTALL_SIGNAL" ] || install_interrupted
+        [ "$INSTALL_SIGNAL" = "" ] || install_interrupted
         INSTALL_IN_STAGE=true
         run_stage "$s"
         rc=$?
@@ -1253,12 +1193,12 @@ if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
             130) INSTALL_SIGNAL="${INSTALL_SIGNAL:-INT}" ;;
             143) INSTALL_SIGNAL="${INSTALL_SIGNAL:-TERM}" ;;
         esac
-        [ -z "$INSTALL_SIGNAL" ] || install_interrupted
+        [ "$INSTALL_SIGNAL" = "" ] || install_interrupted
 
         exit "$rc"
     done
     # A pending TERM/HUP still ends the run.
-    [ -z "$INSTALL_SIGNAL" ] || install_interrupted
+    [ "$INSTALL_SIGNAL" = "" ] || install_interrupted
     trap - INT TERM HUP
     print_path_reload_hint
 fi

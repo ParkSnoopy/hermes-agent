@@ -970,24 +970,6 @@ def test_unwritable_lock_file_still_locks_the_checkout(tmp_path):
     assert second.returncode == 3, "a second update ran while the read-only-locked checkout was held"
 
 
-@pytest.mark.platforms("windows")
-def test_read_only_lock_file_is_refused_on_windows(tmp_path):
-    """Windows children cannot inherit the lock; they find their owner by the record in it. An
-    owner that can only open the lock file read-only refuses up front instead of admitting
-    itself and then having its own completion child refused."""
-    root = tmp_path / "install"
-    root.mkdir()
-    lock_file = checkout_lock_path(root)
-    lock_file.write_bytes(b"0\n0\n")
-    lock_file.chmod(0o444)  # FILE_ATTRIBUTE_READONLY: O_RDWR is denied, the read-only open works
-    marker = tmp_path / "home" / ".hermes-update-in-progress"
-    try:
-        lock = UpdateLock(path=marker, install_root=root)
-        assert lock.acquire() is False
-        assert lock.holder is not None and lock.holder.reason
-        assert not marker.exists()
-    finally:
-        lock_file.chmod(0o666)
 
 
 @pytest.mark.parametrize("link", [pytest.param("symlink", marks=pytest.mark.platforms("posix")), "link"])
@@ -1024,24 +1006,3 @@ def test_whole_second_creation_time_in_our_own_second_is_us(marker):
     assert update_lock.judge_marker(marker.read_bytes())[0] == "ours"
     # A whole second from an EARLIER second is a killed update's pid reused: still not us.
     assert update_lock.incarnation_live(os.getpid(), float(math.floor(own)) - 1) is False
-
-
-@pytest.mark.platforms("windows")
-def test_repeated_windows_process_probes_build_no_new_ctypes_objects(monkeypatch):
-    """Fence polls read a marker pid's creation time through GetProcessTimes whenever psutil
-    cannot, and the psutil-free takeover child walks Toolhelp32 for its parent. Once warm, neither
-    builds a DLL wrapper or a pointer type again (before Python 3.14 a pointer type to a fresh
-    struct stays in ctypes' cache forever)."""
-    import ctypes
-
-    created = update_lock._windows_create_filetime(os.getpid())
-    parent = update_lock._windows_parent_pid(os.getpid())
-    assert created and parent
-    built = []
-    real_pointer, real_dll = ctypes.POINTER, ctypes.WinDLL
-    monkeypatch.setattr(ctypes, "POINTER", lambda cls: built.append(cls) or real_pointer(cls))
-    monkeypatch.setattr(ctypes, "WinDLL", lambda *a, **k: built.append(a) or real_dll(*a, **k))
-    for _ in range(20):
-        assert update_lock._windows_create_filetime(os.getpid()) == created
-        assert update_lock._windows_parent_pid(os.getpid()) == parent
-    assert built == []

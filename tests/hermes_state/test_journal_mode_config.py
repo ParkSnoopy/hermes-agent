@@ -279,7 +279,6 @@ def test_real_db_openers_honor_configured_delete(monkeypatch, tmp_path):
     _disable_vulnerable_gate(monkeypatch)
 
     from agent import verification_evidence
-    from cron import executions
     from gateway import delivery_ledger
     from gateway.platforms.api_server import ResponseStore
     from hermes_cli import projects_db
@@ -300,17 +299,6 @@ def test_real_db_openers_honor_configured_delete(monkeypatch, tmp_path):
             observed[name] = conn.execute("PRAGMA journal_mode").fetchone()[0].lower()
         finally:
             conn.close()
-
-    monkeypatch.setattr(executions, "EXECUTIONS_FILE", tmp_path / "cron" / "executions.db")
-    executions.EXECUTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    cron_conn = executions._connect()
-    try:
-        executions._initialize_schema(cron_conn)
-        observed["cron_executions"] = cron_conn.execute(
-            "PRAGMA journal_mode"
-        ).fetchone()[0].lower()
-    finally:
-        cron_conn.close()
 
 
     session_db = SessionDB(db_path=tmp_path / "state.db")
@@ -342,8 +330,6 @@ def test_real_db_openers_honor_configured_delete(monkeypatch, tmp_path):
         "async_delegation": "delete",
         "delivery_ledger": "delete",
         "verification_evidence": "delete",
-        "cron_executions": "delete",
-
         "session_db": "delete",
 
         "projects": "delete",

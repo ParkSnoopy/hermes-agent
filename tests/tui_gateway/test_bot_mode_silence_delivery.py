@@ -94,7 +94,7 @@ def test_live_bot_chat_stream_holds_back_partial_silence_marker(monkeypatch):
 
 
 def test_live_bot_chat_stream_never_shows_or_speaks_a_closing_silence_marker(monkeypatch):
-    """A marker closing a real reply is held line-wise: no delta and no TTS chunk carries it,
+    """A marker closing a real reply is held line-wise: no delta carries it,
     while a last line that only starts like one ("NO problem", "NOTE: done", "NO") arrives whole."""
     events = []
     monkeypatch.setattr(srv, "_emit", lambda event, _sid, payload=None: events.append((event, payload)))

@@ -57,42 +57,17 @@ Use `hermes pm repair` for damaged dependency files. See the developer
 Source installers provision the required tools plus Python. They select the
 `all` Python extra. Named optional tools install when requested.
 
-For a canonical source installation, Desktop checks and runs the published
-installation launcher. PM owns its interpreter and dependency selection. Desktop
-does not replace that command with a guessed `venv` path. Developer overrides
-retain their selected interpreter.
+Native Linux bundles stage the supported tools and target-compatible Python extras.
+`--extra all` and `--all-extras` are not synonyms.
+Platform markers exclude dependencies that cannot run on a target.
 
-Native desktop bundles stage the supported tool set and all target-compatible
-Python extras before packaging. `--extra all` and `--all-extras` are not
-synonyms. Platform markers still exclude dependencies that cannot run on a target.
+Native preparation uses isolated PM state, pinned tools, fresh path-bound Python environments, and build-owned caches.
+Its prepared receipt binds the source revision, target, and paths.
+Missing or changed inputs fail consumption rather than trigger a download.
+See [shared bundle builds](../developer-guide/shared-bundle-builds.md#native-agent-preparation-and-assembly) for the native preparation and assembly commands.
 
-The complete desktop builder composes PM with the Node/native packaging providers.
-From a clean checkout at a release tag, `python scripts/bundles/desktop.py --tag vX.Y.Z`
-prepares dependencies and builds the installer. Add `--prepare-only` to stop after
-preparation; consume its job-local result with
-`python scripts/bundles/desktop.py --prepared .build/desktop-job/prepared.json`.
-`--work` and `--cache` select separate build-owned roots. Preparation, not the
-caller, creates the work directory. A full commit SHA can replace the tag through
-`--commit`; the checkout must match.
-
-Preparation uses isolated PM state, pinned tools, fresh path-bound Python
-environments, the complete JS workspace union, native bindings and packaging
-utilities. Reusable dependency caches are not live installations or portable
-virtual environments. The prepared result binds the source, target and paths;
-missing or changed inputs fail consumption rather than trigger a download.
-Reprepare after a move or input change. Signing and notarization can still use
-the network. See the
-[desktop build guide](https://github.com/NousResearch/hermes-agent/blob/main/apps/desktop/BUILDING.md)
-for native compiler requirements and release verification limits.
-
-A packaged application's base payload is immutable. Hermes runs its backend
-from that payload, rather than copying a source checkout on first launch.
-The bundle builder checks its files and writes the launch paths into the desktop
-build stamp. Electron uses those paths without probing or repairing the payload.
-Additional pinned tools can use the writable tool store. Python additions use
-a complete writable environment outside the signed package. Its first generation
-retains the shipped extras along with the new requirements. Later generations
-use the recorded extra selection as their baseline.
+A packaged application's base payload is immutable.
+Additional pinned tools and Python dependency generations use writable installation state rather than modifying that payload.
 
 Termux uses a separate bionic build and a sealed APT package. Docker bakes its
 runtime into the image and disables on-demand dependency installation. Nix
@@ -102,8 +77,7 @@ provides its runtime through derivations. See the
 
 ## Writable state
 
-The platform default data root is `~/.hermes` on POSIX and
-`%LOCALAPPDATA%\hermes` on Windows. `HERMES_HOME` and profiles can change
+The default data root is `~/.hermes` on Linux. `HERMES_HOME` and profiles can change
 which data root a process uses.
 
 | State | Default location |
@@ -156,7 +130,7 @@ build backend gets a unique `hermes-plugin-…` name in its snapshot, and its re
 its own extras (`myplugin[runtime]`) are renamed with it. Hermes itself always comes from
 the checkout: a plugin requirement naming `hermes-agent` (a runtime dependency in
 `pyproject.toml` or `plugin.yaml`, or an extra this install selects, such as
-`hermes-agent[web]>=0.20`) is satisfied by it, whatever its version specifier says. PM
+`hermes-agent[anthropic]>=0.20`) is satisfied by it, whatever its version specifier says. PM
 therefore checks that specifier itself against the running Hermes version (the one
 `requires_hermes` reads), with standard PEP 440 comparison and the requirement's environment
 marker; a requirement in an unselected extra or one whose marker is false on this machine is
@@ -252,31 +226,13 @@ and repair managed entries, including requests with `--force`.
 
 Activation asks PM to prepare or sync the toolchain for a source checkout, then
 makes it available in the shell. It does not select your editor's Python
-interpreter or redirect an installed desktop app to this checkout.
+interpreter or redirect an installed Hermes command to this checkout.
 
 ### Prepare a checkout
 
-Use an ordinary terminal outside the packaged Hermes app. Leave any existing
-Python virtual environment first. On Windows, use native PowerShell with Git.
-On ARM64, PM prepares Visual Studio C++ tools, Clang, native Rust, and static
-OpenSSL development libraries before every dependency build from a checkout:
-setup, `activate.ps1`, `install.ps1`, `hermes update`, and repair alike. It
-reuses existing installations and installs missing prerequisites. Missing
-Visual Studio components need administrator rights: an interactive install
-asks through a UAC prompt, while CI, ssh and scheduled runs need an
-Administrator PowerShell. OpenSSL uses
-vcpkg's `arm64-windows-static-md` triplet. A damaged shared installation
-produces a repair error, not automatic deletion. Compiler and OpenSSL
-environment variables apply only to PM's dependency build, never to your shell.
-
-Other platforms still require the native compiler tools and libraries needed
-by dependencies without compatible wheels.
-
-For the pinned macOS Python, PM defaults `AR` to `/usr/bin/ar`: the distributed
-interpreter's sysconfig still points at its supplier's temporary LLVM directory.
-This applies to source and bundle builds alike. Explicit `AR` and `CC` values
-remain authoritative; PM does not change the toolchain of a caller-supplied
-interpreter such as Nix Python. No `CC` default is needed for the current pin.
+Use an ordinary terminal. Leave any existing
+Python virtual environment first. Install the native compiler tools and libraries
+needed by dependencies without compatible wheels.
 
 The pinned Linux Python records `clang`/`clang++` as `CC`/`CXX` and the same
 temporary `llvm-ar` as `AR`. When a recorded compiler is not on `PATH` but its
@@ -304,17 +260,9 @@ export HERMES_RUNTIME_DIR="$HERMES_HOME/tools"
 source ./activate
 ```
 
-PowerShell, from the repository root:
-
-```powershell
-$env:HERMES_HOME = Join-Path $HOME 'hermes-dev-data'
-$env:HERMES_RUNTIME_DIR = Join-Path $env:HERMES_HOME 'tools'
-. .\activate.ps1
-```
-
 `HERMES_RUNTIME_DIR` in these examples is a process-local development override.
 It makes the bootstrap and PM use the same writable store. Do not persist a
-path into an installed MSIX or macOS bundle. Activation runs the setup script's
+path into an installed bundle. Activation runs the setup script's
 runtime-only path to provision tools and sync the `all` Python extra. It does
 not select `dev` or install JS workspaces. It maintains installation-local
 commands and repairs existing owned PATH wrappers, but does not create new PATH
@@ -365,10 +313,7 @@ Then activate it; there is no separate setup command to remember:
 |---|---|---|
 | Bash | `source ./activate` | `deactivate` |
 | fish | `source ./activate.fish` | `deactivate` |
-| PowerShell | `. .\activate.ps1` | `deactivate` |
 
-The leading dot and space in PowerShell are required. Executing
-`.\activate.ps1` without dot-sourcing does not provide the same session scope.
 `activate` uses Bash syntax. Use Bash for this recipe rather than `sh`, or
 assuming that a Zsh startup file has Bash semantics; fish has its own
 `activate.fish`, which behaves the same.
@@ -383,7 +328,7 @@ environment, including when re-sourcing an already active environment.
 After sync, activation prepends installed PM tools to `PATH` and sets
 `PYTHONPATH` to this checkout and its selected dependency tree. It also
 defines `hermes` as a shell function for this worktree. The function runs
-this checkout's CLI and hides the installed command, including an MSIX alias.
+this checkout's CLI and hides the installed command.
 It runs only while the shell is inside this worktree and refuses outside it,
 so a sibling worktree does not inherit the command. The prompt gains a prefix
 naming the branch, and drops it outside the tree. It does not
@@ -441,11 +386,9 @@ repository root, then run the relevant workspace command. For example:
 
 ```bash
 pnpm --dir ui-tui run build
-pnpm --dir apps/desktop run dev
 ```
 
-`just` lists these developer commands as recipes (`just js-install`, `just desktop`,
-`just tui`, `just check`, `just test <paths>`); each recipe calls the command shown
+`just` lists these developer commands as recipes (`just js-install`, `just tui`, `just check`, `just test <paths>`); each recipe calls the command shown
 here. See [Developer commands](../developer-guide/contributing.md#developer-commands).
 
 Activation provides the pnpm version `pm/lock.json` pins. An install that runs
@@ -478,14 +421,12 @@ or npm does not satisfy, where it would only warn outside the checkout.
 
 The website is a separate npm project: `npm ci --prefix website`, then
 `npm run build:fast --prefix website` (`just docs-install`, `just docs-build`). PM activation supplies tools, not these
-`node_modules` directories or built assets. Native desktop builds have additional
-requirements in the [desktop build guide](https://github.com/NousResearch/hermes-agent/blob/main/apps/desktop/BUILDING.md).
+`node_modules` directories or built assets.
 
 ### Refresh dependencies without changing branches
 
 After a branch or lockfile change, source the activation script again to sync
-and select the new dependencies (`source ./activate` in Bash or
-`. .\activate.ps1` in PowerShell). To sync without activating a shell:
+and select the new dependencies (`source ./activate` in Bash). To sync without activating a shell:
 
 ```bash
 python -m pm.cli install
@@ -526,8 +467,7 @@ before starting another Python process.
    environment. When the lock is already current, it says so and writes
    nothing. (`hermes pm lock --bump NAME VERSION` is a different operation: it
    pins a managed tool in `pm/lock.json` and does not touch `uv.lock`.)
-3. Source the activation script again (`source ./activate`, or
-   `. .\activate.ps1` in PowerShell) to sync the application venv and the test
+3. Source the activation script again (`source ./activate`) to sync the application venv and the test
    interpreter to the new lock. Activation covers `[all]`. If you added an
    opt-in extra outside `[all]`, `hermes pm lock` prints the command that also
    puts it in the test interpreter, for example
@@ -540,13 +480,13 @@ selected generation.
 
 ### Test and editor environments
 
-`source ./activate` (or `. .\activate.ps1` in PowerShell) and both direct
-`setup-hermes` scripts prepare an isolated test interpreter from the locked
+`source ./activate` and the direct
+`setup-hermes` script prepare an isolated test interpreter from the locked
 `dev` and `test` dependency groups. `scripts/run_tests.sh` uses that interpreter,
 re-activating if the checkout or its dependency inputs changed. The application
 venv, installers, and bundles select neither group. The developer default
-covers `[all]`; to change test coverage, pass `--test-extras=anthropic` to POSIX
-activation or `-TestExtras anthropic` to PowerShell;
+covers `[all]`; to change test coverage, pass `--test-extras=anthropic` to
+activation;
 those arguments select runtime extras *in the test interpreter only*.
 
 In an isolated environment where activation is unavailable (for example, a Nix
@@ -559,7 +499,7 @@ python -m pm.build_env --source . --out .venv --group dev --group test
 
 The output must not exist. To regenerate it, stop its processes and intentionally
 remove only that disposable environment first. Then run `scripts/run_tests.sh`
-(through Bash on Windows). The test dependency group includes native launcher
+The test dependency group includes native launcher
 tests and never enters a packaged runtime.
 
 For editor debugging, select that independent interpreter, set the working
@@ -638,25 +578,21 @@ not substitutes for an installed application's update mechanism.
 | Command | Effect |
 |---|---|
 | `pm lock` | Relock `uv.lock` from `pyproject.toml`. Changes no environment; writes nothing when the lock is current. |
-| `pm lock --bump NAME VERSION` | Resolve and hash supported target artifacts, write the tool pin to `pm/lock.json`, and regenerate the bootstrap pins in `scripts/install.sh` and `scripts/install.ps1`. |
+| `pm lock --bump NAME VERSION` | Resolve and hash supported target artifacts, write the tool pin to `pm/lock.json`, and regenerate the bootstrap pins in `scripts/install.sh`. |
 | `pm update [names...]` | Query upstream versions, change tool pins, regenerate the installers' bootstrap pins, and install changed tools. |
 | `pm update --check` | Query without writing. Exit 1 can mean updates exist; inspect output to distinguish an error. |
 | `pm update --target TARGET` | Resolve versions for the specified target. |
 | `pm update --skip-target TARGET` | Leave TARGET's pins unchanged (repeatable), for example `linux-arm64-bionic` while the termux pool lags upstream. Later runs still report the package as current. `pm lock --bump NAME VERSION` re-pins every target at a version, and `pm update --termux` repins a retired `linux-arm64-bionic` row. |
 | `pm update --uv` / `--pnpm` | Also refresh the Python dependency resolution (`uv.lock`) or the JavaScript one (`pnpm-lock.yaml`). |
 | `pm update --termux [--check]` | Repin the termux pool archives the rolling pool has retired (the runtime-lib pin table and the bionic lock rows). `--check` reports without writing and exits 1 when a pin is retired. |
-| `pm install --target TARGET NAME...` | Stage explicit cross-target packages without recording them as the host's installed runtime. The win32 `git` target pins a self-extracting PortableGit archive: staging it runs the vendor extractor and therefore requires a Windows host. |
-| `pm bundle --out DIR [--ref REF]` | Stage a source snapshot, native tools, facts, and Python dependencies. It does not produce a signed desktop installer. |
+| `pm install --target TARGET NAME...` | Stage explicit cross-target packages without recording them as the host's installed runtime. |
+| `pm bundle --out DIR [--ref REF]` | Stage a source snapshot, native tools, facts, and Python dependencies. |
 
 The Nix flake pins the pnpm store that `pnpm-lock.yaml` resolves to with one
 fixed-output hash, `nix/pnpm-deps-hash`. `pm update --pnpm` does not refresh it:
 after any change to `pnpm-lock.yaml`, run `nix run .#update-pnpm-lockfile`
 ([Nix setup](../getting-started/nix-setup.md#updating-the-pnpm-lockfile)) or
 copy the hash the `nix` workflow's `pnpm-deps-hash` job reports.
-
-The complete desktop builder also builds the JavaScript surfaces, generates
-launchers, and invokes native packaging. Maintainers can read
-[Building the Desktop Installers](https://github.com/NousResearch/hermes-agent/blob/main/apps/desktop/BUILDING.md).
 
 ## Network retries
 

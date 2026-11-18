@@ -172,10 +172,8 @@ class TestCodexBuildKwargs:
         assert pck.startswith("pck_")
         assert pck != "cron_job42_20260624_143000"
 
-    def test_cache_key_stable_across_session_ids(self, transport):
-        """Same static prefix + different session_id (e.g. two cron fires of the
-        same job) must yield the same prompt_cache_key — the whole point of the
-        fix: repeated fires reuse the warm prefix instead of going cold."""
+    def test_cache_key_isolated_across_similar_session_ids(self, transport):
+        """Similar but distinct session IDs must not share a cache scope."""
         messages = [{"role": "user", "content": "Hi"}]
         kw1 = transport.build_kwargs(
             model="gpt-5.4", messages=messages, tools=[],
@@ -185,7 +183,7 @@ class TestCodexBuildKwargs:
             model="gpt-5.4", messages=messages, tools=[],
             session_id="cron_job42_20260624_143500",
         )
-        assert kw1["prompt_cache_key"] == kw2["prompt_cache_key"]
+        assert kw1["prompt_cache_key"] != kw2["prompt_cache_key"]
 
     def test_cache_key_differs_across_unrelated_sessions(self, transport):
         """#78941: two unrelated sessions (different users/conversations)
@@ -923,7 +921,7 @@ class TestCodexBuildKwargs:
         assert first_run["session_id"] == "cron_job42_20260801_090000"
         assert second_run["session_id"] == "cron_job42_20260802_090000"
         assert first_run["x-client-request-id"].startswith("pck_")
-        assert first_run["x-client-request-id"] == second_run["x-client-request-id"]
+        assert first_run["x-client-request-id"] != second_run["x-client-request-id"]
         assert first_run["x-client-request-id"] != other_job["x-client-request-id"]
 
 

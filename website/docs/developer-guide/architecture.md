@@ -122,7 +122,6 @@ hermes-agent/
 │                             #   msgraph_webhook
 │
 ├── acp_adapter/              # ACP server (VS Code / Zed / JetBrains)
-├── cron/                     # Scheduler (jobs.py, scheduler.py)
 ├── plugins/memory/           # Memory provider plugins
 ├── plugins/context_engine/   # Context engine plugins
 ├── skills/                   # Bundled skills (always available)
@@ -155,17 +154,6 @@ Platform event → Adapter.on_message() → MessageEvent
     → create AIAgent with session history
     → AIAgent.run_conversation()
     → deliver response back through adapter
-```
-
-### Cron Job
-
-```text
-Scheduler tick → load due jobs from jobs.json
-  → create fresh AIAgent (no history)
-  → inject attached skills as context
-  → run job prompt
-  → deliver response to target platform
-  → update job state and next_run
 ```
 
 ## Recommended Reading Order
@@ -203,7 +191,7 @@ Prompt construction and maintenance across the conversation lifecycle:
 
 ### Provider Resolution
 
-A shared runtime resolver used by CLI, gateway, cron, ACP, and auxiliary calls. Maps `(provider, model)` tuples to `(api_mode, api_key, base_url)`. Handles 18+ providers, OAuth flows, credential pools, and alias resolution.
+A shared runtime resolver used by CLI, gateway, ACP, and auxiliary calls. Maps `(provider, model)` tuples to `(api_mode, api_key, base_url)`. Handles 18+ providers, OAuth flows, credential pools, and alias resolution.
 
 → [Provider Runtime Resolution](./provider-runtime.md)
 
@@ -221,7 +209,7 @@ SQLite-based session storage with FTS5 full-text search. Sessions have lineage t
 
 ### Messaging Gateway
 
-Long-running process with 25+ platform adapters (built-in + bundled plugins), unified session routing, user authorization (allowlists + DM pairing), slash command dispatch, hook system, cron ticking, and background maintenance.
+Long-running process with 25+ platform adapters (built-in + bundled plugins), unified session routing, user authorization (allowlists + DM pairing), slash command dispatch, hook system and background maintenance.
 
 → [Gateway Internals](./gateway-internals.md)
 
@@ -230,12 +218,6 @@ Long-running process with 25+ platform adapters (built-in + bundled plugins), un
 Three discovery sources: `~/.hermes/plugins/` (user), `.hermes/plugins/` (project), and pip entry points. Plugins register tools, hooks, and CLI commands through a context API. Two specialized plugin types exist: memory providers (`plugins/memory/`) and context engines (`plugins/context_engine/`). Both are single-select — only one of each can be active at a time, configured via `hermes plugins` or `config.yaml`.
 
 → [Plugin Guide](./plugins/index.md), [Memory Provider Plugin](./memory-provider-plugin.md)
-
-### Cron
-
-First-class agent tasks (not shell tasks). Jobs store in JSON, support multiple schedule formats, can attach skills and scripts, and deliver to any platform.
-
-→ [Cron Internals](./cron-internals.md)
 
 ### ACP Integration
 

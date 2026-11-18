@@ -251,9 +251,7 @@ def build_chromium_argv(executable: str, user_data_dir: str, *, packaged: bool, 
 
 
 def _spawn_kwargs() -> dict[str, Any]:
-    if os.name == "nt":
-        from hermes_cli._subprocess_compat import windows_hide_flags
-        return {"creationflags": windows_hide_flags() | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+
     # detached-spawn: ok — a shared-profile Chromium outlives its launcher for its other holders (browser_launcher_holders); a crashed owner's throwaway one is reaped from its launch record by the next Hermes
     return {"start_new_session": True}
 
@@ -295,12 +293,9 @@ def _wait_for_devtools(proc: subprocess.Popen, user_data_dir: str, deadline: flo
 
 
 def _singleton_pid(user_data_dir: str) -> Optional[int]:
-    """Pid of the Chromium holding ``user_data_dir``: the ``SingletonLock`` symlink (POSIX), else (Windows
-    has no symlink, only a locked ``lockfile``) the browser process whose argv names the dir."""
+    """Pid of the Chromium holding ``user_data_dir`` via the SingletonLock symlink."""
     owner = _singleton_owner(user_data_dir)
-    if owner is None:
-        return _pid_naming_dir(user_data_dir) if os.name == "nt" else None
-    return owner[1]
+    return owner[1] if owner is not None else None
 
 
 def _singleton_owner(user_data_dir: str) -> Optional[tuple[str, int]]:

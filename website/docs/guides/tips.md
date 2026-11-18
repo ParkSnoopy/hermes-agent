@@ -159,7 +159,7 @@ Run `/usage` periodically to see your token consumption. Run `/insights` for a b
 
 ### Set a Home Channel
 
-Use `/sethome` in your preferred Telegram or Discord chat to designate it as the home channel. Cron job results and scheduled task outputs are delivered here. Without it, the agent has nowhere to send proactive messages.
+Use `/sethome` in your preferred Telegram or Discord chat to designate it as the home channel. Proactive messages can be delivered here.
 
 ### Use /title to Organize Sessions
 
@@ -182,25 +182,6 @@ Messaging sessions persist until an explicit `/new` or `/reset`. Context compres
 ### Use caution with untrusted code
 
 Terminal commands run locally as the Hermes process user, with that user’s filesystem permissions. They are not isolated by Hermes. Explicit nonlocal terminal selectors are refused; remove or correct old configuration before running. Running Hermes itself on a remote server or in a container is a separate deployment choice.
-
-### Avoid Windows Encoding Pitfalls
-
-On Windows, some default encodings (such as `cp125x`) cannot represent all Unicode characters, which can cause `UnicodeEncodeError` when writing files in tests or scripts.
-
-- Prefer opening files with an explicit UTF-8 encoding:
-
-```python
-with open("results.txt", "w", encoding="utf-8") as f:
-    f.write("✓ All good\n")
-```
-
-- In PowerShell, you can also switch the current session to UTF-8 for console and native command output:
-
-```powershell
-$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-```
-
-This keeps PowerShell and child processes on UTF-8 and helps avoid Windows-only failures.
 
 ### Review Before Choosing "Always"
 

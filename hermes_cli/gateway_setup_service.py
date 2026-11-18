@@ -55,7 +55,7 @@ def ensure_gateway_service(context: str = "setup", *, interactive: bool = False,
         gw.print_info("Run hermes gateway run as the container main process; use a Docker restart policy for persistence.")
         return False
     supports_systemd = gw.supports_systemd_services()
-    if not (supports_systemd or gw.is_macos() or gw.is_windows()):
+    if not supports_systemd:
         gw.print_info("No supported service manager found. Run: hermes gateway run")
         return False
     try:
@@ -73,23 +73,13 @@ def ensure_gateway_service(context: str = "setup", *, interactive: bool = False,
             if supports_systemd and gw.has_conflicting_systemd_units():
                 gw.print_systemd_scope_conflict_warning()
                 return False
-            if supports_systemd:
-                gw.systemd_install(force=False, non_interactive=True)
-            elif gw.is_macos():
-                gw.launchd_install(force=False)
-            else:
-                gw._gw_windows().install(force=False, start_now=True, start_on_login=True)
+            gw.systemd_install(force=False, non_interactive=True)
             # Installers can refuse without raising (e.g. temporary-home guard).
             if not gw._is_service_installed():
                 gw.print_warning("Gateway service install did not complete. Retry: hermes gateway install")
                 return False
             record_service_choice("install", config)
-        if supports_systemd:
-            gw.systemd_start()
-        elif gw.is_macos():
-            gw.launchd_start()
-        else:
-            gw._gw_windows().start()
+        gw.systemd_start()
         gw.print_success("Gateway service running (cron jobs + messaging platforms).")
         return True
     except gw.UserSystemdUnavailableError as exc:
@@ -130,18 +120,12 @@ def _wizard_install_service(backend: str) -> None:
             gw.print_info("Run later: hermes gateway run. Install later: hermes gateway install")
         return
     try:
-        scope, did_install = None, True
-        if backend == "systemd":
-            scope, did_install = gw.install_linux_gateway_from_setup(force=False, enable_on_startup=True)
-        elif backend == "launchd":
-            gw.launchd_install(force=False, start_now=start_now)
-        else:
-            gw._gw_windows().install(force=False, start_now=start_now, start_on_login=True)
+        scope, did_install = gw.install_linux_gateway_from_setup(force=False, enable_on_startup=True)
         if not did_install or not gw._is_service_installed():
             gw.print_warning("Gateway service install did not complete. Retry: hermes gateway install")
             return
         record_service_choice("install")
-        if start_now and backend != "windows":
+        if start_now:
             gw._setup_service_action("start", failed_label="Start failed", system=scope == "system")
     except (subprocess.CalledProcessError, SystemExit) as exc:
         gw.print_error(f"Install failed: {exc}")

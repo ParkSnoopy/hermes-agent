@@ -92,39 +92,9 @@ def _apply_wal_size_limit(conn: sqlite3.Connection) -> None:
         logger.debug("journal_size_limit not applied: %s", exc)
 
 
-def _darwin_pragma(conn: sqlite3.Connection, pragma: str) -> None:
-    """Best-effort PRAGMA on macOS only (no-op elsewhere, never raises)."""
-    if sys.platform == "darwin":
-        with contextlib.suppress(sqlite3.OperationalError):
-            conn.execute(pragma)
-
-
-def _apply_macos_checkpoint_barrier(conn: sqlite3.Connection) -> None:
-    """Enable ``PRAGMA checkpoint_fullfsync`` on macOS. Apple's ``fsync(2)`` guarantees neither data-on-platter nor
-    ordering, so without ``F_FULLFSYNC`` a launchd shutdown can turn a "durable" checkpoint into a malformed
-    ``state.db``. Checkpoint boundaries only (~+0.1 ms/commit vs ~+4 ms for ``fullfsync=1``).
-
-    During a launchd *system* shutdown/reboot the OS page cache is dropped (effectively a power-loss event
-    for in-flight pages), so a WAL checkpoint whose ``fsync()`` "reported" durable may never have hit the
-    platter — corrupting ``state.db`` with a malformed image. This is the trigger in issue #30636 ("SIGTERM
-    during launchd shutdown under high load"), distinct from a plain in-session kill (which the page cache
-    survives and SQLite recovers from).
-    """
-    _darwin_pragma(conn, "PRAGMA checkpoint_fullfsync=1")
-
-
-def _enforce_macos_synchronous_full(conn: sqlite3.Connection) -> None:
-    """Enforce ``PRAGMA synchronous=FULL`` on macOS: with NORMAL a WAL checkpoint
-    racing process termination leaves half-written btree pages (``btreeInitPage
-    error 11``). Called after every WAL activation so a prior NORMAL never sticks."""
-    _darwin_pragma(conn, "PRAGMA synchronous=FULL")
-
-
 def _apply_wal_companions(conn: sqlite3.Connection) -> None:
-    """The settings every WAL activation carries: size limit + macOS barriers."""
+    """Apply the size limit every WAL activation carries."""
     _apply_wal_size_limit(conn)
-    _apply_macos_checkpoint_barrier(conn)
-    _enforce_macos_synchronous_full(conn)
 
 
 def is_sqlite_wal_reset_vulnerable(version_info: Optional[tuple] = None) -> bool:
@@ -620,21 +590,16 @@ def resolve_synchronous_level(raw_value: Any) -> Optional[int]:
 
 
 def _apply_synchronous_pragma(conn: sqlite3.Connection, raw_value: Any, *, db_label: str) -> None:
-    """Set ``PRAGMA synchronous`` from config, never below FULL on macOS.
+    """Set ``PRAGMA synchronous`` from config.
 
     Kept out of the integer loop in :func:`apply_database_pragmas`: this PRAGMA decides whether a commit is on
     the platter, so an unrecognised value must not fall through to "SQLite default" the way a bad
-    ``cache_size`` can. Darwin floor: this runs after :func:`_enforce_macos_synchronous_full`, so a configured
-    ``NORMAL`` would silently undo the btree protection — raising is allowed, lowering is refused out loud."""
+    ``cache_size`` can."""
     if (level := resolve_synchronous_level(raw_value)) is None:
         logger.warning("%s: ignoring unrecognized database.synchronous=%r (expected OFF, NORMAL, FULL, EXTRA, or 0-3)",
                        db_label, raw_value)
         return
-    if sys.platform == "darwin" and level < _SYNCHRONOUS_FULL:
-        logger.warning("%s: refusing database.synchronous=%s on macOS; keeping FULL. Darwin's fsync() does not "
-                       "guarantee write ordering, so a lower level readmits the half-written btree pages FULL exists "
-                       "to prevent.", db_label, _SYNCHRONOUS_NAMES[level])
-        return
+
     with contextlib.suppress(sqlite3.OperationalError):
         conn.execute(f"PRAGMA synchronous={level}")
 

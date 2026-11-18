@@ -219,7 +219,7 @@ def _make_runner():
     adapter.send = AsyncMock()
     adapter._pending_messages = {}
     runner.adapters = {Platform.API_SERVER: adapter}
-    runner._voice_mode = {}
+
     runner.hooks = SimpleNamespace(
         emit=AsyncMock(),
         emit_collect=AsyncMock(return_value=[]),
@@ -242,8 +242,7 @@ def _make_runner():
     runner._show_reasoning = False
     runner._is_user_authorized = lambda _source: True
     runner._set_session_env = lambda _context: None
-    runner._should_send_voice_reply = lambda *_a, **_k: False
-    runner._send_voice_reply = AsyncMock()
+
     runner._emit_gateway_run_progress = AsyncMock()
     runner._busy_input_mode = "interrupt"
     runner._draining = False

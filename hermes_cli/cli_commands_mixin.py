@@ -170,12 +170,6 @@ def _toggle_target(arg: str, current: bool):
     return None
 
 
-def _cron_api(**kwargs) -> dict:
-    """Call the cronjob model tool and decode its JSON reply."""
-    from tools.cronjob_tools import cronjob as cronjob_tool
-    return json.loads(cronjob_tool(**kwargs))
-
-
 # Session-switch plumbing (end, repoint) lives in ``hermes_cli/cli_session_switch.py``.
 
 
@@ -1033,43 +1027,7 @@ class CLICommandsMixin(CLICommandsSessionToolsMixin):
         _set_active(result.slug)
         print(f"(^_^)b {result.display_name} hatched and adopted — it'll pop in shortly!")
 
-    # ---- /cron ----------------------------------------------------------------------------
-    def _handle_cron_command(self, cmd: str):
-        """Handle the /cron command to manage scheduled tasks. Only without a gateway session: on the shared
-        gateway every /cron form runs there (hermes_cli/gateway_setting_commands.py)."""
-        from hermes_cli.cli_cron_lines import cron_command_lines
-        _pr(*cron_command_lines(_command_arg(cmd)))
-
-    # ---- delegating handlers: /suggestions, /blueprint, /curator, /kanban, /skills, /memory --
-    def _handle_suggestions_command(self, cmd: str):
-        """Handle /suggestions — review/accept/dismiss suggested automations via the shared handler.
-        CLI origin is the local platform so an accepted job's "origin" delivery resolves to a home channel."""
-        args = " ".join(_shlex_args(cmd))
-        try:
-            from hermes_cli.suggestions_cmd import handle_suggestions_command
-            output = handle_suggestions_command(args)
-        except Exception as e:
-            output = (f'Suggestions command failed: {e}')
-        self._console_print(output)
-
-    def _handle_blueprint_command(self, cmd: str):
-        """Handle /blueprint — set up an automation from a blueprint template (shared handler).
-        Bare lists the catalog; ``<name>`` seeds the agent to ask for each value conversationally
-        (``agent_seed``, run as the next turn); ``<name> slot=val …`` creates the job directly."""
-        args = " ".join(shlex.quote(part) for part in _shlex_args(cmd))
-        try:
-            from hermes_cli.blueprint_cmd import handle_blueprint_command
-            result = handle_blueprint_command(args)
-        except Exception as e:
-            self._console_print(f'Cron blueprint command failed: {e}')
-            return
-        self._console_print(result.text)
-        seed = getattr(result, "agent_seed", None)
-        if seed:
-            # One-shot: the interactive loop picks this up right after the slash command
-            # returns and runs it as a normal agent turn.
-            self._pending_agent_seed = seed
-
+    # ---- delegating handlers: /curator, /kanban, /skills, /memory --
     def _handle_curator_command(self, cmd: str):
         """Handle /curator — delegates to hermes_cli.curator so the CLI and the `hermes curator`
         subcommand share the same handler set."""
@@ -1439,7 +1397,7 @@ class CLICommandsMixin(CLICommandsSessionToolsMixin):
     def _handle_heartbeat_command(self, cmd: str) -> None:
         """Dispatch /heartbeat: set / status / pause / resume / clear. ``/heartbeat every 10m <prompt>``
         sets the session's one recurring instruction, injected as a normal user turn when due.
-        Session-scoped and in-process — use `hermes cron` for durable schedules."""
+        Session-scoped and in-process."""
         from hermes_cli.heartbeat import format_interval
         arg = _command_arg(cmd)
         lower = arg.lower()
@@ -1488,7 +1446,7 @@ class CLICommandsMixin(CLICommandsSessionToolsMixin):
             return
         self._start_heartbeat_watchdog()
         _cp(f"  {(f'♥ Heartbeat set (every {format_interval(state.interval_seconds)}): {state.prompt}')}",
-            _dim_line('Fires as a normal turn whenever the session is idle and the interval has elapsed. /heartbeat pause | resume | clear to manage; lives only while this Hermes process runs — use `hermes cron` for durable schedules.'))
+            _dim_line('Fires as a normal turn whenever the session is idle and the interval has elapsed. /heartbeat pause | resume | clear to manage; lives only while this Hermes process runs.'))
 
     def _handle_refine_command(self, cmd: str) -> None:
         """Dispatch /refine — run the memory/skill review fork on demand (same machinery as the
@@ -1644,7 +1602,7 @@ class CLICommandsMixin(CLICommandsSessionToolsMixin):
         ``#!`` comment lines stripped; "" if the editor failed or the buffer was left empty.
         Factored out so the read-back/strip logic is unit-testable."""
         editor = (os.environ.get("VISUAL") or os.environ.get("EDITOR")
-                  or ("notepad" if os.name == "nt" else "nano"))
+                  or "nano")
         fd, path = tempfile.mkstemp(suffix=".md", prefix="hermes_prompt_")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -1923,7 +1881,7 @@ class CLICommandsMixin(CLICommandsSessionToolsMixin):
         outcome = _scope_outcome(explicit_global, saved)
         _cp(_accent_line(f'✓ {feature_name} set to {saved_value.upper()} {outcome}'))
 
-    # ---- /debug, /update, /voice, /wake ---------------------------------------------------
+    # ---- /debug, /update ---------------------------------------------------------------
     def _handle_debug_command(self, cmd_original: str = ""):
         """Handle /debug [nous|local] — upload debug report + logs and print share URLs.
         Default: public paste service; ``nous``: Nous-internal (staff-only); ``local``: render to
@@ -1957,38 +1915,3 @@ class CLICommandsMixin(CLICommandsSessionToolsMixin):
         # relaunching from this daemon thread would skip cleanup (POSIX) / only end the thread (Windows).
         self._pending_relaunch = ["update"]
         return True
-
-    def _handle_voice_command(self, command: str):
-        """Handle /voice [on|off|tts|status] command."""
-        subcommand = _command_arg(command, lower=True) or ("off" if self._voice_mode else "on")
-        actions = {"on": self._enable_voice_mode, "off": self._disable_voice_mode,
-                   "tts": self._toggle_voice_tts, "status": self._show_voice_status}
-        if subcommand in actions:
-            actions[subcommand]()
-        else:
-            _cp((f'Unknown voice subcommand: {subcommand}'), 'Usage: /voice [on|off|tts|status]')
-
-    def _handle_wake_command(self, command: str):
-        """Handle /wake [on|off|status] — the 'Hey Hermes' hotword listener. The toggle IS the
-        config: on/off also writes ``wake_word.enabled`` so the choice persists; startup
-        auto-arm only reads it."""
-        subcommand = _command_arg(command, lower=True) or (
-            "off" if getattr(self, "_wake_word_active", False) else "on")  # bare /wake toggles
-        if subcommand == "on":
-            if self._start_wake_word_listener(announce=True):
-                self._persist_wake_word_enabled(True)
-        elif subcommand == "off":
-            self._stop_wake_word_listener(announce=True)
-            self._persist_wake_word_enabled(False)
-        elif subcommand == "status":
-            self._show_wake_word_status()
-        else:
-            _cp((f'Unknown wake subcommand: {subcommand}'), 'Usage: /wake [on|off|status]')
-
-    def _persist_wake_word_enabled(self, enabled: bool):
-        """Save ``wake_word.enabled`` so the /wake toggle sticks for future sessions."""
-        persisted = _probe("tools.wake_word", "load_wake_word_config", None)
-        if isinstance(persisted, dict) and bool(persisted.get("enabled")) == enabled:
-            return  # already persisted — don't rewrite config or re-announce
-        if _save("wake_word.enabled", enabled):
-            _cp(_dim('Wake word enabled in config (wake_word.enabled: true).' if enabled else 'Wake word disabled in config (wake_word.enabled: false).'))

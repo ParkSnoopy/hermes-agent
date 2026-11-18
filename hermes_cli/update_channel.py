@@ -271,23 +271,12 @@ def _channel_write_lock(config_path: Path):
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with _CONFIG_LOCK, config_path.with_suffix(".channels.lock").open("a+b") as lock:
-        if os.name == "nt":
-            import msvcrt
-            lock.write(b"\0")
-            lock.flush()
-            lock.seek(0)
-            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        import fcntl
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
             yield
         finally:
-            if os.name == "nt":
-                lock.seek(0)
-                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def adopt_retired_channel(request: dict) -> bool:

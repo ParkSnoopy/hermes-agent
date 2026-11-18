@@ -20,7 +20,7 @@ import pytest
 
 
 @pytest.mark.parametrize("release", [False, True])
-@pytest.mark.parametrize("job", ["tests", "tests-os", "repo-guards", "js-tests"])
+@pytest.mark.parametrize("job", ["tests", "repo-guards", "js-tests"])
 @pytest.mark.parametrize("result,expected", [
     ("success", True), ("skipped", False), ("failure", False),
     ("cancelled", False), ("with-status", False),
@@ -35,9 +35,9 @@ def test_status_policy(job, result, expected, release):
 
 
 @pytest.mark.parametrize("lane,jobs", [
-    ("python", ("tests", "tests-os")),
-    ("e2e", ("tests", "tests-os")),
-    ("e2e_upgrade", ("tests", "tests-os")),
+    ("python", ("tests",)),
+    ("e2e", ("tests",)),
+    ("e2e_upgrade", ("tests",)),
     ("catalog", ("catalog-tests",)),
     ("bootstrap", ("bootstrap-installer",)),
 ])

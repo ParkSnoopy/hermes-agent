@@ -17,7 +17,7 @@
 
   git,
   openssh,
-  ffmpeg-headless,
+
 
   # for pm
   writeShellApplication,
@@ -159,15 +159,7 @@ let
     git
     openssh
   ]
-  # pm's macOS ffmpeg is a single binary with no ffprobe, which transcription
-  # needs to measure duration before splitting long recordings. Only ffprobe
-  # is linked, so `ffmpeg` on PATH stays the pinned build.
-  ++ lib.optionals stdenv.hostPlatform.isDarwin [
-    (runCommand "ffprobe-${ffmpeg-headless.version}" { } ''
-      mkdir -p $out/bin
-      ln -s ${lib.getBin ffmpeg-headless}/bin/ffprobe $out/bin/ffprobe
-    '')
-  ]
+
   ++ lib.optionals stdenv.hostPlatform.isLinux [
     wl-clipboard
     xclip
@@ -194,7 +186,7 @@ let
       code = "${hermesVenv}/${sitePackagesPath}";
       repo = "share/hermes-agent";
       placement = "references";
-      target = "${if stdenv.hostPlatform.isDarwin then "darwin" else "linux"}-${
+      target = "linux-${
         if stdenv.hostPlatform.isAarch64 then "arm64" else "x64"
       }";
       python = "${hermesVenv}/bin/python3";

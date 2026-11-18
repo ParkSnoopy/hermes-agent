@@ -714,47 +714,6 @@ class BrowserProgressPayload(Payload):
 event("browser.progress", BrowserProgressPayload, doc="Browser (CDP) connect / install progress line.")
 
 
-# ── voice ─────────────────────────────────────────────────────────────────────────────────────
-
-
-event("voice.interrupted", None, doc="Barge-in: the spoken interjection interrupted the turn; no payload.")
-
-
-class VoiceStatusPayload(Payload):
-    """``methods_voice._vr_on_status``; states come from the recorder (idle / listening / transcribing …)."""
-
-    state: str
-
-
-class VoicePartialPayload(Payload):
-    """``methods_voice`` voice.record ``on_partial`` — live STT text so far (``stt.streaming``)."""
-
-    text: str
-
-
-class VoiceTranscriptPayload(Payload):
-    """``methods_voice._vr_transcript`` / ``_deliver_fd_transcript`` / typed stop phrase in methods_prompt."""
-
-    text: str | None = None
-    stop_phrase: bool | None = None
-    typed: bool | None = None
-    no_speech_limit: bool | None = None
-
-
-class WakeDetectedPayload(Payload):
-    """``methods_voice`` wake detector ``_on_detect``."""
-
-    phrase: str
-    profile: str | None = None
-    start_new_session: bool
-
-
-event("voice.status", VoiceStatusPayload, doc="Voice recorder state changed.")
-event("voice.partial", VoicePartialPayload, doc="Live STT text so far while the user is still speaking.")
-event("voice.transcript", VoiceTranscriptPayload, doc="A voice capture produced text (or a stop phrase / silence limit).")
-event("wake.detected", WakeDetectedPayload, doc="A wake phrase fired.")
-
-
 # ── pets ──────────────────────────────────────────────────────────────────────────────────────
 
 
@@ -799,7 +758,6 @@ class ChangeSignalPayload(OpenPayload):
     """``change_watcher._CHANGE_WATCHES`` payload fn — ``{}`` for every watch except pet.changed."""
 
 
-event("cron.changed", ChangeSignalPayload, doc="cron/jobs.json moved; refetch the cron list.")
 event("sessions.changed", ChangeSignalPayload, doc="state.db moved; refetch the session list.")
 event("platforms.changed", ChangeSignalPayload, doc="gateway_state.json moved; refetch platform status.")
 event("projects.changed", ChangeSignalPayload, doc="projects.db moved; refetch the project list + tree.")
@@ -824,6 +782,5 @@ __all__ = [
     "TerminalOutputPayload", "TodoUpdatedPayload", "ToolCompletePayload",
     "ToolGeneratingPayload", "ToolLabel", "ToolLabelKind", "ToolOutputRiskPayload", "ToolProgressPayload",
     "ToolStartPayload",
-    "TurnStatus", "VoicePartialPayload", "VoiceStatusPayload",
-    "VoiceTranscriptPayload", "WakeDetectedPayload",
+    "TurnStatus",
 ]

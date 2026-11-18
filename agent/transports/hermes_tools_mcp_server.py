@@ -56,7 +56,7 @@ def _signature_from_schema(schema: dict | None) -> tuple[inspect.Signature, dict
 # model-written Python on the Hermes host, outside codex's sandbox and approval UI).
 EXPOSED_TOOLS: tuple[str, ...] = (
     "web_search", "web_extract",
-    "vision_analyze", "image_generate", "skill_view", "skills_list", "text_to_speech",
+    "vision_analyze", "image_generate", "skill_view", "skills_list",
 
 )
 

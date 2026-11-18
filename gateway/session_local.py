@@ -414,10 +414,10 @@ def _reasoning_fields(agent, policy, model, authority=None, override=None):
     resolves (a following session's current profile): a resumed Desktop slice holds its reasoning pill
     pending until ``reasoning_effort`` arrives."""
     from agent.fast_mode import parse_service_tier
-    from agent.voice_turn_route import session_runtime_view
+
     if agent is None and policy is None:
         return {}
-    view = session_runtime_view(agent) if agent is not None else None
+    view = agent
     if view is None:
         from hermes_constants import resolve_reasoning_config
         effective, next_model = policy.effective(authority, secrets=False)

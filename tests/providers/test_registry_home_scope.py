@@ -127,18 +127,6 @@ def test_mirrored_row_is_absent_in_a_home_without_the_plugin_a_b_a(homes):
     _assert_absent(_view(bare_home))
 
 
-def test_setup_detection_ignores_another_homes_mirrored_row(homes, monkeypatch):
-    from hermes_cli.setup_migration import _model_section_has_credentials
-
-    import providers
-
-    plugin_home, bare_home = homes
-    monkeypatch.delenv("GEMINI_API_KEY")
-    _bound(plugin_home, lambda: providers.get_provider_profile(SLUG))
-    assert _bound(plugin_home, lambda: _model_section_has_credentials({"model": {"provider": SLUG}})) is True
-    assert _bound(bare_home, lambda: _model_section_has_credentials({"model": {"provider": SLUG}})) is False
-
-
 def test_hidden_rows_survive_registry_reordering(homes):
     """A later mirror inserted mid-registry while another home is bound must not drop hidden rows."""
     from hermes_cli.auth import PROVIDER_REGISTRY

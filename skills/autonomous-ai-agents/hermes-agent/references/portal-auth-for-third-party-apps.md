@@ -123,6 +123,6 @@ When the user asks "can $APP use my Portal subscription":
 
 **Note on the Tool Gateway**: the "no separate accounts, no API key juggling"
 pitch in the Tool Gateway announcement is specifically about Hermes Agent's
-*tools* (web search, browser, image gen, TTS) flowing through the Portal
+*tools* (web search, browser, image gen) flowing through the Portal
 subscription when Hermes is configured to use Portal as its provider. It is
 **not** a claim that arbitrary third-party apps inherit Portal auth.

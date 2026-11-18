@@ -271,7 +271,7 @@ class PluginManager(PluginLoaderMixin, PluginDispatchMixin, PluginLedgerMixin):
         self._system_prompt_sections: dict[str, PluginSystemPromptSection] = {}
         self._plugin_skills: dict[str, dict[str, Any]] = {}
         self._plugin_rpc_methods: dict[str, Callable] = {}  # "plugin.<plugin_id>.<name>" -> handler
-        self._automation_blueprints: dict[str, Any] = {}  # "<plugin>:<key>" -> AutomationBlueprint
+
         self._portable_mcp_servers: dict[str, dict[str, Any]] = {}
         self._portable_mcp_server_plugins: dict[str, str] = {}
         self._aux_tasks: dict[str, dict[str, Any]] = {}
@@ -647,9 +647,6 @@ class PluginManager(PluginLoaderMixin, PluginDispatchMixin, PluginLedgerMixin):
             } for qualified, entry in sorted(self._plugin_skills.items())
         ]
 
-    def list_automation_blueprints(self) -> list[Any]:
-        """Plugin-registered ``AutomationBlueprint``s, sorted by key."""
-        return [bp for _key, bp in sorted(self._automation_blueprints.items())]
 
     def has_portable_mcp_servers(self) -> bool:
         return bool(self._portable_mcp_servers)
@@ -830,13 +827,7 @@ def _reset_plugin_managers_for_tests() -> None:
         _published_gateway_message_injector = None
     with _published_tui_host_lock:
         _published_tui_message_injector = None
-    # Dashboard-auth providers are persistent and survive a routine unload, so the clean-slate
-    # reset must clear that process-global registry explicitly or a test's provider leaks.
-    try:
-        from hermes_cli.dashboard_auth.registry import clear_providers
-        clear_providers()
-    except Exception:
-        logger.debug("dashboard-auth registry clear failed", exc_info=True)
+
 
 
 def has_enabled_agent_plugin_mcp(raw_config: Mapping[str, Any]) -> bool:

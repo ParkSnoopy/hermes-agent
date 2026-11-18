@@ -106,13 +106,13 @@ describe('known install failures', () => {
 it('renders known receipts as footnotes, without suppressing a red job', async () => {
   const modulePath = new URL('../scripts/sandbox/generate-e2e-matrix.mjs', import.meta.url).href
   const { renderMarkdownResults, legId } = await import(/* @vite-ignore */ modulePath)
-  const name = 'windows: installer-script -> hermes-update (v2026.3.12 -> HEAD)'
+  const name = 'linux: installer-script -> hermes-update (v2026.3.12 -> HEAD)'
   const artifacts = new Map([[`install-e2e-known-${rules[0].id}--${legId(name)}`, 42]])
-  const known = renderMarkdownResults([{ name: name + ' / e2e', conclusion: 'success' }], [], artifacts)
+  const known = renderMarkdownResults([{ name: name + ' / e2e', conclusion: 'success' }], artifacts)
   expect(known).toContain('0 passed, 0 failed, 1 known failures')
   expect(known).toContain('known [^1]')
   expect(known).toContain(`[^1]: **${rules[0].title}.**`)
-  const failed = renderMarkdownResults([{ name: name + ' / e2e', conclusion: 'failure' }], [], artifacts)
+  const failed = renderMarkdownResults([{ name: name + ' / e2e', conclusion: 'failure' }], artifacts)
   expect(failed).toContain('0 passed, 1 failed, 0 known failures')
   expect(failed).not.toContain('known [^1]')
   const passed = renderMarkdownResults([{ name: name + ' / e2e', conclusion: 'success' }])

@@ -224,20 +224,19 @@ def completion(tmp_path, monkeypatch):
                             verify(*args, **kwargs)  # closes the run as a success
                             raise KeyboardInterrupt()
                         update._verify_fleet_after_update = verify_then_interrupt
-                    merge = update._resume_windows_gateways_and_merge_outcome
+                    from hermes_cli import update_cmd_posix_pause as pause
+                    merge = pause.resume_and_merge_outcome
                     def resume(outcome, token, gateway_mode):
                         assert token == request['windows_resume']
                         (root / 'resumed-token.json').write_text(json.dumps(token))
                         return merge(outcome, token, gateway_mode)
-                    update._resume_windows_gateways_and_merge_outcome = resume
+                    pause.resume_and_merge_outcome = resume
                     if fault == 'scm':
-                        # The Windows service manager refuses the paused gateway's restart.
-                        from hermes_cli import update_cmd_windows
+                        # The supervisor refuses the paused gateway's restart.
                         def scm(token):
                             if token and token.get('resume_needed'):
-                                raise RuntimeError('Could not restart Windows gateway service(s): HermesGatewayProbe')
-                        module._resume_windows_gateways_after_update = scm
-                        update_cmd_windows._resume_windows_gateways_after_update = scm
+                                raise RuntimeError('Could not restart gateway service: hermes-gateway')
+                        pause.resume_gateways_after_update = scm
                 spec.loader.exec_module = execute
                 return spec
         sys.meta_path.insert(0, CompletionImports())
@@ -291,16 +290,15 @@ def test_failure_preserves_original_receipt_before_build(completion, fault):
 
 @pytest.mark.platforms("posix")
 def test_refused_gateway_resume_after_commit_is_a_followup_not_exit_1(completion):
-    """C3 for the historical takeover child: the code is committed, so a Windows gateway resume
-    that the service manager refuses is an owed ``windows_resume`` follow-up, never exit 1."""
+    """C3 for the historical takeover child: the code is committed, so a gateway resume
+    that the supervisor refuses is an owed ``windows_resume`` follow-up, never exit 1."""
     _source, home, request, context, result, run = completion
     request["gateway_mode"] = True
     # A real start time names the run's archive file, so the running and terminal records share one
     # file (the fixture's placeholder falls back to the clock and can split them across a second).
     request["receipt"]["started_at"] = "2026-10-04T12:00:00+00:00"
-    request["windows_resume"] = {"resume_needed": True, "profiles": {}, "unmapped": [],
-                                 "services": ["HermesGatewayProbe"],
-                                 "service_profiles": {"HermesGatewayProbe": "default"}}
+    request["windows_resume"] = {"platform": "posix", "resume_needed": True, "profiles": {}, "unmapped": [],
+                                 "posix_units": [{"kind": "systemd", "scope": "user", "unit": "hermes-gateway"}]}
     context.write_text(json.dumps(request), encoding="utf-8")
     child = run("scm")
     assert child.returncode == 0, child.stdout + child.stderr

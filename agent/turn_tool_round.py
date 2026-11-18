@@ -157,7 +157,7 @@ def run_tool_round(
         agent._emit_interim_assistant_message(assistant_msg)
 
     # Flush open streaming boxes before tools so early content doesn't wrap tool feed
-    # lines. Display callback only — TTS (_stream_callback) must NOT receive None (EOS).
+    # lines. Display callback only — the per-turn text sink must not receive None (EOS).
     if agent.stream_delta_callback:
         with suppress(Exception):
             agent.stream_delta_callback(None)

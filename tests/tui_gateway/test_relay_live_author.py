@@ -51,7 +51,7 @@ class _InlineThread:
 def turn_env(monkeypatch, tmp_path):
     monkeypatch.setattr(srv.threading, "Thread", _InlineThread)
     for name in ("_emit", "_wire_callbacks", "_sync_agent_model_with_config", "_register_session_cwd",
-                 "_tts_stream_begin", "_sync_session_key_after_compress"):
+                 "_sync_session_key_after_compress"):
         monkeypatch.setattr(srv, name, lambda *a, **k: None)
     monkeypatch.setattr(srv, "_session_cwd", lambda session: str(tmp_path))
     monkeypatch.setattr(srv, "_get_usage", lambda agent: {})

@@ -99,7 +99,7 @@ class CLITuiRuntimeMixin:
         from cli import _DIM, _PASTE_REF_RE, _RST, _cprint, _detect_file_drop, _looks_like_slash_command, _strip_leaked_bracketed_paste_wrappers, _strip_leaked_terminal_responses_with_meta
         from tools.process_registry_notifications import TimelineNotification
         self._tui_dock_drop_dequeued()
-        user_input, is_voice_input, is_seeded_query = self._tui_unwrap_input(user_input)
+        user_input, is_seeded_query = self._tui_unwrap_input(user_input)
         if not user_input:
             return
         notification_preview = user_input if isinstance(user_input, TimelineNotification) else None
@@ -115,9 +115,6 @@ class CLITuiRuntimeMixin:
             if _had_mouse_reports:
                 self._recover_terminal_input_modes(reason="mouse reports leaked into submitted input")
 
-        # A typed bare stop phrase ends an active voice chat (transcripts are checked earlier).
-        if not is_voice_input and self._typed_voice_stop(user_input):
-            return
 
         # File drops are detected before any dispatch; seeded -q prompts are literal text.
         _file_drop = _detect_file_drop(user_input) if isinstance(user_input, str) and not is_seeded_query else None
@@ -160,7 +157,7 @@ class CLITuiRuntimeMixin:
         self._turn_summary_begin()
         self._app.invalidate()
         try:
-            self.chat(notification_preview or user_input, images=submit_images or None, voice_input=is_voice_input)
+            self.chat(notification_preview or user_input, images=submit_images or None)
         finally:
             self._tui_after_turn()
 
@@ -214,21 +211,6 @@ class CLITuiRuntimeMixin:
             except Exception as _exc:
                 logging.debug("%s hook failed: %s", what, _exc)
 
-        # Continuous voice: restart recording off-thread (beep + recorder start would block process_loop).
-        if self._voice_mode and self._voice_continuous and not self._voice_recording:
-            def _restart_recording():
-                try:
-                    if self._voice_tts:
-                        self._voice_tts_done.wait(timeout=60)
-                        time.sleep(0.3)
-                    # A barge-in capture already owns the mic and submits the interruption itself.
-                    if self._voice_barge_capture.is_set():
-                        return
-                    self._voice_start_recording()
-                    self._app.invalidate()
-                except Exception as e:
-                    _cprint(f"{_DIM}{(f'Voice auto-restart failed: {e}')}{_RST}")
-            threading.Thread(target=_restart_recording, daemon=True).start()
 
         with suppress(Exception):
             self._drain_process_notifications("cli-post-turn")
@@ -372,25 +354,6 @@ class CLITuiRuntimeMixin:
                     f"[bold red]{'⚠  Secret redaction is DISABLED'}[/] "
                     + ('(HERMES_REDACT_SECRETS={value}). API keys and tokens may appear verbatim in chat output, session JSONs, and logs. Set {setting} in config.yaml to re-enable.').format(value=_escape(_redact_raw), setting="[cyan]security.redact_secrets: true[/]")
                 )
-        # One-time banner when ~/.openclaw/ is left over from a migration.
-        try:
-            from agent.onboarding import (
-                OPENCLAW_RESIDUE_FLAG, detect_openclaw_residue, is_seen, mark_seen, openclaw_residue_hint_cli,
-            )
-            if not is_seen(self.config, OPENCLAW_RESIDUE_FLAG) and detect_openclaw_residue():
-                try:
-                    _resid_color = _welcome_skin.get_color("banner_dim", "#B8860B")
-                except Exception:
-                    _resid_color = "#B8860B"
-                self._console_print(f"[{_resid_color}]{openclaw_residue_hint_cli()}[/]")
-                try:
-                    from hermes_cli.config import get_config_path as _get_cfg_path_resid
-                    mark_seen(_get_cfg_path_resid(), OPENCLAW_RESIDUE_FLAG)
-                except Exception:
-                    pass  # banner fires again next session
-        except Exception:
-            pass
-
     def _tui_startup_background_maintenance(self):
         """Best-effort startup passes: curator skill maintenance, personal + org skill sync.
 
@@ -447,46 +410,24 @@ class CLITuiRuntimeMixin:
         )
 
     def _tui_install_signal_handlers(self):
-        """SIGTERM/SIGHUP -> graceful shutdown; Windows absorbs SIGINT (see body)."""
+        """Route SIGTERM and SIGHUP to graceful shutdown."""
         try:
             import signal as _signal
             _signal.signal(_signal.SIGTERM, self._tui_signal_handler)
             if hasattr(_signal, 'SIGHUP'):
                 _signal.signal(_signal.SIGHUP, self._tui_signal_handler)
 
-            # Windows: absorb SIGINT. Win32 delivers spurious CTRL_C_EVENT when children spawn
-            # from background threads, which would unwind app.run() mid-turn. Real Ctrl+C is
-            # bound by prompt_toolkit. Never call agent.interrupt() here (fake user message).
-            if sys.platform == "win32":
-                _signal.signal(_signal.SIGINT, lambda signum, frame: None)
+
         except Exception:
             pass  # restricted environments
 
     def _tui_stdin_usable(self) -> bool:
-        """Validate fd 0 before prompt_toolkit starts; on macOS fall back to a select() loop when kqueue can't watch it (uv-managed Python)."""
+        """Validate fd 0 before prompt_toolkit starts."""
         try:
             os.fstat(0)
         except OSError:
-            print('Error: stdin (fd 0) is not available.\nThis can happen with certain Python installations (e.g. uv-managed cPython on macOS).\nTry reinstalling Python via pyenv or Homebrew, then re-run: hermes setup')
+            print('Error: stdin (fd 0) is not available.')
             return False
-        if sys.platform == "darwin":
-            import selectors as _selectors
-            try:
-                if hasattr(_selectors, "KqueueSelector"):
-                    _kq = _selectors.KqueueSelector()
-                    try:
-                        _kq.register(0, _selectors.EVENT_READ)
-                        _kq.unregister(0)
-                    finally:
-                        _kq.close()
-            except (OSError, ValueError, KeyError):
-                import asyncio as _aio_probe
-
-                class _SelectEventLoopPolicy(_aio_probe.DefaultEventLoopPolicy):
-                    def new_event_loop(self):
-                        return _aio_probe.SelectorEventLoop(_selectors.SelectSelector())
-
-                _aio_probe.set_event_loop_policy(_SelectEventLoopPolicy())
         return True
 
     def _closing_session_id(self):
@@ -497,7 +438,7 @@ class CLITuiRuntimeMixin:
         return self.session_id if getattr(self, "_gateway_session_open", False) else None
 
     def _tui_shutdown(self):
-        """Teardown after the app exits: interrupt agent, stop voice/pet, persist + close session, cleanup, exit summary."""
+        """Teardown after app exit: interrupt agent, stop pet, persist and close the session."""
         from cli import _DIM, _RST, _cprint, _invoke_interrupted_session_end, _run_cleanup, set_approval_callback, set_secret_capture_callback, set_sudo_password_callback
         self._should_exit = True
         self._pet_stop_anim()
@@ -511,13 +452,6 @@ class CLITuiRuntimeMixin:
             # viewer and the owner closes the row once the turn settles (gateway/session_viewer_close).
             with suppress(Exception):
                 request_hard_interrupt(self.agent)
-        if self._voice_recorder:
-            with suppress(Exception):
-                self._voice_recorder.shutdown()
-            self._voice_recorder = None
-        with suppress(Exception):
-            from tools.voice_mode import cleanup_temp_recordings
-            cleanup_temp_recordings()
         from agent.vault_backends.unlock import (lock as _vault_lock, set_code_prompt_callback,
                                                  set_save_login_prompt_callback, set_unlock_prompt_callback)
         for _unset in (set_sudo_password_callback, set_approval_callback, set_secret_capture_callback,

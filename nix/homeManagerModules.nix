@@ -60,7 +60,7 @@
       effectivePackage = common.effectivePackage cfg;
       hermes-agent = inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.default;
 
-      inherit (pkgs.stdenv.hostPlatform) isDarwin isLinux;
+      inherit (pkgs.stdenv.hostPlatform) isLinux;
 
       processEnvironment = common.processEnvironment {
         inherit (cfg) hermesHome;
@@ -107,39 +107,6 @@
           };
         };
 
-      mkAgent =
-        {
-          argv,
-          logName,
-          environment ? { },
-        }:
-        {
-          enable = true;
-          config = {
-            Label = "org.nix-community.home.${logName}";
-            ProgramArguments = argv;
-            EnvironmentVariables =
-              processEnvironment
-              // environment
-              // {
-                PATH = "${unitPath}:/usr/bin:/bin:/usr/sbin:/sbin";
-              };
-            WorkingDirectory = cfg.workingDirectory;
-            RunAtLoad = true;
-            KeepAlive =
-              if cfg.restart == "always" then
-                true
-              else
-                {
-                  SuccessfulExit = false;
-                  Crashed = true;
-                };
-            ThrottleInterval = cfg.restartSec;
-            StandardOutPath = "${config.home.homeDirectory}/Library/Logs/${logName}.log";
-            StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/${logName}.err.log";
-            ProcessType = "Background";
-          };
-        };
 
     in
     {
@@ -313,14 +280,6 @@
               };
             })
 
-
-            # ── Darwin: launchd agents ─────────────────────────────────────
-            (lib.mkIf (isDarwin && cfg.gateway.enable) {
-              launchd.agents.hermes-agent = mkAgent {
-                argv = common.gatewayArgv cfg;
-                logName = "hermes-agent";
-              };
-            })
 
 
           ]

@@ -6,8 +6,6 @@ from pathlib import Path
 import subprocess
 import sys
 
-from hermes_cli._subprocess_compat import windows_detach_popen_kwargs, _WINDOWS_GATEWAY_BREAKAWAY_ENV
-from hermes_cli.gateway_launchd_runtime import GatewayJob, start_gateway_job
 from hermes_cli.gateway_runtime_service import RuntimeStartError, remaining
 
 
@@ -41,8 +39,8 @@ DAEMON_STRIPPED_ENV = (
 
 
 def spawn_unmanaged_gateway(profile_home: Path, *, deadline: float, idle_exit: bool = False,
-                            force: bool = False) -> subprocess.Popen | GatewayJob:
-    """Request a daemon, not readiness. Refuse Windows no-breakaway fallback.
+                            force: bool = False) -> subprocess.Popen:
+    """Request a daemon, not readiness.
 
     No --replace, persistence, login changes, elevation, shell, or inherited stdio.
     The gateway runtime's own exclusive ownership fence arbitrates racing starts.
@@ -63,13 +61,6 @@ def spawn_unmanaged_gateway(profile_home: Path, *, deadline: float, idle_exit: b
     # dotenv would otherwise become the default daemon's frozen launch env (host_gateway_child_env).
     from tools.environments.local import served_profile_child_env
     env = served_profile_child_env(base=dict(os.environ), target_home=home, inherit_credentials=True)
-    if sys.platform == "win32":
-        from hermes_cli.gateway_windows import windowless_gateway_restart_spec
-        command, _, overlay = windowless_gateway_restart_spec(command)
-        if not overlay:
-            raise RuntimeStartError("windows_interpreter_unavailable")
-        env.update(overlay)
-        env[_WINDOWS_GATEWAY_BREAKAWAY_ENV] = "1"
     env.update(HERMES_HOME=str(home), HERMES_GATEWAY_DETACHED="1", PYTHONIOENCODING="utf-8")
     # Profile selection is the explicit home, not the invoking client's display
     # name. Launch-only approval/context/config flags ride the launching session's frozen
@@ -82,20 +73,15 @@ def spawn_unmanaged_gateway(profile_home: Path, *, deadline: float, idle_exit: b
     remaining(deadline)
     logs = home / "logs"
     logs.mkdir(parents=True, exist_ok=True)
-    if sys.platform == "darwin":  # LAN access must outlive the app that asked for the gateway
-        if job := start_gateway_job(command, env=env, cwd=root, log_path=logs / "gateway-stdio.log",
-                                    deadline=deadline):
-            return job
     try:
         with (logs / "gateway-stdio.log").open("ab", buffering=0) as output:
             remaining(deadline)
             return subprocess.Popen(command, cwd=root, env=env, close_fds=True,
                                     stdin=subprocess.DEVNULL, stdout=output, stderr=output,
                                     # detached-spawn: ok — a gateway daemon launch must outlive its launcher
-                                    **windows_detach_popen_kwargs())
+                                    start_new_session=True)
     except OSError as exc:
-        reason = "windows_breakaway_unavailable" if sys.platform == "win32" else "spawn_failed"
-        raise RuntimeStartError(reason) from exc
+        raise RuntimeStartError("spawn_failed") from exc
 
 
 def start_detached_replacement(profile_home: Path, *, force: bool = False) -> int:
@@ -152,6 +138,6 @@ def startup_failure_report(profile_home: Path, offset: int, status: int, pid: in
             path = profile_home / "logs" / "gateway.log"
     from agent.redact import redact_sensitive_text
     tail = redact_sensitive_text("\n".join(lines), force=True, redact_url_credentials=True)
-    see = f'type "{path}"' if sys.platform == "win32" else f"tail -n 200 '{path}'"
+    see = f"tail -n 200 '{path}'"
     body = "\n".join("  " + line for line in tail.splitlines()) if tail else "  (it wrote no output)"
     return f"the gateway exited with status {status} before it could serve:\n{body}\nFull log: {see}"

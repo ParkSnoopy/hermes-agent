@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
 """Watch any JSON endpoint that returns a list of objects; dedup by ID field.
 
-Usage (via cron with --no-agent):
-
-    hermes cron create api-events \\
-      --schedule "*/1 * * * *" --no-agent \\
-      --script "$HERMES_HOME/skills/devops/watchers/scripts/watch_http_json.py" \\
-      --script-args "--name api --url https://api.example.com/events \\
-                     --id-field event_id --items-path data.events"
-
 The response can be:
   - a top-level JSON list (default), or
   - a JSON object with a dotted ``--items-path`` pointing to the list.

@@ -16,8 +16,8 @@ class CuaDriverProvider(ComputerUseProvider):
         return CuaDriverBackend(permission_mode=permission_mode)
 
     def is_available(self) -> bool:
-        """macOS/Windows/Linux + cua-driver binary (or env override). `hermes computer-use doctor` names blocked checks."""
-        if sys.platform not in ("darwin", "win32", "linux"):
+        """Linux + cua-driver binary (or env override). `hermes computer-use doctor` names blocked checks."""
+        if sys.platform != "linux":
             return False
         from tools.computer_use.cua_backend_driver import cua_driver_binary_available
         return cua_driver_binary_available()

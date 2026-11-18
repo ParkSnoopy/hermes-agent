@@ -242,12 +242,6 @@ class TestSummarizeToolResultOutcome:
          "[web_search] query='hermes' (25 chars result) FAILED: rate limited"),
         ("memory", {"action": "add", "target": "a note"}, {"error": "unknown action"},
          "[memory] add on a note FAILED: unknown action"),
-        ("text_to_speech", {}, {"error": "no voice available"},
-         "[text_to_speech] generated audio (31 chars) FAILED: no voice available"),
-        ("cronjob_manage", {"action": "create"}, {"success": False}, "[cronjob] create FAILED"),
-        ("cronjob_manage", {"action": "run"},
-         {"success": True, "job": {"execution_success": False, "execution_error": "agent exited with code 1"}},
-         "[cronjob] run FAILED: agent exited with code 1"),
         ("process_manage", {"action": "poll", "session_id": "p1"},
          {"status": "exited", "exit_code": 1, "completion_reason": "nonzero_exit"},
          "[process] poll session=p1 FAILED: exit code 1"),
@@ -268,10 +262,7 @@ class TestSummarizeToolResultOutcome:
          "[web_search] query='hermes' (31 chars result)"),
         ("write_file", {"path": "a.md", "content": "line 1\nline 2"}, {"bytes_written": 13},
          "[write_file] wrote to a.md (2 lines)"),
-        ("text_to_speech", {}, {"success": True, "path": "/tmp/out.wav"}, "[text_to_speech] generated audio (41 chars)"),
         # ``job`` carries stored state from earlier runs; only this call's outcome may mark the stub.
-        ("cronjob_manage", {"action": "poll"},
-         {"success": True, "job": {"error": "last run failed", "execution_success": True}}, "[cronjob] poll"),
         ("process_manage", {"action": "poll", "session_id": "p1"}, {"status": "exited", "exit_code": 0},
          "[process] poll session=p1"),
         ("process_manage", {"action": "poll", "session_id": "p1"}, {"status": "running", "pid": 4242},
@@ -279,9 +270,6 @@ class TestSummarizeToolResultOutcome:
         # The agent's own kill and a run the scheduler is already firing are not failures.
         ("process_manage", {"action": "poll", "session_id": "p1"},
          {"status": "exited", "exit_code": -15, "completion_reason": "killed"}, "[process] poll session=p1"),
-        ("cronjob_manage", {"action": "run"},
-         {"success": True, "job": {"execution_skipped": "Already being fired by the scheduler; not run again."}},
-         "[cronjob] run SKIPPED: Already being fired by the scheduler; not run again."),
     ])
     def test_successful_call_stub_is_not_marked(self, tool_name, args, payload, expected):
         assert self._stub(tool_name, args, payload) == expected

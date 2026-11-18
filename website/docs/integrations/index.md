@@ -9,7 +9,7 @@ sidebar_position: 0
 Hermes Agent connects to external systems for AI inference, tool servers, IDE workflows, programmatic access, and more. These integrations extend what Hermes can do and where it can run.
 
 :::tip Start here
-If you only have time to set up one integration, set up [Nous Portal](./nous-portal.md) — a single OAuth login covers 300+ models plus the four Tool Gateway tools (web search, image generation, TTS, and browser automation).
+If you only have time to set up one integration, set up [Nous Portal](./nous-portal.md) — a single OAuth login covers 300+ models plus the Tool Gateway tools (web search, image generation, and browser automation).
 :::
 
 ## AI Providers & Routing
@@ -60,21 +60,6 @@ The Camofox anti-detection browser is a catalog plugin: `hermes plugins install 
 
 See [Browser Automation](../user-guide/features/browser.md) for setup and usage.
 
-## Voice & TTS Providers
-
-Text-to-speech and speech-to-text providers:
-
-| Provider | Quality | Cost | API Key |
-|----------|---------|------|---------|
-| **Edge TTS** (default) | Good | Free | None needed |
-| **ElevenLabs** | Excellent | Paid | `ELEVENLABS_API_KEY` |
-| **OpenAI TTS** | Good | Paid | `VOICE_TOOLS_OPENAI_KEY` |
-| **MiniMax** | Good | Paid | `MINIMAX_API_KEY` |
-| **xAI TTS** | Good | Paid | `XAI_API_KEY` |
-| **NeuTTS** | Good | Free | None needed |
-
-Speech-to-text supports eight providers: local faster-whisper (free, runs on-device), a local command wrapper, Groq, OpenAI Whisper API, Mistral, xAI, ElevenLabs Scribe, and DeepInfra. See [Voice & TTS](../user-guide/features/tts.md) and [Voice Mode](../user-guide/features/voice-mode.md) for details.
-
 ## IDE & Editor Integration
 
 - **[IDE Integration (ACP)](../user-guide/features/acp.md)** — Use Hermes Agent inside ACP-compatible editors such as VS Code, Zed, and JetBrains. Hermes runs as an ACP server, rendering chat messages, tool activity, file diffs, and terminal commands inside your editor.
@@ -89,7 +74,7 @@ See [A2A](../user-guide/messaging/a2a.md) for agent-to-agent access.
 
 ## Collaboration Workspaces
 
-- **[Buzz](./buzz.md)** — Block's Nostr-based human+agent workspace. Three integration paths: Buzz Desktop spawns Hermes as a managed ACP runtime, the `buzz-acp` relay bridge hosts a Hermes identity server-side, or the native gateway platform joins Buzz channels with full Hermes memory/skills/approvals/cron. The overview page compares all three.
+- **[Buzz](./buzz.md)** — Block's Nostr-based human+agent workspace. Three integration paths: Buzz Desktop spawns Hermes as a managed ACP runtime, the `buzz-acp` relay bridge hosts a Hermes identity server-side, or the native gateway platform joins Buzz channels with Hermes memory, skills, and approvals. The overview page compares all three.
 
 ## Home Automation
 

@@ -215,7 +215,7 @@ def _close_transcript_tail(agent, messages, final_response, interrupted, _recove
             _tail.pop(_DB_PERSISTED_MARKER, None)
             agent._db_flush_scan_prefix = None
 
-    # Request is complete, so replace API-local voice/model/skill guidance with the
+    # Request is complete, so replace API-local model/skill guidance with the
     # clean user input before the durable snapshot (earlier flushes still needed them).
     # Earlier turn-start flushes use the DB-only override because their messages are still needed for the
     # API request; this finalizer runs after that request is complete (#48677 / #63766).
@@ -791,11 +791,6 @@ def finalize_turn(
         result["interrupt_message"] = agent._interrupt_message
     agent.clear_interrupt()
     agent._stream_callback = None  # don't leak into future calls
-
-    # A voice turn's model route ends with the turn: memory sync and the background review
-    # below (and the next turn) run on the session's main model.
-    from agent.voice_turn_route import end_voice_turn_route
-    end_voice_turn_route(agent)
 
     # Skill trigger is checked NOW — based on how many tool iterations THIS turn used.
     _should_review_skills = (

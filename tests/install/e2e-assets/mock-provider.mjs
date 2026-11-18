@@ -1,7 +1,6 @@
-// Driver-side wrapper around tests-js/scripts/mock-server.ts (the desktop
-// E2E suite's OpenAI-compatible mock): starts the server as a LIBRARY
-// (importing, not executing, so the dev-launcher block never runs) and
-// publishes its URL to a file for the shell driver to consume.
+// Driver-side wrapper around tests-js/scripts/mock-server.ts: starts the
+// shared OpenAI-compatible mock and publishes its URL to a file for the
+// shell driver to consume.
 //
 // Usage: node mock-provider.mjs <url-file> [<prior-url>]
 //   Writes "<url-file>" with the base URL (http://127.0.0.1:<port>) once

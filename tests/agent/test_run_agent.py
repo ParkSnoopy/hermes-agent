@@ -5762,7 +5762,7 @@ def _provider_bare_sse_error_text(
 
 
 class TestStreamingApiCall:
-    """Tests for _streaming_api_call — voice TTS streaming pipeline."""
+    """Tests for streaming response assembly and errors."""
 
     def test_content_assembly(self, agent):
         chunks = [
@@ -6426,8 +6426,7 @@ class TestPersistUserMessageOverride:
             {
                 "role": "user",
                 "content": (
-                    "[Voice input — respond concisely and conversationally, "
-                    "2-3 sentences max. No code blocks or markdown.] Hello there"
+                    "[Session context: respond concisely.] Hello there"
                 ),
             },
             {"role": "assistant", "content": "Hi!"},
@@ -6441,8 +6440,7 @@ class TestPersistUserMessageOverride:
         # API call (#48677).
         assert (
             messages[0]["content"]
-            == "[Voice input — respond concisely and conversationally, "
-            "2-3 sentences max. No code blocks or markdown.] Hello there"
+            == "[Session context: respond concisely.] Hello there"
         )
         # But the DB write must get the override.
         batch = agent._session_db.append_messages_batch.call_args_list[0].kwargs[
@@ -6542,15 +6540,15 @@ class TestReasoningReplayForStrictProviders:
 
 
 # ---------------------------------------------------------------------------
-# Bugfix: _vprint force=True on error messages during TTS
+# Bugfix: _vprint force=True on error messages during streaming
 # ---------------------------------------------------------------------------
 
 
 class TestVprintForceOnErrors:
-    """Error/warning messages must be visible during streaming TTS."""
+    """Error/warning messages must be visible during streaming."""
 
-    def test_forced_message_shown_during_tts(self, agent):
-        agent._stream_callback = lambda x: None
+    def test_forced_message_shown_during_streaming(self, agent):
+        agent.stream_delta_callback = lambda x: None
         printed = []
         with patch("builtins.print", side_effect=lambda *a, **kw: printed.append(a)):
             agent._vprint("error msg", force=True)

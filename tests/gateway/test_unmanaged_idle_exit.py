@@ -37,7 +37,7 @@ def _runner(tmp_path, monkeypatch, *, window=0.2):
         session_runtime_descriptor={"state": "ready", "capabilities": ["x"]}, _exit_reason=None,
         _active_work_count=lambda **kwargs: 0, _scale_to_zero_has_live_background_work=lambda: False, stop=stop)
     monkeypatch.setattr(run_idle_exit, "idle_exit_seconds", lambda r: window)
-    monkeypatch.setattr("gateway.run._cron_tick_profile_homes", lambda config: [("default", home)])
+
 
     monkeypatch.setattr(run_idle_exit, "_store_gates_busy", lambda homes: None)
     run_idle_exit.note_client_activity(runner)
@@ -59,7 +59,7 @@ async def test_idle_auto_started_gateway_exits_and_publishes_why(tmp_path, monke
 
 
 @pytest.mark.asyncio
-async def test_queued_work_clients_adapters_and_cron_each_keep_it_up(tmp_path, monkeypatch):
+async def test_queued_work_clients_and_adapters_each_keep_it_up(tmp_path, monkeypatch):
     """Fail-closed predicate: every class of pending work, a live client and a configured adapter
     keep the gateway up; only when all are gone is it idle."""
     runner, home, db, _stops = _runner(tmp_path, monkeypatch)
@@ -81,12 +81,7 @@ async def test_queued_work_clients_adapters_and_cron_each_keep_it_up(tmp_path, m
         runner.config.platforms[Platform.API_SERVER] = SimpleNamespace(enabled=True)
         assert "messaging" in run_idle_exit.busy_reason(runner, window=0.2)
         runner.config.platforms.clear()
-        from cron.jobs import create_job, use_cron_store
-        with use_cron_store(home):
-            create_job("ping", "every 1h", name="j")
-        assert "cron jobs scheduled" in run_idle_exit.busy_reason(runner, window=0.2)
-        monkeypatch.setattr("cron.jobs.load_jobs", lambda: (_ for _ in ()).throw(OSError("unreadable")))
-        assert "idle probe failed" in run_idle_exit.busy_reason(runner, window=0.2)
+        assert run_idle_exit.busy_reason(runner, window=0.2) is None
     finally:
         db.close()
 

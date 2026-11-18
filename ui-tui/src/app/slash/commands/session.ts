@@ -8,15 +8,12 @@ import type {
   SessionCompressResponse,
   SessionUsageResponse,
   SlashExecResponse,
-  VoiceToggleResponse
 } from '@hermes/shared/gateway-types'
 import { sessionScopedModelArg, TUI_SESSION_MODEL_FLAG } from '@hermes/shared/slash-input'
 
 import { usageBarsText } from '../../../components/overlayPrimitives.js'
-import { canonicalEn } from '../../../copy/canonical.js'
 import { slashCmdEn } from '../../../copy/slashCmd.js'
 import { introMsg, toTranscriptMessages } from '../../../domain/messages.js'
-import { formatVoiceRecordKey, parseVoiceRecordKey } from '../../../lib/platform.js'
 import type { PanelSection } from '../../../types.js'
 import { applyConfiguredTuiTheme } from '../../createGatewayEventHandler.js'
 import { DEFAULT_INDICATOR_STYLE, INDICATOR_STYLES, type IndicatorStyle } from '../../interfaces.js'
@@ -380,143 +377,6 @@ export const sessionCommands: SlashCommand[] = [
           // source; changing only sid would inherit the source owner's epoch.
           ctx.session.resumeById(r.session_id)
           ctx.transcript.sys(slashCmdEn.slashCmd.session.branch.branched(r.title ?? ''))
-        })
-      )
-    }
-  },
-
-  {
-    help: 'voice mode: [on|off|tts|status]',
-    name: 'voice',
-    run: (arg, ctx) => {
-      const normalized = (arg ?? '').trim().toLowerCase()
-
-      const action =
-        normalized === 'on' || normalized === 'off' || normalized === 'tts' || normalized === 'status'
-          ? normalized
-          : 'status'
-
-      // Read-aloud ran in the sidecar's own turn; a shared-gateway turn runs on the owner, which
-      // never speaks a TUI reply, so the toggle would say "on" and stay silent.
-      if (action === 'tts' && ctx.gateway.gw?.isCanonical) {
-        return ctx.transcript.sys(canonicalEn.canonical.controls.notAvailable('voice tts'))
-      }
-
-      // T9: the shared owner holds a session's voice mode (its /voice handler, per session). The
-      // sidecar's voice.toggle flipped the owner's process-global HERMES_VOICE for every chat; run
-      // the owner's handler instead and mirror the mode it reports back.
-      if (ctx.gateway.gw?.isCanonical && ctx.sid) {
-        const sid = ctx.sid
-        const command = normalized === 'on' || normalized === 'off' ? `voice ${normalized}` : 'voice status'
-
-        return void ctx.gateway.gw
-          .request<SlashExecResponse>('slash.exec', { command, session_id: sid })
-          .then(r => {
-            if (ctx.stale()) {
-              return
-            }
-
-            const text = r?.output?.trim()
-
-            if (text) {
-              ctx.transcript.sys(text)
-            }
-
-            return ctx.gateway.rpc<ConfigGetValueResponse>('config.get', { key: 'voice', session_id: sid })
-          })
-          .then(r => {
-            if (!r || ctx.stale()) {
-              return
-            }
-
-            // Local sessions refuse `/voice tts` (the owner never speaks a TUI reply), so speech
-            // output stays off; the mic mode follows the gateway's per-session state.
-            ctx.voice.setVoiceEnabled(r.value === 'voice_only' || r.value === 'all')
-            ctx.voice.setVoiceTts(false)
-          })
-          .catch(ctx.guardedErr)
-      }
-
-      ctx.gateway.rpc<VoiceToggleResponse>('voice.toggle', { action }).then(
-        ctx.guarded<VoiceToggleResponse>(r => {
-          ctx.voice.setVoiceEnabled(!!r.enabled)
-          ctx.voice.setVoiceTts(!!r.tts)
-
-          // Render the configured record key (config.yaml ``voice.record_key``)
-          // instead of hardcoded "Ctrl+B" — the gateway response carries the
-          // current value so /voice status and /voice on stay in sync with
-          // both the CLI and the TUI's actual binding (#18994).
-          //
-          // Copilot review on #19835 caught that rendering from the fresh
-          // backend response WITHOUT updating the frontend ``voice.recordKey``
-          // state would skew display and binding between config-edit and
-          // the next ``mtime`` poll (~5s). Parse once, push into state so
-          // ``useInputHandlers()`` picks up the new binding immediately.
-          //
-          // Round-2 follow-up: only push state when the response actually
-          // carries ``record_key`` — otherwise an older gateway (or a future
-          // branch that forgets to include it) would clobber a custom user
-          // binding back to the default on every /voice invocation. The
-          // label still falls back to the documented default for display.
-          const parsed = r.record_key ? parseVoiceRecordKey(r.record_key) : undefined
-
-          if (parsed) {
-            ctx.voice.setVoiceRecordKey(parsed)
-          }
-
-          const recordKeyLabel = formatVoiceRecordKey(parsed ?? parseVoiceRecordKey('ctrl+b'))
-
-          // Match CLI's _show_voice_status / _enable_voice_mode /
-          // _toggle_voice_tts output shape so users don't have to learn
-          // two vocabularies.
-          if (action === 'status') {
-            const mode = r.enabled ? slashCmdEn.slashCmd.session.voice.on : slashCmdEn.slashCmd.session.voice.off
-            const tts = r.tts ? slashCmdEn.slashCmd.session.voice.on : slashCmdEn.slashCmd.session.voice.off
-            ctx.transcript.sys(slashCmdEn.slashCmd.session.voice.statusTitle)
-            ctx.transcript.sys(slashCmdEn.slashCmd.session.voice.statusMode(mode))
-            ctx.transcript.sys(slashCmdEn.slashCmd.session.voice.statusTts(tts))
-            ctx.transcript.sys(slashCmdEn.slashCmd.session.voice.statusRecordKey(recordKeyLabel))
-
-            // CLI's "Requirements:" block — surfaces STT/audio setup issues
-            // so the user sees "STT provider: MISSING ..." instead of
-            // silently failing on every record-key press.
-            if (r.details) {
-              ctx.transcript.sys('')
-              ctx.transcript.sys(slashCmdEn.slashCmd.session.voice.requirements)
-
-              for (const line of r.details.split('\n')) {
-                if (line.trim()) {
-                  ctx.transcript.sys(`    ${line}`)
-                }
-              }
-            }
-
-            return
-          }
-
-          if (action === 'tts') {
-            ctx.transcript.sys(r.tts ? slashCmdEn.slashCmd.session.voice.ttsEnabled : slashCmdEn.slashCmd.session.voice.ttsDisabled)
-
-            return
-          }
-
-          // on/off — mirror cli.py:_enable_voice_mode's 3-line output
-          if (r.enabled) {
-            ctx.transcript.sys(r.tts ? slashCmdEn.slashCmd.session.voice.enabledWithTts : slashCmdEn.slashCmd.session.voice.enabled)
-            ctx.transcript.sys(slashCmdEn.slashCmd.session.voice.recordHint(recordKeyLabel))
-
-            // Spoken-stop hint — backend-sourced from voice.stop_phrases so a
-            // custom phrase renders correctly; absent/empty means the feature
-            // is disabled (stop_phrases: []) and no hint is shown.
-            if (r.stop_hint) {
-              ctx.transcript.sys(`  ${r.stop_hint}`)
-            }
-
-            ctx.transcript.sys(slashCmdEn.slashCmd.session.voice.ttsHint)
-            ctx.transcript.sys(slashCmdEn.slashCmd.session.voice.offHint)
-          } else {
-            ctx.transcript.sys(slashCmdEn.slashCmd.session.voice.disabled)
-          }
         })
       )
     }

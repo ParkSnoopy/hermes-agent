@@ -1,106 +1,31 @@
-<p align="center">
-  <img src="assets/banner.png" alt="Hermes Agent" width="100%">
-</p>
+# Hermes Agent
 
-# Hermes Agent ☤
-<p align="center">
-  <a href="https://hermes-agent.nousresearch.com/">Hermes Agent</a>
-</p>
-<p align="center">
-  <a href="https://hermes-agent.nousresearch.com/docs/"><img src="https://img.shields.io/badge/Docs-hermes--agent.nousresearch.com-FFD700?style=for-the-badge" alt="Documentation"></a>
-  <a href="https://discord.gg/NousResearch"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://github.com/NousResearch/hermes-agent/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
-  <a href="https://nousresearch.com"><img src="https://img.shields.io/badge/Built%20by-Nous%20Research-blueviolet?style=for-the-badge" alt="Built by Nous Research"></a>
-</p>
+A Linux terminal agent with persistent memory, reusable skills, conversation search, and delegated tasks.  
+Use the CLI or TUI with a hosted model provider or your own compatible endpoint.  
 
-**The self-improving AI agent built by [Nous Research](https://nousresearch.com).** It creates skills from experience, improves them during use, searches past conversations, and builds a model of your preferences across sessions. Run it locally or on cloud infrastructure.  
+## Features
 
-Use any model you want — [Nous Portal](https://portal.nousresearch.com), OpenRouter, OpenAI, your own endpoint, and [many others](https://hermes-agent.nousresearch.com/docs/integrations/providers). Switch with `hermes model` — no code changes, no lock-in.
+- Interactive terminal interfaces with streaming output, conversation history, and slash commands.
+- Local command execution, file editing, Python tool orchestration, and browser automation.
+- Persistent memory, searchable sessions, and skills compatible with the [Agent Skills standard](https://agentskills.io).
+- Isolated subagents for parallel work.
+- Configurable model providers, MCP servers, and plugins.
 
-<table>
-<tr><td><b>A real terminal interface</b></td><td>Full TUI with multiline editing, slash-command autocomplete, conversation history, interrupt-and-redirect, and streaming tool output.</td></tr>
-<tr><td><b>Flexible interfaces</b></td><td>Use the CLI or TUI.</td></tr>
-<tr><td><b>A closed learning loop</b></td><td>Agent-curated memory with periodic nudges. Autonomous skill creation after complex tasks. Skills self-improve during use. FTS5 session search with LLM summarization for cross-session recall. <a href="https://github.com/plastic-labs/honcho">Honcho</a> dialectic user modeling. Compatible with the <a href="https://agentskills.io">agentskills.io</a> open standard.</td></tr>
-<tr><td><b>Scheduled automations</b></td><td>Built-in cron scheduler for unattended tasks.</td></tr>
-<tr><td><b>Delegates and parallelizes</b></td><td>Spawn isolated subagents for parallel workstreams. Write Python scripts that call tools via RPC, collapsing multi-step pipelines into zero-context-cost turns.</td></tr>
-<tr><td><b>Runs anywhere, not just your laptop</b></td><td>Commands run locally wherever Hermes itself runs, including on a VPS or in a container.</td></tr>
-<tr><td><b>Research-ready</b></td><td>Batch trajectory generation, trajectory compression for training the next generation of tool-calling models.</td></tr>
-</table>
+## Install from source
 
----
-
-## Quick Install
-
-### Linux, macOS, WSL2
+From the repository root on Linux, prepare the pinned runtime and activate it in your shell:  
 
 ```bash
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+bash ./setup-hermes.sh --runtime-only
+source ./activate
+hermes setup
+hermes
 ```
 
-### Windows (native, PowerShell)
+The package manager supplies the pinned Python interpreter and runtime tools.  
+See [installation](website/docs/getting-started/installation.md) for deployment options.  
 
-> **Heads up:** Native Windows runs Hermes without WSL. If you'd rather use WSL2, the Linux/macOS one-liner above works there too. Found a bug? Please [file issues](https://github.com/NousResearch/hermes-agent/issues).
-
-Run this in PowerShell:
-
-```powershell
-iex (irm https://hermes-agent.nousresearch.com/install.ps1)
-```
-
-The source installer delegates Python 3.14, Node.js, npm, pnpm, ripgrep, FFmpeg,
-and Python dependencies to PM. If Git is absent, it stages the verified Git
-for Windows archive in Hermes' tool store. It does not replace your system Git.
-See [installation methods](https://hermes-agent.nousresearch.com/docs/getting-started/installation).
-
-> **Android / Termux:** A signed APT repository is available for aarch64 devices, with a `stable` channel (tagged releases) and a prerelease `canary` channel. The package includes Python, Node.js, and the TUI. Use the [Termux guide](https://hermes-agent.nousresearch.com/docs/getting-started/termux), not the desktop/server installer script.
->
-> **Windows:** Native Windows is fully supported — the PowerShell one-liner above installs everything. If you'd rather use WSL2, the Linux command works there too. Native Windows install lives under `%LOCALAPPDATA%\hermes`; WSL2 installs under `~/.hermes` as on Linux.
-
-After installation:
-
-```bash
-source ~/.bashrc    # reload shell (or: source ~/.zshrc)
-hermes              # start chatting!
-```
-
-### Troubleshooting
-
-#### Windows Defender or antivirus flags `uv.exe` as malware
-
-If your antivirus (Bitdefender, Windows Defender, etc.) quarantines `uv.exe` from the Hermes `bin` folder (`%LOCALAPPDATA%\hermes\bin\uv.exe`), this is a **false positive**. The file is Astral's `uv` — the Rust Python package manager Hermes bundles to manage its Python environment. ML-based antivirus engines commonly flag unsigned Rust binaries that download and install packages.
-
-**To verify your copy is authentic:**
-
-```powershell
-# Install GitHub CLI if needed
-winget install --id GitHub.cli
-
-# Login to GitHub
-gh auth login
-
-# Run verification
-$uv = "$env:LOCALAPPDATA\hermes\bin\uv.exe"
-$ver = (& $uv --version).Split(' ')[1]
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$zip = "$env:TEMP\uv.zip"
-Invoke-WebRequest "https://github.com/astral-sh/uv/releases/download/$ver/uv-x86_64-pc-windows-msvc.zip" -OutFile $zip -UseBasicParsing
-gh attestation verify $zip --repo astral-sh/uv
-Expand-Archive $zip "$env:TEMP\uv_x" -Force
-(Get-FileHash "$env:TEMP\uv_x\uv.exe").Hash -eq (Get-FileHash $uv).Hash
-```
-
-If attestation says "Verification succeeded" and the last line prints `True`, you're good.
-
-**To whitelist Hermes:**
-- **Windows Defender:** Run PowerShell as Admin → `Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\hermes\bin"`
-- **Bitdefender:** Add an exception in the Bitdefender console (Protection > Antivirus > Settings > Manage Exceptions)
-- Whitelist the **folder**, not the file hash — Hermes updates `uv` and the hash changes every version
-
-For more context, see the upstream Astral reports: [astral-sh/uv#13553](https://github.com/astral-sh/uv/issues/13553), [astral-sh/uv#15011](https://github.com/astral-sh/uv/issues/15011), [astral-sh/uv#10079](https://github.com/astral-sh/uv/issues/10079).
-
----
-
-## Getting Started
+## Getting started
 
 ```bash
 hermes              # Interactive CLI — start a conversation
@@ -110,115 +35,27 @@ hermes config set   # Set individual config values
 hermes config get   # Print individual config values
 
 hermes setup        # Run the full setup wizard (configures everything at once)
-hermes update       # Update to the latest version
+hermes update       # Update the source installation
 hermes doctor       # Diagnose any issues
 ```
 
-📖 **[Full documentation →](https://hermes-agent.nousresearch.com/docs/)**
-
----
-
-## Skip the API-key collection — Nous Portal
-
-Hermes works with whatever provider you want — that's not changing. But if you'd rather not collect five separate API keys for the model, web search, image generation, TTS, and a cloud browser, **[Nous Portal](https://portal.nousresearch.com)** covers all of them under one subscription:
-
-- **300+ models** — pick any of them with `/model <name>`
-- **Tool Gateway** — web search, image generation (FAL), text-to-speech (OpenAI), cloud browser (Browser Use), all routed through your sub. No extra accounts.
-
-One command from a fresh install:
-
-```bash
-hermes setup --portal
-```
-
-That logs you in via OAuth, sets Nous as your provider, and turns on the Tool Gateway. Check what's wired up any time with `hermes portal info`. Full details on the [Tool Gateway docs page](https://hermes-agent.nousresearch.com/docs/user-guide/features/tool-gateway).
-
-You can still bring your own keys per-tool whenever you want — the gateway is per-backend, not all-or-nothing.
-
----
-
-## CLI quick reference
-
-Start Hermes with `hermes`. Use `/new` to start a conversation, `/model` to select a model, and `/skills` to browse skills. See the [CLI guide](https://hermes-agent.nousresearch.com/docs/user-guide/cli) for the full command list.  
-
----
+Start a conversation with `hermes`, use `/new` for a fresh session, `/model` to switch models, and `/skills` to browse skills.  
 
 ## Documentation
 
-All documentation lives at **[hermes-agent.nousresearch.com/docs](https://hermes-agent.nousresearch.com/docs/)**:
+- [CLI usage](website/docs/user-guide/cli.md)
+- [Configuration](website/docs/user-guide/configuration.md)
+- [Model providers](website/docs/integrations/providers.md)
+- [Tools and toolsets](website/docs/user-guide/features/tools.md)
+- [Skills](website/docs/user-guide/features/skills.md)
+- [Memory](website/docs/user-guide/features/memory.md)
+- [MCP integration](website/docs/user-guide/features/mcp.md)
+- [Security](website/docs/user-guide/security.md)
 
-| Section                                                                                             | What's Covered                                             |
-| --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| [Quickstart](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart)                 | Install → setup → first conversation in 2 minutes          |
-| [CLI Usage](https://hermes-agent.nousresearch.com/docs/user-guide/cli)                              | Commands, keybindings, personalities, sessions             |
-| [Configuration](https://hermes-agent.nousresearch.com/docs/user-guide/configuration)                | Config file, providers, models, all options                |
-| [Security](https://hermes-agent.nousresearch.com/docs/user-guide/security)                          | Command approval, DM pairing, container isolation          |
-| [Tools & Toolsets](https://hermes-agent.nousresearch.com/docs/user-guide/features/tools)            | 40+ tools, toolset system, local terminal               |
-| [Skills System](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills)              | Procedural memory, Skills Hub, creating skills             |
-| [Memory](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory)                     | Persistent memory, user profiles, best practices           |
-| [MCP Integration](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp)               | Connect any MCP server for extended capabilities           |
-| [Cron Scheduling](https://hermes-agent.nousresearch.com/docs/user-guide/features/cron)              | Scheduled tasks                     |
-| [Context Files](https://hermes-agent.nousresearch.com/docs/user-guide/features/context-files)       | Project context that shapes every conversation             |
-| [Architecture](https://hermes-agent.nousresearch.com/docs/developer-guide/architecture)             | Project structure, agent loop, key classes                 |
-| [Contributing](https://hermes-agent.nousresearch.com/docs/developer-guide/contributing)             | Development setup, PR process, code style                  |
-| [CLI Reference](https://hermes-agent.nousresearch.com/docs/reference/cli-commands)                  | All commands and flags                                     |
-| [Environment Variables](https://hermes-agent.nousresearch.com/docs/reference/environment-variables) | Complete env var reference                                 |
+## Development
 
----
-
-## Migrating from OpenClaw or another agent
-
-If you're coming from OpenClaw, Claude Code, Codex CLI or Cursor, Hermes can import your settings, memories and skills (and, for OpenClaw, API keys when you ask for them).
-
-**During setup:** `hermes setup` asks whether to import from another agent, pre-selects the ones it finds (`~/.openclaw`, `~/.claude`, `~/.codex`, `~/.cursor`), installs the official `agent-importers` plugin and runs the import with a preview first.
-
-**Anytime after install:**
-
-```bash
-hermes plugins install agent-importers          # once per profile
-hermes import-agent openclaw                    # interactive migration (full preset)
-hermes import-agent openclaw --dry-run          # preview what would be migrated
-hermes import-agent openclaw --migrate-secrets  # also bring allowlisted API keys
-hermes import-agent claude-code                 # or codex / cursor
-```
-
-What gets imported from OpenClaw:
-
-- **SOUL.md** — persona file
-- **Memories** — MEMORY.md and USER.md entries
-- **Skills** — user-created skills → `~/.hermes/skills/openclaw-imports/`
-- **Command allowlist** — approval patterns
-
-- **API keys** — allowlisted secrets (OpenRouter, OpenAI, Anthropic, ElevenLabs), only with `--migrate-secrets`
-- **TTS assets** — workspace audio files
-- **Workspace instructions** — AGENTS.md (with `--workspace-target`)
-
-`hermes claw migrate` still works as the older spelling. See the [OpenClaw migration guide](https://hermes-agent.nousresearch.com/docs/guides/migrate-from-openclaw) and [Import from Other Agents](https://hermes-agent.nousresearch.com/docs/user-guide/import-from-other-agents).
-
----
-
-## Contributing
-
-We welcome contributions! See the [Contributing Guide](https://hermes-agent.nousresearch.com/docs/developer-guide/contributing) for development setup, code style, and PR process.
-
-Start with the [PM developer workflow](website/docs/reference/package-management.md#developer-workflow)
-for activation, daily use, dependency changes, and leaving the environment.
-[Development Setup](CONTRIBUTING.md#development-setup) covers the separate test environment and verification commands.
-
----
-
-## Community
-
-- 💬 [Discord](https://discord.gg/NousResearch)
-- 📚 [Skills Hub](https://agentskills.io)
-- 🐛 [Issues](https://github.com/NousResearch/hermes-agent/issues)
-- 🔌 [computer-use-linux](https://github.com/avifenesh/computer-use-linux) — Linux desktop-control MCP server for Hermes and other MCP hosts, with AT-SPI accessibility trees, Wayland/X11 input, screenshots, and compositor window targeting.
-- 🔌 [HermesClaw](https://github.com/AaronWong1999/hermesclaw) — Community WeChat bridge: Run Hermes Agent and OpenClaw on the same WeChat account.
-
----
+See [contributing](CONTRIBUTING.md#development-setup) and the [package-manager workflow](website/docs/reference/package-management.md#developer-workflow) for the development environment and test commands.  
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
-
-Built by [Nous Research](https://nousresearch.com).
+MIT — see [LICENSE](LICENSE).  

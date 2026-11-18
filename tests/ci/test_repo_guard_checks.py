@@ -109,23 +109,6 @@ def test_unrelated_history_fails_and_publishes_the_history_artifact(repo, step):
     assert step.artifact("history-check")[0]["source"] == "unrelated histories"
 
 
-def test_only_unmapped_human_emails_fail_the_contributor_check(repo, step):
-    commit(repo, {"contributors/emails/mapped@x.org": "alice\n",
-                  "scripts/releases/authors_legacy.py": 'AUTHOR_MAP = {"legacy@y.org": "bob"}\n'})
-    for email in ("mapped@x.org", "legacy@y.org", "12+c@users.noreply.github.com",
-                  "noreply@anthropic.com"):
-        commit(repo, {email: "x"}, author=("Known", email))
-    assert step.run(repo, "check_contributor_emails.py").returncode == 0
-    assert step.artifact("contributor-check") == []
-
-    commit(repo, {"u": "1"}, author=("Zoë New", "zoe@example.net"))
-    failed = step.run(repo, "check_contributor_emails.py")
-    assert failed.returncode == 1
-    assert "python3 scripts/add_contributor.py zoe@example.net <github-username>" in failed.stdout
-    [status] = step.artifact("contributor-check")
-    assert status["results"][0]["detail"] == "zoe@example.net (Zoë New)"
-
-
 def test_supply_chain_scan_flags_payload_lines_but_not_lockfiles(repo, step):
     base = git(repo, "rev-parse", "HEAD").strip()
     # Built from pieces: the scanner reads this PR's own added lines, so no line here may match it.

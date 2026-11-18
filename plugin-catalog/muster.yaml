@@ -1,13 +1,7 @@
 name: muster
 repo: https://github.com/jollyroger1480/muster
 sha: d02a2d4775ff6cee77b686101f0778d8e13e15eb
-description: >-
-  See what your AI helpers are actually doing. Every worker hermes starts shows
-  up live in one pane: working, stuck (silent too long), failing on repeat, or
-  gone (hermes crashed). Stop a stuck one or send it a message with one click.
-  Start your own helpers with muster_fanout. /muster-digest reports status,
-  spend and the decisions you need; scheduled Fleet watch + Morning report
-  blueprints speak up only when something needs you. No network, no setup.
+description: "See what your AI helpers are actually doing. Every worker hermes starts shows up live in one pane: working, stuck (silent too long), failing on repeat, or gone (hermes crashed). Stop a stuck one or send it a message with one click. Start your own helpers with muster_fanout. /muster-digest reports status, spend and the decisions you need. No network, no setup."
 maintainer: jollyroger1480
 requires_hermes: ">=0.22.5"
 tier: community
@@ -37,3 +31,4 @@ capabilities:
     - on_kanban_worker_exited
   provides_middleware: []
   requires_env: []
+known_issues: ["The upstream Fleet watch and Morning report blueprints require removed automation/scheduling APIs and are unavailable. The worker roster and explicit status/controls are separate capabilities."]

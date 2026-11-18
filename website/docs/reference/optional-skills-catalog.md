@@ -77,7 +77,6 @@ hermes skills uninstall <skill-name>
 | [**hyperframes**](../user-guide/skills/optional/creative/creative-hyperframes.md) | Render MP4/WebM videos from HTML compositions. |
 | [**impeccable**](../user-guide/skills/optional/creative/creative-impeccable.md) | Frontend design guidance, upstream-maintained (impeccable). |
 | [**ip-as-logo**](../user-guide/skills/optional/creative/creative-ip-as-logo.md) | Design minimal cute IP mascot marks readable at 32px. |
-| [**kanban-video-orchestrator**](../user-guide/skills/optional/creative/creative-kanban-video-orchestrator.md) | Plan and run multi-agent video production pipelines. |
 | [**meme-generation**](../user-guide/skills/optional/creative/creative-meme-generation.md) | Create meme PNGs from templates with Pillow text overlay. |
 | [**mono-color**](../user-guide/skills/optional/creative/creative-mono-color.md) | Generate one- or two-ink editorial print poster images. |
 | [**pixel-art**](../user-guide/skills/optional/creative/creative-pixel-art.md) | Pixel art w/ era palettes (NES, Game Boy, PICO-8). |
@@ -260,7 +259,6 @@ hermes skills uninstall <skill-name>
 | [**code-wiki**](../user-guide/skills/optional/software-development/software-development-code-wiki.md) | Generate wiki docs + Mermaid diagrams for any codebase. |
 | [**grill-me**](../user-guide/skills/optional/software-development/software-development-grill-me.md) | Adversarial plan interview before implementation. |
 | [**hermes-agent-skill-authoring**](../user-guide/skills/optional/software-development/software-development-hermes-agent-skill-authoring.md) | Author in-repo SKILL.md files: frontmatter and structure. |
-| [**inspecting-hermes-desktop-dom**](../user-guide/skills/optional/software-development/software-development-inspecting-hermes-desktop-dom.md) | Read the live Hermes desktop DOM/CSS over CDP. |
 | [**node-inspect-debugger**](../user-guide/skills/optional/software-development/software-development-node-inspect-debugger.md) | Debug Node.js via --inspect + Chrome DevTools Protocol CLI. |
 | [**pr-lens**](../user-guide/skills/optional/software-development/software-development-pr-lens.md) | Draw code changes as animated architecture/data-flow SVGs. |
 | [**python-debugpy**](../user-guide/skills/optional/software-development/software-development-python-debugpy.md) | Debug Python: pdb REPL + debugpy remote (DAP). |

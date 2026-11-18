@@ -2,7 +2,7 @@ name: duty-board
 title: Duty Board
 repo: https://github.com/xiaoyaner0201/hermes-duty-board
 sha: 405dbae3ff3314fa7b8f1de3f56f27a9ee313563
-description: "Read-only dashboard tab and model-free /duty and hermes duty summaries for waiting conversations, unanswered messages, running turns, undelivered background results and failing cron jobs. Supports all 17 dashboard languages, including right-to-left Arabic. Disclosure — opens HERMES_HOME/state.db with SQLite mode=ro (sessions, messages, turn leases, async delegations, goals) and reads cron/jobs.json and gateway_state.json; writes only HERMES_HOME/duty-board/dismissed.json for dashboard dismissals. Chat requires in-process Hermes 0.21.7+ and a configured owner; shared-chat summaries default to counts only. No network calls, no model calls, no credentials, no background processes."
+description: "Read-only dashboard and model-free /duty and hermes duty summaries for waiting conversations, unanswered messages, running turns and undelivered background results. Disclosure — opens profile-local state.db in SQLite read-only mode for sessions, messages, turn leases, async delegations and goals, and reads gateway_state.json. Dashboard dismissals write only HERMES_HOME/duty-board/dismissed.json. Chat summaries require an in-process host and a configured owner; shared-chat summaries default to counts. No network calls, model calls, credentials or background processes."
 maintainer: xiaoyaner0201
 tier: community
 category: desktop
@@ -17,3 +17,4 @@ capabilities:
   provides_hooks: []
   provides_middleware: []
   requires_env: []
+known_issues: ["The pinned upstream summary also reads the retired scheduled-job store. That section is unavailable, and missing-store handling has not been runtime-tested against this fork."]

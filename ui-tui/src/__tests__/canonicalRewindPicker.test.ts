@@ -80,7 +80,6 @@ function harness(rewindRefusal?: Error, repaintFailure?: Error) {
       resumeById: vi.fn(async (id: string) => patchUiState({ sid: id }))
     },
     composer,
-    voice: {}
   }
 
   return { composer, ctx, request, send, setHistoryItems, slash: createSlashHandler(ctx as any), sys }

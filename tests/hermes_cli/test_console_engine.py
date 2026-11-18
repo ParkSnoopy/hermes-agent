@@ -8,6 +8,12 @@ import pytest
 from hermes_cli.console_engine import HermesConsoleEngine, run_console_repl
 
 
+def test_removed_cron_commands_are_not_dispatched():
+    engine = HermesConsoleEngine()
+    assert engine.execute("cron list").status == "error"
+    assert engine.execute("cron run example", confirmed=True).status == "error"
+
+
 def test_sessions_optimize_accepts_the_force_override_it_advertises(_isolate_hermes_home):
     """The held-store refusal this command prints points at `sessions optimize --force`; if the
     console rejected the flag, the command could only ever refuse whenever a gateway is running."""
@@ -205,33 +211,6 @@ def test_sessions_export_zero_limit_disables_guard(
     assert output.exists()
 
 
-def test_cron_pause_resume_and_run_require_confirmation(_isolate_hermes_home):
-    from cron.jobs import create_job, get_job
-
-    job = create_job(prompt="say hello", schedule="every 1h", name="alpha")
-    engine = HermesConsoleEngine()
-
-    pending = engine.execute(f"cron pause {job['id']}")
-    assert pending.status == "confirm_required"
-    stored = get_job(job["id"])
-    assert stored is not None
-    assert stored["state"] == "scheduled"
-
-    paused = engine.execute(f"cron pause {job['id']}", confirmed=True)
-    assert paused.status == "ok"
-    stored = get_job(job["id"])
-    assert stored is not None
-    assert stored["state"] == "paused"
-
-    resumed = engine.execute("cron resume alpha", confirmed=True)
-    assert resumed.status == "ok"
-    stored = get_job(job["id"])
-    assert stored is not None
-    assert stored["state"] == "scheduled"
-
-    triggered = engine.execute("cron run alpha", confirmed=True)
-    assert triggered.status == "ok"
-    assert "Triggered job" in triggered.output
 
 
 def test_repl_runs_non_interactive_lines_without_prompts(_isolate_hermes_home):

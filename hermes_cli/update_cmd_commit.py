@@ -326,10 +326,7 @@ def publish_recovery_closure(git_cmd, root: Path, pre: str) -> Path:
 
 
 def _fsync_dir(directory: Path) -> None:
-    """POSIX: make a directory's entries durable. Windows opens no directory handle; NTFS journals
-    the rename itself."""
-    if os.name == "nt":
-        return
+    """Make a directory's entries durable."""
     fd = os.open(directory, os.O_RDONLY)
     try:
         os.fsync(fd)
@@ -340,9 +337,8 @@ def _fsync_dir(directory: Path) -> None:
 def _absolute_git(git_cmd) -> str:
     """The git this run moves the tree with, as an absolute path for the next launch's repair.
 
-    A Windows install's git is often PM's store copy, on PATH only inside the updater
-    (``expose_pm_git``); the repair cannot look it up through ``pm`` when the killed move tore a
-    module ``pm`` imports (``hermes_constants``)."""
+    The repair must not need to import ``pm`` when the killed move tore one of its
+    dependencies (such as ``hermes_constants``)."""
     import shutil
 
     head = (list(git_cmd) or ["git"])[0] if not isinstance(git_cmd, str) else git_cmd
@@ -488,11 +484,11 @@ _COMPILE_ALL = (
 
 def _run_python(argv: list[str], *, stdin: str = "", timeout: float = 60) -> str | None:
     """Stdout of a read-only interpreter child (it never writes the checkout), None when it failed."""
-    from hermes_cli._subprocess_compat import windows_hide_flags
+
 
     try:
         done = subprocess.run(argv, input=stdin, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=timeout, creationflags=windows_hide_flags(), check=False)
+                              errors="replace", timeout=timeout, check=False)
     except (OSError, subprocess.SubprocessError):
         return None
     return done.stdout if done.returncode == 0 else None

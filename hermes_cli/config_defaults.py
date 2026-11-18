@@ -84,14 +84,10 @@ DEFAULT_CONFIG = {
         # TimeoutStopSec or risk SIGKILL mid-cleanup; for /restart prefer restart_after_turn_timeout
         # so turns finish BEFORE stop().
         "restart_drain_timeout": 0,
-        # Floor under the stop()/drain wait (seconds) for cron jobs and api_server runs. Interrupted
-        # chat turns resume on the next message, but an interrupted cron run is recorded as a
-        # permanent failure and an interrupted /v1 run fails its waiting caller, so neither may
-        # inherit restart_drain_timeout's 0 (#82161, #132989). Clamped to the shutdown-watchdog
-        # leash minus teardown headroom (~50s unless TimeoutStopSec is raised). 0 = opt out.
-        "cron_drain_timeout": 30,
+        # API runs wait for their callers; 0 shares the chat drain budget.
+        "api_drain_timeout": 30,
         # In-band restart (/restart, SIGUSR1): refuse new work, then wait up to this many seconds
-        # for in-flight agents/cron/api runs to finish before stop(). 0 = enter stop() at once. 30
+        # for in-flight agents/API runs to finish before stop(). 0 = enter stop() at once. 30
         # min is a safety valve for wedged agents, not a target; raise for long unattended turns.
         # Default 30 min is a safety valve for wedged agents, not a target latency — an interactive `hermes
         # gateway restart` must never block for hours on a turn that wedged (#79133).
@@ -708,8 +704,6 @@ DEFAULT_CONFIG = {
             "language": "",
         },
         "memory_query_rewrite": _aux(8, reasoning_effort=False),
-        "tts_audio_tags": _aux(30),
-        "voice_chat": {**_aux(120), "reasoning_effort": "none"},  # agent/voice_turn_route.py; off = lowest valid
 
         "profile_describer": _aux(60),   # 1-2 sentence profile blurb; short, cheap
         "goal_judge": _aux(60),          # /goal satisfaction + contract drafting; JSON calls
@@ -903,27 +897,14 @@ DEFAULT_CONFIG = {
             "unicode_cols": 0,  # Hard override for terminal column width; 0 = derive from scale.
         },
     },
-    "webapp": {"enabled": False, "host": "127.0.0.1", "port": 9120, "public_url": ""},  # gateway/webapp_listener.py
+
     "dashboard": {
-        # Visual theme: "default" | "midnight" | "ember" | "mono" | "cyberpunk" | "rose"
-        "theme": "default",
         # Process-isolation rollout controls. Read via the raw config loader, so tui_gateway.server
         # also owns explicit defaults.
         "turn_isolation": False,
         "compute_host_heartbeat_secs": 15,
         "compute_host_respawn_max": 3,
-        # Token/cost analytics surfaces are hidden by default: the numbers are a local LOWER-BOUND
-        # estimate, not billing — only successful main-agent responses with a response.usage count;
-        # auxiliary calls, retries, fallbacks and cache writes are missed, so the total can be
-        # 10x-100x under the provider bill.
-        "show_token_analytics": False,
-        # IPs / bounded CIDRs of reverse proxies trusted to supply X-Forwarded-Proto/-For. Loopback
-        # always trusted; wildcards and /0 rejected (spoofing guard).
-        "trusted_proxies": [],
-        # WebSocket keepalive (seconds), NON-loopback binds only: loopback always disables the
-        # protocol ping so an event-loop stall never kills a healthy local connection.
-        "ws_ping_interval": 20.0,
-        "ws_ping_timeout": 20.0,
+
         # Grace (seconds) before a WS-orphaned gateway session is interrupted/reaped after its
         # client disconnects. 0 = park forever. Env: HERMES_TUI_WS_ORPHAN_REAP_GRACE_S.
         "ws_orphan_reap_grace_s": 20.0,
@@ -940,37 +921,6 @@ DEFAULT_CONFIG = {
         # leaves disconnected sessions ``ended_at IS NULL`` forever — phantom "active" rows in /resume and
         # dashboards. See #65194.
         "startup_orphan_sweep": True,
-        # OAuth gate (engaged when --host is set and --insecure is not), read by the Nous Portal
-        # plugin. Env HERMES_DASHBOARD_OAUTH_CLIENT_ID / HERMES_DASHBOARD_PORTAL_URL win when
-        # non-empty. Empty client_id = no provider; empty portal_url = production.
-        "oauth": {
-            "client_id": "",  # agent:{instance_id} — Portal provisions this
-            "portal_url": "",
-        },
-        # Username/password gate (dashboard_auth/basic plugin, no OAuth IDP). Active when username
-        # plus password_hash (preferred) or password (hashed in-memory) are set; empty username =
-        # no-op. Env HERMES_DASHBOARD_BASIC_AUTH_USERNAME / _PASSWORD_HASH / _PASSWORD / _SECRET /
-        # _TTL_SECONDS win when non-empty. secret signs session tokens; empty = random per-process
-        # key (sessions die on restart, no multi-worker) — set 32+ random bytes. Hash:
-        # plugins.dashboard_auth.basic.hash_password('PW').
-        "basic_auth": {
-            "username": "",
-            "password_hash": "",  # scrypt$...
-            "password": "",
-            "secret": "",
-            "session_ttl_seconds": 0,  # 0 → plugin default (12h)
-        },
-
-        # Drain-control token auth (dashboard_auth/drain plugin): the secret is NOT here (env
-        # HERMES_DASHBOARD_DRAIN_SECRET); no-op unless >=256-bit, weak secrets rejected (fail-closed).
-        "drain_auth": {"scope": "drain", "min_secret_chars": 43},
-        # Public URL (env HERMES_DASHBOARD_PUBLIC_URL): full authority (scheme + host + optional
-        # prefix, e.g. https://example.com/hermes) for the OAuth redirect_uri; its hostname is
-        # trusted by Host/Origin guards and engages the auth gate when non-loopback. For proxies
-        # that don't forward X-Forwarded-Host/-Proto/-Prefix; X-Forwarded-Prefix is then IGNORED on
-        # the OAuth path. Empty or malformed (no http(s):// + host, or quote/angle/whitespace chars)
-        # = reconstruct from headers.
-        "public_url": "",
     },
 
     "projects": {
@@ -980,183 +930,9 @@ DEFAULT_CONFIG = {
     "privacy": {
         "redact_pii": False,  # hash user IDs and strip phone numbers from LLM context
     },
-    # Text-to-speech. Each provider accepts an optional `max_text_length:` override for the
-    # per-request input-character cap; omit to use the provider's documented limit (OpenAI 4096, xAI
-    # 15000, MiniMax 10000, ElevenLabs 5k-40k model-aware, Gemini 32000, Edge 5000, Mistral 4000,
-    # NeuTTS/KittenTTS 2000).
-    "tts": {
-        # "edge" (free) | "elevenlabs" (premium) | "openai" | "xai" | "minimax" | "mistral" |
-        # "gemini" | "deepinfra" | "neutts" (local) | "kittentts" (local) | "piper" (local)
-        "provider": "edge",
-        # Seconds a local engine (Piper, KittenTTS) stays loaded after the last speech toggle
-        # turns off, so a quick re-activation (wake word, voice-chat restart) skips the reload.
-        # 0 unloads immediately.
-        "keep_warm_seconds": 60,
-        "streaming": {
-            # Shortest first sentence (chars) spoken on its own by streaming TTS; shorter openers
-            # ride with the next sentence. 20 suits English; CJK voice setups use ~6.
-            "min_len": 20,
-        },
-        "edge": {
-            # Popular: AriaNeural, JennyNeural, AndrewNeural, BrianNeural, SoniaNeural
-            "voice": "en-US-AriaNeural",
-        },
-        "elevenlabs": {
-            "voice_id": "pNInz6obpgDQGcFmaJgB",  # Adam
-            "model_id": "eleven_multilingual_v2",
-        },
-        "openai": {
-            "model": "gpt-4o-mini-tts",
-            # gpt-4o-mini-tts voices: alloy, ash, ballad, cedar, coral, echo, fable, marin, nova,
-            # onyx, sage, shimmer, verse
-            "voice": "alloy",
-            # Forwarded verbatim in the request body for OpenAI-compatible servers whose cloned
-            # voices demand it (400 consent_required otherwise); "" sends nothing.
-            "consent_attestation": "",
-            # Raw PCM rate for streaming playback. OpenAI emits 24 kHz; a compatible endpoint that
-            # reports its rate (X-Audio-Sample-Rate header) overrides this automatically.
-            "pcm_sample_rate": 24000,
-        },
-        "gemini": {
-            "model": "gemini-2.5-flash-preview-tts",
-            "voice": "Kore",
-            # Gemini 3.1: aux-model rewrite inserts [audio tags] into the TTS script only.
-            "audio_tags": False,
-            # Optional local text file with performance direction; may include a `{transcript}`
-            # placeholder, else the live transcript is appended.
-            "persona_prompt_file": "",
-        },
-        "xai": {
-            "voice_id": "eve",  # or a custom voice ID (docs.x.ai custom voices)
-            "language": "en",  # BCP-47 code ("en", "pt-BR") or "auto"
-            "speed": 1.0,  # 0.7–1.5
-            "auto_speech_tags": False,  # insert expressive audio tags via LLM rewrite
-            "optimize_streaming_latency": 0,  # 0–2, trades quality for lower latency
-            "sample_rate": 24000,  # 22050 / 24000 / 44100 / 48000
-            "bit_rate": 128000,  # MP3 bitrate; only applies when codec=mp3
-        },
-        "mistral": {
-            "model": "voxtral-mini-tts-2603",
-            "voice_id": "c69964a6-ab8b-4f8a-9465-ec0925096ec8",  # Paul - Neutral
-        },
-        "minimax": {"model": "speech-02-hd", "voice_id": "English_expressive_narrator"},
-        "kittentts": {
-            "model": "KittenML/kitten-tts-nano-0.8-int8",  # nano 25MB; micro 41MB; mini 80MB
-            "voice": "Jasper",
-        },
-        "neutts": {
-            "ref_audio": "",  # path to reference voice audio (empty = bundled default)
-            "ref_text": "",   # path to reference voice transcript (empty = bundled default)
-            "model": "neuphonic/neutts-air-q4-gguf",  # HuggingFace model repo
-            "device": "cpu",  # cpu, cuda, or mps
-        },
-        "piper": {
-            # Voice name (downloaded on first use) or absolute path to a .onnx file; list:
-            # github.com/OHF-Voice/piper1-gpl/blob/main/docs/VOICES.md. Optional keys: voices_dir
-            # (~/.hermes/cache/piper-voices/), use_cuda, length_scale (2.0 = twice as slow),
-            # noise_scale, noise_w_scale, volume, normalize_audio.
-            "voice": "en_US-lessac-medium",
-        },
-        "deepinfra": {
-            "model": "",  # empty = first tts-tagged model from the live catalog
-            "voice": "default",
-            # optional "base_url" key overrides DEEPINFRA_BASE_URL for TTS only
-        },
-    },
 
-    "stt": {
-        "enabled": True,
-        # Echo the raw transcript of gateway voice messages back as a 🎙️ message.
-        "echo_transcripts": True,
-        # No seeded "provider" (a stored value is an explicit pick; unset = autodetect): local | groq |
-        # openai | mistral | elevenlabs | deepinfra | xai. Global language hint unless a per-provider one
-        # overrides it; "en" because Whisper auto-detect misreads short clips; "" = auto; "es", ...
-        "language": "en",
-        "streaming": False,  # live partial text while speaking (openai/xai/elevenlabs); failure = file path
-        # Pre-upload ffmpeg silence trim (local whisper uses VAD); failure = raw upload.
-        "cloud_trim_silence": True,
-        "cloud_trim_threshold_db": -40,  # quieter than this counts as silence
-        "cloud_trim_keep_ms": 300,  # how much of each pause survives (natural pacing)
-        "local": {
-            "model": "base",  # tiny, base, small, medium, large-v3, turbo
-            "language": "",  # blank = inherit stt.language; set "en", "es", ... to force
-            "initial_prompt": "",
-            # Anti-hallucination (faster-whisper decodes junk from silence). vad: Silero filter
-            # (false = raw audio, for music/ambient). A segment is dropped only if no_speech_prob
-            # ABOVE no_speech_prob_threshold AND avg_logprob BELOW logprob_threshold.
-            "vad": True,
-            "vad_min_silence_ms": 500,  # min silence (ms) that splits speech chunks
-            "no_speech_prob_threshold": 0.6,
-            "logprob_threshold": -1.0,
-            "unload_after_idle_seconds": 0,  # 0 = never; e.g. 300 frees the model after 5min
-        },
-        "groq": {
-            "model": "whisper-large-v3-turbo",  # whisper-large-v3-turbo, whisper-large-v3
-            "language": "",  # blank = inherit stt.language; set "en", "es", ... to force
-        },
-        "openai": {
-            # whisper-1, gpt-4o-mini-transcribe, gpt-4o-transcribe, gpt-transcribe
-            "model": "whisper-1",
-            "streaming_model": "gpt-live-transcribe",  # stt.streaming; the one model with mid-utterance deltas
-            "language": "",  # blank = inherit stt.language; set "en", "es", ... to force
-            "timeout": 60,  # seconds; allow self-hosted backends time to cold-start
-            "max_retries": 1,  # OpenAI SDK transport retries
-        },
-        "mistral": {
-            "model": "voxtral-mini-latest",  # voxtral-mini-latest, voxtral-mini-2602
-            "language": "",  # blank = inherit stt.language; set "en", "es", ... to force
-        },
-        "xai": {
-            "model": "",  # "" = STT_XAI_MODEL or grok-voice-transcribe-2.0; or grok-voice-transcribe-1.0
-            "language": "",  # blank = inherit stt.language; set "en", "es", ... to force
-        },
-        "elevenlabs": {
-            "model_id": "scribe_v2",  # scribe_v2, scribe_v1
-            "language_code": "",  # blank = inherit stt.language; set "eng", "spa", ... to force
-            "tag_audio_events": False,
-            "diarize": False,
-        },
-        "deepinfra": {
-            "model": "",  # empty = first stt-tagged model from the live catalog
-            # optional "base_url" key overrides DEEPINFRA_BASE_URL for STT only
-        },
-    },
 
-    "voice": {
-        # How the Desktop voice conversation is wired:
-        #   chained  — STT → Hermes turn → TTS (the stt.* / tts.* providers below)
-        #   gpt-live — one full-duplex voice model (OpenAI GPT-Live) owns the mic and speaker and
-        #              DELEGATES every real request to Hermes (any model / provider you have
-        #              selected); needs an OpenAI API key. $0.05/min voice layer billing.
-        "voice_chat_mode": "chained",
-        "gpt_live": {
-            "model": "gpt-live-1",
-            "voice": "marin",  # marin | quartz | ripple | vesper | willow | stone | gleam | meridian | ...
-            # Extra sentences appended to the live model's conversation persona (tone, pacing, language).
-            "instructions": "",
-            # optional "api_key" / "base_url" keys override the OpenAI audio credentials for this mode only
-        },
-        "record_key": "ctrl+b",
-        "submit_mode": "direct",  # TUI: direct submits immediately; draft = editable transcript
-        "max_recording_seconds": 120,
-        "auto_tts": False,
-        # Desktop remote clients call STT/TTS providers DIRECTLY (config + key fetched over
-        # authenticated REST at session start) instead of relaying via the gateway.
-        "client_direct": True,
-        "beep_enabled": True,  # record start/stop beeps in CLI voice mode
-        "beep_volume": 0.3,  # beep amplitude multiplier, 0.0-1.0
-        "thinking_sound": True,  # ambient bubble sound while the agent works (volume = beep_volume)
-        "silence_threshold": 200,  # RMS below this = silence (0-32767)
-        "silence_duration": 3.0,  # seconds of silence before auto-stop
-        "barge_in": True,  # interrupt the agent / stop TTS when the user starts talking
-        # Trip suppression after TTS onset (mic stays live the whole turn).
-        "barge_in_grace_seconds": 0.5,
-        # Speech trigger = quiet-room floor x this (floor calibrated BEFORE playback).
-        "barge_in_threshold_multiplier": 3.0,
-        # Saying EXACTLY one of these (case-insensitive, punctuation ignored) ends the voice chat
-        # instead of going to the agent. [] disables.
-        "stop_phrases": ["stop"],
-    },
+
     # Native images (vision_analyze, browser screenshots, replayed user images) are re-sent on every later call.
     "vision": {
         # Byte budget for one embedded image (clamped 64 KiB..4 MiB). Raise it for dense phone
@@ -1168,40 +944,7 @@ DEFAULT_CONFIG = {
         "max_calls_per_image": None,
         "replay_recent_images": 3,  # newest user images re-sent on turns rebuilt from state.db; 0 = off
     },
-    # "Hey Hermes" hands-free wake word: always-on, on-device hotword detection that starts a fresh
-    # voice session. Off by default; toggle with /wake.
-    "wake_word": {
-        "enabled": False,
-        "surface": "auto",  # eligible surface: "auto" (first claimant) | "cli" | "tui" | "gui"
-        "input_device": None,  # PortAudio input device index/name; null = process default
-        "capture": "auto",  # auto | local | client (desktop streams mic via wake.feed)
-        # auto: first platform-supported engine (openwakeword, sherpa, porcupine).
-        # Explicit choices stay pinned. Porcupine needs PORCUPINE_ACCESS_KEY.
-        "provider": "auto",
-        # sherpa: this IS the detected phrase; other engines: cosmetic label (detection is keyed by
-        # the model/keyword below)
-        "phrase": "hey hermes",
-        "sensitivity": 0.6,  # 0.0-1.0 threshold, consistent across engines (higher = stricter)
-        # openWakeWord/pyopen-wakeword only: consecutive over-threshold frames to fire (higher = fewer
-        # false triggers, more latency; 1 = single-frame)
-        "confirmation_frames": 3,
-        "start_new_session": True,  # fresh session on wake vs. continue the current one (detached-spawn: ok — a config key)
-        # sherpa only: listen for every wake-enabled profile's phrase and route to it
-        "profile_routing": True,
-        "openwakeword": {
-            # "hey_hermes" | built-in openWakeWord name ("hey_jarvis", "alexa", ...) | path to a
-            # custom .tflite model
-            "model": "hey_hermes",
-        },
-        "sherpa": {
-            # sherpa-onnx KWS model dir; empty = auto-download the small English zipformer
-            "model_dir": "",
-        },
-        "porcupine": {
-            # built-in keyword ("jarvis", "computer", ...) or path to a custom .ppn
-            "keyword": "jarvis",
-        },
-    },
+
 
     "human_delay": {"mode": "off", "min_ms": 800, "max_ms": 2500},
 
@@ -1436,8 +1179,8 @@ DEFAULT_CONFIG = {
 
     # Approvals for dangerous commands.
     # mode: manual (always prompt) | smart (aux LLM auto-approves low-risk) | off (= --yolo)
-    # cron_mode / single_query_mode / unattended_mode: deny | approve — what to do when a
-    #   cron job, a -q session (HERMES_INTERACTIVE=1 but nobody to answer), or an unattended
+    # single_query_mode / unattended_mode: deny | approve — what to do when a
+    #   -q session (HERMES_INTERACTIVE=1 but nobody to answer), or an unattended
     #   platform (webhook, msgraph_webhook, api_server; no /approve channel) hits one.
     #   deny blocks instantly so the agent finds another way instead of waiting out the
     #   timeout and failing closed.
@@ -1447,16 +1190,13 @@ DEFAULT_CONFIG = {
         # export HERMES_INTERACTIVE=1 (for interactive sudo prompts) but have NO user waiting to answer
         # approval prompts — an unanswered prompt just waits the full timeout then fails closed, so the
         # agent is forced to work around the block (often via execute_code). This setting makes that intent
-        # explicit: deny    — block the command and let the agent find another way (default, safe; mirrors
-        # cron_mode deny) approve — auto-approve all dangerous commands in single-query mode These surfaces
+        # explicit: deny blocks the command (default); approve auto-approves dangerous commands. These surfaces
         # bind a session platform like chat gateways do, but have no send_exec_approval and no /approve
         # channel — a pending approval there just blocks for the full timeout with nobody to answer (#37284,
-        # #87509): deny    — block the command instantly and let the agent find another way (default, safe;
-        # mirrors cron_mode deny) approve — auto-approve all dangerous commands on unattended platforms
+        # #87509): deny blocks instantly (default); approve auto-approves on unattended platforms
         "mode": "smart",
         "timeout": 300,
 
-        "cron_mode": "deny",
         "single_query_mode": "deny",
         "unattended_mode": "deny",
         # Extra rules appended to the smart-approval guardian's SYSTEM prompt, e.g. "Always ESCALATE
@@ -1574,88 +1314,6 @@ DEFAULT_CONFIG = {
         "allow_lazy_installs": True,
     },
 
-    "cron": {
-        "catch_up_missed": True,  # False skips recurring misses beyond the local grace window.
-        # Let cron-spawned agents use the cronjob toolset (the "cron-librarian" pattern). Off by
-        # default: policy-denied in cron context to prevent unattended scheduling loops. Jobs
-        # created this way are user-owned in the same flat jobs table. Interactive toolsets
-        # (messaging/clarify) stay denied in cron regardless.
-        "allow_agent_scheduling": False,
-        # Pre-dispatch validation: before building any agent machinery, verify the provider API key
-        # resolves (unless a fallback chain exists), attached skills are ready, and delivery
-        # platforms are configured. Failure -> last_status=blocked_config, ONE alert, no LLM call.
-        # False = fail during the run instead.
-        "preflight": True,
-        # Default model for cron jobs (WHAT model runs). Fire-time resolution: per-job pin >
-        # cron.model > model.default (the main agent model). An unpinned job follows the main
-        # model on every run; cron.model decouples the whole fleet from chat. "" = fall through.
-        "model": "",
-        # Inference provider paired with cron.model (NOT the scheduler provider below). "" = resolve
-        # from global config.
-        "model_provider": "",
-        # Cron SCHEDULER provider (WHEN a due job fires). "" = built-in in-process 60s ticker. Name
-        # an installed provider (plugins/cron_providers/<name>/ or $HERMES_HOME/plugins/ <name>/),
-        # e.g. "chronos" (NAS-mediated managed cron for scale-to-zero). An unknown or unavailable
-        # provider falls back to the built-in so cron never loses its trigger.
-        "provider": "",
-        # Chronos settings; consulted only when provider == "chronos". All non-secret — the agent
-        # holds NO scheduler credentials (provision reuses the Nous Portal token).
-        "chronos": {
-            # NAS/portal base URL that arms/cancels one-shots and mints the inbound fire JWT (used
-            # as the expected issuer).
-            "portal_url": "https://portal.nousresearch.com",
-            # This agent's publicly reachable base URL; NAS POSTs {callback_url}/api/cron/fire. ""
-            # -> Chronos unavailable, resolver falls back to the built-in ticker.
-            "callback_url": "",
-            "expected_audience": "",  # Expected JWT audience (e.g. "agent:{instance_id}").
-            # NAS JWKS URL for verifying the fire JWT signature. "" -> the fire endpoint refuses all
-            # tokens (never an unsigned decode).
-            "nas_jwks_url": "",
-        },
-        # Wrap delivered cron responses with a task-name header and "The agent cannot see this
-        # message" footer. False = clean output.
-        "wrap_response": True,
-        "delivery": {  # Delivery behaviour for cron output sent through a live gateway adapter.
-            # Mark cron deliveries final; false requests silent deliveries.
-            "notify": True,
-        },
-        # Make cron deliveries CONTINUABLE (user can reply to a brief with it in context). False
-        # keeps deliveries isolated to the job's session; per-job `attach_to_session` overrides.
-        # Thread-capable adapters get a seeded thread per
-        # job via create_handoff_thread; DM-only platforms mirror the brief into the target DM
-        # session. Appended at a turn boundary via mirror_to_session, cached system prompt
-        # untouched. User-written bare platforms address home conversations, unlike `all`
-        # broadcast expansions, which do not gain mirror eligibility.
-        "mirror_delivery": False,
-        # Max due jobs run in parallel per tick. None/0 = unbounded (thread count only); 1 = serial.
-        # Env override: HERMES_CRON_MAX_PARALLEL.
-        "max_parallel_jobs": None,
-        # save_job_output keeps the N most recent .md files per job; 0 or negative disables pruning
-        # (for externally managed cleanup).
-        "output_retention": 50,
-        # Timeout (seconds) for a no-agent cron script. Env: HERMES_CRON_SCRIPT_TIMEOUT. Keep in
-        # sync with cron.scheduler._DEFAULT_SCRIPT_TIMEOUT.
-        "script_timeout_seconds": 3600,
-        # Timeout (seconds) for SessionDB() init inside cron jobs: state.db open/migrate has no
-        # timeout of its own against a wedged sqlite3.connect, and an unbounded hang wedges the
-        # job's dispatch guard forever. Env: HERMES_CRON_SESSION_DB_TIMEOUT. 0 = unlimited.
-        "session_db_timeout_seconds": 10,
-        # Timeout (seconds) per media attachment send during gateway delivery; large attachments
-        # (long TTS audio, big exports) need more than 30s. Env: HERMES_CRON_MEDIA_SEND_TIMEOUT.
-        # Keep in sync with cron.scheduler._DEFAULT_MEDIA_SEND_TIMEOUT.
-        "media_send_timeout_seconds": 300,
-        # Managed systemd gateway with no user session (containers, no linger): false runs
-        # cron jobs as a direct external subprocess (warns once; no cgroup isolation), true
-        # fails closed with the enable-linger remedy.
-        "require_restart_safe_scope": False,
-        # A job failing with the SAME error alerts once, then stays silent for this many hours
-        # before one reminder ping (the run is still recorded; `hermes cron incidents` shows it).
-        # A green run or a different error alerts again immediately; `hermes cron incidents ack`
-        # silences a signature for good. 0 = re-alert on every failing run. Keep in sync with
-        # cron.scheduler.DEFAULT_FAILURE_REPEAT_ALERT_HOURS.
-        "failure_repeat_alert_hours": 6,
-    },
-
     # Bot Mode cross-connection relay (tools/bot_relay.py): envelopes queued by message_agent for
     # agents on other connections wait in an on-disk outbox until the Desktop drains them.
     "bot_mode": {
@@ -1719,7 +1377,7 @@ DEFAULT_CONFIG = {
             # tool eager. The runtime fallback in tools/tool_search.py derives from this value.
             "defer": [
                 "computer_use", "session_search", "image_generate",
-                "todo_list", "process_manage", "cronjob_manage", "browser_vault",
+                "todo_list", "process_manage", "browser_vault",
                 # Desktop GUI surface (desktop_ui, project and catalog toolsets)
                 "drive_preview", "gui_tour", "desktop_preview", "annotate_preview", "manage_catalog",
                 "show_tip", "desktop_project", "close_terminal",
@@ -2168,12 +1826,6 @@ DEFAULT_CONFIG = {
     },
     "computer_use": {
 
-        # Windows only: opt IN to the per-boot cua-driver-serve logon task. False (default)
-        # keeps the driver on-demand — Computer Use starts it per session, exactly as on
-        # macOS/Linux, and install/enable flows register no scheduled task (#97389). True
-        # registers (or repairs) the task at install time — needed to drive Windows over SSH,
-        # where Session 0 has no interactive desktop (see the computer-use guide).
-        "autostart": False,
         "native_wayland": False,
         # Cap driver screenshot longest edge (pixels) via set_config at session start; shrinks SOM
         # multimodal payloads. 0 disables.
@@ -2206,10 +1858,6 @@ DEFAULT_CONFIG = {
         # Path (~ ok) to the reviewed manifest for permission_mode bounded; passed as
         # --capability-manifest. See cua.ai/docs/reference/cua-driver/permission-modes
         "capability_manifest": "",
-        # macOS only: allow an UNSIGNED CuaDriver.app for the private-session daemon. False fails
-        # closed unless signed with the official com.trycua.driver identity. Only for local driver
-        # development from source.
-        "allow_unsigned_driver": False,
     },
     # Egress credential-injection proxy (iron-proxy) for remote terminal sandboxes (Docker today):
     # the sandbox sees opaque tokens and iron-proxy swaps in real credentials at egress, so a
@@ -2474,20 +2122,9 @@ OPTIONAL_ENV_VARS = OptionalEnvVars({
         tools=["image_generate", "video_generate"]),
     "KREA_API_KEY": _tool("Krea API key for Krea 3 and Krea 2 image generation",
         "Krea API key", "https://www.krea.ai/settings/api-tokens", tools=["image_generate"]),
-    "VOICE_TOOLS_OPENAI_KEY": _tool(
-        "OpenAI API key for voice transcription (Whisper) and OpenAI TTS",
-        "OpenAI API Key (for Whisper STT + TTS)", "https://platform.openai.com/api-keys",
-        tools=["voice_transcription", "openai_tts"]),
-    "ELEVENLABS_API_KEY": _tool(
-        "ElevenLabs API key for premium text-to-speech voices and Scribe transcription",
-        "ElevenLabs API key", "https://elevenlabs.io/",
-        tools=["elevenlabs_tts", "voice_transcription"]),
-    "MISTRAL_API_KEY": _tool("Mistral API key for Voxtral TTS and transcription (STT)",
+    "MISTRAL_API_KEY": _tool("Mistral API key",
         "Mistral API key", "https://console.mistral.ai/"),
-    "PORCUPINE_ACCESS_KEY": _tool(
-        "Picovoice access key for the Porcupine 'Hey Hermes' wake word engine (optional; "
-        "openWakeWord is the free default)", "Picovoice access key",
-        "https://console.picovoice.ai/"),
+
     "GITHUB_TOKEN": _tool("GitHub token for Skills Hub (higher API rate limits, skill publish)",
         "GitHub Token", "https://github.com/settings/tokens"),
     # ── Bundled skills (opt-in) ── category="skill" (not "tool") so the sandbox env blocklist in

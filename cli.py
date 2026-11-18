@@ -41,7 +41,6 @@ from hermes_cli.cli_modal_mixin import CLIModalMixin
 from hermes_cli.cli_stream_mixin import CLIStreamMixin
 from hermes_cli.cli_session_mixin import CLISessionMixin
 from hermes_cli.cli_model_switch_mixin import CLIModelSwitchMixin
-from hermes_cli.cli_voice_mixin import CLIVoiceMixin
 from hermes_cli.cli_status_bar_mixin import CLIStatusBarMixin
 from hermes_cli.cli_tui_mixin import CLITuiMixin
 from hermes_cli.cli_process_notifications import CLIProcessNotificationsMixin
@@ -67,7 +66,6 @@ from hermes_cli.cli_shutdown import (
     _shutdown_agent_memory_provider,
     _shutdown_cached_aux_clients,
     _shutdown_mcp_servers,
-    _stop_cli_wake_word,
     _sync_process_session_id,
     _wait_for_oneshot_background_completions,
 )
@@ -808,21 +806,6 @@ def _normalize_moa_model(model: Optional[str]) -> tuple[Optional[str], Optional[
 _split_model_config_default = _lazy_shim("hermes_cli.config", "split_model_config_default", "_split_model_config_default")
 
 
-class _VoiceInputMessage:
-    """Sentinel for voice-transcribed input so the concise voice prefix never applies to typed text.
-
-    Distinguishes STT output from manually typed text while voice mode is active, so the
-    concise-voice-response prefix is applied only to messages that actually came from the microphone
-    (#65827).
-    """
-
-    __slots__ = ("text",)
-
-    def __init__(self, text: str):
-        self.text = text
-
-    def __str__(self) -> str:
-        return self.text
 
 
 class _SeededQueryMessage:
@@ -855,28 +838,18 @@ def _should_seed_interactive(query, image, quiet: bool, oneshot: bool) -> bool:
 class _ChatTurn:
     """Per-turn state shared by the ``chat()`` phases and the agent worker thread.
 
-    ``result`` is written by the worker and read after the join; ``tts_normal_exit`` is
-    set only when the TTS worker drained on its own so the last sentence is never cut.
+    ``result`` is written by the worker and read after the join.
     """
 
     result: Optional[dict] = None
     mute_notification_reply: bool = False
-    use_streaming_tts: bool = False
-    box_opened: bool = False
-    thinking_started: bool = False
-    text_queue: Optional[queue.Queue] = None
-    tts_thread: Optional[threading.Thread] = None
-    stream_callback: Optional[Any] = None
-    stop_event: Optional[threading.Event] = None
-    tts_normal_exit: bool = False
-    voice_prefix: str = ""
 from hermes_cli.cli_chat_turn_mixin import CLIChatTurnMixin
 
 
 _PASTE_REF_RE = re.compile(r'\[Pasted text #\d+: \d+ lines \u2192 (.+?)\]')
 
 
-class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin, CLITuiMixin, CLIStatusBarMixin, CLIVoiceMixin, CLIModelSwitchMixin, CLISessionMixin, CLIStreamMixin, CLIModalMixin, CLITerminalMixin, CLIInfoMixin, CLILoopsMixin, CLIChatTurnMixin):
+class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin, CLITuiMixin, CLIStatusBarMixin, CLIModelSwitchMixin, CLISessionMixin, CLIStreamMixin, CLIModalMixin, CLITerminalMixin, CLIInfoMixin, CLILoopsMixin, CLIChatTurnMixin):
     """Interactive REPL for the Hermes Agent."""
 
     # Seeded -q first message (see _should_seed_interactive); run() re-creates
@@ -1234,11 +1207,11 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
             # shell=True is intentional (user-authored config snippets, never LLM controlled);
             # the env is sanitized because this process holds every API key.
             from tools.environments.local import build_subprocess_env
-            from hermes_cli._subprocess_compat import windows_hide_flags
+
             result = subprocess.run(
                 exec_cmd, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=30, env=build_subprocess_env(),
-                creationflags=windows_hide_flags(),  # no console flash on Windows (#56747),
+
                 check=False,
             )
             # See #56747.
@@ -1435,8 +1408,7 @@ class HermesCLI(CLIBacktrackMixin, CLIInitMixin, CLITuiRuntimeMixin, CLIProcessN
 
         threading.Thread(target=self._tui_spinner_loop, daemon=True).start()
         threading.Thread(target=self._tui_process_loop, daemon=True).start()
-        # Wake word listener off-thread so a first-run engine install never blocks the prompt.
-        threading.Thread(target=self._tui_wake_startup, daemon=True, name="wake-startup").start()
+
 
         atexit.register(_run_cleanup)
         self._tui_install_signal_handlers()
@@ -1705,10 +1677,6 @@ def main(
         python cli.py -w                         # Start in isolated git worktree
         python cli.py -w -q "Fix issue #123"     # Single query in worktree
     """
-    # UTF-8 stdio on Windows before any print (Rich box-drawing would UnicodeEncodeError on cp1252).
-    with suppress(Exception):
-        from hermes_cli.stdio import configure_windows_stdio
-        configure_windows_stdio()
 
     os.environ["HERMES_INTERACTIVE"] = "1"  # terminal_tool: interactive sudo prompts with timeout
 

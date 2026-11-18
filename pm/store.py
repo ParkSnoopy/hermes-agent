@@ -22,15 +22,11 @@ JUNK_NAMES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini", ".localized"})
 
 
 ALL_TARGETS = (
-    "win32-x64",
-    "win32-arm64",
     "linux-x64",
     "linux-arm64",
     "linux-x64-musl",
     "linux-arm64-musl",
     "linux-arm64-bionic",
-    "darwin-x64",
-    "darwin-arm64",
 )
 MUSL_TARGETS = frozenset({"linux-x64-musl", "linux-arm64-musl"})
 
@@ -45,41 +41,7 @@ def _native_machine() -> str:
     else:
         return native_arch()
 
-    # Bootstrap's independent PM runtime contains only pm/, not the app.
-    # Consult the OS for translated processes rather than trusting Python's
-    # process architecture (Rosetta and WOW64 both report the wrong target).
-    if sys.platform == "darwin" and platform.machine().lower() in ("x86_64", "amd64"):
-        try:
-            import ctypes
-
-            value = ctypes.c_int()
-            size = ctypes.c_size_t(ctypes.sizeof(value))
-            if ctypes.CDLL(None).sysctlbyname(b"sysctl.proc_translated", ctypes.byref(value),
-                                              ctypes.byref(size), None, 0) == 0 and value.value == 1:
-                return "arm64"
-        except (AttributeError, OSError):
-            pass
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            from ctypes import wintypes
-
-            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-            kernel.GetCurrentProcess.restype = wintypes.HANDLE
-            kernel.IsWow64Process2.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_ushort),
-                                                ctypes.POINTER(ctypes.c_ushort)]
-            kernel.IsWow64Process2.restype = wintypes.BOOL
-            process, native = ctypes.c_ushort(), ctypes.c_ushort()
-            if kernel.IsWow64Process2(kernel.GetCurrentProcess(), ctypes.byref(process), ctypes.byref(native)):
-                if native.value == 0xAA64:
-                    return "arm64"
-                if native.value == 0x8664:
-                    return "x86_64"
-        except (AttributeError, OSError):
-            pass
-        wow = os.environ.get("PROCESSOR_ARCHITEW6432", "").lower()
-        if wow in ("arm64", "amd64"):
-            return wow
+    # Bootstrap can run before hermes_platform is available.
     return platform.machine().lower()
 
 
@@ -150,6 +112,8 @@ def _is_musl_libc() -> bool:
 
 
 def current_target() -> str:
+    if not (sys.platform.startswith("linux") or sys.platform == "android"):
+        raise RuntimeError(f"Hermes requires Linux; unsupported host: {sys.platform}")
     machine = _native_machine()
     if machine in ("arm64", "aarch64"):
         arch = "arm64"
@@ -157,10 +121,6 @@ def current_target() -> str:
         arch = "x64"
     else:
         raise RuntimeError(f"unsupported architecture: {platform.machine()}")
-    if sys.platform.startswith("win"):
-        return f"win32-{arch}"
-    if sys.platform == "darwin":
-        return f"darwin-{arch}"
     if _is_bionic_libc():
         return f"linux-{arch}-bionic"
     if _is_musl_libc():

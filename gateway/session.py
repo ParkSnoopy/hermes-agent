@@ -309,20 +309,7 @@ def build_session_context_prompt(context: SessionContext, *, redact_pii: bool = 
             safe_id = _format_untrusted_prompt_value(_chat_label(home.chat_id))
             lines.append(f"  - {platform.value}: {safe_name} (ID: {safe_id})")
 
-    lines += ["", "**Delivery options for scheduled tasks:**"]
-    from hermes_constants import display_hermes_home
-    if src.platform == Platform.LOCAL:
-        lines.append("- `\"origin\"` → Local output (saved to files)")
-    else:
-        _origin_label = _format_untrusted_prompt_value(src.chat_name or _chat_label(src.chat_id))
-        lines.append(f"- `\"origin\"` → Back to this chat ({_origin_label})")
 
-    lines.append(f"- `\"local\"` → Save to local files only ({display_hermes_home()}/cron/output/)")
-    for platform, home in context.home_channels.items():
-        home_name = _format_untrusted_prompt_value(home.name)
-        lines.append(f"- `\"{platform.value}\"` → Home channel ({home_name})")
-
-    lines += ["", "*For explicit targeting, use `\"platform:chat_id\"` format if the user provides a specific chat ID.*"]
     return "\n".join(lines)
 
 

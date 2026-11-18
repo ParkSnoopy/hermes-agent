@@ -502,7 +502,7 @@ class TestUpdatePublication:
         for name, value in {
             "_wire_callbacks": lambda sid_: None, "_sync_agent_model_with_config": lambda sid_, s: None,
             "_session_cwd": lambda s: str(tmp_path), "_register_session_cwd": lambda s: None,
-            "_tts_stream_begin": lambda: None, "_sync_session_key_after_compress": lambda *a, **k: None,
+            "_sync_session_key_after_compress": lambda *a, **k: None,
             "_get_usage": lambda agent: {}, "_hermes_home": tmp_path,
         }.items():
             monkeypatch.setattr(server, name, value)

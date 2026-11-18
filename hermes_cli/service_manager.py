@@ -1,4 +1,4 @@
-"""Abstract service manager interface + systemd/launchd/Windows/s6 backends."""
+"""Abstract service manager interface + systemd and s6 backends."""
 from __future__ import annotations
 
 import json
@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
-ServiceManagerKind = Literal["systemd", "launchd", "windows", "s6", "none"]
+ServiceManagerKind = Literal["systemd", "s6", "none"]
 
 # Profile names become s6 service directory names (``<scandir>/gateway-<profile>/``), so they
 # must not traverse paths, span filesystems, or break s6's own naming rules.
@@ -55,7 +55,7 @@ class ServiceManager(Protocol):
 
 
 def detect_service_manager() -> ServiceManagerKind:
-    """Return "s6" (s6-svscan is PID 1), "windows", "launchd", "systemd" (working bus) or "none".
+    """Return "s6" (s6-svscan is PID 1), "systemd" (working bus) or "none".
 
     This function does NOT replace ``supports_systemd_services()`` —
     host call sites continue to use that. It exists for new backend-
@@ -64,17 +64,14 @@ def detect_service_manager() -> ServiceManagerKind:
     """
     # Deferred so importing this module (Protocol type, validate_profile_name) doesn't drag in
     # the whole gateway dependency graph.
-    from hermes_cli.gateway import is_macos, is_windows, supports_systemd_services
+    from hermes_cli.gateway import supports_systemd_services
     # Gate on _s6_running() alone, NOT is_container(): the latter only detects Docker/Podman/lxc
     # and is False on Fly's Firecracker microVMs even though s6-overlay is PID 1 there — that
     # made the s6 dispatch inert on Fly, so `hermes gateway start` spawned a foreground gateway
     # competing with the supervised one.
     if _s6_running():
         return "s6"
-    if is_windows():
-        return "windows"
-    if is_macos():
-        return "launchd"
+
     if supports_systemd_services():
         return "systemd"
     return "none"
@@ -102,8 +99,7 @@ def _s6_running() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Host backends: thin facades over ``hermes_cli.gateway`` (systemd/launchd) and
-# ``hermes_cli.gateway_windows``. The protocol's ``name`` parameter is unused here — host backends
+# Host backend: thin facade over ``hermes_cli.gateway``. The protocol's ``name`` parameter is unused here — host backends
 # operate on the currently active profile (``hermes -p <profile>``); the shape exists for s6 where
 # each profile maps to a distinct service directory.
 # ---------------------------------------------------------------------------
@@ -168,46 +164,6 @@ class SystemdServiceManager(_HostServiceManager):
     def is_running(self, name: str) -> bool:
         _, running = self._backend_module()._probe_systemd_service_running()
         return running
-
-
-class LaunchdServiceManager(_HostServiceManager):
-    """Wraps the ``launchd_*`` functions in hermes_cli.gateway."""
-
-    kind: ServiceManagerKind = "launchd"
-    _backend = "gateway"
-    _fn_prefix = "launchd_"
-
-    def is_running(self, name: str) -> bool:
-        return self._backend_module()._probe_launchd_service_running()
-
-
-class WindowsServiceManager(_HostServiceManager):
-    """Wraps ``hermes_cli.gateway_windows`` (Scheduled Task / Startup-folder fallback).
-
-    Not a true init service but the lifecycle protocol is the same. ``install`` takes
-    Windows-specific kwargs passed straight through — non-Windows callers must never call it.
-    """
-
-    kind: ServiceManagerKind = "windows"
-    _backend = "gateway_windows"
-
-    def install(
-        self,
-        *,
-        force: bool = False,
-        start_now: bool | None = None,
-        start_on_login: bool | None = None,
-        elevated_handoff: bool = False,
-    ) -> None:
-        self._backend_module().install(
-            force=force, start_now=start_now, start_on_login=start_on_login, elevated_handoff=elevated_handoff
-        )
-
-    def is_running(self, name: str) -> bool:
-        from hermes_cli.gateway import find_gateway_pids
-        if not self._backend_module().is_installed():
-            return False
-        return bool(find_gateway_pids())
 
 
 def get_service_manager() -> ServiceManager:
@@ -767,7 +723,6 @@ class S6ServiceManager:
 
 _MANAGER_CLASSES: dict[str, type] = {
     "systemd": SystemdServiceManager,
-    "launchd": LaunchdServiceManager,
-    "windows": WindowsServiceManager,
+
     "s6": S6ServiceManager,
 }

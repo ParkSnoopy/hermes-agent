@@ -29,7 +29,8 @@ class GatewayRuntimeInitMixin:
         self._stop_requested_by_signal = False
         self._launchd_exit_timeout_s = self._load_launchd_exit_timeout(self._restart_drain_timeout)
         self._restart_after_turn_timeout = self._load_restart_after_turn_timeout()
-        self._cron_drain_timeout = self._load_cron_drain_timeout()
+        self._api_drain_timeout = self._load_api_drain_timeout()
+
         self._signal_interrupt_grace_timeout = self._load_signal_interrupt_grace_timeout()
         self._provider_routing = self._load_provider_routing()
         self._fallback_model = self._load_fallback_model()
@@ -210,10 +211,7 @@ class GatewayRuntimeInitMixin:
         self.pairing_stores: Dict[str, PairingStore] = {}
         # One HookRegistry per served profile home, resolved from the active scope at emit time.
         self.hooks = ProfileHookRegistries()
-        # Per-chat voice reply mode: "off" | "voice_only" | "all"
-        self._voice_mode: Dict[str, str] = self._load_voice_modes()
-        # Per-(bot, guild, text channel, user) transcript dedup: voice/STT can emit one utterance twice.
-        self._recent_voice_transcripts: Dict[tuple, List[tuple[float, str]]] = {}
+
         # Background tasks kept referenced so they are not garbage-collected mid-execution.
         self._background_tasks: set = set()
         # Event-loop liveness heartbeat: rewritten every 30s while the loop dispatches; supervisors use

@@ -1661,7 +1661,7 @@ def _run_conversation_turn(
 ) -> dict[str, Any]:
     """Run a complete conversation with tool calling until completion; returns the result dict.
 
-    ``stream_callback``: per-text-delta callback (TTS). ``persist_user_message``: clean text to
+    ``stream_callback``: per-text-delta callback. ``persist_user_message``: clean text to
     store when ``user_message`` carries API-only synthetic prefixes; timestamp / platform id are
     stored as metadata (platform id lets restart drain recovery dedup).
     ``title_user_message``: optional pre-injection text for titles only (None uses the
@@ -1716,11 +1716,6 @@ def _run_conversation_turn(
         )
     except PreflightCompressionTimedOut as _preflight_timeout_exc:
         return _preflight_timeout_result(agent, _preflight_timeout_exc, conversation_history)
-    # Voice turns may run on auxiliary.voice_chat: bound after the prompt/row/compaction were settled
-    # against the main model, undone in finalize_turn (and run_conversation's finally on early exits).
-    from agent.voice_turn_route import begin_voice_turn_route
-    _ctx.active_system_prompt = begin_voice_turn_route(agent, _ctx.messages, _ctx.active_system_prompt)
-
     # Per-turn agent state (the gateway caches agents across turns, so none of this may
     # leak into the next message): interim-commentary dedup spans the whole turn but not
     # the next; a SessionDB append failure (and its classified cause) halts only this turn;
@@ -1830,7 +1825,6 @@ def run_conversation(
     """
     from agent.turn_context import export_current_turn_boundary
     from agent.turn_finalizer import settle_held_final
-    from agent.voice_turn_route import end_voice_turn_route
     from tools.vision_tools_history_budget import native_turn_images
 
     # Steer / redirect / interrupt set this mid-turn; the result reports whether the turn ran untouched.
@@ -1838,26 +1832,23 @@ def run_conversation(
     # Images attached natively to this user turn stay visible to vision_analyze for the turn, so
     # it does not embed the same pixels a second time into the same request (#76411).
     with native_turn_images(user_message):
-        try:
-            result = _run_conversation_turn(
-                agent,
-                user_message,
-                system_message=system_message,
-                conversation_history=conversation_history,
-                task_id=task_id,
-                stream_callback=stream_callback,
-                persist_user_message=persist_user_message,
-                persist_user_timestamp=persist_user_timestamp,
-                persist_user_display_kind=persist_user_display_kind,
-                persist_user_display_metadata=persist_user_display_metadata,
-                persist_user_platform_id=persist_user_platform_id,
-                moa_config=moa_config,
-                turn_author=turn_author,
-                title_user_message=title_user_message,
-                prelude=prelude,
-            )
-        finally:
-            end_voice_turn_route(agent)
+        result = _run_conversation_turn(
+            agent,
+            user_message,
+            system_message=system_message,
+            conversation_history=conversation_history,
+            task_id=task_id,
+            stream_callback=stream_callback,
+            persist_user_message=persist_user_message,
+            persist_user_timestamp=persist_user_timestamp,
+            persist_user_display_kind=persist_user_display_kind,
+            persist_user_display_metadata=persist_user_display_metadata,
+            persist_user_platform_id=persist_user_platform_id,
+            moa_config=moa_config,
+            turn_author=turn_author,
+            title_user_message=title_user_message,
+            prelude=prelude,
+        )
     settle_held_final(agent, result)
     result = export_current_turn_boundary(agent, result, user_message)
     if isinstance(result, dict):

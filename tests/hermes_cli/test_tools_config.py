@@ -12,7 +12,6 @@ from hermes_cli.tools_config import (
     _DEFAULT_OFF_TOOLSETS,
     _RECENTLY_SHIPPED_TOOLSETS,
     _apply_toolset_change,
-    _checklist_toolset_keys,
     _get_platform_tools,
     _run_post_setup,
     _save_platform_tools,
@@ -682,7 +681,7 @@ def test_exactly_one_image_row_is_active_for_a_managed_selection(monkeypatch):
 
 def test_gui_model_catalog_for_the_managed_row_spans_every_managed_gateway(monkeypatch):
     from hermes_cli import tools_config
-    from hermes_cli.web_routers.tools import _resolve_toolset_model_plugin, _toolset_model_catalog
+    from hermes_cli.tools_config_providers import _managed_image_catalog
     from plugins.image_gen.krea import KREA_MODEL_IDS
     from tools.image_generation_catalog import FAL_MODELS
 
@@ -690,8 +689,7 @@ def test_gui_model_catalog_for_the_managed_row_spans_every_managed_gateway(monke
     monkeypatch.setattr(
         tools_config, "get_nous_subscription_features",
         lambda *args, **kwargs: SimpleNamespace(features={}, account_info=paid))
-    plugin = _resolve_toolset_model_plugin("image_gen", _managed_image_row())
-    catalog, default_model = _toolset_model_catalog("image_gen", plugin, {})
+    catalog, default_model = _managed_image_catalog({})
 
     assert default_model in catalog and default_model in FAL_MODELS
     assert KREA_MODEL_IDS <= set(catalog)

@@ -1,65 +1,41 @@
-"""Branches are independent frozen local owners, never route aliases."""
-import asyncio
-import json
-import sqlite3
-
+"""Branches keep an independent route and frozen policy across owner restart."""
 import pytest
-from websockets.asyncio.client import connect
-from tests.gateway.test_native_http_auth import daemon, ticket
+
+from gateway.session_local import create_local_session
+from hermes_state_local import local_receipt
+from tests.gateway.test_session_mutation_retirement import local_authority
 
 
-async def branch_round(home, descriptor, previous=None):
-    async with connect(descriptor['api_origin'].replace('http:', 'ws:') + '/api/ws', subprotocols=[
-            'hermes-gateway-v1', 'hermes-gateway-ticket.' + ticket(home, descriptor, 'interactive')]) as ws:
-        async def rpc(method, **params):
-            await ws.send(json.dumps({'id': 1, 'method': method, 'params': params}))
-            while True:
-                result = json.loads(await ws.recv())
-                if result.get('id') == 1:
-                    return result
-        if previous is None:
-            created = await rpc('session.create', request_id='branch-owner', source='gui', toolsets=[])
-            sid = created['result']['session_id']
-            params = dict(session_id=sid, request_id='branch', expected_revision=0,
-                          expected_generation=0, operation='branch', payload={})
-        else:
-            params, receipt = previous
-        response = await rpc('session.mutate', **params)
-        assert 'result' in response, response
-        if previous:
-            assert response['result'] == receipt
-        receipt = response['result']
-        child = receipt['branched_session_id']
-        assert child != params['session_id']
-        if previous is None:
-            # The branching viewer owns the child it just created: a submit on the
-            # same connection is admitted without an explicit resume first (create parity).
-            admitted = await rpc('prompt.submit', session_id=child, input_id='first-child-input', text='FIRST_CHILD_INPUT')
-            assert admitted.get('result', {}).get('status') == 'queued', admitted
-        for sid in (child, params['session_id']):
-            resumed = await rpc('session.resume', session_id=sid)
-            assert 'result' in resumed, resumed
-        stale = await rpc('session.mutate', **(params | {'request_id': 'stale-branch'}))
-        assert stale['error']['message'] == 'revision_conflict'
-        changed = await rpc('session.mutate', **(params | {'payload': {'title': 'changed'}}))
-        assert changed['error']['message'] == 'admission_conflict'
-        return params, receipt
-
-
-@pytest.mark.platforms("linux")
-def test_branch_route_and_frozen_policy_survive_owner_restart(tmp_path):
-    with daemon(tmp_path) as (home, descriptor):
-        previous = asyncio.run(branch_round(home, descriptor))
-        sid = previous[0]['session_id']
-        child = previous[1]['branched_session_id']
-        with sqlite3.connect(home / 'state.db') as db:
-            policies = [json.loads(db.execute('SELECT value FROM state_meta WHERE key=?',
-                ('gateway.local_policy.v1:' + s,)).fetchone()[0]) for s in (sid, child)]
-            assert policies[0]['policy'] == policies[1]['policy']
-            assert policies[0]['principal_id'] == policies[1]['principal_id']
-            assert policies[0]['route'] != policies[1]['route']
-            assert db.execute('SELECT parent_session_id FROM sessions WHERE id=?', (child,)).fetchone()[0] == sid
-            # An untitled branch is its own titled sidebar row (next name in the parent's lineage).
-            assert db.execute('SELECT title FROM sessions WHERE id=?', (child,)).fetchone()[0]
-    with daemon(tmp_path) as (home, descriptor):
-        assert asyncio.run(branch_round(home, descriptor, previous)) == previous
+@pytest.mark.asyncio
+async def test_branch_route_and_frozen_policy_survive_owner_restart(tmp_path, monkeypatch):
+    authority, owner = local_authority(tmp_path, monkeypatch)
+    db = authority.db
+    ref = create_local_session(authority, owner.actor, {'request_id': 'branch-owner', 'source': 'cli',
+                               'cwd': str(tmp_path), 'model': 'm', 'toolsets': []})
+    row = db.get_session(ref.session_id)
+    params = {'session_id': ref.session_id, 'request_id': 'branch', 'expected_revision': row['runtime_revision'],
+              'expected_generation': row['runtime_generation'], 'operation': 'branch', 'payload': {}}
+    request = {'id': 1, 'method': 'session.mutate', 'params': params}
+    result = await owner.dispatch(request)
+    assert 'result' in result, result
+    child = result['result']['branched_session_id']
+    parent_policy, child_policy = (local_receipt(db, sid) for sid in (ref.session_id, child))
+    assert child != ref.session_id
+    assert parent_policy['policy'] == child_policy['policy']
+    assert parent_policy['principal_id'] == child_policy['principal_id']
+    assert parent_policy['route'] != child_policy['route']
+    assert db.get_session(child)['parent_session_id'] == ref.session_id
+    assert db.get_session(child)['title']
+    assert child in owner.subscriptions
+    stale = await owner.dispatch({**request, 'params': {**params, 'request_id': 'stale'}})
+    assert stale['error']['message'] == 'revision_conflict', stale
+    changed = await owner.dispatch({**request, 'params': {**params, 'payload': {'title': 'changed'}}})
+    assert changed['error']['message'] == 'admission_conflict', changed
+    await owner.close()
+    db.close()
+    authority, owner = local_authority(tmp_path, monkeypatch, instance_id='restarted')
+    try:
+        assert await owner.dispatch(request) == result
+    finally:
+        await owner.close()
+        authority.db.close()

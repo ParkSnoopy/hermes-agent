@@ -52,9 +52,7 @@ def main():
             from hermes_state_registry import release_or_close
             from tools.delegate_tool import _open_child_session_db
             from tools.async_delegation import _connect
-            from cron.scheduler import _open_cron_session_db, run_job
             operations = {'child': lambda: _open_child_session_db(agent),
-                          'cron': lambda: _open_cron_session_db({'id': 'worker-probe'}),
                           'ledger': _connect}
             def attempt(name, fn):
                 try:
@@ -66,12 +64,7 @@ def main():
                     return name, str(exc)
             with ThreadPoolExecutor(max_workers=1) as pool:
                 refusals = dict(pool.submit(attempt, name, fn).result() for name, fn in operations.items())
-            scripts = home / 'scripts'
-            scripts.mkdir(exist_ok=True)
-            (scripts / 'worker-probe.py').write_text("print('SCRIPT_ONLY_RESULT')\n")
-            script_result = run_job({'id': 'script-probe', 'name': 'script-probe', 'no_agent': True,
-                                     'script': 'worker-probe.py', 'prompt': '', 'deliver': 'local'})
-            refusals['script_result'] = script_result
+
         result = agent.run_conversation('WORKER_INFERENCE')
         context = store.get_session(command['session_id'])
         store.flush_token_counts()

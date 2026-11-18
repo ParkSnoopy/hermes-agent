@@ -2,7 +2,7 @@
 
 import pytest
 
-from hermes_cli.update_cmd import (
+from hermes_cli.process_identity import (
     _hermes_holder_subcommand,
 )
 

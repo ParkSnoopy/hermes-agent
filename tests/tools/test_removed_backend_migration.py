@@ -38,7 +38,7 @@ class TestRemovedBackendNote:
     def test_unknown_names_and_sections_return_none(self, legacy_removed):
         assert removed_backend_note("web", "exa") is None
         assert removed_backend_note("web", "") is None
-        assert removed_backend_note("stt", "legacysearch") is None
+        assert removed_backend_note("image_gen", "legacysearch") is None
 
     def test_registry_ships_without_live_backends(self):
         # Restored/live backends must never sit in REMOVED_BACKENDS — the

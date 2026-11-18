@@ -539,20 +539,6 @@ class GatewayBusySessionMixin:
 
         self._enqueue_fifo(session_key, event, adapter)
 
-    async def _prepare_busy_steer_text(self, event: MessageEvent) -> str:
-        """Steerable text for a busy follow-up, transcribing voice-message media first.
-
-        Steer bypasses the inbound STT queue, so a media-only voice follow-up would otherwise
-        silently degrade to queue mode. Uses the single out-of-band STT choke point, so STT runs at
-        most once per message; on failure the caption (if any) is kept.
-        """
-        text = (event.text or "").strip()
-        if not self._pending_event_audio_paths(event):
-            return text
-        enriched_text, successful_transcripts = await self._transcribe_and_echo_pending_voice(
-            event, self._delivery_adapter_for(event.source), event.source, text, log_context="Busy-steer"
-        )
-        return (enriched_text or text).strip() if successful_transcripts else text
 
     def _steer_text_with_origin(self, text: str, event: MessageEvent) -> str:
         """Keep event origin in this injection, never in the cached system prompt."""
@@ -717,16 +703,8 @@ class GatewayBusySessionMixin:
             event.message_type == MessageType.TEXT and not event.media_urls and not event.media_types
         )
         if effective_mode == "steer":
-            steer_text = await self._prepare_busy_steer_text(event)
-            # Steerable: plain text, OR every attachment is voice media folded into steer_text.
-            # A follow-up qualifies for steering when it is plain text, OR when every attachment is
-            # STT-eligible voice media whose transcript was just folded into steer_text — otherwise a voice
-            # note in steer mode silently degrades to queue mode (#58780).
-            _steer_media_urls = getattr(event, "media_urls", None) or []
-            _steer_all_voice = bool(_steer_media_urls) and (
-                len(self._pending_event_audio_paths(event)) == len(_steer_media_urls)
-            )
-            if steer_text and (plain_text or _steer_all_voice) and agent_live and hasattr(running_agent, "steer"):
+            steer_text = (event.text or "").strip()
+            if steer_text and plain_text and agent_live and hasattr(running_agent, "steer"):
                 steered = self._try_agent_verb(
                     running_agent, "steer", steer_text, session_key, event=event
                 )
@@ -811,11 +789,7 @@ class GatewayBusySessionMixin:
         try:
             _interrupt_text = event.text
             _media_urls = getattr(event, "media_urls", None) or []
-            if self._pending_event_audio_paths(event):
-                _interrupt_text, _ = await self._transcribe_and_echo_pending_voice(
-                    event, adapter, event.source, event.text or "", log_context="Voice-busy-interrupt",
-                )
-            elif not _interrupt_text and _media_urls:
+            if not _interrupt_text and _media_urls:
                 _interrupt_text = _build_media_placeholder(event)
             running_agent.interrupt(_interrupt_text)
         except Exception:
@@ -995,7 +969,7 @@ class GatewayBusySessionMixin:
         return True
 
     async def _busy_interrupt_and_ack(self, event, session_key, adapter, _busy_state, running_agent, _steer) -> None:
-        """Interrupt-mode abort (voice transcribed) and the busy ack, after the steer/redirect resolution.
+        """Interrupt-mode abort and the busy ack, after the steer/redirect resolution.
         Shared by the in-process busy handler and the session authority's busy preempt."""
         from gateway.run import _AGENT_PENDING_SENTINEL
         effective_mode, redirected = _steer.effective_mode, _steer.redirected
@@ -1043,10 +1017,10 @@ class GatewayBusySessionMixin:
     # Dispatched only on the idle path (busy dispatch has its own allowlist).
     _IDLE_COMMANDS = (
         "whoami", "stop", "reasoning", "memory", "skills", "fast",
-        "approvals", "model", "codex-runtime", "personality", "suggestions", "save", "retry",
+        "approvals", "model", "codex-runtime", "personality", "save", "retry",
         "compress", "usage", "topup", "insights", "reload-mcp", "reload-skills",
         "bundles", "debug", "title", "resume", "sessions", "branch", "rollback", "diff", "goal",
-        "loop", "refine", "review", "voice", "curator",
+        "loop", "refine", "review", "curator",
     )
 
     def _command_handler_table(self, names) -> dict[str, Any]:
@@ -1148,7 +1122,7 @@ class GatewayBusySessionMixin:
             return (f'⏸️ Hermes is already paused{suffix}. Use `/pause off` to resume.')
         estop.engage(reason=args or None)
         suffix = (f' (reason: {args})') if args else ""
-        return (f'⏸️ Paused{suffix}. New cron/kanban/gateway work is on hold; in-flight work finishes normally. Use `/pause off` to resume.')
+        return (f'⏸️ Paused{suffix}. New kanban/gateway work is on hold; in-flight work finishes normally. Use `/pause off` to resume.')
 
 
     async def _busy_egress_command(self, event: MessageEvent, quick_key: str, source):
@@ -1456,32 +1430,6 @@ class GatewayBusySessionMixin:
             if not thread_id or not tail or _tail_has_slot(tail, thread_id)
         ]
 
-    async def _handle_suggestions_command(self, event: MessageEvent) -> str:
-        """/suggestions via the shared handler (origin = event source so jobs deliver back here)."""
-        from gateway.run import _command_origin_for_source
-        try:
-            from hermes_cli.suggestions_cmd import handle_suggestions_command
-            return handle_suggestions_command(
-                (event.get_command_args() or "").strip(),
-                origin=_command_origin_for_source(event.source), surface="gateway",
-            )
-        except Exception as e:
-            logger.debug("suggestions command failed: %s", e)
-            return (f'Suggestions command failed: {e}')
-
-    async def _handle_blueprint_command(self, event: MessageEvent):
-        """/blueprint via the shared handler (origin = event source so jobs deliver back here)."""
-        from gateway.run import _command_origin_for_source
-        try:
-            from hermes_cli.blueprint_cmd import handle_blueprint_command
-            return handle_blueprint_command(
-                (event.get_command_args() or "").strip(),
-                origin=_command_origin_for_source(event.source), surface="gateway",
-            )
-        except Exception as e:
-            logger.debug("blueprint command failed: %s", e)
-            from hermes_cli.blueprint_cmd import BlueprintCommandResult
-            return BlueprintCommandResult(f'Cron blueprint command failed: {e}')
 
     async def _maybe_confirm_destructive_slash(
         self, *, event: MessageEvent, command: str, title: str, detail: str, execute

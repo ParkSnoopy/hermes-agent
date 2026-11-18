@@ -225,14 +225,13 @@ def _apply_additive_schema(path: Path, budget: _Budget | None = None) -> None:
     the shared reconciler could not add (it logs and continues) or an expired budget rolls the
     store back to exactly what it was, never a partial upgrade."""
     from hermes_cli.sqlite_safe_read import connect_tracked
-    from hermes_state_repair import _reapply_durability_barriers, _schema_not_built
+    from hermes_state_repair import _schema_not_built
     from hermes_state_schema import apply_declared_schema, schema_read_probe_statements
 
     budget = budget or _Budget(BROWSE_RECONCILE_BUDGET_S)
     budget.check()
     with closing(connect_tracked(path, tracking_path=path, timeout=budget.busy_timeout(),
                                  isolation_level=None)) as conn:
-        _reapply_durability_barriers(conn)
         budget.arm(conn)
         conn.execute('BEGIN IMMEDIATE')
         try:

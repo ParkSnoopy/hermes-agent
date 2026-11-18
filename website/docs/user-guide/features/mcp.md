@@ -14,10 +14,6 @@ MCP lets Hermes Agent connect to external tool servers so the agent can use tool
 
 If you have ever wanted Hermes to use a tool that already exists somewhere else, MCP is usually the cleanest way to do it.
 
-:::tip Coming from Claude Code?
-The `mcpServers` block in your `~/.claude.json` maps to `mcp_servers` in Hermes' `config.yaml` — and `hermes import-agent claude-code` (from the `agent-importers` plugin) migrates it, along with skills and instructions. See [Import from Other Agents](../import-from-other-agents.md).
-:::
-
 ## What MCP gives you
 
 - Access to external tool ecosystems without writing a native Hermes tool first
@@ -1007,10 +1003,10 @@ mcp_servers:
 
 - The approval prompt names the cost: `Costs about 20 credits.` or `Costs 5-20 credits (per animation).`, plus `This chat has used about 40 credits on 'renders' (limit 100).` once the chat has spent something.
 - Hermes keeps a running total per chat and per server, counting the declared figure (the top of a range) for every costed call it approved and started. Declined or blocked calls add nothing; a call whose server dies before receiving it still counts, which errs toward asking sooner. The total lives in memory: it is a budget for one conversation, not the vendor's bill.
-- The total follows the conversation when context compression or `/branch` continues it under a new session id. Starting a new chat (`/new` in the CLI, a new Desktop chat) starts a new total; on messaging platforms the total belongs to the chat, so it survives `/new` there. Each cron run has its own total. Restarting Hermes resets every total.
-- With `spend_limit`, a costed call that would take the chat past the limit asks first, even on a `trust: full` server that otherwise never prompts, and every further costed call in that chat asks again: that prompt offers only Allow Once and Deny, and an earlier Session or Always answer for the tool does not silence it. Where nobody can answer (cron jobs, `hermes chat -q`, a gateway with no approver), the call is refused without running and the model is told not to retry.
+- The total follows the conversation when context compression or `/branch` continues it under a new session id. Starting a new chat (`/new` in the CLI, a new Desktop chat) starts a new total; on messaging platforms the total belongs to the chat, so it survives `/new` there. Restarting Hermes resets every total.
+- With `spend_limit`, a costed call that would take the chat past the limit asks first, even on a `trust: full` server that otherwise never prompts, and every further costed call in that chat asks again: that prompt offers only Allow Once and Deny, and an earlier Session or Always answer for the tool does not silence it. Where nobody can answer (`hermes chat -q`, a gateway with no approver), the call is refused without running and the model is told not to retry.
 - Below the limit, a `trust: full` server still runs costed tools without asking; on a `trust: untrusted` server every write-capable call already asks and the prompt now carries the cost. Tools annotated `readOnlyHint: true` stay unprompted unless the budget requires it.
-- [YOLO](../security.md#yolo-mode) (`/yolo`, `--yolo`) and `approvals.mode: off` skip the `trust: untrusted` prompt (`/yolo` for that chat, `--yolo` for that process, `approvals.mode: off` for that profile), but not the spend limit: below the limit a costed call runs without asking, and a call that would cross it still asks (or is refused where nobody can answer, such as a cron job with `approvals.mode: off`).
+- [YOLO](../security.md#yolo-mode) (`/yolo`, `--yolo`) and `approvals.mode: off` skip the `trust: untrusted` prompt (`/yolo` for that chat, `--yolo` for that process, `approvals.mode: off` for that profile), but not the spend limit: below the limit a costed call runs without asking, and a call that would cross it still asks (or is refused where nobody can answer, such as an unattended session with `approvals.mode: off`).
 - A malformed `tool_costs`, `spend_limit` or `cost_unit` skips the server with an error naming the key, so a budget you declared is never silently dropped. A `tool_costs` key the server does not offer (a typo, or Hermes' `mcp_<server>_` display prefix copied in) is named in a warning at connect time: use the server's own tool names.
 
 A [portable plugin package](../../developer-guide/plugins/index.md#portable-agent-plugins-v1-packages) can declare the same table for its server. If you add a same-name `mcp_servers` entry (for example to set `trust: full`), the package's `tool_costs`, `spend_limit` and `cost_unit` still apply unless your entry sets those keys itself; `spend_limit: 0` turns the package's limit off and `tool_costs: {}` drops its costs.
@@ -1038,7 +1034,7 @@ Some MCP servers can notify an agent when something happens upstream (a new emai
 new item in a feed) through the `events/*` methods of the
 [MCP events design sketch](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md).
 The proposal is still a working-group draft. Hermes implements its **webhook** delivery mode: the
-server POSTs each event to the gateway's [webhook listener](../messaging/webhooks.md), and every
+server POSTs each event to the gateway's webhook listener, and every
 event starts an agent run like any other webhook route.
 
 Turn it on per server, and tell Hermes the public HTTPS address of the webhook listener (servers
@@ -1090,7 +1086,7 @@ profile under `gateway.multiplex_profiles`.
 
 ## Running Hermes as an MCP server
 
-Hermes can also **be** an MCP server, so Claude Code, Claude Desktop, Cursor, Codex or any MCP client can list and read your messaging conversations, wait for new messages and send messages across every platform Hermes is connected to, and optionally call Hermes' own web, browser, vision, image generation, skills and TTS tools. This ships as the official **mcp-serve** plugin:
+Hermes can also **be** an MCP server, so Claude Code, Claude Desktop, Cursor, Codex or any MCP client can list and read your messaging conversations, wait for new messages and send messages across every platform Hermes is connected to, and optionally call Hermes' own web, browser, vision, image generation, and skills tools. This ships as the official **mcp-serve** plugin:
 
 ```bash
 hermes plugins install mcp-serve

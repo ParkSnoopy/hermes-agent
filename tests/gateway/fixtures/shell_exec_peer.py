@@ -1,20 +1,19 @@
-"""Authenticated WS fixture: Ink ``!cmd`` on the shared owner; no inference."""
+"""Native authority fixture: Ink ``!cmd`` on the shared owner; no inference."""
 import asyncio
+import io
 import json
 import os
 from pathlib import Path
 import sys
+import threading
 import traceback
 
 
 async def probe():
     from gateway.run import GatewayRunner
     from gateway.session_authority import initialize_session_authority
-    from gateway.run_api import start_gateway_api, stop_gateway_api
-    from hermes_cli import web_server
-    from hermes_cli.dashboard_auth.ws_tickets import mint_ticket
-    from tests.gateway.fixtures.local_recovery_probe import rpc
-    from websockets.asyncio.client import connect
+    from gateway.session_controls import AuthorityConnection
+    from tui_gateway.transport import StdioTransport
 
     home = Path(os.environ['HERMES_HOME'])
     work = home / 'session-checkout'
@@ -23,25 +22,24 @@ async def probe():
     # A credential the long-lived owner holds must never reach a user-typed child.
     os.environ['OPENROUTER_API_KEY'] = 'sk-or-v1-' + 'f' * 48
     runner = GatewayRunner()
-    await initialize_session_authority(runner, profile_id=str(home), instance_id='shell')
-    api = await start_gateway_api(runner)
-    web_server.app.state.auth_required = True
+    authority = await initialize_session_authority(runner, profile_id=str(home), instance_id='shell')
+    stream = io.StringIO()
+    connection = AuthorityConnection(authority, StdioTransport(lambda: stream, threading.Lock()), {'user_id': 'owner'})
     receipt = {'owner_cwd': os.getcwd(), 'session_cwd': str(work)}
+    async def rpc(method, **params):
+        return await connection.dispatch({'jsonrpc': '2.0', 'id': method, 'method': method, 'params': params})
     try:
-        def socket(actor):
-            return connect(api.api_origin.replace('http:', 'ws:') + '/api/ws?ticket='
-                           + mint_ticket(user_id=actor, provider='fixture'))
-        async with socket('owner') as ws:
-            sid = (await rpc(ws, 'session.create', request_id='shell', source='tui', cwd=str(work),
-                             toolsets=[]))['result']['session_id']
-            ran = await rpc(ws, 'shell.exec', session_id=sid,
-                            command='pwd; printf "key=%s" "${OPENROUTER_API_KEY:-}" >&2; exit 3')
-            receipt['ran'] = ran.get('result', ran.get('error'))
-            dangerous = await rpc(ws, 'shell.exec', session_id=sid, command='rm -rf /')
-            receipt['dangerous'] = dangerous.get('error', dangerous.get('result'))
-            receipt['sessionless'] = (await rpc(ws, 'shell.exec', command='pwd')).get('error', {}).get('code')
+        sid = (await rpc('session.create', request_id='shell', source='tui', cwd=str(work),
+                         toolsets=[]))['result']['session_id']
+        ran = await rpc('shell.exec', session_id=sid,
+                        command='pwd; printf "key=%s" "${OPENROUTER_API_KEY:-}" >&2; exit 3')
+        receipt['ran'] = ran.get('result', ran.get('error'))
+        dangerous = await rpc('shell.exec', session_id=sid, command='rm -rf /')
+        receipt['dangerous'] = dangerous.get('error', dangerous.get('result'))
+        receipt['sessionless'] = (await rpc('shell.exec', command='pwd')).get('error', {}).get('code')
     finally:
-        await stop_gateway_api(api)
+        await connection.close()
+        runner.session_store.close_all_db_handles()
     (home / 'receipt.json').write_text(json.dumps(receipt))
 
 

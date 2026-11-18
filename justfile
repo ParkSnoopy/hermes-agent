@@ -7,12 +7,6 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 setup:
     bash setup-hermes.sh --runtime-only --test-environment
 
-# Provision the PM tools, Python runtime and test environment
-[group('setup')]
-[windows]
-setup:
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File setup-hermes.ps1 -RuntimeOnly
-
 # Install the JS workspaces from pnpm-lock.yaml
 [group('setup')]
 js-install:

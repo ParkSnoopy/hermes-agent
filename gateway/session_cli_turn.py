@@ -1,6 +1,6 @@
 """Per-admission turn inputs the classic CLI sends with ``prompt.submit`` (CALLMAP W2).
 
-Main's HermesCLI calls ``AIAgent.run_conversation`` with an API-only message (voice prefix,
+Main's HermesCLI calls ``AIAgent.run_conversation`` with an API-only message (
 model-switch / skills-reload notes) while persisting the clean text, names the turn's author for
 memory attribution, and runs ``/model --once`` and ``/moa`` as a one-turn runtime swap. Over the
 session authority those are facts about ONE admitted turn, committed with the admission row as

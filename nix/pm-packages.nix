@@ -21,12 +21,9 @@ let
   target =
     let
       arch = if stdenv.hostPlatform.isAarch64 then "arm64" else "x64";
-      os =
-        if stdenv.hostPlatform.isDarwin then "darwin"
-        else if stdenv.hostPlatform.isLinux then "linux"
-        else "win32";
     in
-    "${os}-${arch}";
+    if stdenv.hostPlatform.isLinux then "linux-${arch}"
+    else throw "Hermes requires Linux";
 
   # A target pins one artifact or a list of them (a runtime split across
   # archives that must land in one directory). Normalize to a list.

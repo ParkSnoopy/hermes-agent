@@ -716,7 +716,7 @@ def _start_notification_poller(sid: str, session: dict) -> threading.Event:
 
 def _hud_surface_note(session: dict) -> str:
     """The per-surface note for this turn ("" for the plain app window): HUD -> the read-the-window-below
-    prior; voice-live -> the spoken-delegation contract with the recent transcript."""
+    prior."""
     from gateway.session_surface import surface_note
     surface, agent = session.get("client_surface"), session.get("agent")
     direct = getattr(agent, "valid_tool_names", None) or set()
@@ -728,7 +728,7 @@ def _hud_surface_note(session: dict) -> str:
             from agent.prompt_builder import hud_surface_note
             from agent.tool_executor import _tool_search_scoped_names
             return hud_surface_note(direct, _tool_search_scoped_names(agent))
-    committed = {"surface": surface, "voice_context": session.get("voice_live_context")}
+    committed = {"surface": surface}
     return surface_note(committed, direct)
 
 

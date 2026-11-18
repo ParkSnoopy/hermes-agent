@@ -62,9 +62,8 @@
       "entries": [
         "agent.context_references",
         "agent.plugin_llm",
-        "agent.transcription_provider",
-        "agent.tts_provider",
-        "cron.execution_identity",
+
+
         "hermes_cli.dashboard_auth",
 
         "hermes_cli.plugins:PluginContext",

@@ -143,11 +143,10 @@ async def test_a_session_create_with_a_bare_custom_pick_stays_on_the_profiles_en
 
 
 @pytest.mark.asyncio
-async def test_adopting_a_legacy_custom_row_recovers_the_entry_serving_its_model(monkeypatch):
-    """Real ``adopt_legacy_session``: the row recorded bare ``custom``, no endpoint, and a model only another entry lists."""
+async def test_native_custom_session_uses_the_key_of_the_entry_serving_its_model(monkeypatch):
+    """A canonical launch with bare ``custom`` resolves the model's endpoint and key together."""
     import json
     from gateway import run
-    from gateway.session_local_migration import resolve_local_target
     from hermes_constants import get_hermes_home
     from tests.gateway.test_session_follow_profile_config import _owner, _route
     home = get_hermes_home()
@@ -159,11 +158,11 @@ async def test_adopting_a_legacy_custom_row_recovers_the_entry_serving_its_model
     store, runner, authority, owner = _owner(home)
     runner._peek_session_state = lambda key: None
     try:
-        authority.db.create_session('old-tui', cwd=str(home), source='tui', model='saved-model',
-                                    model_config={'provider': 'custom'})
-        authority.db.end_session('old-tui', 'tui_close')
-        authority._native_legacy_transports = {owner.actor.transport_id: owner.actor}
-        live = authority.sessions[resolve_local_target(authority, owner.actor, 'old-tui').session_id]
+        created = await owner.dispatch({'id': 'custom-entry', 'method': 'session.create', 'params': {
+            'request_id': 'custom-entry', 'source': 'tui', 'cwd': str(home), 'toolsets': [],
+            'model': 'saved-model', 'provider': 'custom'}})
+        assert 'result' in created, created
+        live = authority.sessions[created['result']['session_id']]
         assert _route(runner, live) == ('saved-model', RELAY, 'relay-key')
     finally:
         await owner.close()

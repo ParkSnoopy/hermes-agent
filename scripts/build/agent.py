@@ -9,7 +9,7 @@ import re
 import shutil
 import tomllib
 
-from scripts.build.inputs import AgentInputs, RESOURCE_ENV, project_entries, validate_frontends
+from scripts.build.inputs import AgentInputs, RESOURCE_ENV, project_entries, validate_frontend_names, validate_frontends, validate_target
 from scripts.build.launchers import write_launchers
 
 
@@ -73,6 +73,8 @@ def write_metadata(project_path: Path, repo: Path) -> None:
 
 
 def assemble(inputs: AgentInputs, out: Path) -> dict:
+    validate_target(inputs.target)
+    validate_frontend_names(inputs.frontends)
     out = out.absolute()
     out.mkdir(parents=True, exist_ok=True)
     # An interrupted rebuild must not leave an old completion claim behind.
@@ -119,11 +121,8 @@ def assemble(inputs: AgentInputs, out: Path) -> dict:
                 raise FileNotFoundError(f"prepared command missing: {command}")
         env = {**inputs.env, "HERMES_PYTHON": str(inputs.python), "HERMES_INSTALL_ROOT": str(repo)}
         links = {RESOURCE_ENV[name]: (path, repo / name) for name, path in inputs.resources.items()}
-        for name, path in inputs.frontends.items():
-            key, destination = {"tui": ("HERMES_TUI_DIR", out / "ui-tui"),
-                                "web": ("HERMES_WEB_DIST", repo / "web_dist"),
-                                "webapp": ("HERMES_WEBAPP_DIST", repo / "webapp_dist")}[name]
-            links[key] = (path, destination)
+        if "tui" in inputs.frontends:
+            links["HERMES_TUI_DIR"] = (inputs.frontends["tui"], out / "ui-tui")
         for key, (source, destination) in links.items():
             destination.unlink(missing_ok=True)
             destination.symlink_to(source, target_is_directory=True)
@@ -133,7 +132,7 @@ def assemble(inputs: AgentInputs, out: Path) -> dict:
         (out / "command-map.json").write_text(json.dumps(mapping, indent=2) + "\n", encoding="utf-8")
     else:
         for name, command in previous.get("runtime", {}).get("commands", {}).items():
-            if name not in entries and command == f"{inputs.bin_dir}/{name}{'.exe' if inputs.target.startswith('win32') else ''}":
+            if name not in entries and command == f"{inputs.bin_dir}/{name}":
                 (out / command).unlink(missing_ok=True)
         launch_python = f"{location(inputs.environment)}/bin/python" if inputs.target.endswith("-bionic") else python
         commands = write_launchers(out, entries, python=launch_python, repo=inputs.repo, site=site,
@@ -157,6 +156,12 @@ def main() -> None:
     args = parser.parse_args()
     try:
         inputs = AgentInputs.from_dict(json.loads(args.inputs.read_text(encoding="utf-8-sig")))
+    except Exception:
+        (args.out / "manifest.json").unlink(missing_ok=True)
+        (args.out / "command-map.json").unlink(missing_ok=True)
+        raise
+    validate_target(inputs.target)
+    try:
         assemble(inputs, args.out)
     except Exception:
         (args.out / "manifest.json").unlink(missing_ok=True)

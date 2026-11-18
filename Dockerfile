@@ -208,7 +208,7 @@ COPY pm/ pm/
 # from hermes_constants (stdlib-only) at install time — a sealed-stage
 # `python3 -m pm.cli install` fails with "No module named
 # 'hermes_constants'" without it on the path. Copy the module next to pm.
-COPY hermes_constants.py hermes_constants.py
+COPY hermes_constants.py hermes_user_dirs.py ./
 # PM imports the shared stdlib locking owner before deps exist.
 COPY hermes_cli/__init__.py hermes_cli/runtime_state.py hermes_cli/
 COPY scripts/bundles/payload.py scripts/bundles/payload.py

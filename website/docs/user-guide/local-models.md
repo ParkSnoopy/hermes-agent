@@ -16,9 +16,8 @@ after a model is downloaded.
 
 ## Desktop availability and downloads
 
-Local Models is on by default in the desktop app on macOS, Windows, and Linux
-(x64 and arm64), on every release channel. On other platforms, launch the app
-with `--local` to show it. A runtime can already be bundled; its absence
+Local Models is on by default in the Linux desktop app (x64 and arm64), on every release channel.
+A runtime can already be bundled; its absence
 triggers the managed-tool install path, not an arbitrary latest llama.cpp
 download.
 
@@ -143,7 +142,6 @@ both and saves the variant that actually served `/models`, so chat
 requests go to the same prefix the model list came from. For manual setups (Ollama, MLX, custom
 builds, headless CLI machines), see
 [Run Hermes Locally with Ollama](../guides/local-ollama-setup.md) and
-[Run Local LLMs on Mac](../guides/local-llm-on-mac.md).
 
 ## Configuration
 
@@ -188,9 +186,8 @@ Selecting a local model as your main model uses the standard
 
 ## Requirements and limits
 
-- **Windows:** CUDA on supported NVIDIA targets, Vulkan on x64, or CPU.
-  **Linux:** CUDA on x64 and arm64 NVIDIA (needs a CUDA 13 driver), Vulkan, or CPU.
-  **macOS:** Metal or CPU. HIP/ROCm is an explicit choice on supported x64
+- **Linux:** CUDA on x64 and arm64 NVIDIA (needs a CUDA 13 driver), Vulkan, or CPU.
+  HIP/ROCm is an explicit choice on supported x64
   targets. Unsupported backend/target pairs fail before any download.
 - `backend: auto` prefers CUDA for NVIDIA and Vulkan for AMD and Intel GPUs,
   then falls back to the builds listed above for your platform (CPU when no

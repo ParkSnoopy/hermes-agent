@@ -66,18 +66,6 @@ def test_registered_transport_hints_are_profile_scoped(synthetic_transport, tmp_
     assert platform_hint(agent) == DEFAULT
 
 
-def test_cron_hint_uses_registered_destination(synthetic_transport):
-    from gateway import session_context
-
-    token = session_context._CRON_AUTO_DELIVER_PLATFORM.set(synthetic_transport)
-    try:
-        agent = types.SimpleNamespace(platform="cron", valid_tool_names=["example_tool"],
-                                      _platform_hint_overrides={synthetic_transport: {"append": EXTRA}})
-        hint = platform_hint(agent)
-        assert "scheduled cron job" in hint
-        assert f"Delivery destination ({synthetic_transport}): {DEFAULT} Tool note.\n\n{EXTRA}" in hint
-    finally:
-        session_context._CRON_AUTO_DELIVER_PLATFORM.reset(token)
 
 
 class TestResolvePlatformHint:

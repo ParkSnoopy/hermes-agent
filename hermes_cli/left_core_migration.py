@@ -271,14 +271,6 @@ def langfuse_in_use(home: Path, *, process_env: bool = False) -> bool:
     return _bundled_plugin_selected(home, "langfuse")
 
 
-def agent_imports_in_use(home: Path, *, process_env: bool = False) -> bool:
-    """*home* registered a ``hermes import-agent`` source for ``--sync`` (its ``import-sync.json``,
-    which scheduled syncs read). A one-shot import leaves no other trace, and installing the plugin
-    for every home would add a command nobody asked for; the old spelling names the install."""
-    return (home / "import-sync.json").is_file()
-
-
-
 def _home_env(home: Path, name: str, *, process_env: bool) -> str:
     """*name* as *home*'s dotenv layers resolve it (:func:`~hermes_cli.env_loader.resolve_home_dotenv`), else
     from the secret scope bound for *home* (a multiplexed secondary's external secret sources live only there),
@@ -322,9 +314,7 @@ def _route_slots(home: Path) -> list[dict]:
     overlay (``read_yaml_layers``): ``model``, the fallback chain (``get_fallback_chain``: legacy
     ``fallback_model`` merged), each ``auxiliary.<task>``, ``delegation`` and its fallback chain, every
     delegation backend route (:func:`_delegation_backend_routes`) and its chain, every MoA preset's reference
-    models and aggregator (``normalize_moa_config``), the cron-wide ``cron.model_provider``, each cron job's pin
-    and the user's own ``providers:`` / ``custom_providers:`` endpoints (``get_compatible_custom_providers``)."""
-    from cron.scheduler_preflight import cron_default_provider
+    models and aggregator (``normalize_moa_config``), and the user's own ``providers:`` / ``custom_providers:`` endpoints (``get_compatible_custom_providers``)."""
     from gateway import config_loader
     from hermes_cli.config_providers import get_compatible_custom_providers
     from hermes_cli.fallback_config import get_fallback_chain
@@ -343,18 +333,13 @@ def _route_slots(home: Path) -> list[dict]:
         return [slot, *get_fallback_chain({"fallback_providers": slot.get("fallback_providers")})]
     delegation = block(cfg.get("delegation"))
     slots = [block(cfg.get("model")), *get_fallback_chain(cfg), *map(block, block(cfg.get("auxiliary")).values()),
-             *with_chain(delegation), {"provider": cron_default_provider(cfg)}]
+             *with_chain(delegation)]
     for preset in normalize_moa_config(cfg.get("moa"))["presets"].values():
         slots += [*map(block, preset.get("reference_models") or []), block(preset.get("aggregator"))]
     for route in _delegation_backend_routes(delegation):
         slots += with_chain(route)
     slots += [{"base_url": entry.get("base_url")} for entry in get_compatible_custom_providers(cfg)]
-    import json
-    try:
-        jobs = json.loads((home / "cron" / "jobs.json").read_text(encoding="utf-8-sig")).get("jobs")
-    except (OSError, ValueError, AttributeError):  # no (readable) job store: no pins
-        jobs = None
-    return slots + ([block(job) for job in jobs] if isinstance(jobs, list) else [])
+    return slots
 
 
 def _provider_choices(home: Path) -> set[str]:
@@ -494,14 +479,10 @@ class LeftCoreFeature:
     # Top-level command the plugin registers in place of core's ``hermes auth <cli>`` login
     # (``hermes <cli> login|status|logout``); :func:`moved_command_hint` points the old spelling at it.
     cli: str = ""
-    # Top-level command the plugin registers: core's own command kept under its name (``hermes
-    # import-agent``), or in place of core's nested ``old_command`` (``hermes mcp serve`` -> ``hermes
-    # mcp-serve``); :func:`moved_command_hint` points the old spelling at it.
+    # Top-level command replacing a nested core command (``hermes mcp serve`` ->
+    # ``hermes mcp-serve``); :func:`moved_command_hint` points the old spelling at it.
     command: str = ""
     old_command: str = ""
-    # Other top-level commands core shipped that the same plugin now registers (``hermes claw``, the
-    # OpenClaw migration's spelling before ``hermes import-agent openclaw``); hinted like *command*.
-    old_cli: tuple[str, ...] = ()
     # Key of the bundled plugin core shipped (``observability/langfuse``). It stays an alias of the
     # catalog plugin in ``plugins.enabled`` / ``plugins.disabled`` (the loader's gate, an
     # administrator's pinned list) and for every `hermes plugins <verb>` (:func:`legacy_plugin_alias`).
@@ -570,11 +551,6 @@ LEFT_CORE: tuple[LeftCoreFeature, ...] = (
                   "(browser_exec) is turned off in this profile",
         secret_env=("CAMOFOX_API_KEY",), private_env=("CAMOFOX_URL",),
         toolsets=("camofox",), off_platforms=("webhook",), replaces_toolsets=("browser",), left_at=52,
-    ),
-    LeftCoreFeature(
-        plugin="agent-importers", label="`hermes import-agent`", in_use=agent_imports_in_use,
-        unchanged="`hermes import-agent`, its flags and your import-sync.json sync sources are unchanged",
-        command="import-agent", old_cli=("claw",),
     ),
     LeftCoreFeature(
         # Core kept COPILOT_GITHUB_TOKEN and the two base-URL overrides out of children as provider env
@@ -731,7 +707,7 @@ def legacy_plugin_keys(plugin: str) -> set[str]:
 def moved_command_hint(prog: str, value: str, action: str = "") -> str:
     """For a command a left-core plugin took over: ``hermes auth [<action>] <cli>`` (core's old login
     spelling), core's old nested spelling (``hermes mcp serve``), or the plugin's own ``hermes <cli>`` /
-    ``hermes <command>`` / ``hermes <old_cli>`` while the plugin is not loaded, the line saying where it
+    ``hermes <command>`` while the plugin is not loaded, the line saying where it
     went and how to get it for the active home, else ``""``."""
     from hermes_constants import get_hermes_home
     home = Path(get_hermes_home())
@@ -744,7 +720,7 @@ def moved_command_hint(prog: str, value: str, action: str = "") -> str:
     if prog == "hermes auth":
         feature = next((f for f in LEFT_CORE if f.cli and f.cli == value), None)
     elif prog == "hermes":
-        feature = next((f for f in LEFT_CORE if value and value in (f.cli, f.command, *f.old_cli)), None)
+        feature = next((f for f in LEFT_CORE if value and value in (f.cli, f.command)), None)
     else:
         feature = None
     if feature is None:
@@ -758,7 +734,7 @@ def moved_command_hint(prog: str, value: str, action: str = "") -> str:
         old = " ".join(p for p in ("hermes auth", action, value) if p)
         return (f"{feature.label} moved out of core into the '{feature.plugin}' plugin: `{old}` is now "
                 f"`hermes {value} {action or 'login'}`.{get}")
-    label = f"`hermes {value}`" if value in feature.old_cli else feature.label
+    label = feature.label
     return f"{label} moved out of core into the '{feature.plugin}' plugin, which is not loaded.{get}"
 
 
@@ -1263,11 +1239,10 @@ def recover_at_startup(*, say: Optional[Callable[[str], None]] = None, gateway_s
 def recover_for_command(name: Optional[str]) -> None:
     """``hermes <name>`` names a command a left-core plugin registers, and the active home uses that
     feature but lacks the plugin: run :func:`recover_at_startup` now, before plugin commands are
-    discovered, so the command it installs runs in this same invocation. A home nothing migrated yet
-    (a Docker image swap runs no ``hermes update``) whose only Hermes process is a scheduled
-    ``hermes import-agent --sync`` never starts an agent or a gateway to do it."""
+    discovered, so the command it installs runs in this same invocation. This also covers
+    installations that have not run ``hermes update`` since the feature moved to a plugin."""
     from hermes_constants import get_hermes_home
     home = Path(get_hermes_home())
-    if any(name and name in (f.cli, f.command, *f.old_cli) and not plugin_present(f.plugin, home)
+    if any(name and name in (f.cli, f.command) and not plugin_present(f.plugin, home)
            and feature_in_use(f, home) for f in LEFT_CORE):
         recover_at_startup(say=lambda message: print(message, file=sys.stderr))

@@ -10,9 +10,9 @@ from hermes_platform.host import facts, summary
 
 
 @pytest.fixture
-def n1x(monkeypatch):
-    pinned = {"os_family": "win32", "native_arch": "arm64", "gpu_class": "unknown",
-              "cpu_model": "NVIDIA RTX Spark N1X", "cpu_vendor": "NVIDIA", "ram_total_bytes": 128 * 2**30,
+def spark(monkeypatch):
+    pinned = {"os_family": "linux", "native_arch": "arm64", "gpu_class": "unknown",
+              "cpu_model": "NVIDIA DGX Spark", "cpu_vendor": "NVIDIA", "ram_total_bytes": 128 * 2**30,
               "nvidia_gpus": ()}
     for name, value in pinned.items():
         monkeypatch.setattr(facts, name, lambda value=value: value)
@@ -26,10 +26,10 @@ def _call(params: dict) -> dict:
     return server.handle_request({"jsonrpc": "2.0", "id": 7, "method": "machine.facts", "params": params})
 
 
-def test_machine_facts_over_the_wire(n1x):
+def test_machine_facts_over_the_wire(spark):
     result = _call({})["result"]
 
-    assert result["nvidia_platform"] == "rtx_spark"
+    assert result["nvidia_platform"] == "dgx_spark"
     assert result["machine_kind"] == "Spark"
     assert result["has_nvidia_gpu"] is False
     assert "full_name" not in result
@@ -37,6 +37,6 @@ def test_machine_facts_over_the_wire(n1x):
     assert result["machine"]["ram_gb"] == 128
 
 
-def test_machine_facts_takes_no_profile(n1x):
+def test_machine_facts_takes_no_profile(spark):
     # Host-level: a profile param is a client bug, not a scope.
     assert _call({"profile": "work"})["error"]["code"] == 4000

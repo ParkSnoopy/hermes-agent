@@ -41,57 +41,10 @@ def test_readiness_probe_reports_config_backend_unavailable(tmp_path, monkeypatc
     assert result["status"] == "degraded" and result["checks"]["config"]["status"] == "degraded"
 
 
-def test_cron_tick_fails_only_that_fire_and_never_runs_on_defaults(tmp_path, monkeypatch):
-    """``_load_cron_job_config`` keeps refusing defaults (the SystemExit passes its ``except
-    Exception``); ``run_job`` — the fire's owner — turns it into this fire's failure result."""
-    import run_agent  # run_job imports it; its import-time dotenv load reads config
-    from cron import scheduler
-    monkeypatch.setattr("hermes_cli.config_backend.config_exists", _outage)
-    with pytest.raises(ConfigBackendUnavailable):
-        scheduler._load_cron_job_config({"id": "j", "model": "m"}, "j", "job")
-
-    # Through the real run_job as the fire's owner: the pre-agent gates pass, then the read refuses.
-    monkeypatch.setattr("gateway.session_cron.current_execution", lambda: (None, "s", "j", "fire"))
-    monkeypatch.setattr(scheduler, "_prepare_job_prompt", lambda *a, **k: (None, "do the thing"))
-    monkeypatch.setattr(scheduler, "_reload_dotenv_and_publish_delivery_target", lambda job: None)
-    monkeypatch.setattr(scheduler, "_get_hermes_home", lambda: tmp_path)
-    success, doc, final, error = scheduler.run_job({"id": "j", "name": "job", "prompt": "p"},
-                                                   execution_id="fire")
-    assert success is False and final == ""
-    assert error and "ConfigBackendUnavailable" in error and "HTTP 503" in error
-    assert "FAILED" in doc
 
 
-def test_cron_job_body_records_the_outage_and_keeps_the_ticker(monkeypatch, tmp_path):
-    """The body owner (``_run_one_job_body``) records a fire that escaped with the outage as failed
-    and returns, instead of re-raising it into the ticker thread like a real SystemExit."""
-    from cron import executions, jobs, scheduler
-    monkeypatch.setattr(scheduler, "run_job", lambda job, **kw: _outage())
-    marked = []
-    real_mark = scheduler.mark_job_run
-    monkeypatch.setattr(scheduler, "mark_job_run", lambda *a, **kw: (marked.append((a, kw)), real_mark(*a, **kw)))
-    with jobs.use_cron_store(tmp_path / "cron"):
-        job = jobs.create_job(prompt="report", schedule="every 1h", deliver="local")
-        fire = executions.create_execution(job["id"], source="test")["id"]
-        assert scheduler._run_one_job_body(dict(jobs.get_job(job["id"]), execution_id=fire)) is False
-        assert executions.get_execution(fire)["status"] == "failed"
-        assert marked and marked[0][0][1] is False and "HTTP 503" in marked[0][0][2]
-        assert jobs.get_job(job["id"])["last_status"] == "error"
 
 
-def test_cron_pin_refuses_instead_of_dropping_the_lock(monkeypatch, tmp_path):
-    """``pinned=True`` reads the main model; with the plane down that is an invalid request
-    (ValueError, the create/update path's refusal), never ``(None, None)`` = silently unpinned
-    and never a SystemExit out of the cronjob tool or RPC."""
-    from cron import jobs
-    from cron.jobs_model_pin import _main_model_pin
-    monkeypatch.setattr("hermes_cli.config_backend.config_exists", _outage)
-    with pytest.raises(ValueError, match="cannot pin the job to the main model.*HTTP 503"):
-        _main_model_pin()
-    with jobs.use_cron_store(tmp_path / "cron"):
-        with pytest.raises(ValueError, match="cannot pin"):
-            jobs.create_job(prompt="report", schedule="every 1h", deliver="local", pinned=True)
-        assert jobs.load_jobs() == []
 
 
 def test_tui_profile_cwd_returns_none(monkeypatch, tmp_path):

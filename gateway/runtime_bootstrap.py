@@ -9,12 +9,6 @@ import time
 _PURPOSE_CAPABILITIES = {
     'interactive': frozenset({'session:create', 'session:read', 'session:submit',
                               'session:control', 'session:approve', 'session:respond'}),
-    'native-http': frozenset({'http:owner'}),
-    # Same-user host operation, not permission to read or mutate another profile.
-    'native-profile-create': frozenset({'profiles:create'}),
-    # Rename/delete of the ONE profile it is minted for (#140345): a registry write on that home,
-    # never a read of it or any other route.
-    'native-profile-registry': frozenset({'profiles:registry'}),
     'exposure': frozenset({'transport:delegate'}),
     'worker-adoption': frozenset({'worker:adopt'}),
 }
@@ -36,7 +30,7 @@ class TicketStore:
 
     def mint(self, *, profile_id, subject, purpose, scope='profile', refuse_restart_wait=False) -> str:
         """``scope='host'`` lets an interactive connection select every profile this process
-        serves (the Desktop's one shared socket); the default binds exactly ``profile_id``.
+        serves; the default binds exactly ``profile_id``.
         ``refuse_restart_wait``: the socket redeeming it is refused while a restart's after-turn
         wait is open, however long after the mint that wait began (a machine poller, never a human)."""
         if (profile_id not in self.profile_ids or purpose not in _PURPOSE_CAPABILITIES or not subject

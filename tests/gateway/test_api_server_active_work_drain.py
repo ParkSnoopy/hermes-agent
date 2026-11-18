@@ -192,18 +192,15 @@ class TestDrainWaitsForApiWork:
         agent.interrupt.assert_called_once_with("gateway shutdown", tool_reason="gateway shutdown")
 
     @pytest.mark.asyncio
-    async def test_drain_still_waits_for_chat_cron_and_api_work(self):
-        import cron.scheduler as sched
-
+    async def test_drain_still_waits_for_chat_and_api_work(self):
         runner, _adapter = make_restart_runner()
         runner._running_agents = {"session-1": MagicMock()}
-        sched._running_job_ids.add(sched._inflight_key("job-1"))
+
         runner.adapters = {Platform.API_SERVER: _make_api_adapter(queued_ids=["run-1"])}
 
         async def finish_all():
             await asyncio.sleep(0.12)
             runner._running_agents.clear()
-            sched._running_job_ids.discard(sched._inflight_key("job-1"))
             runner.adapters[Platform.API_SERVER]._active_run_tasks.clear()
 
         task = asyncio.create_task(finish_all())
@@ -211,7 +208,6 @@ class TestDrainWaitsForApiWork:
             _snapshot, timed_out = await runner._drain_active_agents(2.0)
         finally:
             await task
-            sched._running_job_ids.discard(sched._inflight_key("job-1"))
 
         assert timed_out is False
 
@@ -643,8 +639,7 @@ class TestShutdownSettleWindow:
         monkeypatch.setattr(bt_lifecycle, "cleanup_all_browsers", lambda: None)
 
         with patch("gateway.status.remove_pid_file"), \
-             patch("gateway.status.publish_runtime_status"), \
-             patch("cron.scheduler.mark_job_run"):
+             patch("gateway.status.publish_runtime_status"):
             await runner.stop()
 
         assert api.interrupt_reasons == [_INTERRUPT_REASON_GATEWAY_SHUTDOWN]
@@ -695,8 +690,7 @@ class TestShutdownSettleWindow:
         monkeypatch.setattr(type(loop), "time", _fast_time)
         try:
             with patch("gateway.status.remove_pid_file"), \
-                 patch("gateway.status.publish_runtime_status"), \
-                 patch("cron.scheduler.mark_job_run"):
+                 patch("gateway.status.publish_runtime_status"):
                 await runner.stop()
         finally:
             monkeypatch.undo()

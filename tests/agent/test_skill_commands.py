@@ -550,13 +550,12 @@ class TestBuildPreloadedSkillsPrompt:
 
 class TestDuplicateNamesAgreeAcrossSurfaces:
     def test_every_surface_resolves_duplicates_like_skill_view(self, tmp_path, monkeypatch):
-        """#64392: list, prompt index, slash commands, skill_view, -s preload and cron agree. A same-tier
+        """#64392: list, prompt index, slash commands, skill_view and -s preload agree. A same-tier
         duplicate is advertised only by its exact path and every loader names those paths; a cross-tier
         duplicate (same relative path, local + external) loads the local copy everywhere."""
         import json
 
         from agent import prompt_builder as pb, skill_utils
-        from cron.scheduler_prompt import _load_cron_skill_parts
         from tools.skills_tool import skill_view, skills_list
         local, ext = tmp_path / "local", tmp_path / "ext"
         _make_skill(local, "dup-demo", category="a", body="BODY A")
@@ -584,8 +583,6 @@ class TestDuplicateNamesAgreeAcrossSurfaces:
             assert "LOCAL XDUP" in json.loads(skill_view(ident))["content"]
         _, loaded, missing = build_preloaded_skills_prompt(["dup-demo", "xdup", "a/one"])
         assert (loaded, missing) == (["xdup", "dup-demo"], [ambiguous])
-        parts = _load_cron_skill_parts({"id": "j"}, ["dup-demo", "xdup"])
-        assert ambiguous in parts[0] and "LOCAL XDUP" in "\n".join(parts)
 
         # Disabling a duplicate by the exact path its row shows (what `hermes skills` / the web toggle
         # save) hides it from list and index and refuses the load — but not an unrelated, uniquely named

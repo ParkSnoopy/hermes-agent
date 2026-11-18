@@ -41,7 +41,6 @@ it. New commands land often; `/help` in-session is always authoritative.
 /reasoning [level|show|hide] Reasoning effort/display (none..xhigh|max|ultra)
 /fast [normal|fast]      Priority/fast processing tier
 /verbose                 Cycle tool progress: off → new → all → verbose → log (CLI)
-/voice [on|off|tts]      Voice mode
 /yolo                    Toggle approval bypass
 /busy [queue|steer|interrupt] How messages behave while working (CLI + gateway)
 /indicator [style]       TUI busy indicator: kaomoji|emoji|unicode|ascii (CLI)
@@ -63,9 +62,6 @@ it. New commands land often; `/help` in-session is always authoritative.
 /memory [pending|approve|reject] Review pending memory writes / approval gate
 /pet [toggle|list|<slug>] Petdex mascot control (CLI)
 /hatch [description]     Generate a new pet from a description (CLI)
-/cron [sub]              Manage scheduled tasks (CLI)
-/suggestions (/suggest)  Review suggested automations
-/blueprint (/bp) [name]  Set up an automation from a blueprint
 /curator [sub]           Skill maintenance (status, run, pin, archive, …)
 /moa <prompt>            One prompt through the Mixture-of-Agents preset
 /reload                  Reload .env into the running session (CLI)

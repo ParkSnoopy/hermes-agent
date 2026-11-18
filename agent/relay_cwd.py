@@ -86,6 +86,6 @@ def resolve_relay_scope_cwds(
             logger.debug("Unable to resolve the local Relay session cwd", exc_info=True)
 
     turn_cwd = task_cwd or session_cwd
-    if platform in {"subagent", "cron"} and task_cwd:
+    if platform == "subagent" and task_cwd:
         session_cwd = task_cwd
     return session_cwd or turn_cwd, turn_cwd

@@ -1,9 +1,6 @@
 """Actual Computer provider profile."""
 
-import os
-import sys
 from typing import Any
-from urllib.parse import urlparse
 
 from providers import register_provider
 from providers.base import ProviderProfile
@@ -15,30 +12,6 @@ class ActualProfile(ProviderProfile):
     """Actual Computer: hosted at api.actual.inc; local (offline-mode client)
     inference opted into via model.base_url in config.yaml."""
 
-    def build_client_kwargs_extras(self, **context: Any) -> dict[str, Any]:
-        base_url = str(context.get("base_url") or self.base_url or "")
-        try:
-            hostname = (urlparse(base_url).hostname or "").lower().rstrip(".")
-        except ValueError:
-            return {}
-        if sys.platform != "darwin" or hostname != "api.actual.inc":
-            return {}
-        if any(
-            os.getenv(key)
-            for key in (
-                "HERMES_CA_BUNDLE",
-                "SSL_CERT_FILE",
-                "REQUESTS_CA_BUNDLE",
-                "CURL_CA_BUNDLE",
-            )
-        ):
-            return {}
-        from agent.ssl_verify import certifi_bundle_path
-
-        # Re-derived when an install-environment rotation deleted the directory certifi was
-        # imported from: a deleted path would otherwise be handed to the client as ssl_ca_cert.
-        bundle = certifi_bundle_path()
-        return {"ssl_ca_cert": bundle} if bundle else {}
 
     def supported_reasoning_efforts(self, model: str | None) -> tuple[str, ...] | None:
         from agent.reasoning_effort import ACTUAL_RELAY_EFFORTS

@@ -3,7 +3,7 @@
 python-build-standalone records the toolchain it was built with in sysconfig:
 on Linux ``CC = 'clang -pthread'``, ``CXX = 'clang++ -pthread'``, linkers that
 start with the same commands, and an ``AR`` under its deleted ``/tools/llvm``
-build directory; on macOS only that archiver is foreign. setuptools compiles
+build directory. setuptools compiles
 every extension with those values unless the environment overrides them, so a
 Debian/Ubuntu/WSL host with only gcc/g++ failed any sdist build with
 ``No such file or directory: 'clang++'`` (python-olm, via the matrix extra).
@@ -37,7 +37,7 @@ _MISSING_COMPILER = (
 )
 _COMPILER_NAME = re.compile(r"(?:clang(?:\+\+)?|g?cc|g\+\+|c\+\+)(?:-[\d.]+)?")
 _COMPILER_REMEDY = ("{what}: install a C/C++ compiler (Debian/Ubuntu/WSL: `sudo apt install build-essential`; "
-                    "Fedora: `sudo dnf install gcc gcc-c++`; macOS: `xcode-select --install`) "
+                    "Fedora: `sudo dnf install gcc gcc-c++`) "
                     "or point CC/CXX at one, then retry")
 
 
@@ -80,8 +80,6 @@ def pinned_build_defaults(python: Path, env: Mapping[str, str]) -> dict[str, str
     compiler with no gcc-family equivalent on PATH is left alone; the build then
     fails and ``missing_compiler_remedy`` names the fix.
     """
-    if sys.platform == "darwin":
-        return {"AR": "/usr/bin/ar"}
     if sys.platform != "linux":
         return {}
     return _linux_defaults(_recorded_toolchain(str(python)), env)

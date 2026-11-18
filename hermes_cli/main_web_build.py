@@ -54,21 +54,19 @@ def _prune_dropped_directories(root: Path, recorded_fingerprint: str) -> int:
     dropped files, so the caller keeps the old fingerprint and the next sweep retries.
     """
     from hermes_cli._early_recovery import is_object_id
-    from hermes_cli._subprocess_compat import windows_hide_flags
-
     since = recorded_fingerprint.rpartition(":")[2]
     if not is_object_id(since):
         return 0
     git = ["git", "-C", str(root)]
     try:
         known = subprocess.run([*git, "cat-file", "-e", f"{since}^{{commit}}"], capture_output=True,
-                               stdin=subprocess.DEVNULL, timeout=60, creationflags=windows_hide_flags(), check=False)
+                               stdin=subprocess.DEVNULL, timeout=60, check=False)
         if known.returncode != 0:
             return 0  # the recorded commit is gone (gc, re-clone): nothing to diff against, ever
         listed = subprocess.run(
             [*git, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", since, "HEAD"],
             capture_output=True, stdin=subprocess.DEVNULL, timeout=60,
-            creationflags=windows_hide_flags(), check=False)
+            check=False)
     except subprocess.SubprocessError as exc:
         raise OSError(f"could not list the files dropped since {since[:10]}: {exc}") from exc
     if listed.returncode != 0:

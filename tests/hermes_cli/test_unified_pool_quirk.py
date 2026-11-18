@@ -15,11 +15,13 @@ any discrete card."""
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
 import hermes_cli.local_runtime.hardware as hw
-from hermes_platform.host import gpu_adapters
+
 
 GIB = 1 << 30
 
@@ -176,10 +178,15 @@ def test_engine_fallback_without_smi_stays_conservative(monkeypatch):
     monkeypatch.setattr(hw, "_nvidia_vram", lambda: None)
     monkeypatch.setattr(hw, "_ram_bytes", lambda: (UMA_RAM, 32 * GIB))
     monkeypatch.setattr(hw, "_device_pool_view", lambda: (UMA_POOL, None))
-    monkeypatch.setattr(gpu_adapters, "windows_gpu_adapters", tuple)
+    monkeypatch.setattr(hw, "_accelerator_device", lambda: None)
+    monkeypatch.setattr(hw, "gpu_class", lambda: "cpu")
     b = hw.probe_budget(planning=True)
     assert b.uma is True
     assert b.total_device_bytes == UMA_RAM  # RAM path, not the pool
+    assert b.usable_vram_bytes == int(UMA_RAM * 0.8)
+    live = hw.probe_budget()
+    assert live.usable_vram_bytes == int(32 * GIB * 0.8)
+    assert live.ram_available_bytes == 0
 
 
 
@@ -207,7 +214,7 @@ def test_vulkan_device_type_decides_discrete_vs_unified(monkeypatch, tmp_path, d
     monkeypatch.setattr(hw, "_nvidia_vram", lambda: None)
     monkeypatch.setattr(hw, "_device_pool_view", lambda: None)
     monkeypatch.setattr(hw, "_ram_bytes", lambda: (32 * GIB, 20 * GIB))
-    monkeypatch.setattr(gpu_adapters, "windows_gpu_adapters", tuple)
+    monkeypatch.setattr(hw, "gpu_class", lambda: "amd")
 
     b = hw.probe_budget(planning=True)
 
@@ -220,6 +227,7 @@ def test_vulkan_device_type_decides_discrete_vs_unified(monkeypatch, tmp_path, d
     else:
         assert b.total_device_bytes == 32 * GIB
         assert b.ram_available_bytes == 0
+        assert b.lazy_reads is False
 
 
 @pytest.mark.platforms("linux")
@@ -295,3 +303,33 @@ def test_device_line_regex_handles_parenthesized_names():
             "(46464 MiB, 46284 MiB free)")
     m = hw._DEVICE_LINE_RE.search(line)
     assert m and int(m.group(1)) == 46464
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_shared_nvidia_query_caches_success_and_failure(monkeypatch, returncode):
+    from hermes_cli.local_runtime import bootstrap
+
+    now = [1000.0]
+    monkeypatch.setattr(hw.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(hw, "_gpu_query_cache", None)
+    monkeypatch.setattr(hw, "_nvidia_smi_path", lambda: "/usr/bin/nvidia-smi")
+    run = Mock(return_value=SimpleNamespace(
+        returncode=returncode,
+        stdout="8192, 4096, NVIDIA GeForce RTX 4060 Ti, 0x250410DE, 4096, 12\n",
+    ))
+    monkeypatch.setattr(hw.subprocess, "run", run)
+    if returncode == 0:
+        assert hw._nvidia_vram() == (8192 << 20, 4096 << 20, "NVIDIA GeForce RTX 4060 Ti", 0x250410DE)
+        facts = hw._cached_nvidia_gpu_query()
+        assert facts["gpu_name"] == "NVIDIA GeForce RTX 4060 Ti"
+        assert facts["gpu_util_percent"] == 12
+        assert facts["used_bytes"] == 4096 << 20
+        assert bootstrap._detect_gpu_vendor() == "nvidia NVIDIA GeForce RTX 4060 Ti"
+    else:
+        assert hw._nvidia_vram() is None
+        assert hw._cached_nvidia_gpu_query() is None
+    assert run.call_count == 1
+    assert run.call_args.kwargs["capture_output"] is True
+    now[0] += hw._GPU_QUERY_TTL_S + 1
+    hw._cached_nvidia_gpu_query()
+    assert run.call_count == 2

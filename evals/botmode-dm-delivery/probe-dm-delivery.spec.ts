@@ -15,7 +15,7 @@ const evidence = process.env.BOT_DM_EVIDENCE || path.join(os.tmpdir(), 'botmode-
 test.beforeAll(async () => {
   fs.mkdirSync(evidence, { recursive: true })
   const sandbox = createSandbox('dm-delivery')
-  const mock = await startMockServer({ holdFirstCompletionContaining: 'CLI_OWNER_HOLD' })
+  const mock = await startMockServer()
   for (const name of ['default', 'alpha', 'beta']) {
     const home = name === 'default' ? sandbox.hermesHome : path.join(sandbox.hermesHome, 'profiles', name)
     fs.mkdirSync(home, { recursive: true })
@@ -42,32 +42,6 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => { await fixture?.cleanup() })
 
-test('cron output waits for a CLI-only owner and arrives after owner release', async () => {
-  test.setTimeout(240_000)
-  const output = fs.openSync(path.join(evidence, 'cli-owner.log'), 'w')
-  const child = spawn(python, ['-m', 'hermes_cli.main', '-p', 'beta', 'chat', '--in', '~', '-c', 'Bot Chat', '--create-if-missing', '-Q', '-q', 'CLI_OWNER_HOLD'], { cwd: repo, env, stdio: ['ignore', output, output] })
-  const cronEnv = { ...env, HERMES_HOME: fixture.sandbox.hermesHome }
-  try {
-    await fixture.mock.waitForHeldCompletion()
-    const script = 'import json; from cron.scheduler_delivery import _deliver_to_bot_chat; j={"id":"cli-residual","name":"CLI residual","execution_id":"fixed-execution"}; result=_deliver_to_bot_chat(j,"CLI_OWNER_CRON_SENTINEL","beta"); print(json.dumps({"result":result,"job":j}))'
-    const setup = ''
-    const result = JSON.parse(execFileSync(python, ['-c', setup + script], { env: cronEnv, cwd: repo, encoding: 'utf8', timeout: 30_000 }))
-    console.log('CLI_OWNER_CRON_ADMISSION', JSON.stringify(result))
-    fs.writeFileSync(path.join(evidence, 'cli-owner-admission.json'), JSON.stringify(result, null, 2))
-    fixture.mock.releaseHeldStream()
-    await expect.poll(() => child.exitCode, { timeout: 60_000 }).toBe(0)
-    fs.mkdirSync(path.join(fixture.sandbox.root, 'changed-launch-home'), { recursive: true })
-    // Delivery is admitted through the profile authority inside tick(); nothing to drain afterwards.
-    const tickArgs = ['-c', 'from cron.scheduler import tick; tick(verbose=False)']
-    const ticker = spawn(python, tickArgs, { env: { ...cronEnv, HOME: path.join(fixture.sandbox.root, 'changed-launch-home') }, cwd: repo, stdio: ['ignore', output, output] })
-    await expect.poll(() => ticker.exitCode, { timeout: 90_000 }).not.toBeNull()
-    expect(ticker.exitCode).toBe(0)
-    await openBot('beta')
-    expect(dbMessages('beta').filter(([role, text]) => role === 'user' && text.includes('CLI_OWNER_CRON_SENTINEL'))).toHaveLength(1)
-    await expect(fixture.page.getByText(/CLI_OWNER_CRON_SENTINEL/).filter({ visible: true }).first()).toBeVisible({ timeout: 45_000 })
-    await fixture.page.screenshot({ path: path.join(evidence, 'cli-owner-after-release.png') })
-  } finally { fixture.mock.releaseHeldStream(); child.kill(); fs.closeSync(output) }
-})
 
 async function openBot(name: string) {
   const page = fixture.page

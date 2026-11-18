@@ -189,8 +189,7 @@ def _runtime_model_config(agent, existing: dict | None = None) -> dict:
     attributes DELETE the key rather than skip the write: resume reads provider/endpoint from this JSON
     (model column written separately), so a stale provider would route the resumed chat to the wrong endpoint."""
     config = dict(existing or {})
-    from agent.voice_turn_route import session_runtime_view
-    agent = session_runtime_view(agent)
+
     attr = lambda k: str(getattr(agent, k, "") or "").strip()
     model, base_url = attr("model"), attr("base_url")
     from hermes_cli.runtime_provider_custom import session_provider_identity

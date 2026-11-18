@@ -2,7 +2,7 @@
 
 The hardline list is a floor below yolo: a small set of commands so
 catastrophic they should never run via the agent, regardless of --yolo,
-gateway /yolo, approvals.mode=off, or cron approve mode.
+gateway /yolo or approvals.mode=off.
 
 Inspired by Mercury Agent's permission-hardened blocklist.
 """
@@ -27,7 +27,7 @@ _HARDLINE_BLOCK = [
     # current/parent-dir segments all collapse back to root, so they must
     # hit the hardline floor too (regression: these used to slip through the
     # root pattern's target group and fall to the softer DANGEROUS_PATTERNS
-    # rule, which --yolo / approvals.mode=off / cron approve-mode bypass).
+    # rule, which --yolo / approvals.mode=off bypass).
     "rm -rf //",
     "rm -rf /.",
     "rm -rf /./",
@@ -512,7 +512,7 @@ def clean_session(monkeypatch):
     monkeypatch.delenv("HERMES_YOLO_MODE", raising=False)
     monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
     monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-    monkeypatch.delenv("HERMES_CRON_SESSION", raising=False)
+
     monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
     token = set_current_session_key("hardline_test")
     try:
@@ -601,26 +601,15 @@ def test_approvals_mode_off_cannot_bypass_hardline(clean_session, monkeypatch, t
     assert result.get("hardline") is True
 
 
-def test_cron_approve_mode_cannot_bypass_hardline(clean_session, monkeypatch):
-    """Cron sessions with cron_mode=approve must not bypass hardline."""
-    monkeypatch.setenv("HERMES_CRON_SESSION", "1")
-    monkeypatch.setattr(approval_context, "_get_cron_approval_mode", lambda: "approve")
-
-    result = check_all_command_guards("rm -rf /", "local")
-    assert result["approved"] is False
-    assert result.get("hardline") is True
 
 
-def test_container_backends_still_bypass(clean_session):
-    """Containerized backends remain bypass-approved — they can't touch the host.
-
-    Hardline only protects environments with real host impact (local, ssh).
-    """
+def test_retired_container_backend_names_cannot_bypass_hardline(clean_session):
+    """Retired backend names must not switch off the host safety floor."""
     for env in ("docker", "vercel_sandbox"):
-        r1 = check_dangerous_command("rm -rf /", env)
-        assert r1["approved"] is True, f"container {env} should still bypass"
-        r2 = check_all_command_guards("rm -rf /", env)
-        assert r2["approved"] is True, f"container {env} should still bypass"
+        for guard in (check_dangerous_command, check_all_command_guards):
+            result = guard("rm -rf /", env)
+            assert result["approved"] is False
+            assert result["hardline"] is True
 
 
 def test_hardline_runs_before_dangerous_detection(clean_session):
@@ -694,9 +683,10 @@ def test_sudo_stdin_guard_detects_without_password():
         assert "sudo" in desc.lower()
 
 
-def test_sudo_stdin_guard_container_bypass(clean_session):
-    """Containerized backends still bypass — they can't touch the host."""
+def test_retired_backend_names_cannot_bypass_sudo_stdin_guard(clean_session):
+    """Retired backend names do not bypass the sudo stdin guard."""
     for env in ("docker", "vercel_sandbox"):
         for cmd in _SUDO_STDIN_BLOCK:
             result = check_all_command_guards(cmd, env)
-            assert result["approved"] is True, f"container {env} should bypass sudo guard on {cmd!r}"
+            assert result["approved"] is False, (env, cmd)
+            assert "sudo" in result["message"].lower()

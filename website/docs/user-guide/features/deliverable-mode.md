@@ -23,8 +23,7 @@ Three pieces fit together:
 
 1. **The agent has tools that produce files.** `execute_code` for charts via
    matplotlib, the `microsoft-office` skill for Word documents, spreadsheets
-   and decks, the `pdf` and `latex-pdf-report` skills for PDFs, `image_generate` for images,
-   `text_to_speech` for audio, and so on.
+   and decks, the `pdf` and `latex-pdf-report` skills for PDFs, `image_generate` for images.
 
 2. **The gateway scans agent responses for file paths.** Any absolute path
    (`~/.hermes/cache/scratch/...`) or home-relative path (`~/...`) ending in a supported

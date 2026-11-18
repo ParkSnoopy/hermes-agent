@@ -19,7 +19,6 @@ The output is actual video. Not terminal escape codes. Frames are computed as gr
 | Generative | Nothing | Procedural animation from math |
 | Hybrid | Video + audio | ASCII video with audio-reactive overlays |
 | Lyrics/text | Audio + timed text (SRT) | Karaoke-style text with effects |
-| TTS narration | Text quotes + API key | Narrated video with typewriter text and generated speech |
 
 ## Pipeline
 
@@ -262,7 +261,7 @@ Auto-detects CPU count, RAM, platform, ffmpeg. Adapts worker count, resolution, 
 ◆ NumPy, Pillow, SciPy (audio modes)
 ◆ ffmpeg on PATH
 ◆ A monospace font (Menlo, Courier, Monaco, auto-detected)
-◆ Optional: OpenCV, ElevenLabs API key (TTS mode)
+◆ Optional: OpenCV
 
 ## File structure
 
@@ -276,7 +275,7 @@ Auto-detects CPU count, RAM, platform, ffmpeg. Adapts worker count, resolution, 
     ├── composition.md       # Blend modes, multi-grid, tonemap, FeedbackBuffer
     ├── scenes.md            # Scene protocol, SCENES table, render_clip(), examples
     ├── design-patterns.md   # Layer hierarchy, directional arcs, scene concepts
-    ├── inputs.md            # Audio analysis, video sampling, text, TTS
+    ├── inputs.md            # Audio analysis, video sampling, text
     ├── optimization.md      # Hardware detection, vectorized patterns, parallelism
     └── troubleshooting.md   # Broadcasting traps, blend pitfalls, diagnostics
 ```
@@ -286,5 +285,3 @@ Auto-detects CPU count, RAM, platform, ffmpeg. Adapts worker count, resolution, 
 ✦ 85-second highlight reel. 15 scenes (14×5s + 15s crescendo finale), randomized order, directional parameter arcs, layer hierarchy composition. Showcases the full effect vocabulary: fBM, voronoi fragmentation, reaction-diffusion, cellular automata, dual counter-rotating spirals, wave collision, domain warping, tunnel descent, kaleidoscope symmetry, boid flocking, fire simulation, glitch corruption, and a 7-layer crescendo buildup.
 
 ✦ Audio-reactive music visualizer. 3.5 min, 8 sections with distinct effects, beat-triggered particles and glitch, cycling palettes.
-
-✦ TTS narrated testimonial video. 23 quotes, per-quote ElevenLabs voices, background music at 15% wide stereo, per-clip re-rendering for iterative editing.

@@ -118,6 +118,18 @@ def _calls(tmp_path: Path) -> list[str]:
     return capture.read_text(encoding="utf-8-sig").splitlines() if capture.exists() else []
 
 
+@pytest.mark.parametrize("legacy", [False, True], ids=["managed", "legacy-launcher"])
+def test_handoff_with_unicode_and_spaces_in_install_path(tmp_path, legacy):
+    root = tmp_path / "Balázs Paweł Ñuñez"
+    root.mkdir()
+    home, install = _install(root, legacy=legacy)
+    result = _run(root, home, install)
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert any(call.startswith("update --yes") for call in _calls(root))
+    receipt = json.loads((home / ".hermes-update-result.json").read_text(encoding="utf-8-sig"))
+    assert receipt["ok"] is True
+
+
 @pytest.mark.parametrize("delegate", [False, True], ids=["live-owner-past-20min", "dead-owner-live-delegate"])
 def test_live_marker_is_never_reclaimed_and_refuses_the_handoff(tmp_path, sleeper, delegate):
     home, install = _install(tmp_path)

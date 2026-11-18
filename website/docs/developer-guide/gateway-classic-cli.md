@@ -89,7 +89,7 @@ hand-off refuses it and names `display.compact`.
 
 Full legacy presentation, slash registry parity, interactive
 history editing, auto-reconnect, lost-ACK durable client journals, remote login
-bootstrap, cold-owner resume and native Windows/macOS QA remain outstanding.
+bootstrap and cold-owner resume remain outstanding.
 The client preserves an explicit remote URL's existing authentication mechanism;
 it does not acquire or mint remote credentials.
 

@@ -1,4 +1,4 @@
-"""`computer_use` tool entry point: any-model desktop control (macOS/Windows/Linux) via cua-driver.
+"""`computer_use` tool entry point: any-model desktop control on Linux via cua-driver.
 Return contract: text-only results are a JSON string; captures / `capture_after=True` return
 ``{"_multimodal": True, "content": [text, image_url], "text_summary": <fallback>}`` (run_agent.py /
 the Anthropic adapter turn it into provider-specific image tool content)."""
@@ -20,7 +20,7 @@ from collections import namedtuple
 from functools import partial
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
-from hermes_dir_acl import make_user_dir
+from hermes_user_dirs import make_user_dir
 
 from agent.image_eviction_policy import image_dimensions_from_bytes
 from tools.computer_use.backend import ActionResult, CaptureResult, ComputerUseBackend, UIElement

@@ -59,38 +59,24 @@ class TestGetDefaultHermesRoot:
 
         assert get_default_hermes_root() == custom_root
 
-    @pytest.mark.platforms("windows")
-    def test_no_hermes_home_returns_localappdata_root_on_windows(self, tmp_path, monkeypatch):
-        """Native Windows falls back to %LOCALAPPDATA%\\hermes, not ~/.hermes."""
-        local_appdata = tmp_path / "LocalAppData"
-        monkeypatch.delenv("HERMES_HOME", raising=False)
-        monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
-        monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
-
-        assert get_default_hermes_root() == local_appdata / "hermes"
-
-    @pytest.mark.platforms("windows")
     def test_root_for_another_environment_ignores_this_process(self, tmp_path, monkeypatch):
         """hermes_root_for_environment applies the root rules to the mapping it gets."""
-        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "sandbox-local"))
+        monkeypatch.setenv("HOME", str(tmp_path / "sandbox-user"))
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "sandbox-home"))
-        local = tmp_path / "local"
         user = tmp_path / "user"
         custom = tmp_path / "data"
         cases = [
-            ({"LOCALAPPDATA": str(local)}, local / "hermes"),
-            ({"LOCALAPPDATA": str(local), "HERMES_HOME": str(local / "hermes" / "profiles" / "work")},
-             local / "hermes"),
-            ({"LOCALAPPDATA": str(local), "HERMES_HOME": str(custom / "profiles" / "work")}, custom),
-            ({"LOCALAPPDATA": str(local), "HERMES_DATA_DIR_SUFFIX": "-magic"}, local / "hermes-magic"),
-            ({"localappdata": str(local), "HERMES_HOME": "%LocalAppData%\\data"}, local / "data"),
-            ({"LOCALAPPDATA": str(local), "HERMES_HOME": "$LOCALAPPDATA\\data"}, local / "data"),
-            ({"LOCALAPPDATA": str(local), "HERMES_HOME": "${LOCALAPPDATA}\\data"}, local / "data"),
-            ({"LOCALAPPDATA": str(local), "USERPROFILE": str(user), "HERMES_HOME": "~\\data"}, user / "data"),
-            ({"USERPROFILE": str(user)}, user / "AppData" / "Local" / "hermes"),
-            ({"LOCALAPPDATA": str(local), "HERMES_HOME": "relative\\data"}, None),
-            ({"LOCALAPPDATA": str(local), "HERMES_HOME": "%UNDEFINED%\\data"}, None),
-            ({"LOCALAPPDATA": str(local), "HERMES_HOME": "~\\data"}, None),
+            ({"HOME": str(user)}, user / ".hermes"),
+            ({"HOME": str(user), "HERMES_HOME": str(user / ".hermes" / "profiles" / "work")},
+             user / ".hermes"),
+            ({"HOME": str(user), "HERMES_HOME": str(custom / "profiles" / "work")}, custom),
+            ({"HOME": str(user), "HERMES_DATA_DIR_SUFFIX": "-magic"}, user / ".hermes-magic"),
+            ({"HOME": str(user), "HERMES_HOME": "$HOME/data"}, user / "data"),
+            ({"HOME": str(user), "HERMES_HOME": "${HOME}/data"}, user / "data"),
+            ({"HOME": str(user), "HERMES_HOME": "~/data"}, user / "data"),
+            ({"HOME": str(user), "HERMES_HOME": "relative/data"}, None),
+            ({"HOME": str(user), "HERMES_HOME": "$UNDEFINED/data"}, None),
+            ({"HERMES_HOME": "~/data"}, None),
             ({}, None),
         ]
         for environ, root in cases:
@@ -114,16 +100,7 @@ class TestGetHermesHome:
         get_hermes_home()
         assert hermes_constants._profile_fallback_warned is True
 
-    @pytest.mark.platforms("windows")
-    def test_windows_fallback_uses_localappdata(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is unset on Windows, use %LOCALAPPDATA%\\hermes."""
-        local_appdata = tmp_path / "LocalAppData"
-        monkeypatch.delenv("HERMES_HOME", raising=False)
-        monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
-        monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
-        monkeypatch.setattr(hermes_constants, "_profile_fallback_warned", False)
 
-        assert get_hermes_home() == local_appdata / "hermes"
 
 
 class TestGetProcessHermesHome:

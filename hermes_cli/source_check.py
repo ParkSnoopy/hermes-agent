@@ -61,9 +61,7 @@ _GIT_TEXT_KW = {"text": True, "encoding": "utf-8", "errors": "replace"}
 def _git_run(args: list[str], *, cwd: Optional[Path] = None, timeout: int = 5, text: bool = True,
              git: str = "git"):
     """Read Git state without prompts, optional index writes, or inherited targeting."""
-    from hermes_cli._subprocess_compat import windows_hide_flags
-
-    kwargs: dict = {"creationflags": windows_hide_flags(), "env": source_git_env(), "stdin": subprocess.DEVNULL}
+    kwargs: dict = {"env": source_git_env(), "stdin": subprocess.DEVNULL}
     try:
         return subprocess.run(
             [git, *args], capture_output=True, timeout=timeout, cwd=str(cwd) if cwd is not None else None,
@@ -232,13 +230,7 @@ def _unsupported_reason(stamp: dict, root: Path, *, explicit_root: bool, embedde
 
 
 def _installed_git(git: str) -> str:
-    """``git`` as given, unless it is a bare ``git`` PATH lacks: then the git ``hermes update`` runs.
-
-    A Windows source install's only git is often the copy install.ps1 staged in PM's store, which
-    is on PATH only inside ``hermes update`` (``expose_pm_git``). Desktop and the dashboard pass a
-    bare ``git`` there, it dies with WinError 2, and the check reports ``head-unavailable``, which
-    Desktop shows as "couldn't reach the update server" while ``hermes update`` works.
-    """
+    """Honor explicit Git commands; if PATH lacks bare ``git``, try PM's existing store."""
     if git != "git" or shutil.which(git):
         return git
     from hermes_cli.update_pause_record import _git_executable

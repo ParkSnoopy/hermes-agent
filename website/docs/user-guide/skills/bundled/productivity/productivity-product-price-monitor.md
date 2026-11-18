@@ -31,7 +31,7 @@ The following is the complete skill definition that Hermes loads when this skill
 
 # Product Price Monitor
 
-Monitor a concrete purchasable item and alert on a normalized all-in price or availability condition. Handle variants, taxes, fees, currencies, stock, cancellation terms, and duplicate alerts explicitly. Setup runs once in the foreground; the recurring check runs as a `cronjob` tick (the `price-watch` automation blueprint scaffolds this).
+Monitor a concrete purchasable item and alert on a normalized all-in price or availability condition. Handle variants, taxes, fees, currencies, stock, cancellation terms, and duplicate alerts explicitly.
 
 ## When to Use
 
@@ -39,7 +39,6 @@ Monitor a concrete purchasable item and alert on a normalized all-in price or av
 - "Watch these flights for a fare under $500."
 - "Tell me when this hotel has a refundable room."
 - "Track ticket/listing availability."
-- A cron tick fires for an existing price watch (steps 4-6).
 
 Don't use for: one-off "what does this cost right now" lookups (use `web_search`/`web_extract` directly).
 
@@ -53,20 +52,14 @@ Record source URL/provider, product/listing ID where available, variant, quantit
 
 Specify currency, all-in vs pre-tax price, maximum price, availability/stock rule, shipping, refundability, cabin/room/ticket class, cooldown, and notification destination. Done when synthetic examples have deterministic alert decisions.
 
-### 3. Establish a live baseline, then schedule
+### 3. Establish a live baseline
 
-Fetch a bounded live result with `web_extract` or `browser_exec` and record retrieval time, source price, fees/taxes, availability, and terms. Do not schedule until one foreground fetch works. Write the watch contract (item, condition, baseline observation) to a state file under `~/.hermes/price-watches/<watch-slug>.json`, then create the job:
+Fetch a bounded live result with `web_extract` or `browser_exec` and record retrieval time, source price, fees/taxes, availability, and terms. Write the watch contract (item, condition, baseline observation) to a state file under `~/.hermes/price-watches/<watch-slug>.json`.
 
-```
-cronjob(action="create",
-        schedule="every 6h",
-        prompt="Load the product-price-monitor skill and run the tick for the watch contract at ~/.hermes/price-watches/<watch-slug>.json.",
-        deliver=<user's destination>)
-```
 
-Pick a cadence that respects rate limits and site terms. Done when the baseline matches the exact item contract and the job exists.
+Respect rate limits and site terms. The baseline must match the exact item contract.
 
-## Procedure — Tick (each scheduled run)
+## Procedure — Recheck on request
 
 ### 4. Fetch and normalize
 

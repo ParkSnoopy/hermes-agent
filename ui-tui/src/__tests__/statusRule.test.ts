@@ -87,7 +87,6 @@ describe('statusBarSegments', () => {
       'bar',
       'duration',
       'compressions',
-      'voice',
       'bg',
       'subagents'
     ]

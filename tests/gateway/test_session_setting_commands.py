@@ -109,7 +109,7 @@ def test_local_session_settings_run_the_messaging_handlers_and_read_back_through
         _exec('verbose 2', 'verbose'), _get('get verbose 2', 'verbose'),
         _exec('yolo', 'yolo'), _get('get yolo', 'yolo'), _exec('yolo off', 'yolo'), _get('get yolo off', 'yolo'),
         _exec('footer status', 'footer status'), _exec('footer on', 'footer on'), _exec('footer status 2', 'footer status'),
-        _exec('voice on', 'voice on'), _exec('voice status', 'voice status'), _exec('voice off', 'voice off'),
+
         _exec('approvals smart', 'approvals smart'), _get('get approvals', 'approvals.mode'),
         _exec('personality', 'personality'), _exec('personality concise', 'personality concise'),
         _exec('codex-runtime', 'codex-runtime'), _exec('fast', 'fast'),
@@ -143,8 +143,7 @@ def test_local_session_settings_run_the_messaging_handlers_and_read_back_through
     assert 'OFF' in out['footer status'] and 'ON' in out['footer on'] and 'ON' in out['footer status 2'], out
     # The per-platform key (T7): every local surface reads display.platforms.cli.
     assert saved['display']['platforms']['cli']['runtime_footer']['enabled'] is True
-    # /voice: the LOCAL chat's voice state (playback stays in the client).
-    assert 'On' in out['voice status'] and out['voice off'], out
+
     # /approvals and /personality: profile settings, saved to config.yaml as on every surface.
     assert 'smart' in out['approvals smart'] and out['get approvals']['value'] == 'smart', out
     assert saved['approvals']['mode'] == 'smart' and saved['display']['personality'] == 'concise'
@@ -182,5 +181,6 @@ def test_config_set_serves_the_settings_desktop_and_ink_write_through_the_same_h
     assert isinstance(out['zap on'], dict) and out['zap on']['value'] == '1', out['zap on']
     assert out['get approvals zap']['value'] == 'off', out['get approvals zap']
     assert out['zap off']['value'] == '0' and saved['approvals']['mode'] == 'manual', out
-    assert saved['display']['in_app_tips'] is False and saved['voice']['voice_chat_mode'] == 'gpt-live'
+    assert saved['display']['in_app_tips'] is False
+    assert out['engine'] == 'ERR:invalid_params', out['engine']
     assert out['bad engine'] == 'ERR:invalid_params', out['bad engine']

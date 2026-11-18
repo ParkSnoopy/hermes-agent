@@ -36,17 +36,16 @@ _BROKEN_OWNER = textwrap.dedent('''
 # An external cron worker's agent turn (no owner in-process), then a managed worker's persistence call.
 _DIALS = textwrap.dedent('''
     import json
-    from cron.scheduler_authority import run_canonical_job
+
     from agent.runtime_session_store import WorkerRPC
     from hermes_constants import get_hermes_home
-    success, _output, _answer, error = run_canonical_job({'id': 'cron4job', 'name': 'cron-4'},
-                                                         execution_id='cron4-exec')
+
     try:
         WorkerRPC(get_hermes_home())('worker.heartbeat')
         worker = None
     except Exception as exc:
         worker = f'{type(exc).__name__}: {exc}'
-    print(json.dumps({'cron': [success, error], 'worker': worker}))
+    print(json.dumps({'worker': worker}))
 ''')
 
 
@@ -92,7 +91,7 @@ def test_a_failed_session_upgrade_is_logged_with_its_cause(tmp_path):
             assert dialed.returncode == 0, dialed.stderr
             result = json.loads(dialed.stdout.strip().splitlines()[-1])
             # The failure itself is unchanged: the owner still refuses the upgrade with HTTP 500.
-            assert result['cron'][0] is False and 'HTTP 500' in result['cron'][1], result
+
             assert result['worker'] is not None and 'HTTP 500' in result['worker'], result
         finally:
             if owner.poll() is None:
@@ -105,7 +104,7 @@ def test_a_failed_session_upgrade_is_logged_with_its_cause(tmp_path):
     log = (home / 'logs' / 'gateway.log').read_text(encoding='utf-8')
     refused = [line for line in log.splitlines() if 'session WebSocket upgrade' in line]
     # One line per refused dial (the cron turn's and the worker's), each naming the cause.
-    assert len(refused) == 2, log
+    assert len(refused) == 1, log
     assert all("NameError: name 'Path' is not defined" in line for line in refused), refused
 
 

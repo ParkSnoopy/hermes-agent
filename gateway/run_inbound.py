@@ -24,7 +24,7 @@ from gateway.platforms.event import MessageEvent, MessageType, clean_attachment_
 from gateway.run_busy import approval_input_words
 from gateway.run_inbound_media import rehome_inbound_media
 from gateway.run_inbound_hooks import GatewayInboundHooksMixin
-from gateway.run_inbound_transcription import GatewayInboundTranscriptionMixin
+
 from gateway.run_plugin_injection import GatewayPluginInjectionMixin
 from gateway.run_inbound_unauthorized import (
     UnauthorizedOwnerNotifier, pairing_code_reply, pairing_profile_arg, pairing_rate_limited_reply,
@@ -48,7 +48,7 @@ logger = logging.getLogger("gateway.run")
 
 
 
-class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionMixin, GatewayPluginInjectionMixin):
+class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayPluginInjectionMixin):
     """Inbound message pipeline (_handle_message, text/media preparation, durable-turn markers, plugin injection) for GatewayRunner."""
 
     async def _hm_offer_pairing_code(self, source: SessionSource) -> None:
@@ -329,8 +329,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             return None
         if _pending_clarify is None:
             return None
-        _clarify_has_audio = bool(self._pending_event_audio_paths(event))
-        _raw_clarify_reply = await self._prepare_clarify_reply_text(event)
+        _raw_clarify_reply = (event.text or "").strip()
 
         def _retain(why: str) -> str:
             logger.info(
@@ -339,8 +338,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             )
             return ""
 
-        if _clarify_has_audio and not _raw_clarify_reply:
-            return _retain("voice transcription produced no usable text")
+
         # Slash commands: the user wanted a command, not to answer the clarify. Leave it pending so
         # they can retry; on timeout the agent unblocks with an empty response.
         if not _raw_clarify_reply or _raw_clarify_reply.startswith("/"):
@@ -684,12 +682,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
                 return
         logger.debug("PRIORITY interrupt for session %s", _quick_key)
         _interrupt_text = event.text
-        if self._pending_event_audio_paths(event):
-            _interrupt_text, _ = await self._transcribe_and_echo_pending_voice(
-                event, self._delivery_adapter_for(source), source, event.text or "",
-                log_context="Voice-priority-interrupt",
-            )
-        elif not _interrupt_text and getattr(event, "media_urls", None):
+        if not _interrupt_text and getattr(event, "media_urls", None):
             _interrupt_text = _build_media_placeholder(event)
         # Delivered via adapter._pending_messages (read by _run_agent); never also buffered on self
         # — that copy was never consumed and grew unbounded.
@@ -702,7 +695,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
 
     async def _hm_busy_preempt(self, event: MessageEvent, source: SessionSource, _quick_key: str) -> bool:
         """busy_input_mode for a follow-up the durable FIFO is about to admit, through main's own busy
-        resolution (voice transcribed into steer/interrupt, steer folded into the turn, busy ack).
+        resolution (interrupt or steer folded into the turn, busy ack).
         Returns True when the text already landed inside the running turn (steer / redirect), so it
         must NOT also be admitted as its own turn; False when the caller should admit it (queue mode,
         a demotion, or an interrupt — the ended turn lets the FIFO run the follow-up next)."""
@@ -898,21 +891,6 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         event.text = _init_prompt
         return False, None
 
-    async def _hm_cmd_blueprint(self, event, source, _quick_key):
-        _blueprint_result = await self._handle_blueprint_command(event)
-        _text = getattr(_blueprint_result, "text", "") or ""
-        _blueprint_seed = getattr(_blueprint_result, "agent_seed", None)
-        if not _blueprint_seed:
-            return True, _text or None
-        # Blueprint matched — rewrite the turn to the seed and fall through so the agent collects
-        # each slot value conversationally, then calls the cronjob tool (the /steer pattern).
-        if _text:
-            await self._send_command_ack(source, _text, "blueprint")
-        try:
-            event.text = _blueprint_seed
-        except Exception:
-            return True, _text or None
-        return False, None
 
     async def _hm_cmd_undo(self, event, source, _quick_key):
         _undo_n = 1
@@ -976,7 +954,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
     # Idle-path built-ins with bespoke flow (confirmations, prompt rewrites, one-shot MoA), each
     # handled by ``_hm_cmd_<name>`` → ``(handled, result)``; ``(False, None)`` falls through to the agent.
     _HM_CANONICAL_COMMANDS = frozenset({
-        "new", "egress", "learn", "plan", "init", "blueprint", "undo", "queue", "steer", "moa",
+        "new", "egress", "learn", "plan", "init", "undo", "queue", "steer", "moa",
     })
 
     async def _hm_dispatch_canonical_command(
@@ -1384,26 +1362,19 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         return message_text
 
     @staticmethod
-    def _classify_inbound_media(
-        event: MessageEvent, pending_stt_prepared: bool
-    ) -> tuple[list, list, list, list]:
-        """Split ``event.media_urls`` into (image, STT-voice, audio-file, video) paths. Per-attachment
-        MIME wins over the message-level type (a document sent alongside an image must not be routed
-        as an image). MessageType.AUDIO / mixed DOCUMENT audio is a file attachment, never STT."""
-        from gateway.run import _event_media_is_audio, _event_media_is_image, _event_media_is_stt_input
-        image_paths, audio_paths, audio_file_paths, video_paths = [], [], [], []
+    def _classify_inbound_media(event: MessageEvent) -> tuple[list, list, list]:
+        """Classify image, audio and video attachments by their per-attachment MIME."""
+        from gateway.run import _event_media_is_audio, _event_media_is_image
+        image_paths, audio_file_paths, video_paths = [], [], []
         for i, path in enumerate(event.media_urls or []):
             mtype = event.media_types[i] if i < len(event.media_types) else ""
             if _event_media_is_image(event, i):
                 image_paths.append(path)
             if _event_media_is_audio(event, i):
-                if event.message_type in {MessageType.AUDIO, MessageType.DOCUMENT}:
-                    audio_file_paths.append(path)
-                elif not pending_stt_prepared and _event_media_is_stt_input(event, i):
-                    audio_paths.append(path)
+                audio_file_paths.append(path)
             if mtype.startswith("video/") or (not mtype and event.message_type == MessageType.VIDEO):
                 video_paths.append(path)
-        return image_paths, audio_paths, audio_file_paths, video_paths
+        return image_paths, audio_file_paths, video_paths
 
     async def _enrich_inbound_images(
         self, source: SessionSource, session_key: str, message_text: str, image_paths: list[str]
@@ -1441,32 +1412,6 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         with scoped_runtime_main(vision_runtime):
             return await self._enrich_message_with_vision(message_text, image_paths)
 
-    async def _echo_stt_transcripts(
-        self, adapter, source: SessionSource, transcripts: list[str], *, metadata=None, log_context: str = "Transcript"
-    ) -> None:
-        """Send each transcript back as ``🎙️ "…"`` (best-effort; failures are logged, never raised)."""
-        from gateway.bot_peer_notices import automatic_notices_allowed
-        for tx in transcripts if automatic_notices_allowed(source) else ():
-            try:
-                await adapter.send(source.chat_id, (f'🎙️ "{tx}"'), metadata=metadata)
-            except Exception as echo_exc:
-                logger.debug("%s echo failed (non-fatal): %s", log_context, echo_exc)
-
-    async def _enrich_inbound_voice(
-        self, event: MessageEvent, source: SessionSource, message_text: str, audio_paths: list[str]
-    ) -> str:
-        message_text, _successful_transcripts = await self._enrich_message_with_transcription(
-            message_text, audio_paths,
-        )
-        # Echo each successful transcript back immediately when configured so users can verify STT
-        # quality in real time. On transcription failure do NOT send a hardcoded notice: that
-        # bypassed the LLM and produced two replies; enrichment leaves one neutral marker instead.
-        if _successful_transcripts and self._should_echo_stt_transcripts():
-            _echo_adapter = self._delivery_adapter_for(source)
-            if _echo_adapter:
-                _echo_meta = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
-                await self._echo_stt_transcripts(_echo_adapter, source, _successful_transcripts, metadata=_echo_meta)
-        return message_text
 
     @staticmethod
     def _inbound_attachment_display_name(path: str, original_name: str = "") -> tuple[str, str]:
@@ -1497,7 +1442,7 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         """Prepend a path-pointing note per audio-file / video attachment (content is not inlined)."""
         names = original_names or {}
         for kind, noun, verb, tool, paths in (
-            ("an audio file attachment", "audio", "transcribe or process", "a transcription or media tool", audio_file_paths),
+            ("an audio file attachment", "audio", "process", "a media tool", audio_file_paths),
             ("a video attachment", "video", "inspect or process", "a video analysis or media tool", video_paths),
         ):
             for _path in paths:
@@ -1640,12 +1585,11 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         session_key: Optional[str] = None,
     ) -> Optional[str]:
         """Prepare inbound event text for the agent. Shared by the normal inbound and queued
-        follow-up paths so attribution, image enrichment, STT, document notes, reply context and
+        follow-up paths so attribution, image enrichment, media notes, reply context and
         @ references behave the same. Side effect: buffers per-session native image paths when the
         model supports native vision; the caller consumes that buffer at ``run_conversation``."""
-        rehome_inbound_media(event)  # before any consumer (vision, STT, document notes) reads media_urls
-        _pending_stt_prepared = hasattr(event, "_gateway_pending_stt_text")
-        message_text = (event._gateway_pending_stt_text if _pending_stt_prepared else event.text) or ""
+        rehome_inbound_media(event)  # before any consumer reads media_urls
+        message_text = event.text or ""
         # Prefer the caller's resolved session key so this write key matches the consume key at the
         # run_conversation site; derive it here only for tests and legacy standalone callers.
         session_key = session_key or self._session_key_for_source(source)
@@ -1653,11 +1597,10 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
         self._consume_pending_native_image_paths(session_key)
 
         message_text = self._prefix_inbound_sender_context(event, source, message_text)
-        image_paths, audio_paths, audio_file_paths, video_paths = self._classify_inbound_media(event, _pending_stt_prepared)
+        image_paths, audio_file_paths, video_paths = self._classify_inbound_media(event)
         if image_paths:
             message_text = await self._enrich_inbound_images(source, session_key, message_text, image_paths)
-        if audio_paths:
-            message_text = await self._enrich_inbound_voice(event, source, message_text, audio_paths)
+
         message_text = self._prepend_inbound_media_file_notes(
             message_text, audio_file_paths, video_paths, self._inbound_original_names(event))
         message_text = self._prepend_inbound_document_notes(event, message_text)
@@ -1681,12 +1624,6 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
                 return await self._prepare_inbound_message_text(**kwargs)
         return await self._prepare_inbound_message_text(**kwargs)
 
-    async def _prepare_clarify_reply_text(self, event) -> str:
-        """Return raw text or successful voice transcripts for a clarify reply."""
-        if not self._pending_event_audio_paths(event):
-            return (event.text or "").strip()
-        _, successful_transcripts = await self._transcribe_pending_audio_event_once(event, "")
-        return "\n\n".join(t.strip() for t in successful_transcripts if t.strip())
 
     def _consume_pending_native_image_paths(self, session_key: str) -> list[str]:
         state = self._peek_session_state(session_key)

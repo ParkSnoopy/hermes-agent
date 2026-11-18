@@ -639,7 +639,7 @@ def local_models_catalog():
     # The reason key ships with the row so the Recommended badge's tooltip is the branch that actually
     # fired, not a re-derivation that can drift.
     recommended, recommended_reason = catalog.recommended_entry(
-        budget, _eligible_entries(), backend=_runtime_section().get("backend", "auto")) or (None, None)
+        budget, _eligible_entries()) or (None, None)
     recommended_id = recommended.id if recommended is not None else None
     # Completeness-checked staging (split parts all present) — same answer the picker and router see, so a
     # mid-download model never reads as downloaded.
@@ -729,7 +729,7 @@ def _quickstart_target(body: QuickstartBody, budget):
         candidates = [_entry_or_404(body.model_id)]
     else:
         picked = catalog.recommended_entry(
-            budget, _eligible_entries(), backend=_runtime_section().get("backend", "auto"))
+            budget, _eligible_entries())
         if picked is None:
             raise LocalModelError("No automatic recommendation for this machine — choose a model explicitly")
         candidates = [picked[0]] + [e for e in catalog.CATALOG if e.id != picked[0].id and e.recommend]

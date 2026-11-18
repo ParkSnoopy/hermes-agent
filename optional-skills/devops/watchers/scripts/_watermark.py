@@ -122,11 +122,10 @@ def format_items_as_markdown(
     body_key: Optional[str] = None,
     max_body_chars: int = 500,
 ) -> str:
-    """Render a list of items as Markdown for cron delivery.
+    """Render a list of items as Markdown for a caller to deliver.
 
     One heading per item + its URL + optional snippet of body.  Output is
-    empty string when items is empty — cron will then treat stdout as
-    silent and skip delivery (existing behavior).
+    an empty string when items is empty. The caller decides whether to deliver.
     """
     if not items:
         return ""

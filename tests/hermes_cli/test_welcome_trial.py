@@ -302,10 +302,6 @@ def test_one_due_answer_walks_the_provider_ladder_once(portal, monkeypatch):
     assert len(calls) == 1
 
 
-def _cron_model() -> str:
-    from cron.scheduler import _load_cron_job_config
-
-    return _load_cron_job_config({"id": "j", "name": "j", "prompt": "x"}, "j", "j").model
 
 
 @pytest.fixture
@@ -319,17 +315,5 @@ def unconfigured_trial(portal, monkeypatch):
     assert not (load_config().get("model") or {}).get("default")  # never persisted: a later provider wins
 
 
-def test_a_claimed_trial_runs_a_default_cron_job_when_no_model_is_configured(unconfigured_trial):
-    assert _cron_model() == anon_auth.GUEST_MODEL
 
 
-def test_a_configured_model_beats_the_trial_for_cron_jobs(portal, monkeypatch):
-    from hermes_constants import get_hermes_home
-
-    monkeypatch.delenv("HERMES_MODEL", raising=False)
-    claimed_trial(monkeypatch)
-    off_local_desktop(monkeypatch)
-    (get_hermes_home() / "config.yaml").write_text(
-        "model:\n  provider: openrouter\n  default: anthropic/claude-sonnet-4\n", encoding="utf-8")
-
-    assert _cron_model() == "anthropic/claude-sonnet-4"

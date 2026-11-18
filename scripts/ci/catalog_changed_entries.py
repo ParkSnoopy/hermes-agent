@@ -6,8 +6,8 @@ the PR would land. Anything else is refused rather than silently diffing a singl
 
 Admission PRs must be data-only: the gate's own enforcement code (the workflow, the validator,
 the composite actions, the built hermes) resolves from the PR checkout, so an entry PR that also
-touches tooling could neuter the gate vetting it. Contributor email maps are data the gate never
-executes; README/policy/CI PRs with no entry change skip this check.
+touches tooling could neuter the gate vetting it. README/policy/CI PRs with no entry change skip
+this check.
 
 Writes ``files`` (newline-separated entry paths, empty when none) to ``$GITHUB_OUTPUT``.
 Exit 0 = listed, 1 = not a merge commit or a non-data path in an entry PR, other = git failed.
@@ -22,7 +22,7 @@ import subprocess
 import sys
 
 _REMOVED_LIST = re.compile(r"/removed\.yaml$")
-_DATA_PATHS = re.compile(r"^(plugin-catalog|contributors/emails)/")
+_DATA_PATHS = re.compile(r"^plugin-catalog/")
 
 
 _GIT_SECONDS = 900
@@ -62,8 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     except subprocess.CalledProcessError as exc:
         return exc.returncode
     if outside:
-        print("::error::catalog entry PRs may only touch plugin-catalog/** and "
-              "contributors/emails/**, found:")
+        print("::error::catalog entry PRs may only touch plugin-catalog/**, found:")
         # Filenames are PR-controlled; a newline in one could smuggle a workflow command into
         # the log.
         print(" ".join(outside))

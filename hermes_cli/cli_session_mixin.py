@@ -1057,18 +1057,13 @@ class CLISessionMixin:
             try:
                 import subprocess
 
-                from hermes_cli._subprocess_compat import windows_hide_flags
-
-                if os.name == "nt":
-                    argv = ["cmd", "/c", "cls"]  # `cls` is a cmd builtin, not an exe
-                else:
-                    clear_bin = shutil.which("clear")
-                    argv = [clear_bin] if clear_bin else []
+                clear_bin = shutil.which("clear")
+                argv = [clear_bin] if clear_bin else []
                 if argv:
                     subprocess.run(
                         argv,
                         stdin=subprocess.DEVNULL,
-                        creationflags=windows_hide_flags(),
+
                         check=False,
                     )
             except Exception:

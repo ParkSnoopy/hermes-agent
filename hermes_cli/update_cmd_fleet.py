@@ -29,7 +29,7 @@ logger = logging.getLogger("hermes_cli.update_cmd")
 # this one is the fleet-restart obligation after a git pull that advanced HEAD (#95294).
 _FLEET_RESTART_PENDING_NAME = PROFILE_MARKER_NAME
 
-_FRESH_RESTART_SUPERVISORS = frozenset({"systemd", "launchd", "service", "s6"})
+_FRESH_RESTART_SUPERVISORS = frozenset({"systemd", "service", "s6"})
 
 _SYSTEMD_SCOPES = (("user", ["systemctl", "--user"]), ("system", ["systemctl"]))
 _LIST_GATEWAY_UNITS = [
@@ -210,7 +210,7 @@ def _receipt_reports_stale_runtime(receipt: dict, expected_sha: str | None = Non
 
 
 _SUPERVISED_SERVE_BACKENDS = frozenset(
-    {"manual-serve", "desktop", "desktop-ssh", "systemd", "launchd", "windows-service", "service"}
+    {"manual-serve", "desktop", "desktop-ssh", "systemd", "service"}
 )
 # Backends whose supervisor restarts the process without any updater bookkeeping. ``manual-serve``
 # is excluded: it owes a durable handoff (``defer_manual_serve``) before it stops counting.
@@ -797,7 +797,6 @@ def _service_unit_supports_graceful_sigusr1_restart(svc_name: str) -> bool:
 
 def _warn_incomplete_gateway_fleet_restart(failed_units: list) -> None:
     """Print an explicit incomplete-update warning for unrestarted units."""
-    from hermes_cli.gateway import is_macos
     if not failed_units:
         return
     ordered = list(dict.fromkeys(failed_units))  # de-dup, discovery order
@@ -805,196 +804,11 @@ def _warn_incomplete_gateway_fleet_restart(failed_units: list) -> None:
     print("⚠ Update incomplete — some units were not restarted:")
     for name in ordered:
         print(f"    - {name}")
-    if is_macos():
-        # A label lands here when launchd wasn't supervising a live process after
-        # the restart — likely deregistered, which `launchctl kickstart` can't revive.
-        # See #88848.
-        print("  Listed services may be deregistered from launchd, or still")
-        print("  running pre-update code (mixed sys.modules). Recover with:")
-        print("    hermes gateway status")
-        print("    launchctl list | grep <label>")
-        print("    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/<label>.plist")
-        return
     print("  Skipped units may still be running pre-update code (mixed")
     print("  sys.modules). Restart them manually, then verify:")
     print("    hermes gateway status")
-    if any(not name.startswith("ai.hermes.") for name in ordered):
-        print("    systemctl --user restart <unit>   # user-scope")
-        print("    sudo systemctl restart <unit>     # system-scope")
-    if any(name.startswith("ai.hermes.") for name in ordered):
-        print("    launchctl kickstart -k gui/$UID/<label>   # macOS (or user/$UID)")
-
-
-def _restart_launchd_gateway_after_update(
-    *, supervision_verify: bool = True, self_restart_pending: set | None = None,
-) -> tuple[list, list]:
-    """Restart the invoking profile's launchd gateway after an update.
-
-    No ``launchctl list`` gating: a booted-out job (plist present, definition
-    deregistered) fails it, and it can exit non-zero while the job is alive — gating on it
-    silently skipped the restart yet printed "Update complete!". When the plist exists
-    ``launchd_restart()`` always runs; every failure path is loud with a manual recovery
-    command. Returns ``(restarted_labels, failed_labels)``; with ``supervision_verify``
-    success also requires a fresh supervised PID ("the call returned" is not "supervised").
-
-    74973 (salvage #75021 by @jeff-mettel): the restart used to be gated on ``launchctl list <label>``
-    exiting 0. A *booted-out* job — plist present, definition deregistered from launchd (crashed helper,
-    manual bootout, failed prior update) — fails that check, so the whole branch silently skipped: no
-    restart, no message, ``KeepAlive`` unable to revive a definition launchd no longer knows, and the update
-    still printed "Update complete!".
-    See #88848.
-    """
-    from hermes_cli.gateway import (
-        get_launchd_label, get_launchd_plist_path, launchd_restart, wait_for_launchd_gateway_supervision,
-        _is_pid_ancestor_of_current_process, _launchctl_supervised_pid,
-    )
-    current_label = get_launchd_label()
-    old_pid = None
-    try:
-        if not get_launchd_plist_path().exists():
-            return [], []  # not a launchd install — nothing to do or warn
-        # Snapshot BEFORE the restart: "supervising some pid" was true before too, so only a pid that
-        # actually changed distinguishes a restart from a no-op (the sibling loop's contract). Read-only
-        # and verification-only — the restart itself is never gated on `launchctl list` (#74973).
-        old_pid = _launchctl_supervised_pid(current_label) if supervision_verify else None
-        try:
-            launchd_restart()
-        except subprocess.CalledProcessError as e:
-            stderr = (getattr(e, "stderr", "") or "").strip()
-            print(
-                f"  ⚠ Gateway restart failed: {stderr}\n"
-                "    The gateway may be DOWN on pre-update code. "
-                "Recover manually: hermes gateway restart"
-            )
-            return [], [current_label]
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        # A plist exists, so a gateway is SUPPOSED to be supervised; a broken/wedged
-        # launchctl is not proof nothing needs restarting. Count it, tell the operator.
-        print(
-            # The old code `pass`ed here (#74973's second silent variant); count it and tell the operator.
-            "  ⚠ Could not restart the gateway "
-            f"({e.__class__.__name__}: {e}).\n"
-            "    Recover manually: hermes gateway restart"
-        )
-        return [], [current_label]
-
-    if not supervision_verify:
-        return [current_label], []
-    if old_pid is not None and _is_pid_ancestor_of_current_process(old_pid):
-        # launchd_restart() handed the restart to the gateway this updater runs INSIDE (cron job in
-        # the gateway tree, #100179): it exits only after this process does, so no fresh supervised
-        # pid can appear while we wait. Record it as pending for the fleet matrix (#119597).
-        if self_restart_pending is not None:
-            self_restart_pending.add(old_pid)
-        return [current_label], []
-
-    # launchd_restart() returning only means "restart REQUESTED" (async). A helper dying
-    # before first bootstrap, or a bootstrap exiting 0 without registering (macOS 26.6.1),
-    # would otherwise reach "Update complete!" unsupervised. Verified domain-agnostically:
-    # domain locate fails on macOS-26 per-user domains.
-    # launchd_restart() returning is only "restart REQUESTED" — the self-restart branch hands work to the
-    # running gateway, a plist reload to a detached helper; both asynchronous. See #88848.
-    if wait_for_launchd_gateway_supervision(label=current_label, old_pid=old_pid):
-        return [current_label], []
-    print(
-        f"  ✗ {current_label} restarted but launchd is not supervising a new process for it.\n"
-        "    Check logs, then: hermes gateway restart"
-    )
-    return [], [current_label]
-
-
-def _restart_macos_launchd_gateways(
-    restarted_services: list, failed_or_stale_units: list, drain_budget: float, *, require_supervision: bool = False,
-    self_restart_pending: set | None = None,
-) -> None:
-    """Restart every launchd-managed gateway after an update (macOS).
-
-    The pull is shared across profiles, so every ``ai.hermes.gateway*`` LaunchAgent
-    must reload it or siblings stay on pre-update ``sys.modules`` (systemd parity).
-    Invoking profile uses ``launchd_restart()``; siblings get the same drain-first
-    sequence with their domain (``gui/<uid>`` vs ``user/<uid>``) resolved per label so
-    none is kickstarted in the wrong domain. ``TimeoutExpired`` is isolated per label.
-
-    See #41403.
-    The invoking profile keeps the existing ``launchd_restart()`` treatment (self-restart request → graceful
-    drain → kickstart). ``subprocess.TimeoutExpired`` is isolated per label so one wedged launchctl call
-    cannot leave the rest of the fleet on old code (#68523).
-    """
-    from hermes_cli.gateway import (
-        get_launchd_label, get_launchd_plist_path, launchd_gateway_labels_for_install, legacy_launchd_labels_for_install,
-        _graceful_restart_via_sigusr1, _launchd_kickstart,
-        _locate_launchd_gateway_service, _wait_for_launchd_service_pid,
-    )
-    if require_supervision:
-        listing = subprocess.run(["launchctl", "list"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False)
-        if listing.returncode != 0:
-            failed_or_stale_units.append("launchd (listing failed)")
-            return
-    from hermes_cli.update_cmd_posix_pause import already_restarted
-    current_label = get_launchd_label()
-    resumed = already_restarted()["labels"]  # paused for the update, restarted on the new code
-    _restarted, _failed = ([], []) if current_label in resumed else _restart_launchd_gateway_after_update(
-        supervision_verify=True, self_restart_pending=self_restart_pending)
-    restarted_services.extend(_restarted)
-    failed_or_stale_units.extend(_failed)
-
-    derived_labels = launchd_gateway_labels_for_install()
-    # Units labelled before the profile-name suffix scheme (ai.hermes.gateway-<hash>) are invisible
-    # to the derivation; legacy_launchd_labels_for_install() credits one only when its plist is
-    # provably this install's, so the #41403 boundary (never touch another install's fleet) holds.
-    # See #115254.
-    legacy_labels = legacy_launchd_labels_for_install(exclude=set(derived_labels) | {current_label})
-    if legacy_labels:
-        print(f"  ↻ legacy-labelled units of this install join the restart: {', '.join(legacy_labels)}")
-    from hermes_cli.update_fleet_scope import describe_skipped_runtime, launchd_label_foreign_home
-    for label in derived_labels + legacy_labels:
-        if label == current_label or label in resumed:
-            continue
-        # Labels are account-global: root B's default profile derives the same bare label root A
-        # installed. A plist pinning a foreign HERMES_HOME is another install's job (#93349).
-        if (foreign_home := launchd_label_foreign_home(label)) is not None:
-            print(describe_skipped_runtime("launchd job", label, foreign_home))
-            continue
-        try:
-            # Locate = liveness + domain in one probe; kickstart and fresh-PID checks
-            # reuse that domain so a sibling is never probed in one and restarted in another.
-            domain, old_pid = _locate_launchd_gateway_service(label)
-            if domain is None:
-                if require_supervision and get_launchd_plist_path().with_name(f"{label}.plist").exists():
-                    failed_or_stale_units.append(label)
-                continue  # A profile without an installed job has no restart target.
-            graceful_ok = False
-            if old_pid is not None and old_pid > 0:
-                print(f"  → {label}: draining (up to {drain_budget:.0f}s)...")
-                from hermes_cli.update_cmd_drain_report import drain_progress_reporter
-                graceful_ok = _graceful_restart_via_sigusr1(
-                    old_pid, drain_timeout=drain_budget,
-                    on_progress=drain_progress_reporter(_gateway_home_for_pid(old_pid), budget_s=drain_budget))
-            if graceful_ok and _wait_for_launchd_service_pid(label, old_pid=old_pid, timeout=10.0, domain=domain):
-                # KeepAlive already respawned it on new code — a kickstart would kill it.
-                restarted_services.append(label)
-                continue
-            try:
-                _launchd_kickstart(label, domain)
-            except subprocess.CalledProcessError as e:
-                stderr = (getattr(e, "stderr", "") or "").strip()
-                failed_or_stale_units.append(label)
-                print(
-                    f"  ⚠ Failed to restart {label}: {stderr}\n"
-                    f"    Recover manually: launchctl kickstart -k {domain}/{label}"
-                )
-                continue
-            if _wait_for_launchd_service_pid(label, old_pid=old_pid, timeout=15.0, domain=domain):
-                restarted_services.append(label)
-            else:
-                failed_or_stale_units.append(label)
-                print(
-                    f"  ✗ {label} failed to come back after restart.\n"
-                    f"    Check logs, then: launchctl kickstart -k {domain}/{label}"
-                )
-        except subprocess.TimeoutExpired:
-            failed_or_stale_units.append(label)
-            print(f"  ⚠ launchctl timed out restarting {label}; continuing with remaining gateways")
+    print("    systemctl --user restart <unit>   # user-scope")
+    print("    sudo systemctl restart <unit>     # system-scope")
 
 
 def _surviving_gateway_pids_after_failed_restart():
@@ -1028,15 +842,6 @@ _SERVE_SKIP_REASON = (
     " systemd unit pass when a hermes-serve*/hermes-dashboard* unit owns it, else left running for explicit"
     " operator restart"
 )
-# A launchd-owned backend (#116503): the fresh child has no per-label kickstart for serve/dashboard
-# jobs, but the post-update dashboard cleanup pass kickstarts the loaded job — never a detached
-# argv respawn, which would fight the job's own KeepAlive.
-_LAUNCHD_SERVE_SKIP_REASON = (
-    "launchd job owns this backend; the post-update dashboard cleanup kickstarts the job through"
-    " launchd, never a detached argv respawn that would fight its KeepAlive"
-)
-
-
 def _gateway_recovery_partition(plan, *, skip_profiles: set[str] | None = None) -> tuple[dict[str, str], list[dict]]:
     """Partition pre-update runtimes into fresh-restart candidates and skips.
 
@@ -1070,8 +875,6 @@ def _gateway_recovery_partition(plan, *, skip_profiles: set[str] | None = None) 
 
                 if supervisor in CLIENT_OWNED_SERVE_SUPERVISORS:
                     reason = _DESKTOP_SERVE_SKIP_REASON
-                elif supervisor == "launchd":
-                    reason = _LAUNCHD_SERVE_SKIP_REASON
                 else:
                     reason = _SERVE_SKIP_REASON
             else:
@@ -1721,7 +1524,6 @@ def _restart_gateway_fleet_after_update(_pre_update_plan, gateway_mode: bool):
         # Every gateway helper the phase needs is imported up front so a broken gateway
         # module aborts into recovery BEFORE any unit is touched.
         from hermes_cli.gateway import (
-            is_macos,
             find_gateway_pids,
             find_profile_gateway_processes,
             _prepare_profile_gateway_update_restart,
@@ -1745,13 +1547,6 @@ def _restart_gateway_fleet_after_update(_pre_update_plan, gateway_mode: bool):
             out.self_restart_pending_pids,
         )
 
-        # macOS: EVERY ai.hermes.gateway* LaunchAgent (systemd parity).
-        if is_macos():
-            with suppress(FileNotFoundError, ImportError):
-                _restart_macos_launchd_gateways(
-                    out.restarted_services, out.failed_or_stale_units, _drain_budget,
-                    self_restart_pending=out.self_restart_pending_pids,
-                )
 
         _restart_manual_gateways(out, _drain_budget)
 

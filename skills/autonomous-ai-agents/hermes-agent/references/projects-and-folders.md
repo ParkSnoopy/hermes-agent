@@ -5,8 +5,7 @@ scratch directory, a sibling repo you always open together. Projects are the nam
 workspaces the desktop sidebar groups chats by.
 
 Projects are **not** git concepts and not config keys: they live in their own SQLite store,
-one per profile (`$HERMES_HOME/projects.db`; `~/.hermes` by default, `%LOCALAPPDATA%\hermes`
-on Windows), created on first use. `hermes -p <profile> project list` shows another
+one per profile (`$HERMES_HOME/projects.db`; `~/.hermes` by default), created on first use. `hermes -p <profile> project list` shows another
 profile's projects.
 
 ## Command surface

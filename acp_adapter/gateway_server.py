@@ -739,14 +739,6 @@ class GatewayACPAgent(GatewayReplyMixin, acp.Agent):
 
     async def _admission_from_receipt(self, client, held_id, session_id, receipt):
         """The admission a ``prompt.submit`` receipt names, or None when the owner admitted nothing."""
-        if receipt.get("voice_stopped") is True:
-            # TUI-26: a bare stop phrase typed into this LOCAL session's voice chat ended the chat on
-            # the owner and admitted nothing, so no turn will settle: the prompt ends here.
-            self._pending_cancels.discard(session_id)
-            if self._conn:
-                await self._conn.session_update(session_id=held_id, update=acp.update_agent_message_text(
-                    'Stop phrase typed — ending voice chat.' + '\n'))
-            return None
         admission_id = receipt["admission_id"]
         self._admissions[session_id] = admission_id
         if receipt.get("status") == "terminal":

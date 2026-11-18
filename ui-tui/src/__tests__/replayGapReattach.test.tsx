@@ -42,7 +42,6 @@ function mount() {
     session: { STARTUP_RESUME_ID: '', colsRef: { current: 80 }, newSession: noop, resetSession: noop, resumeById, setCatalog: noop },
     submission: { submitRef: { current: noop } }, system: { bellOnComplete: false, sys: noop },
     transcript: { appendMessage: noop, panel: noop, setHistoryItems: noop },
-    voice: { setProcessing: noop, setRecording: noop, setVoiceEnabled: noop }
   } as any)
 
   gw.on('event', onEvent)

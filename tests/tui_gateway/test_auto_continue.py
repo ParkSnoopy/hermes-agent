@@ -105,7 +105,6 @@ def turn_env(monkeypatch, tmp_path, marker_home):
     monkeypatch.setattr(server, "_sync_agent_model_with_config", lambda sid, session: None)
     monkeypatch.setattr(server, "_session_cwd", lambda session: str(tmp_path))
     monkeypatch.setattr(server, "_register_session_cwd", lambda session: None)
-    monkeypatch.setattr(server, "_tts_stream_begin", lambda: None)
     monkeypatch.setattr(server, "_sync_session_key_after_compress", lambda *a, **k: None)
     monkeypatch.setattr(server, "_get_usage", lambda agent: {})
 
@@ -167,7 +166,6 @@ def test_sibling_backend_record_does_not_resurrect_a_cleared_marker(tmp_path, mo
 
 
 def _patch_local_interrupt(monkeypatch, session):
-    monkeypatch.setattr(server, "_tts_stream_stop", lambda: None)
     monkeypatch.setattr(server, "_sess_nowait", lambda params, rid: (session, None))
     monkeypatch.setattr(server, "_sess", lambda params, rid: (session, None))
     monkeypatch.setattr(server, "_session_uses_compute_host", lambda current: False)

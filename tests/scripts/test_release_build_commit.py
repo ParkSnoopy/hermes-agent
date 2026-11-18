@@ -139,10 +139,6 @@ def test_commit_build_dispatch_is_repository_independent(fixture_repo):
                            '-f', 'termux_upgrade_from_tag=']]
 
 
-# (Fork-conditional removal) The disposable routing test retired with it: a
-# commit build dispatch does not branch on repository identity. Disposable
-# channels remain reachable via explicit --channel-request / CI allocation.
-
 
 @pytest.mark.parametrize('flag,value', [('bundle-env', 'HERMES_HOME=x'), ('bundle-unset', 'HERMES_HOME')])
 def test_commit_build_refuses_retired_graphical_overrides(fixture_repo, flag, value):

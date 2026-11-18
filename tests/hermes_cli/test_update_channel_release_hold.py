@@ -69,7 +69,7 @@ def source(tmp_path, monkeypatch):
     monkeypatch.setattr(update_cmd, "_begin_update_receipt_and_plan", lambda *_: None)
     monkeypatch.setattr(main, "_run_pre_update_backup", lambda *_: None)
     monkeypatch.setattr(main, "_pause_windows_gateways_for_update", lambda: None)
-    monkeypatch.setattr(update_cmd, "_prepare_git_command", lambda **_: (False, ["git"], False))
+    monkeypatch.setattr(update_cmd, "_prepare_git_command", lambda **_: (["git"], False))
     completed = []
     monkeypatch.setattr(update_cmd, "_complete_source_update",
                         lambda request: completed.append(deepcopy(request)))

@@ -248,9 +248,6 @@ class CanonicalSubmitParams(CanonicalSessionParams):
     finite: bool = False
     unattended: bool = False
     surface: str | None = None
-    voice_context: str | None = None
-    interrupted: bool = False
-    voice_turn: bool = False
     # Desktop composer presentation, committed per admission (``display_v1``): a hidden widget
     # intent persists ``display_kind=hidden`` (never a user bubble); a large paste's preview is
     # titler input only, never model input.
@@ -258,7 +255,7 @@ class CanonicalSubmitParams(CanonicalSessionParams):
     title_preview: str | None = None
     # Classic CLI per-turn inputs, committed per admission (``cli_turn_v1``): who wrote the turn
     # (memory attribution only), the model-facing text when it differs from the persisted ``text``
-    # (voice prefix, model-switch / skills-reload notes) and a one-turn ``/model --once`` override.
+    # (model-switch / skills-reload notes) and a one-turn ``/model --once`` override.
     turn_author: CanonicalTurnAuthor | None = None
     api_text: str | None = None
     model_override: CanonicalModelOverride | None = None
@@ -267,17 +264,10 @@ class CanonicalSubmitParams(CanonicalSessionParams):
     clarify_batch: bool = False
 
 
-class CanonicalVoiceStopped(Result):
-    """A bare stop phrase typed while the session's voice chat is on: the chat ended, nothing was
-    admitted (TUI-26)."""
-
-    voice_stopped: Literal[True]
-
-
 class CanonicalSubmitResult(RootModel):
-    """``prompt.submit``: the admission receipt, or ``{voice_stopped: true}``."""
+    """``prompt.submit`` admission receipt."""
 
-    root: AdmissionStatus | CanonicalVoiceStopped
+    root: AdmissionStatus
 
 
 class CanonicalSteerQueuedParams(CanonicalSessionParams):
@@ -314,10 +304,9 @@ class CanonicalCorrectionAck(Result):
 
 
 class CanonicalCorrectionResult(RootModel):
-    """``session.steer`` / ``session.redirect``: the correction verdict, or ``{voice_stopped: true}``
-    when the busy-time text was a bare stop phrase that ended the LOCAL voice chat."""
+    """``session.steer`` / ``session.redirect`` correction verdict."""
 
-    root: CanonicalCorrectionAck | CanonicalVoiceStopped
+    root: CanonicalCorrectionAck
 
 
 class CanonicalApprovalParams(CanonicalControlParams):

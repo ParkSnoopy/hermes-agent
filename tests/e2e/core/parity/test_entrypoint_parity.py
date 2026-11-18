@@ -7,7 +7,7 @@ per entrypoint: the fake model calls the MCP canary tool, then answers.
 
 For every entrypoint the same invariants must hold on the FIRST turn after a cold
 start — any red cell is a wiring-parity bug of the "works in the CLI, missing in
-Desktop/gateway/ACP/cron" class:
+Desktop/gateway/ACP" class:
 
 * the request carries the context file, the skill index and the memory entry;
 * both hooks fired AND their injected context reached the model;
@@ -17,7 +17,7 @@ Desktop/gateway/ACP/cron" class:
   is absent;
 * the surface delivered the model's answer to its client;
 * after the surface's normal shutdown no MCP server / grandchild survives. For the
-  gateway-client surfaces (``-z``, ``chat -q``, ``acp``, ``cron run``) the turn runs
+  gateway-client surfaces (``-z``, ``chat -q``, ``acp``) the turn runs
   in the profile's ``gateway run`` daemon, which outlives the client by design;
   their normal shutdown is client exit + ``hermes gateway stop``.
 
@@ -38,7 +38,7 @@ from typing import Callable
 
 import pytest
 
-from tests.e2e.core.parity import _drive_acp, _drive_cli, _drive_cron, _drive_gateway, _drive_rpc
+from tests.e2e.core.parity import _drive_acp, _drive_cli, _drive_gateway, _drive_rpc
 from tests.e2e.core.parity._helpers import (
     FINAL_ANSWER,
     DriveResult,
@@ -75,7 +75,6 @@ DRIVERS: dict[str, Driver] = {
     "serve (Desktop WS)": _drive_rpc.drive_serve,
     "api_server": _drive_gateway.drive_api_server,
     "acp (stdio)": _drive_acp.drive_acp,
-    "cron (run-now)": _drive_cron.drive_cron,
 }
 
 @dataclass

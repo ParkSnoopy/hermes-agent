@@ -151,8 +151,7 @@ def test_host_send_honors_sync_and_async_plugin_handlers(plugin_platform, async_
     assert seen[-1]["args"]["subject"] == "greeting"
 
 
-def test_cli_and_cron_share_plugin_target_normalization(plugin_platform, monkeypatch, capsys):
-    from cron.scheduler_delivery import _resolve_single_delivery_target
+def test_cli_plugin_target_normalization(plugin_platform, monkeypatch, capsys):
     from hermes_cli.send_cmd import cmd_send
 
     name, _entry, _seen = plugin_platform
@@ -176,28 +175,7 @@ def test_cli_and_cron_share_plugin_target_normalization(plugin_platform, monkeyp
     assert exc.value.code == 0
     assert json.loads(capsys.readouterr().out)["chat_id"] == "@alice@example.com"
 
-    cron_target = _resolve_single_delivery_target(
-        {"name": "fixture"}, f"{name}:@Alice@Example.COM"
-    )
-    assert cron_target == {
-        "platform": name,
-        "chat_id": "@alice@example.com",
-        "thread_id": None,
-        "_resolved_from": "explicit",
-    }
 
-
-def test_cron_standalone_delivers_through_registered_plugin(plugin_platform):
-    from cron.scheduler_delivery import _deliver_result
-
-    name, _entry, seen = plugin_platform
-    _platform, _pconfig, config = _config_for(name)
-    job = {"id": "plugin-job", "deliver": f"{name}:@Alice@Example.COM"}
-    with patch("gateway.config.load_gateway_config", return_value=config), \
-         patch("cron.scheduler.load_config", return_value={"cron": {"wrap_response": False}}), \
-         patch("cron.scheduler_delivery._record_delivery_verification"):
-        assert _deliver_result(job, "scheduled report") is None
-    assert seen[-1]["chat_id"] == "@alice@example.com"
 
 
 
@@ -217,7 +195,7 @@ def test_force_reload_unregisters_profile_owned_platform(plugin_platform, monkey
     assert name not in manager._plugin_platform_names
 
 
-def test_fresh_process_real_plugin_fixture_covers_host_send_and_cron(tmp_path):
+def test_fresh_process_real_plugin_fixture_covers_host_send(tmp_path):
     """A standalone directory plugin is visible to host-driven send paths."""
     home = tmp_path / "home"
     plugin = home / "plugins" / "fmsg-fixture"
@@ -255,9 +233,7 @@ with patch("gateway.config.load_gateway_config", return_value=config), \
      patch("gateway.mirror.mirror_to_session", return_value=True):
     host_send = json.loads(send_outbound({"target": "fmsg:@Alice@Example.COM",
                                               "message": "hello", "subject": "hi"}))
-from cron.scheduler_delivery import _resolve_single_delivery_target
-cron = _resolve_single_delivery_target({}, "fmsg:@Alice@Example.COM")
-print(json.dumps({"host_send": host_send, "cron": cron,
+print(json.dumps({"host_send": host_send,
                   "model_registered": registry.get_entry("send_message") is not None}))
 '''
     env = dict(os.environ)
@@ -276,7 +252,6 @@ print(json.dumps({"host_send": host_send, "cron": cron,
     )
     payload = json.loads(completed.stdout.strip().splitlines()[-1])
     assert payload["host_send"]["chat_id"] == "@alice@example.com"
-    assert payload["cron"]["chat_id"] == "@alice@example.com"
     assert payload["model_registered"] is False
 
 

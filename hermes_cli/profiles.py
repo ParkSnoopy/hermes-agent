@@ -311,14 +311,14 @@ def _get_wrapper_dir() -> Path:
 
 
 def _wrapper_path(alias: str) -> Path:
-    """Wrapper script path for *alias*: ``<alias>.bat`` on Windows, bare name elsewhere."""
-    return _get_wrapper_dir() / (f"{alias}.bat" if sys.platform == "win32" else alias)
+    """Wrapper script path for *alias*."""
+    return _get_wrapper_dir() / alias
 
 
 def _find_our_wrapper(alias: str) -> Optional[Path]:
-    """The Hermes wrapper for *alias*: :func:`_wrapper_path`, else a pre-``.bat`` bare Windows one."""
-    candidates = [_wrapper_path(alias), _get_wrapper_dir() / alias] if sys.platform == "win32" else [_wrapper_path(alias)]
-    return next((p for p in candidates if _is_our_wrapper(p)), None)
+    """Return the Hermes wrapper for *alias*, if present."""
+    path = _wrapper_path(alias)
+    return path if _is_our_wrapper(path) else None
 
 
 def _is_our_wrapper(path: Path) -> bool:
@@ -531,7 +531,7 @@ def check_alias_collision(name: str) -> Optional[str]:
         return f"'{canon}' conflicts with the `hermes {canon}` memory provider command"
     try:
         result = subprocess.run(
-            ["where" if sys.platform == "win32" else "which", canon],
+            ["which", canon],
             capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5,
             check=False,
         )
@@ -564,12 +564,9 @@ def create_wrapper_script(name: str, target: Optional[str] = None) -> Optional[P
         return None
     wrapper_path = _wrapper_path(canon)
     try:
-        if sys.platform == "win32":
-            wrapper_path.write_text(f"@echo off\r\nhermes -p {profile} %*\r\n", encoding="utf-8")
-        else:
-            hermes_exe = shutil.which("hermes") or "hermes"
-            wrapper_path.write_text(f'#!/bin/sh\nexec {shlex.quote(hermes_exe)} -p {profile} "$@"\n', encoding="utf-8")
-            wrapper_path.chmod(wrapper_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        hermes_exe = shutil.which("hermes") or "hermes"
+        wrapper_path.write_text(f'#!/bin/sh\nexec {shlex.quote(hermes_exe)} -p {profile} "$@"\n', encoding="utf-8")
+        wrapper_path.chmod(wrapper_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
         return wrapper_path
     except OSError as e:
         print(f"⚠ Could not create wrapper at {wrapper_path}: {e}")
@@ -618,13 +615,11 @@ def build_alias_map() -> dict[str, str]:
     result: dict[str, str] = {}
     if not wrapper_dir.is_dir():
         return result
-    is_windows = sys.platform == "win32"
     prefix = "hermes -p "
     for entry in sorted(wrapper_dir.iterdir()):
         if not entry.is_file():
             continue
-        # Our wrappers are named after the alias; Windows ones carry .bat (none before #34796).
-        if entry.suffix and not (is_windows and entry.suffix == ".bat"):
+        if entry.suffix:
             continue
         try:
             with open(entry, "r", encoding="utf-8-sig", errors="strict") as f:
@@ -640,7 +635,7 @@ def build_alias_map() -> dict[str, str]:
         if not canon:
             continue
         canon = normalize_profile_name(canon)
-        alias = entry.stem if is_windows else entry.name
+        alias = entry.name
         if alias == canon:
             result.setdefault(canon, alias)  # never overwrite a custom alias already found
         else:
@@ -1177,53 +1172,10 @@ def _materialize_symlinked_files(profile_dir: Path) -> list[str]:
     return done
 
 
-def _junction_target(path: str) -> Optional[str]:
-    """Target of an NTFS directory junction, else ``None``. A junction is a reparse point, not a
-    symlink: ``os.path.islink()`` is False and ``shutil.copytree(symlinks=True)`` descends into it."""
-    if os.name != "nt":
-        return None
-    try:
-        if os.lstat(path).st_reparse_tag != stat.IO_REPARSE_TAG_MOUNT_POINT:
-            return None
-        target = os.readlink(path)
-    except OSError:
-        return None
-    # readlink hands back the substitute name; CreateJunction rejects the ``\\?\`` spelling.
-    if target.startswith("\\\\?\\UNC\\"):
-        return "\\" + target[7:]
-    return target.removeprefix("\\\\?\\")
-
-
-def _copytree_keep_junctions(src: Path, dst: Path, ignore, dirs_exist_ok: bool = False) -> None:
-    """``shutil.copytree(symlinks=True)`` that re-creates NTFS junctions as junctions instead of
-    traversing them. A ``skills/foo`` junction into a ``skills.external_dirs`` root copied as a
-    physical tree is a second same-named candidate and ``locate_skill`` refuses to guess (#113471).
-    A junction whose target is gone is skipped with a warning, never a crash."""
-    junctions: dict[str, str] = {}
-
-    def _ignore(directory: str, names: list[str]) -> set:
-        ignored = set(ignore(directory, names))
-        for name in names:
-            target = _junction_target(os.path.join(directory, name))
-            if target is not None:
-                junctions[os.path.join(directory, name)] = target
-                ignored.add(name)
-        return ignored
-
-    shutil.copytree(src, dst, symlinks=True, dirs_exist_ok=dirs_exist_ok, ignore=_ignore)
-    if junctions:
-        import _winapi  # Windows-only stdlib module; only reachable once a junction was seen
-    for link, target in junctions.items():
-        try:
-            _winapi.CreateJunction(target, os.path.join(dst, os.path.relpath(link, src)))
-        except OSError as exc:
-            logger.warning("clone: skipped junction %s -> %s (%s)", link, target, exc)
-
-
 def _clone_all_into(source_dir: Path, profile_dir: Path, canon: str) -> Optional[dict]:
     """--clone-all: full copytree minus infrastructure/history, then strip runtime files
     and cloned single-use OAuth grants."""
-    _copytree_keep_junctions(source_dir, profile_dir, _clone_all_copytree_ignore(source_dir))
+    shutil.copytree(source_dir, profile_dir, symlinks=True, ignore=_clone_all_copytree_ignore(source_dir))
     materialized = _materialize_symlinked_files(profile_dir)
     if materialized:
         logger.info("profile %s: materialized symlinked %s so the clone never writes through to %s",
@@ -1297,8 +1249,8 @@ def _clone_plugins(source_dir: Path, profile_dir: Path) -> None:
     selection of the same plugin already put them."""
     source_plugins = source_dir / "plugins"
     if source_plugins.is_dir():
-        _copytree_keep_junctions(source_plugins, profile_dir / "plugins",
-                                 _clone_plugins_ignore(source_plugins), dirs_exist_ok=True)
+        shutil.copytree(source_plugins, profile_dir / "plugins", symlinks=True,
+                        ignore=_clone_plugins_ignore(source_plugins), dirs_exist_ok=True)
 
 
 def cloned_plugin_names(profile_dir: Path) -> list[str]:
@@ -1310,16 +1262,10 @@ def cloned_plugin_names(profile_dir: Path) -> list[str]:
         return []
 
 
-def _bootstrap_profile_dir(profile_dir: Path, source_dir: Optional[Path],
-                           sync_imports: bool = False) -> None:
+def _bootstrap_profile_dir(profile_dir: Path, source_dir: Optional[Path]) -> None:
     """Fresh layout: bootstrap dirs, then either seed a model block (no source) or clone
     config files, installed skills (the dashboard's "clone from default" must keep bundled
-    AND user-installed skills), and memory/identity files from *source_dir*.
-
-    ``sync_imports`` also copies the source's ``import-sync.json`` (the manifest the agent-importers
-    plugin's ``hermes import-agent`` writes) so the clone stays registered against the same external trees
-    and ``hermes -p <clone> import-agent --sync`` keeps pulling from them. The link is to the
-    external tree, never to the source profile: both profiles stay independent islands."""
+    AND user-installed skills), and memory/identity files from *source_dir*."""
     profile_dir.mkdir(parents=True, exist_ok=True)
     for subdir in _PROFILE_DIRS:
         (profile_dir / subdir).mkdir(parents=True, exist_ok=True)
@@ -1331,20 +1277,19 @@ def _bootstrap_profile_dir(profile_dir: Path, source_dir: Optional[Path],
     _strip_multiplex_flag(profile_dir / "config.yaml")
     source_skills = source_dir / "skills"
     if source_skills.is_dir():
-        _copytree_keep_junctions(source_skills, profile_dir / "skills", _non_exportable_entries, dirs_exist_ok=True)
+        shutil.copytree(source_skills, profile_dir / "skills", symlinks=True,
+                        ignore=_non_exportable_entries, dirs_exist_ok=True)
     for relpath in _CLONE_SUBDIR_FILES:
         _clone_file(source_dir, profile_dir, relpath)
     _clone_plugins(source_dir, profile_dir)
     from hermes_cli.profile_memory_config import _load_config_dict, active_memory_provider, clone_memory_provider_config
     clone_memory_provider_config(source_dir, profile_dir, active_memory_provider(_load_config_dict(source_dir)))
-    if sync_imports:  # a plain file at the profile root, written by the agent-importers plugin
-        _clone_file(source_dir, profile_dir, "import-sync.json")
 
 
 def create_profile(
     name: str, clone_from: Optional[str] = None, clone_all: bool = False, clone_config: bool = False,
     no_alias: bool = False, no_skills: bool = False, description: Optional[str] = None,
-    clone_channels: bool = False, sync_imports: bool = False, soul: Optional[str] = None,
+    clone_channels: bool = False, soul: Optional[str] = None,
 ) -> Path:
     """Create a new profile directory and return its path.
 
@@ -1355,17 +1300,12 @@ def create_profile(
     makes two gateways fight over one bot (``hermes_cli.profile_channels``; callers list what
     was left behind with ``channel_platforms_configured(source_dir)``).
     ``no_skills`` creates an empty profile and writes a marker so ``hermes update`` skips
-    re-seeding its skills; it is mutually exclusive with the clone options, which copy skills.
-    ``sync_imports`` (``--clone`` only; ``--clone-all`` copies the file anyway) also copies the
-    ``import-agent`` sync manifest so the clone can keep pulling the same external agent trees."""
+    re-seeding its skills; it is mutually exclusive with the clone options, which copy skills."""
     if no_skills and (clone_from is not None or clone_config or clone_all):
         raise ValueError(
             "--no-skills is mutually exclusive with --clone / --clone-from / --clone-all "
             "(cloning explicitly copies skills from the source profile)."
         )
-    if sync_imports and not (clone_config or clone_all):
-        raise ValueError("--sync-imports requires --clone or --clone-from (there is no import "
-                         "manifest to carry over without a source profile).")
     cloning = clone_from is not None or clone_all or clone_config
     if clone_channels and not cloning:
         raise ValueError("--clone-channels only applies to a clone (--clone, --clone-from or --clone-all).")
@@ -1407,7 +1347,7 @@ def create_profile(
         if clone_all and source_dir:
             clone_key = _clone_all_into(source_dir, staging, canon)
         else:
-            _bootstrap_profile_dir(staging, source_dir, sync_imports=sync_imports)
+            _bootstrap_profile_dir(staging, source_dir)
         if source_dir is not None and not clone_channels:
             from hermes_cli.profile_channels import strip_channel_settings
             stripped = strip_channel_settings(staging, include_state=clone_all, source_dir=source_dir)
@@ -1850,8 +1790,7 @@ def _maybe_unregister_gateway_service(profile_name: str) -> None:
 
 
 def _cleanup_gateway_service(name: str, profile_dir: Path) -> bool:
-    """Disable and remove systemd/launchd service for a profile; True when a unit was removed."""
-    import platform as _platform
+    """Disable and remove systemd service for a profile; True when a unit was removed."""
 
     # The service name follows get_hermes_home(): bind the override (the seam a multiplexed
     # dashboard/tui-gateway process reads) and mirror the env for identity-file readers, so a
@@ -1861,37 +1800,25 @@ def _cleanup_gateway_service(name: str, profile_dir: Path) -> bool:
     home_token = set_hermes_home_override(str(profile_dir))
     try:
         os.environ["HERMES_HOME"] = str(profile_dir)
-        from hermes_cli.gateway import get_service_name, get_launchd_plist_path, user_systemd_unit_dir
+        from hermes_cli.gateway import get_service_name, user_systemd_unit_dir
 
         def _run(*cmd: str) -> None:
             subprocess.run(list(cmd), capture_output=True, check=False, timeout=10)
 
-        from hermes_cli.profiles_service_cleanup import owned_by_profile, remove_system_systemd_unit, remove_windows_task
+        from hermes_cli.profiles_service_cleanup import owned_by_profile, remove_system_systemd_unit
 
-        system = _platform.system()
         removed = False
-        if system == "Linux":
-            svc_name = get_service_name()
-            svc_file = user_systemd_unit_dir() / f"{svc_name}.service"
-            if svc_file.exists() and owned_by_profile(svc_file, profile_dir):
-                _run("systemctl", "--user", "disable", svc_name)
-                _run("systemctl", "--user", "stop", svc_name)
-                svc_file.unlink(missing_ok=True)
-                _run("systemctl", "--user", "daemon-reload")
-                print(f"✓ Service {svc_name} removed")
-                removed = True
-            # `gateway install --system` writes the same name under /etc; a survivor there
-            # restarts the removed profile at boot exactly like the user unit at login.
-            removed = remove_system_systemd_unit(profile_dir) or removed
-        elif system == "Darwin":
-            plist_path = get_launchd_plist_path()
-            if plist_path.exists() and owned_by_profile(plist_path, profile_dir):
-                _run("launchctl", "unload", str(plist_path))
-                plist_path.unlink(missing_ok=True)
-                print("✓ Launchd service removed")
-                removed = True
-        elif system == "Windows":
-            removed = remove_windows_task()
+        svc_name = get_service_name()
+        svc_file = user_systemd_unit_dir() / f"{svc_name}.service"
+        if svc_file.exists() and owned_by_profile(svc_file, profile_dir):
+            _run("systemctl", "--user", "disable", svc_name)
+            _run("systemctl", "--user", "stop", svc_name)
+            svc_file.unlink(missing_ok=True)
+            _run("systemctl", "--user", "daemon-reload")
+            print(f"✓ Service {svc_name} removed")
+            removed = True
+        # A system unit can also restart the removed profile at boot.
+        removed = remove_system_systemd_unit(profile_dir) or removed
         return removed
     except Exception as e:
         print(f"⚠ Service cleanup: {e}")

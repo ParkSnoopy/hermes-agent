@@ -1,4 +1,4 @@
-// slashCmd.ops / slashCmd.wake — replies and usage hints of app/slash/commands/{ops,wake}.ts.
+// slashCmd.ops — replies and usage hints of app/slash/commands/ops.ts.
 // Command NAMES/aliases/arg syntax inside usage strings stay literal.
 
 export const slashCmdOpsEn = {
@@ -132,35 +132,5 @@ export const slashCmdOpsEn = {
       missingServers: (names: string) => `missing MCP servers: ${names}`,
       sessionReset: 'session reset. new tool configuration is active.'
     }
-  },
-  wake: {
-    usage: 'usage: /wake [on|off|status]',
-    reason: {
-      disabled: 'disabled (config wake_word.enabled)',
-      disabledForSurface: 'scoped to another surface (config wake_word.surface)',
-      notOwner: 'another surface owns the listener',
-      owned: 'another surface owns the listener',
-      unavailable: 'unavailable',
-      unknown: 'unknown'
-    },
-    ownedBy: (surface: string) => `owned by ${surface}`,
-    // {0}=text, {1}=hint from the gateway
-    withHint: (text: string, hint: string) => `${text} — ${hint}`,
-    notStarted: (reason: string) => `wake: not started — ${reason}`,
-    forPhrase: (phrase: string) => `for “${phrase}”`,
-    // {0}=detail suffix (" for “phrase” · provider · enabled in config" or empty)
-    listening: (details: string) => `wake: listening${details}`,
-    micSilent: '⚠ mic delivers only silence',
-    // {0}=owner surface, {1}=detail suffix
-    offOwnedBy: (surface: string, details: string) => `wake: off here · listener owned by ${surface}${details}`,
-    unavailable: 'wake: unavailable',
-    off: (details: string) => `wake: off${details} · /wake on to arm`,
-    enabledInConfig: 'enabled in config',
-    disabledInConfig: 'disabled in config',
-    listenerOff: (details: string) => `wake: listener off${details}`,
-    notOwnerStop: 'this surface doesn’t own the listener',
-    notRunning: 'not running',
-    // {0}=reason, {1}=detail suffix
-    nothingToStop: (reason: string, details: string) => `wake: nothing to stop — ${reason}${details}`
   }
 }

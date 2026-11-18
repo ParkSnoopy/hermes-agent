@@ -1,12 +1,12 @@
 ---
 sidebar_position: 7
 title: "Gateway Internals"
-description: "How the gateway coordinates sessions, ingress, and scheduled work"
+description: "How the gateway coordinates sessions and ingress"
 ---
 
 # Gateway Internals
 
-The gateway owns shared sessions, local client coordination, scheduled work, and configured API, A2A, webhook and Microsoft Graph ingress.
+The gateway owns shared sessions, local client coordination, and configured API, A2A, webhook and Microsoft Graph ingress.
 
 ## Canonical group metadata and profile discovery
 
@@ -126,8 +126,7 @@ queue or bypass an unknown pause. Completed inputs are not reinferred on restart
 Under `gateway.multiplex_profiles` the bootstrap builds one session authority per
 served profile home (the default plus every directory under `profiles/`), each bound
 to that home's `state.db` and entered under that profile's runtime scope. Every
-admission path (`/p/<profile>/` API and webhook, cron fire,
-CLI/Desktop/ACP attach) resolves its authority from the routed
+admission path (`/p/<profile>/` API and webhook, CLI/Desktop/ACP attach) resolves its authority from the routed
 profile's home, so recovery, FIFO order and exactly-once settlement hold per profile
 and a secondary's rows never land in the default's ledger. A served secondary's
 clients discover the multiplexer through the default home's descriptor
@@ -258,7 +257,7 @@ the existing peer and envelope checks.
 
 Stopping the listener cancels queued work and retires both pools. Already-running
 handlers retain their existing RPC deadlines; a restarted listener gets fresh
-pools. The Windows named-pipe listener retains its native worker lifecycle.
+pools.
 
 Hosted-room recovery handles persisted stops before policy checkpoint work. An
 uncertain canonical attempt is resolved only for a saved Stop naming the exact
@@ -271,62 +270,6 @@ the answer is committed and the room settles and publishes it once instead of
 cancelling the task. Discard of an indeterminate attempt follows the same rule.
 This preserves history and lets the next group input proceed without replaying
 the lost turn.
-
-## Private native HTTP authentication
-
-The authoritative daemon accepts a **fresh, one-use HTTP grant per request** from
-its same-user private control socket. Send `session-ticket` with exactly
-`profile_id` (the canonical served primary home), `instance_id` (the ready daemon's
-boot ID), and `purpose: "native-http"`. The returned ticket expires after 30 seconds
-and carries only `http:owner`; send it in `X-Hermes-Gateway-Ticket` from the native
-main process. Never place it in a URL, cookie, public descriptor, renderer config,
-or log, and never obtain a dashboard token by scraping the public page.
-
-The existing HTTP authentication seam redeems the grant only for the matching
-ready daemon and primary profile. It requires an actual loopback socket peer,
-captured before trusted-proxy rewriting, and **no Origin header at all** (even an
-empty Origin is refused). An invalid, duplicate, expired, replayed, or wrong-purpose
-header returns 401 without falling back to a supplied static token or OAuth cookie.
-Draining/unready listeners refuse admission; restart and shutdown revoke grants.
-HTTP grants do not authenticate WebSockets, and interactive/exposure/worker grants
-do not authenticate HTTP. Requests without this header keep the existing static
-session-token, OAuth bearer/cookie, Host, and route-specific token-provider gates.
-
-This local bootstrap is an explicit same-OS-user administrative boundary, not an
-OAuth bypass for remote clients. An exposure proxy must not replace remote callers'
-credentials with its own native grant. It is not a filesystem sandbox against code
-already running as the same OS user.
-
-A native grant does not retarget the daemon through a URL or JSON `profile` selector:
-each supplied selector must resolve to the served primary home. The existing
-config `current`/empty/default-name contracts are preserved rather than treating
-`default` as an alias for any arbitrary launch home. Cross-profile targets return
-403 `profile_scope_mismatch`, including conflicting duplicate query selectors.
-`GET /api/profiles` and `GET /api/profiles/active` retain their discovery metadata
-contracts; discovery does not confer another profile's data authority. Aggregate
-session/sidebar routes require an explicit own-profile selector, and cron job routes
-require an explicit own-profile query. All-profile project/transcript aggregation,
-profile creation/import/activation, and profile rename/delete are not granted by
-this primary-profile credential. Native clients must not rewrite `all` to `current`
-or borrow the primary grant to hide a cross-profile failure.
-
-Creating a profile from native Desktop uses a separate, same-user
-`purpose: "native-profile-create"` grant carrying only `profiles:create`. It is
-accepted exclusively by `POST /api/profiles`; it does not authorize profile reads,
-import, activation, rename, deletion, or WebSocket access. The existing create
-handler validates the name and clone options. Optional `soul` content is written
-inside the staged profile before publication, so creation does not need a follow-up
-write or a running new-profile gateway; `soul_set` confirms it was applied. Older
-remote backends retain the separate, explicitly profile-scoped SOUL update.
-Desktop mints this grant per create
-request, never sends it to the renderer, and still uses ordinary profile-bound
-grants for subsequent requests. The same expiry, one-use, daemon, socket-peer and
-Origin checks apply. Ordinary `native-http` grants still receive 403 on creation.
-
-The native HTTP integration is covered by real ordinary-daemon/control-socket/TCP
-probes in `tests/gateway/test_native_http_auth.py`, alongside gated OAuth/cookie and
-actual non-loopback-peer controls. This does not establish native Desktop UI parity
-or platform-specific Windows/macOS bootstrap validation.
 
 ## Frozen local launch credentials
 
@@ -356,7 +299,7 @@ including top-level one-shot launches. It does not become a process-wide option.
 | `gateway/run.py` | `GatewayRunner` facade — composes the `gateway/run_*.py` sibling mixins (startup, adapters, inbound, turn, busy, goals, notifications, shutdown, …) and `gateway/slash_commands_*.py` handlers |
 | `gateway/session.py` | `SessionStore` — conversation persistence and session key construction |
 | `gateway/delivery.py` | Outbound message delivery to target platforms/channels |
-| `gateway/channel_directory.py` | Maps chat IDs to human-readable names for cron delivery |
+| `gateway/channel_directory.py` | Maps chat IDs to human-readable names for delivery |
 | `gateway/hooks.py` | Hook discovery, loading, and lifecycle event dispatch |
 | `gateway/mirror.py` | Cross-session message mirroring for `send_message` |
 | `gateway/status.py` | Token lock management for profile-scoped gateway instances |
@@ -370,14 +313,12 @@ works without an installed service.
 
 `hermes setup`, quick setup, and `hermes gateway setup` ask interactive users once:
 
-> Install the gateway service so Hermes starts automatically at login and keeps scheduled jobs available?
+> Install the gateway service so Hermes starts automatically at login?
 
 The profile's `gateway.service_install_choice` stores `null`, `install`, or `decline`.
 An unset value is not permission to install. Declining records `decline` without creating,
 enabling, or removing a service. In the gateway wizard, choosing **Start now** but declining
 service installation launches an unmanaged gateway; it does not create a disabled service.
-Without service persistence, scheduled work stops at logout/reboot. Jobs cannot
-run while the host is off.
 
 Noninteractive setup and imports do not install a missing service, even when the imported
 config says `install`. Existing installed services remain authoritative and can be started
@@ -404,10 +345,8 @@ service definitions, enables linger, elevates privileges, or clears update fence
 Ambiguous or inaccessible ownership fails closed.
 
 Before requesting a service start, `ensure` checks its canonical profile directory
-and execution account, not just its unit/task name. Linux uses the manager's
-loaded command and environment (including effective drop-ins), macOS checks the
-loaded launchd job rather than assuming the on-disk plist is current, and Windows
-queries the actual task XML, principal, and installed launcher.
+and execution account, not just its unit name. Linux uses the manager's
+loaded command and environment, including effective drop-ins.
 
 - `profile_mismatch`: the installed service selects a different home or profile.
   Inspect the selected service's `HERMES_HOME` and command-line profile selector;
@@ -416,10 +355,9 @@ queries the actual task XML, principal, and installed launcher.
   client as that account, or explicitly configure a service for the intended user.
 - `service_identity_unverified`: the manager did not expose enough identity data,
   or the definition uses unsupported dynamic configuration. Inspect it with
-  `systemctl [--user] show <unit> --all`, `launchctl print <domain>/<label>`, or
-  `schtasks /Query /TN <task> /XML`. Linux environment files, PAM/dynamic users,
+  `systemctl [--user] show <unit> --all`. Linux environment files, PAM/dynamic users,
   start-time hooks and alternate root filesystems require operator review;
-  arbitrary shell launchers and modified Windows launcher scripts are not
+  arbitrary shell launchers are not
   interpreted by `ensure`. Restore an explicit supported definition through an
   intentional service-management operation before retrying.
 
@@ -452,9 +390,7 @@ Remove the extra write bit (`chmod o-w,g-w`) before retrying local attachment.
 A service start command or process creation is not a readiness acknowledgement.
 A gateway that has not exposed the session-authority capability can remain
 `starting` until the deadline even while ingress adapters work. Do not treat
-exit `5` as permission to replace that owner. On Windows, a Startup-folder-only
-installation requires login rather than an unmanaged fallback; failure to detach
-from a parent job is reported instead of retried with weaker process isolation.
+exit `5` as permission to replace that owner.
 
 Service persistence is separately opt-in during setup. Imports and noninteractive
 setup do not install a missing service based on an imported preference. See
@@ -521,31 +457,25 @@ config. Try the profile home, then, for a named profile `<root>/profiles/<name>`
 with `.`), the root, whose multiplexer answers for the profiles it serves. For each candidate,
 canonicalized like Python's `Path.resolve`:
 
-- **POSIX (Linux, macOS):** the candidate must be a directory you own that others cannot write
+- **Linux:** the candidate must be a directory you own that others cannot write
   (a group-writable home needs the group-privacy check Python does: use the CLI). Use
   `<candidate>/gateway.sock` when it exists; it must be a socket you own with no group or other
   access. Otherwise read `<candidate>/gateway.sock.path` (opened without following links: a
   regular file you own, mode 0600, at most 4096 bytes). Its target must be absolute and end in
   `hermes-gw-<sha256 of the canonical home, 16 hex>/control.sock`, inside a 0700 directory you own,
-  and be a 0600 socket you own. Do not compare the target's temp root with your own `TMPDIR`: a
-  gateway started by **launchd** has its own `$TMPDIR` (`/var/folders/…/T/`), and the pointer is
-  the authority. No node, or a refused connection (a crashed gateway's leftover), means try the
+  and be a 0600 socket you own. The pointer is the authority; do not compare its temp root with your own `TMPDIR`.
+  No node, or a refused connection (a crashed gateway's leftover), means try the
   next candidate. Any other failed check is a refusal: stop, do not try the next candidate.
-- **Windows:** the pipe `\\.\pipe\hermes-gateway-<sha256 of the normcased canonical home, 16 hex>`.
-  A client must verify that the pipe server runs as your SID before trusting its answer; a client
-  that cannot (Node) uses `hermes gateway attach --json` on every connect.
+
 
 Ask the first candidate that answers `resolve-profile`. A `profile_mismatch` from the profile's
 own socket means try the next candidate; otherwise that answer is the verdict, and that socket
 mints the ticket. No candidate answering means no gateway runs.
 
 **Security model.** The boundary is the same OS user on the same machine; the socket is never a
-TCP port. On POSIX the socket is 0600 in a home others cannot write (or in a 0700 private
-directory), and the gateway reads the kernel's peer uid on every connection (`SO_PEERCRED` on
-Linux, `getpeereid` on macOS): it mints tickets only for its own uid, and none at all where the
-platform reports no peer credentials. On Windows the pipe has a protected DACL that grants only
-the user's SID, refuses remote clients, claims the first instance, and requires the client's token
-SID to equal the gateway's. A ticket is 256 random bits, stored only as a hash, valid for 30
+TCP port. On Linux the socket is 0600 in a home others cannot write (or in a 0700 private
+directory), and the gateway reads the kernel's peer uid on every connection (`SO_PEERCRED`):
+it mints tickets only for its own uid. A ticket is 256 random bits, stored only as a hash, valid for 30
 seconds, single-use, bound to the gateway instance, the profile and the purpose, and revoked when
 the gateway stops. It authenticates `/api/ws` only. The gateway never logs it; a client must not
 log it, the subprotocol list or the CLI's stdout, or put it in a URL. `resolve-profile` carries no
@@ -580,7 +510,7 @@ same discovery, start, recovery and verdicts.
 | `--timeout S` | Start deadline for `--start`/`--recover` (default `60`). Discovery and the ticket mint each add at most 5 seconds. `--start` and `--recover` are mutually exclusive. |
 
 When no service is installed, `attach` starts an unmanaged gateway with the idle exit: it stops
-itself once no client, adapter or job needs it, and the next `attach --start` starts a new one. An
+itself once no client or adapter needs it, and the next `attach --start` starts a new one. An
 installed service that `attach` starts keeps running, as with `ensure`. A restart's after-turn
 wait (`draining`/`restart_wait`) is attachable, so a client can still answer a parked prompt.
 Launch policy (model, provider, toolsets, cwd) belongs in `session.create`; the
@@ -602,8 +532,7 @@ fields. Dial `url` with `protocols` as the WebSocket subprotocols, from loopback
 `hermes update`: restart it (`hermes gateway restart`) rather than keep attaching to old code.
 
 The ticket is the WebSocket's only credential. It is minted by the control socket's
-`session-ticket` verb (purpose `interactive`, scope `profile`) over the same-user socket, or the
-SID-checked named pipe on Windows; a profile served by the default multiplexer gets its ticket
+`session-ticket` verb (purpose `interactive`, scope `profile`) over the same-user socket; a profile served by the default multiplexer gets its ticket
 from the multiplexer's control socket. It is single-use, bound to the caller's profile and that
 owner's `instance_id`, and expires after 30 seconds. `attach` prints it to stdout for the calling
 process only; it never logs it. Run `attach` again for each new connection and each reconnect.
@@ -746,11 +675,10 @@ stop, or later turn-preparation gates.
 Outgoing deliveries (`gateway/delivery.py`) handle:
 
 - **Direct reply** — send response back to the originating chat
-- **Home channel delivery** — route cron job outputs and background results to a configured home channel
+- **Home channel delivery** — route background results to a configured home channel
 
 - **Cross-platform delivery** — deliver to a different platform than the originating message
 
-Cron job deliveries are NOT mirrored into gateway session history — they live in their own cron session only. This is a deliberate design choice to avoid message alternation violations.
 
 ## Hooks
 
@@ -797,7 +725,6 @@ Resource-only TTL, LRU, and memory-pressure eviction commits the cached transcri
 
 The gateway runs periodic maintenance alongside message handling:
 
-- **Cron ticking** — checks job schedules and fires due jobs
 - **Session housekeeping** — reclaims cached resources without ending transcripts
 - **Memory flush** — commits memory before soft cache eviction
 - **Cache refresh** — refreshes model lists and provider status
@@ -807,10 +734,10 @@ The gateway runs periodic maintenance alongside message handling:
 The gateway runs as a long-lived process, managed via:
 
 - `hermes gateway start` / `hermes gateway stop` — manual control
-- `systemctl` (Linux) or `launchctl` (macOS) — service management
+- `systemctl` — Linux service management
 - PID file at `~/.hermes/gateway.pid` — profile-scoped process tracking
 
-**Profile-scoped vs global**: `start_gateway()` uses profile-scoped PID files. Standalone (one gateway per profile), `hermes -p x gateway stop` stops only that profile's gateway. Under multiplexing there is ONE gateway process per host, owned by whichever profile launched it (`gateway/host_rendezvous.py` publishes its PID, home and served set; `gateway/host_attach.py` is the attach/rescan/refuse decision every lifecycle verb goes through): `hermes gateway stop` on the owner takes every served profile down, and `hermes -p x gateway stop` for a served secondary refuses with exit 78 (it has no gateway of its own). A second `gateway run` for a served profile attaches and exits 0 — under a service supervisor it exits 75 (EX_TEMPFAIL) instead, so the redundant unit is RETRIED rather than parked: "someone else serves me right now" is a runtime observation that ends when that process does, and 78 (which systemd, s6 and launchd all treat as permanent) would strand the profile. ATTACH requires a live `identify` answer from the owner; a rendezvous record with nothing answering behind it proves an owner exists but never that it serves you, so it yields a transient refusal (exit 75), never an attach. An owner that answers `multiplex: False` to the rescan is another profile's *standalone* gateway, not a multiplexer that excluded you: the verb starts this profile's own gateway beside it (the one-process-per-profile topology), it does not refuse — refusing there exited 78 and parked every launchd unit but the first to claim the host lock. `hermes gateway stop --all` uses global `ps aux` scanning to kill all gateway processes (used during updates). Liveness is decided by `gateway.status.live_gateway_pid_for_home` (PID + start-time fingerprint), never bare PID existence.
+**Profile-scoped vs global**: `start_gateway()` uses profile-scoped PID files. Standalone (one gateway per profile), `hermes -p x gateway stop` stops only that profile's gateway. Under multiplexing there is ONE gateway process per host, owned by whichever profile launched it (`gateway/host_rendezvous.py` publishes its PID, home and served set; `gateway/host_attach.py` is the attach/rescan/refuse decision every lifecycle verb goes through): `hermes gateway stop` on the owner takes every served profile down, and `hermes -p x gateway stop` for a served secondary refuses with exit 78 (it has no gateway of its own). A second `gateway run` for a served profile attaches and exits 0 — under a service supervisor it exits 75 (EX_TEMPFAIL) instead, so the redundant unit is RETRIED rather than parked: "someone else serves me right now" is a runtime observation that ends when that process does, and 78 (which systemd and s6 treat as permanent) would strand the profile. ATTACH requires a live `identify` answer from the owner; a rendezvous record with nothing answering behind it proves an owner exists but never that it serves you, so it yields a transient refusal (exit 75), never an attach. An owner that answers `multiplex: False` to the rescan is another profile's *standalone* gateway, not a multiplexer that excluded you: the verb starts this profile's own gateway beside it (the one-process-per-profile topology), it does not refuse. `hermes gateway stop --all` uses global `ps aux` scanning to kill all gateway processes (used during updates). Liveness is decided by `gateway.status.live_gateway_pid_for_home` (PID + start-time fingerprint), never bare PID existence.
 
 ## Background process notifications
 
@@ -845,12 +772,6 @@ every producer identity, a "N background process results" header), cancelling th
 the same transaction. Only the tail folds, so a prompt queued after a completion keeps its place
 between them; a waiting row claimed first leaves the new completion to queue alone.
 
-Cron execution has its own session. Eligible continuable deliveries may mirror the
-reply-facing conversation: origin, origin-less home fallback, user-written bare-platform home,
-or opted-in explicit targets. `all` expansions do not gain home mirror eligibility. Mirrored
-briefs are labelled user turns appended at a turn boundary, preserving role alternation
-(`cron/AGENTS.md`).
-
 ## Multiplexed profiles
 
 With `gateway.multiplex_profiles: true` one process serves the default profile plus every live directory under `profiles/` (`hermes_cli/profiles.py::profiles_to_serve(multiplex=True)`). `os.environ` and module globals hold the **launch** profile's values, so every activity for a secondary binds its scope explicitly — a profile is home + secret scope + terminal scope together:
@@ -861,11 +782,10 @@ With `gateway.multiplex_profiles: true` one process serves the default profile p
 | Agent release / eviction (TTL, LRU, memory pressure) | `gateway/run_agent_cache.py::_run_release_in_profile_scope` |
 | Shutdown | `gateway/run_shutdown.py::_finalize_session` |
 | Post-turn media delivery | `gateway/platforms/base.py::_media_delivery_scope` |
-| Cron tick | `cron/scheduler_provider.py::_profile_cron_scope(home)` (one ticker, profiles in sequence) |
 | Child processes (`hermes -p X` workers, browser drivers) | `tools/environments/local.py::served_profile_child_env` |
 | Background threads | `agent/memory_provider.py::spawn_context_thread` |
 
-Secret reads fail closed (`agent.secret_scope.get_secret` raises `UnscopedSecretError`) only after `set_multiplex_active(True)`, which the gateway, cron, `gateway migrate` and the Desktop/dashboard `serve` backend set. Adapter YAML never reaches `os.environ` under multiplex: `gateway/platforms/_shared.py::apply_yaml_bridge` seeds `PlatformConfig.extra` and skips the environ write under a secondary's scope; gates read through `platform_gate_env`. Per-profile isolation as the user sees it: [Multi-profile gateways § What is isolated per profile](../user-guide/multi-profile-gateways.md#what-is-isolated-per-profile).
+Secret reads fail closed (`agent.secret_scope.get_secret` raises `UnscopedSecretError`) only after `set_multiplex_active(True)`, which the gateway, `gateway migrate` and the Desktop/dashboard `serve` backend set. Adapter YAML never reaches `os.environ` under multiplex: `gateway/platforms/_shared.py::apply_yaml_bridge` seeds `PlatformConfig.extra` and skips the environ write under a secondary's scope; gates read through `platform_gate_env`. Per-profile isolation as the user sees it: [Multi-profile gateways § What is isolated per profile](../user-guide/multi-profile-gateways.md#what-is-isolated-per-profile).
 
 ## Mid-run plugin loading
 
@@ -889,6 +809,5 @@ Plugins that load after the adapters connected (install/enable from the CLI, Des
 ## Related Docs
 
 - [Session Storage](./session-storage.md)
-- [Cron Internals](./cron-internals.md)
 - [ACP Internals](./acp-internals.md)
 - [Agent Loop Internals](./agent-loop.md)

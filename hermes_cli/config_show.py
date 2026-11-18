@@ -34,7 +34,7 @@ def _show_managed_banner() -> None:
 
 _SHOW_CONFIG_API_KEYS = (
     ("OPENROUTER_API_KEY", "OpenRouter"),
-    ("VOICE_TOOLS_OPENAI_KEY", "OpenAI (STT/TTS)"),
+
     ("EXA_API_KEY", "Exa"),
     ("PARALLEL_API_KEY", "Parallel"),
     ("FIRECRAWL_API_KEY", "Firecrawl"),

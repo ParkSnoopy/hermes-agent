@@ -89,11 +89,9 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str | None]]]] = [
         ("user-guide/features/batch-processing", "Batch Processing", None),
     ]),
     ("Media & Web", [
-        ("user-guide/features/voice-mode", "Voice Mode", None),
         ("user-guide/features/browser", "Browser", None),
         ("user-guide/features/vision", "Vision", None),
         ("user-guide/features/image-generation", "Image Generation", None),
-        ("user-guide/features/tts", "Text-to-Speech", None),
     ]),
     ("API and integrations", [
         ("user-guide/messaging/a2a", "Agent-to-Agent", None),
@@ -119,7 +117,6 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str | None]]]] = [
 
         ("guides/python-library", "Use Hermes as a Python Library", None),
         ("guides/use-mcp-with-hermes", "Use MCP with Hermes", None),
-        ("guides/use-voice-mode-with-hermes", "Use Voice Mode with Hermes", None),
         ("guides/use-soul-with-hermes", "Use SOUL.md with Hermes", None),
         ("guides/automate-with-cron", "Automate with Cron", None),
         ("guides/work-with-skills", "Work with Skills", None),

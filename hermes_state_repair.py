@@ -116,50 +116,19 @@ def _open_lock_file(db_path: Path, suffix: str, what: str, tail: str):
         return lock_path, None
 
 
-def _msvcrt_lock(handle, flag_name: str) -> None:
-    import msvcrt
-    handle.seek(0)
-    msvcrt.locking(handle.fileno(), getattr(msvcrt, flag_name), 1)  # type: ignore[attr-defined]
-
-
 def _try_lock_nonblocking(handle) -> None:
     """Take the advisory lock on *handle* without waiting (raises on contention)."""
-    from hermes_state import _IS_WINDOWS
-    if _IS_WINDOWS:
-        _msvcrt_lock(handle, "LK_NBLCK")
-    else:
-        import fcntl
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    import fcntl
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 def _release_lock_handle(handle, *, clear_record: bool = False) -> None:
     """Drop the advisory lock on *handle* (best effort) and close it."""
-    from hermes_state import _IS_WINDOWS
+    import fcntl
     with contextlib.closing(handle), contextlib.suppress(OSError):  # best-effort release; always close
-        if _IS_WINDOWS:
-            _msvcrt_lock(handle, "LK_UNLCK")
-        else:
-            import fcntl
-            if clear_record:
-                _clear_lock_holder_record(handle)
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
-def _acquire_repair_lock_windows(lock_path: Path, handle, timeout: float):
-    """Windows counterpart of ``_acquire_db_flock``: True / False (timed out) / None (non-contention error)."""
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            _try_lock_nonblocking(handle)
-            return True
-        except (BlockingIOError, OSError) as exc:
-            if not is_advisory_lock_contention(exc):
-                logger.warning("Could not acquire state.db repair lock %s (%s) — skipping schema surgery on a "
-                               "non-contention error.", lock_path, exc)
-                return None
-            if time.monotonic() >= deadline:
-                return False
-            time.sleep(_REPAIR_LOCK_POLL_SECONDS)
+        if clear_record:
+            _clear_lock_holder_record(handle)
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 @contextlib.contextmanager
@@ -178,7 +147,7 @@ def _cross_process_repair_lock(db_path: Path):
     a large DB, and an unbounded wait would hang the caller's open with no traceback (the failure shape of
     #36644).
     """
-    from hermes_state import _IS_WINDOWS, _REPAIR_LOCK_TIMEOUT_SECONDS
+    from hermes_state import _REPAIR_LOCK_TIMEOUT_SECONDS
     lock_path, handle = _open_lock_file(
         db_path, ".repair.lock", "repair", "skipping schema surgery rather than running it without cross-process authority.")
     if handle is None:
@@ -186,18 +155,15 @@ def _cross_process_repair_lock(db_path: Path):
         return
     acquired = False
     try:
-        if _IS_WINDOWS:
-            acquired = _acquire_repair_lock_windows(lock_path, handle, _REPAIR_LOCK_TIMEOUT_SECONDS)
-        else:
-            acquired, handle = _acquire_db_flock(str(lock_path), handle, _REPAIR_LOCK_TIMEOUT_SECONDS,
-                                                 _REPAIR_LOCK_POLL_SECONDS, "state.db repair lock")
+        acquired, handle = _acquire_db_flock(str(lock_path), handle, _REPAIR_LOCK_TIMEOUT_SECONDS,
+                                             _REPAIR_LOCK_POLL_SECONDS, "state.db repair lock")
         if acquired is None:
             acquired = False  # non-contention failure already logged with its errno
         elif not acquired:
             logger.warning("state.db repair lock %s held by another process for more than %.0fs — skipping schema "
                            "surgery in this process to avoid racing the repairer. Recorded holder: %s.",
                            lock_path, _REPAIR_LOCK_TIMEOUT_SECONDS,
-                           _describe_lock_holder(None if _IS_WINDOWS else _read_lock_holder_record(handle)))
+                           _describe_lock_holder(_read_lock_holder_record(handle)))
         yield acquired
     finally:
         if acquired:
@@ -589,13 +555,9 @@ def preflight_db_writability(db_path: Path, *, db_label: str = "state.db", direc
 
 
 def _connect_repair_durable(db_path: Path, *, timeout: float = 5.0) -> sqlite3.Connection:
-    """``sqlite3.connect`` for the repair/probe paths, with macOS write barriers.
+    """Open a tracked repair connection in autocommit mode.
 
-    These paths bypass ``SessionDB``/:func:`apply_wal_with_fallback`, so they inherited ``synchronous=NORMAL`` and
-    no ``checkpoint_fullfsync`` — on Darwin an interrupted ``REINDEX``/``VACUUM``/``writable_schema`` rewrite leaves
-    half-written b-tree pages. Autocommit (``isolation_level=None``): DDL and ``VACUUM`` are illegal inside an
-    implicit transaction. Barriers are best-effort: on a malformed schema even ``PRAGMA synchronous=FULL`` raises,
-    so whole-file rewrites call :func:`_reapply_durability_barriers` once the schema parses again.
+    DDL and ``VACUUM`` are illegal inside an implicit transaction.
 
     Tracked (:func:`hermes_cli.sqlite_safe_read.connect_tracked`) because repair connections hold the
     strongest locks in the process (``locking_mode=EXCLUSIVE``, ``BEGIN IMMEDIATE``); an untracked fd let
@@ -605,7 +567,6 @@ def _connect_repair_durable(db_path: Path, *, timeout: float = 5.0) -> sqlite3.C
     from hermes_cli.sqlite_safe_read import connect_tracked
 
     conn = connect_tracked(db_path, tracking_path=db_path, timeout=timeout, isolation_level=None)
-    _reapply_durability_barriers(conn)
     return conn
 
 
@@ -614,30 +575,13 @@ def _repair_conn(db_path: Path, *, timeout: float = 5.0):
     return contextlib.closing(_connect_repair_durable(db_path, timeout=timeout))
 
 
-def _reapply_durability_barriers(conn: sqlite3.Connection) -> bool:
-    """Best-effort (re)application of the macOS write barriers; True if accepted.
-    Call before ``VACUUM``/``REINDEX`` once the schema parses: a connection opened
-    on a malformed schema could not take them at open time. Never raises."""
-    from hermes_state_wal import _apply_macos_checkpoint_barrier, _enforce_macos_synchronous_full
-    try:
-        _apply_macos_checkpoint_barrier(conn)
-        _enforce_macos_synchronous_full(conn)
-        return True
-    except Exception:  # schema still unparseable, or anything else — pragmas cannot be set yet
-        return False
-
-
-def apply_durability_barriers(conn: sqlite3.Connection) -> bool:
-    """Durability barriers for guest users of ``state.db`` that must inherit its owner's journal mode. Also
-    applies the configured ``database.synchronous`` level, a per-connection pragma that otherwise only
-    rides on the journal-mode setup path guests must not run."""
+def apply_durability_barriers(conn: sqlite3.Connection) -> None:
+    """Apply the configured synchronous level without changing the owner's journal mode."""
     from hermes_state_wal import _apply_synchronous_pragma
-    ok = _reapply_durability_barriers(conn)
     with contextlib.suppress(Exception):
         from hermes_cli.config import cfg_get, load_config_readonly  # local: avoids an import cycle
         if (raw_synchronous := cfg_get(load_config_readonly(), "database", "synchronous", default=None)) is not None:
             _apply_synchronous_pragma(conn, raw_synchronous, db_label="state.db (guest)")
-    return ok
 
 
 def _close_unpinned(conn: sqlite3.Connection) -> None:
@@ -1133,19 +1077,12 @@ def _repair_state_db_schema_locked(
 
 def _unlink_db_triple(path: Path) -> Optional[str]:
     """Remove *path* and every SQLite sidecar; return any cleanup failure."""
-    from hermes_state import _IS_WINDOWS
     failures: list[str] = []
     for victim in (path, *_sidecars(path)):
-        for attempt in range(10):
-            try:
-                victim.unlink(missing_ok=True)
-            except OSError as exc:
-                # Windows may retain a just-closed SQLite handle for a few scheduler ticks; bounded retry.
-                if isinstance(exc, PermissionError) and _IS_WINDOWS and attempt < 9:
-                    time.sleep(0.05)
-                    continue
-                failures.append(f"{victim}: {exc}")
-            break
+        try:
+            victim.unlink(missing_ok=True)
+        except OSError as exc:
+            failures.append(f"{victim}: {exc}")
     return "; ".join(failures) or None
 
 
@@ -1172,8 +1109,6 @@ def _strategy_rebuild_fts(conn: sqlite3.Connection) -> None:
 def _strategy_reindex(conn: sqlite3.Connection) -> None:
     """integrity_check reports "wrong # of entries in index" when a B-tree
     index drifts from its base table; REINDEX rewrites it from canonical rows."""
-    # REINDEX rewrites every index b-tree; take the barriers now that the schema parses.
-    _reapply_durability_barriers(conn)
     conn.execute("REINDEX")
     conn.commit()
 
@@ -1197,8 +1132,6 @@ def _strategy_drop_fts_vacuum(conn: sqlite3.Connection) -> None:
     destructive one, and why strategies run on a scratch copy: on a damaged
     schema b-tree VACUUM silently drops every table hanging off the unreadable part."""
     _edit_sqlite_master(conn, lambda: conn.execute("DELETE FROM sqlite_master WHERE name LIKE 'messages_fts%'") or True)
-    # The schema parses now, so the barriers can stick — VACUUM rewrites the whole file.
-    _reapply_durability_barriers(conn)
     conn.execute("VACUUM")
 
 

@@ -22,7 +22,7 @@ the target holds at least as many messages). The reverse order would lose the ro
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Iterable, Optional
 
 from hermes_state_common import (
     _id_chunks,
@@ -320,14 +320,3 @@ class SessionProfileRepairMixin:
                 "INSERT OR IGNORE INTO gateway_routing (scope, session_key, entry_json, updated_at) "
                 "VALUES (?, ?, ?, ?)", row).rowcount for row in wanted)
         return self._execute_write(_do)
-
-
-    # ── evidence for JSON-file repairs ────────────────────────────────────────
-
-    def key_profiles_for_chat(self, platform: str, chat_id: str) -> set[str]:
-        """Profiles whose keyed sessions hold *(platform, chat_id)* in this store — the evidence for
-        who owns a profile-less ``gateway_voice_mode.json`` entry."""
-        rows = self._read_all(
-            "SELECT DISTINCT session_key FROM sessions WHERE source = ? AND chat_id = ? "
-            "AND session_key LIKE 'agent:%'", (platform, str(chat_id)))
-        return {p for p in (session_key_profile(r["session_key"]) for r in rows) if p is not None}

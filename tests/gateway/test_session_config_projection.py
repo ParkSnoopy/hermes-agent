@@ -25,7 +25,7 @@ def test_client_config_projection_keeps_session_policy_and_secrets_private(tmp_p
                 (home / 'config.yaml').write_text(yaml.safe_dump(config))
                 before = (home / 'config.yaml').read_bytes()
                 full = await rpc(ws, 'config.get', key='full', session_id=sid)
-                assert full.get('result', {}).get('config', {}).get('voice', {}).get('record_key') == 'ctrl+r', full
+                assert 'voice' not in full['result']['config'], full
                 assert 'PRIVATE_VOICE' not in json.dumps(full)
                 assert full['result']['config']['display']['bell_on_complete'] is True
                 # The user's settings, not DEFAULT_CONFIG: an unset display.streaming stays unset.
@@ -36,7 +36,7 @@ def test_client_config_projection_keeps_session_policy_and_secrets_private(tmp_p
                 (home / 'config.yaml').write_text(yaml.safe_dump(config))
                 before = (home / 'config.yaml').read_bytes()
                 assert (await rpc(ws, 'config.get', key='mtime', session_id=sid))['result']['mcp_rev'] == mtime['mcp_rev']
-                assert (await rpc(ws, 'config.get', key='full'))['result']['config']['voice']['record_key'] == 'ctrl+r'
+                assert 'voice' not in (await rpc(ws, 'config.get', key='full'))['result']['config']
                 assert (await rpc(ws, 'config.get', key='reasoning', session_id=sid))['result']['value'] == 'low'
                 assert (await rpc(ws, 'config.get', key='project', session_id=sid, cwd=str(home)))['result']['cwd'] == str(home)
                 assert (await rpc(ws, 'config.get', key='approvals.mode'))['result']['value'] == 'manual'
@@ -47,6 +47,7 @@ def test_client_config_projection_keeps_session_policy_and_secrets_private(tmp_p
                     ('config.get', {'key': 'full', 'profile': 'foreign'}, 'profile_mismatch'),
                     ('config.get', {'key': 'full', 'session_id': sid, 'source': 'gui'}, 'invalid_params'),
                     ('config.set', {'key': 'model', 'session_id': sid, 'value': 'other'}, 'use_session_mutation_model'),
+                    ('config.get', {'key': 'voice', 'session_id': sid}, 'invalid_params'),
                 ]:
                     assert (await rpc(ws, method, **params))['error']['message'] == reason
                 other_url = desc['api_origin'].replace('http:', 'ws:') + '/api/ws?token=other-controls-actor'

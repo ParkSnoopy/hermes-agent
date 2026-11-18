@@ -1,9 +1,8 @@
 """Tests for BasePlatformAdapter topic-aware session handling."""
 
 import asyncio
-import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -136,66 +135,27 @@ class TestBasePlatformTopicSessions:
         ]
 
 
-class TestTelegramAutoTtsCaptionDelivery:
-    @staticmethod
-    def _make_voice_event(chat_id: str = "-1001", thread_id: str = "17585") -> MessageEvent:
-        return MessageEvent(
-            text="hello",
-            message_type=MessageType.VOICE,
-            source=SessionSource(
-                platform=Platform.TELEGRAM,
-                chat_id=chat_id,
-                chat_type="group",
-                thread_id=thread_id,
-            ),
-            message_id="voice-1",
-        )
-
-    @staticmethod
-    def _hold_typing():
-        async def hold(_chat_id, interval=2.0, metadata=None):
-            await asyncio.Event().wait()
-
-        return hold
-
-
+    @pytest.mark.parametrize("internal, override, expected", [
+        (False, None, "anchor"),
+        (False, "redirected", "redirected"),
+        (True, None, None),
+    ])
     @pytest.mark.asyncio
-    async def test_long_original_with_short_spoken_script_still_sends_full_reply(self, tmp_path):
+    async def test_audio_attachment_preserves_topic_metadata(self, internal, override, expected):
         adapter = DummyTelegramAdapter()
-        adapter._keep_typing = self._hold_typing()
-        adapter._should_auto_tts_for_chat = lambda _chat_id: True
-        adapter.play_tts = AsyncMock(return_value=SendResult(success=True, message_id="tts-1"))
-        # Markdown-heavy reply: over the 1024-char caption limit as written,
-        # but the normalized spoken script (markdown and URLs removed) is far
-        # below it. Caption eligibility must follow the ORIGINAL reply, so the
-        # full formatted text is still delivered as its own message instead of
-        # being swallowed into a lossy caption.
-        long_reply = "\n".join(
-            f"- **item {i}** [details](https://example.com/some/very/long/path/{i:04d})"
-            for i in range(20)
+        adapter.send_voice = AsyncMock(return_value=SendResult(success=True, message_id="audio-1"))
+        event = _make_event("-1001", "17585", message_id="anchor")
+        event.internal = internal
+        event.reply_anchor_override = override
+        results = []
+        await adapter._deliver_media_attachments(
+            event, [("/tmp/recording.mp3", False)], [],
+            force_document_attachments=False, human_delay=0,
+            metadata={"thread_id": "17585", "notify": True}, record_delivery=results.append,
         )
-        assert len(long_reply) > 1024
-        assert len(adapter.prepare_tts_text(long_reply)) <= 1024
-        adapter.set_message_handler(lambda _event: asyncio.sleep(0, result=long_reply))
-
-        tts_path = tmp_path / "reply.ogg"
-        tts_path.write_text("audio", encoding="utf-8")
-        event = self._make_voice_event()
-
-        with patch("tools.tts_tool.check_tts_requirements", return_value=True), patch(
-            "tools.tts_tool.text_to_speech_tool",
-            return_value=json.dumps({"file_path": str(tts_path)}),
-        ):
-            await adapter._process_message_background(event, build_session_key(event.source))
-
-        adapter.play_tts.assert_awaited_once()
-        assert adapter.play_tts.await_args.kwargs["caption"] is None
-        assert adapter.sent == [
-            {
-                "chat_id": "-1001",
-                "content": long_reply,
-                "reply_to": None,
-                "metadata": {"thread_id": "17585", "notify": True},
-            }
-        ]
+        adapter.send_voice.assert_awaited_once_with(
+            chat_id="-1001", audio_path="/tmp/recording.mp3", reply_to=expected,
+            metadata={"thread_id": "17585", "notify": True}, is_voice=False,
+        )
+        assert len(results) == 1 and results[0].success
 

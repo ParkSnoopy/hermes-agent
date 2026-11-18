@@ -59,27 +59,16 @@ it('only dependency-carrying callers touch the uv cache', () => {
 })
 
 // Key isolation, offline wheel/receipt relocation and the transport action are
-// covered by tests/scripts/test_desktop_build_cache.py. These declarations guard
+// covered by tests/scripts/test_native_build_cache.py. These declarations guard
 // the caller seam: a cache hit never replaces preparation.
-const desktop = action('../.github/workflows/desktop-bundled-release.yml')
 const payload = action('../.github/workflows/pm-bundle.yml')
-const BUILD_CACHE = './.github/actions/desktop-build-cache'
+const BUILD_CACHE = './.github/actions/native-build-cache'
 // Jobs are found by the cache action they use, not by id: build legs get
 // split and renamed while this contract stays the same.
 const cacheUsers = workflow => Object.entries(workflow.jobs)
   .filter(([, job]) => (job.steps ?? []).some(step => step.uses === BUILD_CACHE))
-const targetOf = job => job.strategy.matrix.target.map(row => row.label)
-const desktopLegs = cacheUsers(desktop)
 
 const SHA = 'a'.repeat(40)
-const dispatches = {
-  tag: { build_commit: '', channel: '', 'release-phase': '', upload_release: true },
-  commit: { build_commit: SHA, channel: '', 'release-phase': '', upload_release: false },
-  channel: { build_commit: SHA, channel: 'preview', 'release-phase': '', upload_release: false },
-}
-const admitted = labels => ({
-  validate: { result: 'success', outputs: Object.fromEntries(labels.map(label => [label, 'true'])) },
-})
 // Payload snapshots are shared by every later build; only a trusted main push writes them.
 const payloadEvents = {
   trusted: { event_name: 'push', ref: 'refs/heads/main', sha: SHA },
@@ -87,27 +76,9 @@ const payloadEvents = {
   branch: { event_name: 'push', ref: 'refs/heads/feature', sha: SHA },
 }
 
-it('finds a release and a commit leg for every native target, and the payload producer', () => {
-  const legs = desktopLegs.map(([, job]) => `${targetOf(job)}:${job['cache-mode']}`).sort()
-  const targets = ['darwin-arm64', 'win32-arm64', 'win32-x64']
-  expect(legs).toEqual(targets.flatMap(target => [`${target}:read`, `${target}:write`]).sort())
-  expect(cacheUsers(payload)).toHaveLength(1)
-})
-
 it.each([
-  ...desktopLegs.map(([id, job]) => [id, job, 'desktop', 'scripts/bundles/desktop.py']),
   ...cacheUsers(payload).map(([id, job]) => [id, job, 'payload-test', 'scripts/bundles/native_build.py']),
 ])('%s restores, admits and saves candidates before consuming them', (id, job, producer, driver) => {
-  const cacheMode = job['cache-mode']
-  if (cacheMode) {
-    expect(job.needs).toEqual(['validate'])
-    // Only the release branch writes the shared cache; commit and channel
-    // builds of unreviewed inputs run the read-only leg.
-    const needs = admitted(targetOf(job))
-    expect(evaluate(job.if, { inputs: dispatches.tag, needs })).toBe(cacheMode === 'write')
-    expect(evaluate(job.if, { inputs: dispatches.commit, needs })).toBe(cacheMode === 'read')
-    expect(evaluate(job.if, { inputs: dispatches.channel, needs })).toBe(cacheMode === 'read')
-  }
   const cacheSteps = job.steps.filter(step => step.uses === BUILD_CACHE)
   expect(cacheSteps.map(step => step.with.phase)).toEqual(['restore', 'save'])
   const [restore, upload] = cacheSteps
@@ -141,40 +112,17 @@ it.each([
   const saves = (context, outcome = 'success') => evaluate(upload.if, {
     ...context, steps: { prepare: { outcome } }, status: { failure: outcome !== 'success' },
   })
-  const trusted = cacheMode
-    ? { inputs: dispatches.tag }
-    : { inputs: { ref: '' }, github: payloadEvents.trusted }
+  const trusted = { inputs: { ref: '' }, github: payloadEvents.trusted }
   expect(saves(trusted)).toBe(true)
   expect(saves(trusted, 'failure')).toBe(false)
   expect(evaluate(upload.if, { ...trusted, steps: { prepare: { outcome: 'success' } },
     status: { cancelled: true, success: false } })).toBe(false)
-  const untrusted = cacheMode
-    ? [{ inputs: dispatches.commit }, { inputs: dispatches.channel }]
-    : [
+  const untrusted = [
         { inputs: { ref: '' }, github: payloadEvents.pullRequest },
         { inputs: { ref: '' }, github: payloadEvents.branch },
         { inputs: { ref: 'b'.repeat(40) }, github: payloadEvents.trusted },
       ]
   for (const context of untrusted) {
     expect(saves(context)).toBe(false)
-  }
-})
-
-it('each selection gate joins exactly one target\'s two trust branches after admission', () => {
-  const legs = Object.fromEntries(desktopLegs.map(([id, job]) => [id, job]))
-  const gates = Object.values(desktop.jobs).filter(job => job.env?.SELECTED_BUILD_SUCCEEDED)
-  expect(gates).toHaveLength(3)  // darwin-arm64, win32-arm64, win32-x64
-  for (const gate of gates) {
-    const [admission, ...branches] = gate.needs
-    expect(admission).toBe('validate')
-    expect(branches.map(id => legs[id]?.['cache-mode']).sort()).toEqual(['read', 'write'])
-    const [label] = new Set(branches.flatMap(id => targetOf(legs[id])))
-    expect(new Set(branches.flatMap(id => targetOf(legs[id]))).size).toBe(1)
-    // The gate runs always() to judge a skipped branch, so it must still
-    // refuse a failed admission itself.
-    const needs = admitted([label])
-    expect(evaluate(gate.if, { inputs: dispatches.tag, needs })).toBe(true)
-    expect(evaluate(gate.if, { inputs: dispatches.tag,
-      needs: { validate: { ...needs.validate, result: 'failure' } } })).toBe(false)
   }
 })

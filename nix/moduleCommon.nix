@@ -473,7 +473,7 @@ let
           dependencies — no PYTHONPATH patching or collision risk.
 
           They add to the groups `package` already ships (the default
-          package ships "voice", "exa", ...); they never
+          package ships "anthropic", "exa", ...); they never
           replace them. For a smaller venv pick a smaller `package`
           (`minimal`) or override its defaultDependencyGroups.
 
@@ -494,13 +494,13 @@ let
       restart = mkOption {
         type = types.str;
         default = "always";
-        description = "The systemd Restart= policy. Darwin does not use this option.";
+        description = "The systemd Restart= policy.";
       };
 
       restartSec = mkOption {
         type = types.int;
         default = 5;
-        description = "The systemd RestartSec= value. Darwin does not use this option.";
+        description = "The systemd RestartSec= value.";
       };
 
     };
@@ -862,7 +862,6 @@ let
 
   # The subdirectories of HERMES_HOME that both modules make.
   stateSubdirs = [
-    "cron"
     "sessions"
     "logs"
     "memories"

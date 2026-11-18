@@ -1,11 +1,4 @@
-"""A phone app's self-labelled chat continues in Desktop; a plugin platform sharing the label is untouched.
-
-The pre-authority ``hermes serve`` stored whatever ``source`` a client sent, so phone apps signed in
-through the dashboard login left routeless rows labelled ``mobile``, ``ios`` and the like (#146814).
-They are the owner's chats: Desktop's resume adopts them as writable conversations, while a third-party
-WebUI's rows (its own agent writes them) still open read-only. The catalog plugin hermes-mobile
-registers ``Platform('mobile')``; its routed chats keep their messaging route.
-"""
+"""Foreign session rows stay read-only; routed plugin chats keep their messaging route."""
 from types import SimpleNamespace
 
 import pytest
@@ -36,42 +29,18 @@ async def _owner(tmp_path, monkeypatch, toolsets):
 
 
 @pytest.mark.asyncio
-async def test_a_phone_apps_own_label_resumes_writable_and_a_webui_row_stays_read_only(tmp_path, monkeypatch):
-    store, desktop = await _owner(tmp_path, monkeypatch, {'gui': []})
-    db = store._db
-    for sid, source, user_id in (('phone-mobile', 'mobile', None), ('phone-ios', 'ios', 'basic:admin'),
-                                 ('webui-row', 'webui', None), ('teams-row', 'teams', None),
-                                 ('curator-row', 'curator', None)):
-        db.create_session(sid, source=source, model='m', cwd=str(tmp_path), user_id=user_id)
-        db.append_message(sid, role='user', content='hi from ' + sid)
-        db.end_session(sid, 'ws_orphan_reap')
-    # hermes-mobile installed registers Platform('mobile'): a routeless row with that label still adopts.
-    from gateway.config import Platform
-    Platform._add_pseudo_member('mobile')
-    from hermes_cli.sessions_adopt import adoptable_sessions
-    offered = {row['id'] for row in adoptable_sessions(db.db_path)}
-    assert {'phone-mobile', 'phone-ios'} <= offered and not offered & {'webui-row', 'teams-row', 'curator-row'}
-    for i, sid in enumerate(('phone-mobile', 'phone-ios')):
-        if sid == 'phone-mobile':
-            # A metadata read first opens a read-only view; the resume then adopts it in place.
-            await desktop.dispatch({'id': 50, 'method': 'session.info', 'params': {'session_id': sid}})
-        resumed = await desktop.dispatch({'id': i, 'method': 'session.resume', 'params': {'session_id': sid}})
-        assert resumed.get('result', {}).get('session_id') == sid, resumed
-        assert [m['content'] for m in resumed['result']['messages']] == ['hi from ' + sid]
-        sent = await desktop.dispatch({'id': 10 + i, 'method': 'prompt.submit',
-                                       'params': {'session_id': sid, 'text': 'go on', 'submission_id': 's-' + sid}})
-        assert 'error' not in sent, sent
-        # Bound, it is the Desktop chat it resumes as; a second open still finds it.
-        assert db.get_session(sid)['source'] == 'desktop'
-        again = await desktop.dispatch({'id': 20 + i, 'method': 'session.resume', 'params': {'session_id': sid}})
-        assert again.get('result', {}).get('session_id') == sid, again
-    # A foreign writer's rows, a bundled plugin platform's label and automation stay read-only.
-    for i, sid in enumerate(('webui-row', 'teams-row', 'curator-row')):
-        await desktop.dispatch({'id': 30 + i, 'method': 'session.resume', 'params': {'session_id': sid}})
-        sent = await desktop.dispatch({'id': 40 + i, 'method': 'prompt.submit',
-                                       'params': {'session_id': sid, 'text': 'go on', 'submission_id': 's-' + sid}})
+async def test_foreign_writer_rows_stay_read_only(tmp_path, monkeypatch):
+    store, owner = await _owner(tmp_path, monkeypatch, {'gui': []})
+    for i, source in enumerate(('webui', 'teams', 'curator')):
+        sid = source + '-row'
+        store._db.create_session(sid, source=source, model='m', cwd=str(tmp_path))
+        store._db.append_message(sid, role='user', content='hi from ' + sid)
+        store._db.end_session(sid, 'ws_orphan_reap')
+        await owner.dispatch({'id': 30 + i, 'method': 'session.resume', 'params': {'session_id': sid}})
+        sent = await owner.dispatch({'id': 40 + i, 'method': 'prompt.submit',
+                                     'params': {'session_id': sid, 'text': 'go on', 'submission_id': 's-' + sid}})
         assert (sent.get('error', {}).get('data') or {}).get('reason') == 'session_read_only', (sid, sent)
-        assert db.get_session(sid)['source'] == sid.split('-')[0]
+        assert store._db.get_session(sid)['source'] == source
 
 
 @pytest.mark.asyncio

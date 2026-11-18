@@ -13,7 +13,7 @@ import pytest
 
 
 def test_bootstrap_environment_isolates_owned_paths_without_mutating_caller(tmp_path):
-    toolchain = importlib.import_module("scripts.bundles.desktop_toolchain")
+    toolchain = importlib.import_module("scripts.bundles.toolchain")
     source, work, cache = (tmp_path / name for name in ("source", "work", "cache"))
     original_home = tmp_path / "live-user"
     inherited = {
@@ -94,7 +94,7 @@ def test_bootstrap_environment_isolates_owned_paths_without_mutating_caller(tmp_
 def test_rust_sdists_build_outside_the_nested_uv_cache(tmp_path):
     # Windows link.exe has no long-path support: target/ inside uv's sdist entry
     # under the cache exceeded MAX_PATH (LNK1104) when obstore compiled cold.
-    from scripts.bundles.desktop_toolchain import bootstrap_environment
+    from scripts.bundles.toolchain import bootstrap_environment
 
     source, work, cache = (tmp_path / name for name in ("source", "work", "cache"))
     env = bootstrap_environment(source, work, cache, {"CARGO_TARGET_DIR": str(cache / "python/runtime/x")})
@@ -103,29 +103,12 @@ def test_rust_sdists_build_outside_the_nested_uv_cache(tmp_path):
     assert not target.is_relative_to(cache.resolve())
 
 
-@pytest.mark.platforms("windows")
-def test_windows_uv_cache_is_a_short_junction_into_the_transported_cache(tmp_path):
-    # uv nests sdist builds ~200 characters below its root; under the deep transported
-    # cache, setuptools/maturin link outputs passed MAX_PATH (LNK1104) on win32-x64/arm64.
-    from scripts.bundles.desktop_toolchain import short_alias
-
-    first, second = tmp_path / "desktop-inputs/python/runtime/a", tmp_path / "desktop-inputs/python/runtime/b"
-    first.mkdir(parents=True)
-    (first / "wheel").write_text("kept", encoding="utf-8")
-    link = tmp_path / "work" / "uv"
-    link.parent.mkdir()
-    assert short_alias(first, link) == link
-    (link / "built").write_text("cached", encoding="utf-8")
-    assert (first / "built").read_text(encoding="utf-8") == "cached"
-    short_alias(second, link)  # Re-preparing re-points the alias; cached bytes stay put.
-    assert link.resolve() == second.resolve()
-    assert (first / "wheel").read_text(encoding="utf-8") == "kept"
 
 
 @pytest.mark.parametrize("exit_code", [0, 7])
-@pytest.mark.platforms("linux", "macos", "windows")
+@pytest.mark.platforms("linux")
 def test_run_preparation_bootstraps_before_worker_in_isolated_child(tmp_path, monkeypatch, exit_code):
-    from scripts.bundles import desktop_toolchain
+    from scripts.bundles import toolchain
 
     source, work, cache = (tmp_path / name for name in ("source space", "work", "cache"))
     (source / "pm").mkdir(parents=True)
@@ -143,7 +126,7 @@ def test_run_preparation_bootstraps_before_worker_in_isolated_child(tmp_path, mo
         "    return [sys.executable, '-I', '-B', str(script), *args]\n",
         encoding="utf-8",
     )
-    worker = source / "scripts/bundles/desktop_prepare.py"
+    worker = source / "scripts/bundles/native_build.py"
     worker.parent.mkdir(parents=True)
     worker.write_text(
         "import json, os, sys\n"
@@ -162,13 +145,13 @@ def test_run_preparation_bootstraps_before_worker_in_isolated_child(tmp_path, mo
                                         "exit_code": exit_code}), encoding="utf-8")
     monkeypatch.setenv("HERMES_INSTALL_ROOT", str(tmp_path / "live-install"))
     before = dict(os.environ)
-    assert desktop_toolchain.run_preparation(source, work, cache, request_file) == exit_code
+    assert toolchain.run_preparation(source, work, cache, request_file, worker=worker) == exit_code
     assert dict(os.environ) == before
     assert receipt.read_text(encoding="utf-8-sig") == str(source)
 
 
 def test_bootstrap_real_pm_resolves_only_build_owned_state(tmp_path):
-    from scripts.bundles.desktop_toolchain import bootstrap_environment
+    from scripts.bundles.toolchain import bootstrap_environment
 
     source = Path(__file__).resolve().parents[2]
     work, cache = tmp_path / "work", tmp_path / "cache"
@@ -187,35 +170,18 @@ def test_bootstrap_real_pm_resolves_only_build_owned_state(tmp_path):
     assert all(path.is_relative_to(work) for path in (partials, uv_default, state))
 
 
-@pytest.mark.parametrize("target", ["darwin-arm64", "darwin-x64", "linux-x64", "win32-arm64"])
-def test_packaging_preserves_keychain_home_without_retargeting_build_state(tmp_path, target):
-    from scripts.bundles.desktop_inputs import packaging_environment
-    from scripts.bundles.desktop_toolchain import bootstrap_environment
-
-    source, work, cache = (tmp_path / name for name in ("source", "work", "cache"))
-    login_home = str(tmp_path / "login")
-    inherited = {"HOME": login_home, "CSC_KEYCHAIN": "explicit.keychain"}
-    isolated = bootstrap_environment(source, work, cache, inherited)
-    before = isolated.copy()
-    for caller in (inherited, {**inherited, "HOME": str(work / "launcher-home"),
-                               "HERMES_REAL_HOME": login_home}, {}):
-        packaged = packaging_environment(isolated, caller, target)
-        expected_home = (caller.get("HERMES_REAL_HOME") or caller.get("HOME") or str(Path.home())
-                         if target.startswith("darwin-") else isolated["HOME"])
-        assert packaged == {**isolated, "HOME": expected_home}
-    assert isolated == before
 
 
-@pytest.mark.platforms("linux", "macos", "windows")
+@pytest.mark.platforms("linux")
 def test_prepare_tools_uses_pm_native_pins_and_separate_cache(tmp_path, monkeypatch):
     import pm
-    from scripts.bundles import desktop_toolchain
-    from pm import native_build
+    from scripts.bundles import toolchain
+
 
     source, work, cache = (tmp_path / name for name in ("source", "work", "cache"))
-    env = desktop_toolchain.bootstrap_environment(source, work, cache, os.environ)
+    env = toolchain.bootstrap_environment(source, work, cache, os.environ)
     monkeypatch.setenv("HERMES_RUNTIME_DIR", env["HERMES_RUNTIME_DIR"])
-    acquired, native_calls = [], []
+    acquired = []
     bins = {name: cache / "tools" / name / "bin" / name for name in ("python", "node")}
     for binary in bins.values():
         binary.parent.mkdir(parents=True)
@@ -225,18 +191,15 @@ def test_prepare_tools_uses_pm_native_pins_and_separate_cache(tmp_path, monkeypa
         assert explicit
         acquired.append(name)
 
-    def native(**kwargs):
-        native_calls.append(kwargs)
-        return {**kwargs["env"], "OPENSSL_DIR": str(cache / "native/openssl")}
 
     monkeypatch.setattr(pm, "ensure", ensure)
     monkeypatch.setattr(pm, "installed_package", lambda name: SimpleNamespace(binary=bins[name]))
     monkeypatch.setattr(pm, "env_for", lambda *names, base_env: {**base_env, "PATH": "pm-tools"})
-    monkeypatch.setattr(native_build, "prepare_windows_environment", native)
-    monkeypatch.setattr(desktop_toolchain, "native_cache_path", lambda cache, env: cache / "python/runtime/native-identity",
+
+    monkeypatch.setattr(toolchain, "native_cache_path", lambda cache, env: cache / "python/runtime/native-identity",
                         raising=False)
     before = dict(os.environ)
-    python, node, prepared = desktop_toolchain.prepare_tools(source, work, cache, env)
+    python, node, prepared = toolchain.prepare_tools(source, work, cache, env)
     assert acquired == ["uv", "pnpm"]
     assert python == bins["python"] and node == bins["node"]
     assert prepared["HERMES_PYTHON"] == str(python)
@@ -244,20 +207,13 @@ def test_prepare_tools_uses_pm_native_pins_and_separate_cache(tmp_path, monkeypa
     assert prepared["PATH"] == "pm-tools"
     uv_cache = Path(prepared["UV_CACHE_DIR"])
     assert uv_cache.resolve() == (cache / "python/runtime/native-identity").resolve()
-    if os.name == "nt":  # builds run under the short job-local junction (MAX_PATH)
-        assert uv_cache == work.resolve() / "uv"
     assert dict(os.environ) == before
-    if pm.current_target() == "win32-arm64":
-        assert len(native_calls) == 1
-        assert native_calls[0]["state"].is_relative_to(cache / "native")
-        assert prepared["OPENSSL_DIR"] == str(cache / "native/openssl")
-    else:
-        assert native_calls == []
 
 
-@pytest.mark.platforms("linux", "macos", "windows")
+
+@pytest.mark.platforms("linux")
 def test_native_cache_identity_tracks_compilers_sdk_and_openssl(tmp_path, monkeypatch):
-    from scripts.bundles import desktop_toolchain
+    from scripts.bundles import toolchain
 
     openssl = tmp_path / "openssl"
     (openssl / "include/openssl").mkdir(parents=True)
@@ -267,7 +223,7 @@ def test_native_cache_identity_tracks_compilers_sdk_and_openssl(tmp_path, monkey
     library.write_bytes(b"first build")
     (openssl / "lib/libssl.lib").write_bytes(b"ssl build")
     env = {"PATH": os.defpath, "OPENSSL_DIR": str(openssl),
-           "WindowsSDKVersion": "10.0.1", "VCToolsVersion": "14.1"}
+           "CFLAGS": "-O2"}
     version = ["compiler one"]
 
     def probe(command, **kwargs):
@@ -275,102 +231,33 @@ def test_native_cache_identity_tracks_compilers_sdk_and_openssl(tmp_path, monkey
         return SimpleNamespace(returncode=0, stdout=version[0], stderr="")
 
     # Let stdlib cache its real-host probe before substituting compiler commands.
-    desktop_toolchain.platform.platform()
-    monkeypatch.setattr(desktop_toolchain.subprocess, "run", probe)
+    toolchain.platform.platform()
+    monkeypatch.setattr(toolchain.subprocess, "run", probe)
     cache = tmp_path / "cache"
-    first = desktop_toolchain.native_cache_path(cache, env)
+    first = toolchain.native_cache_path(cache, env)
     assert first.is_relative_to(cache / "python/runtime")
-    assert desktop_toolchain.native_cache_path(cache, env) == first
+    assert toolchain.native_cache_path(cache, env) == first
     moved_cache = tmp_path / "relocated-cache"
     moved_openssl = moved_cache / "native/openssl"
     import shutil
     shutil.copytree(openssl, cache / "native/openssl")
     shutil.copytree(openssl, moved_openssl)
     env["OPENSSL_DIR"] = str(cache / "native/openssl")
-    portable = desktop_toolchain.native_cache_path(cache, env)
+    portable = toolchain.native_cache_path(cache, env)
     env["OPENSSL_DIR"] = str(moved_openssl)
-    assert desktop_toolchain.native_cache_path(moved_cache, env).name == portable.name
+    assert toolchain.native_cache_path(moved_cache, env).name == portable.name
     env["OPENSSL_DIR"] = str(openssl)
     version[0] = "compiler two"
-    second = desktop_toolchain.native_cache_path(cache, env)
+    second = toolchain.native_cache_path(cache, env)
     assert second != first
     library.write_bytes(b"changed build")
-    third = desktop_toolchain.native_cache_path(cache, env)
+    third = toolchain.native_cache_path(cache, env)
     assert third != second
-    env["WindowsSDKVersion"] = "10.0.2"
-    assert desktop_toolchain.native_cache_path(cache, env) != third
-    monkeypatch.setattr(desktop_toolchain.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()))
-    assert desktop_toolchain.native_cache_path(cache, env) != desktop_toolchain.native_cache_path(cache, env)
+    env["CFLAGS"] = "-O3"
+    assert toolchain.native_cache_path(cache, env) != third
+    monkeypatch.setattr(toolchain.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()))
+    assert toolchain.native_cache_path(cache, env) != toolchain.native_cache_path(cache, env)
 
 
-@pytest.mark.parametrize("complete", [False, True])
-def test_native_cache_leaves_room_for_sdist_compiler_outputs(tmp_path, monkeypatch, complete):
-    from pathlib import PureWindowsPath
-    from scripts.bundles import desktop_toolchain
-
-    # Replay the Windows CI layout as path data, without faking the host OS.
-    # uv builds in its cached sdist; /Fo is relative to that working directory.
-    cache = tmp_path / "cache"
-    desktop_toolchain.platform.platform()
-
-    def probe(*args, **kwargs):
-        if not complete:
-            raise FileNotFoundError()
-        return SimpleNamespace(returncode=0, stdout="compiler identity", stderr="")
-
-    openssl = cache / "native/openssl"
-    for name in ("include/openssl/opensslv.h", "lib/libcrypto.lib"):
-        path = openssl / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"native input")
-    monkeypatch.setattr(desktop_toolchain.subprocess, "run", probe)
-    selected = desktop_toolchain.native_cache_path(cache, {
-        "WindowsSDKVersion": "10.0.1", "VCToolsVersion": "14.1", "OPENSSL_DIR": str(openssl),
-    })
-    assert selected.is_relative_to(cache / "python/runtime")
-    runner_cache = PureWindowsPath("D:/a/hermes-agent/hermes-agent/.cache/desktop-inputs")
-    sdist = PureWindowsPath("sdists-v9/pypi/pilk/0.2.4/5b4cbVXt0GPuGQrp/src")
-    for architecture in ("win-amd64", "win-arm64"):
-        output = (runner_cache.joinpath(*selected.relative_to(cache).parts) / sdist
-                  / f"build/temp.{architecture}-cpython-314/Release/src/SKP_SILK_SRC"
-                  / "SKP_Silk_NLSF_VQ_rate_distortion_FIX.obj")
-        assert len(str(output)) < 260, str(output)
 
 
-@pytest.mark.platforms("windows")
-def test_native_cache_is_stable_without_a_developer_environment(tmp_path, monkeypatch):
-    """win32-x64 never runs VsDevCmd, so VCToolsVersion is unset there. Its built
-    wheels must still land in one partition per toolchain, not a fresh one per run."""
-    from scripts.bundles import desktop_toolchain
-
-    install = tmp_path / "vs"
-    version_file = install / "VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt"
-    version_file.parent.mkdir(parents=True)
-    version_file.write_text("\ufeff14.44.35207\n", encoding="utf-8")  # Visual Studio writes a BOM
-    vswhere = json.dumps([{"installationPath": str(install), "installationVersion": "17.14.1"}])
-    # vswhere is never on PATH; hermes_platform finds it in the installer directory.
-    installer = tmp_path / "Program Files (x86)/Microsoft Visual Studio/Installer"
-    installer.mkdir(parents=True)
-    (installer / "vswhere.exe").write_bytes(b"")
-    monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path / "Program Files (x86)"))
-    monkeypatch.setenv("PATH", "")
-
-    def probe(command, **kwargs):
-        # The resolver joins its known dir with mixed separators; compare as paths.
-        stdout = vswhere if Path(command[0]) == installer / "vswhere.exe" else "rustc 1.98.0"
-        return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
-
-    # Release builds hand the provider's OpenSSL in (vcpkg's static libs on arm64, where
-    # identity without it is deliberately incomplete); supply one so both arches agree.
-    openssl = tmp_path / "openssl"
-    for name in ("include/openssl/opensslv.h", "lib/libcrypto.lib"):
-        (openssl / name).parent.mkdir(parents=True, exist_ok=True)
-        (openssl / name).write_bytes(name.encode())
-
-    desktop_toolchain.platform.platform()
-    monkeypatch.setattr(desktop_toolchain.subprocess, "run", probe)
-    cache, env = tmp_path / "cache", {"PATH": os.defpath, "OPENSSL_DIR": str(openssl)}
-    first = desktop_toolchain.native_cache_path(cache, env)
-    assert desktop_toolchain.native_cache_path(cache, env) == first
-    version_file.write_text("14.45.0\n", encoding="utf-8")
-    assert desktop_toolchain.native_cache_path(cache, env) != first

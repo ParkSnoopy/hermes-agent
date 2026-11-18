@@ -318,7 +318,7 @@ def request_elicitation_consent(message: str, description: str, *,
     # A run without a callback still fails closed below; cron and ``-q`` workers stay excluded.
     api_run_context = (
         _ctx._get_session_platform() == "api_server"
-        and not _ctx._is_cron_approval_context()
+
         and not _ctx._is_single_query_approval_context()
     )
     if _ctx._is_gateway_approval_context() or api_run_context:

@@ -46,36 +46,19 @@ Pick the row that matches your goal:
 | I want a local or self-hosted model | `hermes model` → custom endpoint | Verify the endpoint, model name, and context length |
 | I want multi-provider fallback | `hermes model` first | Add routing and fallback only after the base chat works |
 
-**Rule of thumb:** if Hermes cannot complete a normal chat, do not add more features yet. Get one clean conversation working first, then layer on gateway, cron, skills, voice, or routing.
+**Rule of thumb:** if Hermes cannot complete a normal chat, do not add more features yet. Get one clean conversation working first, then layer on gateway, skills, voice, or routing.
 
 ---
 
 ## 1. Install Hermes Agent
-### With the Hermes Desktop installer on macOS or Windows (recommended)
-To easily install the command-line and desktop applications, [download the Hermes Desktop installer](https://hermes-agent.nousresearch.com/) from our website and run it.
-
-### Without Hermes Desktop:
-For a command-line only install without Hermes Desktop, run:
-
-For aarch64 Android devices, use the separate [Termux APT guide](./termux.md).
-
-#### Linux / macOS / WSL2
-```bash
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
-```
-
-#### Windows (native)
-
-Run in powershell:
-```powershell
-iex (irm https://hermes-agent.nousresearch.com/install.ps1) 
-```
-
-After it finishes, reload your shell:
+From the root of your local Linux source checkout, run:
 
 ```bash
-source ~/.bashrc   # or source ~/.zshrc
+source ./activate
+hermes setup
 ```
+
+For aarch64 Android devices, see the separate [Termux guide](./termux.md).
 
 For detailed installation options, prerequisites, and troubleshooting, see the [Installation guide](./installation.md).
 
@@ -88,7 +71,7 @@ hermes model
 ```
 
 :::tip Easiest path: Nous Portal
-One subscription covers 300+ models plus the [Tool Gateway](../user-guide/features/tool-gateway.md) (web search, image generation, TTS, cloud browser). On a fresh install:
+One subscription covers 300+ models plus the [Tool Gateway](../user-guide/features/tool-gateway.md) (web search, image generation, cloud browser). On a fresh install:
 
 ```bash
 hermes setup --portal
@@ -98,13 +81,11 @@ That logs you in, sets Nous as your provider, and turns on the Tool Gateway in o
 :::
 
 :::info Setup modes
-Coming from OpenClaw, Claude Code, Codex CLI or Cursor? When a fresh `hermes setup` finds one of them on your computer it first offers to import your setup (it installs the `agent-importers` plugin for that; see [Import from Other Agents](../user-guide/import-from-other-agents.md)).
-
 On a fresh install, `hermes setup` offers three modes:
 
 - **Quick Setup (Nous Portal)** — OAuth login, no API keys to manage; sets up a model plus the Tool Gateway tools, billed to your [Nous Portal subscription](../integrations/nous-portal.md). The recommended fast path.
 - **Full Setup** — walk through every provider, tool, and option yourself (bring your own keys).
-- **Blank Slate** — everything starts **off** except the bare minimum needed to run an agent: **provider & model, the File Operations toolset, and the Terminal toolset**. No web, browser, code execution, vision, memory, delegation, cron, skills, plugins, or MCP servers — and compression, checkpoints, smart routing, and memory capture are all disabled. After the minimal baseline is applied, you choose one of two paths: **start with everything disabled** (finish now with the minimal agent), or **walk through all configurations** (opt in to tools, skills, plugins, MCP, and messaging). Pick this when you want a minimal, fully-controlled agent and intend to enable only exactly what you need.
+- **Blank Slate** — everything starts **off** except the bare minimum needed to run an agent: **provider & model, the File Operations toolset, and the Terminal toolset**. No web, browser, code execution, vision, memory, delegation, skills, plugins, or MCP servers — and compression, checkpoints, smart routing, and memory capture are all disabled. After the minimal baseline is applied, you choose one of two paths: **start with everything disabled** (finish now with the minimal agent), or **walk through all configurations** (opt in to tools, skills, plugins, MCP, and messaging). Pick this when you want a minimal, fully-controlled agent and intend to enable only exactly what you need.
 
 Blank Slate writes an explicit `platform_toolsets.cli` list plus `agent.disabled_toolsets`, so nothing you didn't choose ever loads — not even after `hermes update`. Re-enable anything later with `hermes tools`, seed skills with `hermes skills opt-in --sync`, or tune settings with `hermes setup agent`.
 :::
@@ -266,18 +247,11 @@ For agent-to-agent access, see [A2A](../user-guide/messaging/a2a.md).
 
 - `hermes tools` — tune tool access per platform
 - `hermes skills` — browse and install reusable workflows
-- Cron — only after your bot or CLI setup is stable
+
 
 ### Local terminal
 
 Terminal commands run locally as the Hermes process user, with that user’s filesystem permissions. They are not isolated by Hermes. Explicit nonlocal terminal selectors are refused; remove or correct old configuration before running. Running Hermes itself on a remote server or in a container is a separate deployment choice.
-
-### Voice mode
-
-Run `hermes tools` and configure the Voice providers. Then enable `/voice on`
-in the CLI and press `Ctrl+B` to record. PM handles missing supported
-requirements; a dependency change can require a restart. Local Faster-Whisper
-is not available on every architecture. See [Voice Mode](../user-guide/features/voice-mode.md).
 
 ### Skills
 
@@ -320,7 +294,7 @@ mcp_servers:
 
 ### Editor integration (ACP)
 
-ACP support ships with the standard `[all]` extras, so the curl installer already includes it. Just run:
+ACP support ships with the standard `[all]` extras, so the source checkout can include it. Just run:
 
 ```bash
 hermes acp

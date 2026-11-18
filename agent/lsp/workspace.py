@@ -160,13 +160,9 @@ def operator_workspace_roots() -> set[str]:
     ``terminal.cwd``).  The agent's ``cd`` moves neither (it only moves the terminal's cwd).  A repo at
     or above ``$HOME`` never counts: a dotfiles repo would trust every directory below it."""
     from agent.runtime_cwd import resolve_agent_cwd
-    from gateway.session_context import get_session_env
     from tools.terminal_scope import TerminalPolicyUnavailable
-    from utils import is_truthy_value
 
-    anchors = [os.getcwd]
-    if not is_truthy_value(get_session_env("HERMES_CRON_SESSION", "")):
-        anchors.append(resolve_agent_cwd)
+    anchors = [os.getcwd, resolve_agent_cwd]
     home = normalize_path("~")
     roots: set[str] = set()
     for anchor in anchors:

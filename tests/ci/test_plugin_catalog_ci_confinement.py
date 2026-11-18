@@ -415,8 +415,8 @@ NEW = {"plugin-catalog/new.yaml": "name: new\n"}
     (lambda r: _write(r, {**NEW, "scripts/tool.py": "x = 2\n"}), 1, [], "scripts/tool.py"),
     (lambda r: _write(r, {"plugin-catalog/old.yaml": "name: old\nsha: b\n"}), 0,
      ["plugin-catalog/old.yaml"], None),
-    (lambda r: _write(r, {**NEW, "contributors/emails/a@b.c": "someone\n"}), 0,
-     ["plugin-catalog/new.yaml"], None),
+    (lambda r: _write(r, {**NEW, "contributors/emails/a@b.c": "someone\n"}), 1,
+     [], "contributors/emails/a@b.c"),
     (lambda r: _write(r, {"plugin-catalog/README.md": "rules v2\n",
                           "website/docs/catalog.md": "docs\n",
                           ".github/workflows/x.yml": "on: push\n"}), 0, [], None),
@@ -424,8 +424,7 @@ NEW = {"plugin-catalog/new.yaml": "name: new\n"}
         "entry-plus-email-map", "readme-docs-ci-only"])
 def test_changed_entries_step(tmp_path, change, rc, listed, text):
     """Renames and typechanges must reach the pinned gate; an entry PR that also
-    touches tooling fails before any clone, while email maps and entry-free
-    policy PRs stay green."""
+    touches non-catalog files fails before any clone, while entry-free policy PRs stay green."""
     repo = tmp_path / "pr"
     _write(repo, {"plugin-catalog/old.yaml": "name: old\n", "plugin-catalog/README.md": "rules\n"})
     _git(repo, "init", "-qb", "main")

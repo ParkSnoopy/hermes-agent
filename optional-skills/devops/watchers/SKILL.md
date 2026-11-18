@@ -15,7 +15,7 @@ metadata:
 
 # Watchers
 
-Poll external sources on an interval and react only to new items. Three ready-made scripts plus a shared watermark helper; wire them into a cron job (or run them ad-hoc from the terminal).
+Poll external sources on request and react only to new items. Three ready-made scripts share a watermark helper.
 
 ## When to Use
 
@@ -33,7 +33,7 @@ A watcher is just a script that:
 3. Writes the new watermark back
 4. Prints new items to stdout (or nothing on no-change)
 
-The scripts below handle all three. The agent runs them via the terminal tool — from a cron job, a webhook, or an interactive chat — and reports what's new.
+The scripts below handle all three. The agent runs them via the terminal tool — from a webhook or an interactive chat — and reports what's new.
 
 ## Ready-made scripts
 
@@ -76,14 +76,6 @@ python $HERMES_HOME/skills/devops/watchers/scripts/watch_http_json.py \
   --name api --url https://api.example.com/events \
   --id-field event_id --items-path data.events
 ```
-
-## Wiring into cron
-
-Ask the agent to schedule a cron job with a prompt like:
-
-> Every 15 minutes, run `watch_rss.py --name hn --url https://news.ycombinator.com/rss`. If it prints anything, summarize the headlines and deliver them. If it prints nothing, stay silent.
-
-The agent invokes the script via the terminal tool inside the cron job's agent loop; no changes to cron's built-in `--script` flag are needed.
 
 ## State files
 

@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Iterator
 
-# "Never set here" (falls back to os.environ for CLI/cron) vs "" = explicitly cleared (no fallback).
+# "Never set here" (falls back to os.environ for CLI) vs "" = explicitly cleared (no fallback).
 _UNSET: Any = object()
 
 # Process-level latch: has set_session_vars() ever bound a session?  When engaged, the subprocess
@@ -30,12 +30,12 @@ def session_context_engaged() -> bool:
 # * UI_SESSION_ID: in-process UI tab id, separate from the durable SESSION_ID, so a stale/rotated
 #   durable key is not consumed by the wrong poller.
 # * MESSAGE_ID: reply anchor keeping notifications inside the originating Telegram topic.
-# * CRON_SESSION: tri-state — _UNSET = legacy env fallback; "1" = cron; "" = non-cron, masks env.
+
 _SESSION_VARS = (
     _SESSION_PLATFORM, _SESSION_SOURCE, _SESSION_CHAT_ID, _SESSION_CHAT_TYPE,
     _SESSION_CHAT_NAME, _SESSION_THREAD_ID, _SESSION_USER_ID, _SESSION_USER_ID_ALT,
     _SESSION_USER_NAME, _SESSION_SCOPE_ID, _SESSION_KEY, _SESSION_ID,
-    _SESSION_UI_SESSION_ID, _SESSION_MESSAGE_ID, _SESSION_PROFILE, _CRON_SESSION, _SESSION_PARENT_CHAT_ID,
+    _SESSION_UI_SESSION_ID, _SESSION_MESSAGE_ID, _SESSION_PROFILE, _SESSION_PARENT_CHAT_ID,
     _SESSION_ACTOR_ID, _SESSION_ACTOR_NAME,
 ) = tuple(ContextVar(name, default=_UNSET) for name in (
     "HERMES_SESSION_PLATFORM", "HERMES_SESSION_SOURCE", "HERMES_SESSION_CHAT_ID",
@@ -43,8 +43,8 @@ _SESSION_VARS = (
     "HERMES_SESSION_USER_ID", "HERMES_SESSION_USER_ID_ALT", "HERMES_SESSION_USER_NAME",
     "HERMES_SESSION_SCOPE_ID", "HERMES_SESSION_KEY", "HERMES_SESSION_ID",
     "HERMES_UI_SESSION_ID", "HERMES_SESSION_MESSAGE_ID", "HERMES_SESSION_PROFILE",
-    "HERMES_CRON_SESSION", "HERMES_SESSION_PARENT_CHAT_ID",
-    # The trusted sender of THIS turn. USER_ID is the session ROUTE (kanban/cron/send_message rebuild
+    "HERMES_SESSION_PARENT_CHAT_ID",
+    # The trusted sender of THIS turn. USER_ID is the session ROUTE (kanban/send_message rebuild
     # routes from it) and is empty in a shared chat (Telegram observe mode); ACTOR is who asked.
     "HERMES_SESSION_ACTOR_ID", "HERMES_SESSION_ACTOR_NAME",
 ))
@@ -64,17 +64,9 @@ _SESSION_ASYNC_DELIVERY = ContextVar("HERMES_SESSION_ASYNC_DELIVERY", default=_U
 # or child-process export: a bound id alone cannot authorize detached delivery.
 _SESSION_HISTORY_DELIVERY = ContextVar("HERMES_SESSION_HISTORY_DELIVERY", default=_UNSET)
 
-# Cron auto-delivery vars, set per-job in run_job() so concurrent jobs don't clobber.
-_CRON_AUTO_DELIVER_PLATFORM = ContextVar("HERMES_CRON_AUTO_DELIVER_PLATFORM", default=_UNSET)
-_CRON_AUTO_DELIVER_CHAT_ID = ContextVar("HERMES_CRON_AUTO_DELIVER_CHAT_ID", default=_UNSET)
-_CRON_AUTO_DELIVER_THREAD_ID = ContextVar("HERMES_CRON_AUTO_DELIVER_THREAD_ID", default=_UNSET)
-
 # Legacy env-var name -> ContextVar for get_session_env (_SESSION_ASYNC_DELIVERY deliberately
 # absent: it is a bool capability, read via async_delivery_supported).
-_VAR_MAP = {var.name: var for var in (
-    *_SESSION_VARS, _CRON_AUTO_DELIVER_PLATFORM, _CRON_AUTO_DELIVER_CHAT_ID,
-    _CRON_AUTO_DELIVER_THREAD_ID,
-)}
+_VAR_MAP = {var.name: var for var in _SESSION_VARS}
 
 
 def _runtime_cwd(func: str, *args: Any) -> None:
@@ -161,7 +153,7 @@ def set_session_vars(
     chat_name: str = "", thread_id: str = "", user_id: str = "", user_id_alt: str = "",
     user_name: str = "", scope_id: str = "", session_key: str = "", session_id: str = "",
     message_id: str = "", profile: str = "", cwd: str = "", async_delivery: bool = True,
-    ui_session_id: str = "", cron_session: Any = _UNSET, parent_chat_id: str = "",
+    ui_session_id: str = "", parent_chat_id: str = "",
     session_history_delivery: str | None = None, actor_id: str | None = None, actor_name: str | None = None,
     turn_event: Any = None,
 ) -> list:
@@ -179,7 +171,7 @@ def set_session_vars(
     values = (
         platform, source, chat_id, chat_type, chat_name, thread_id, user_id, user_id_alt,
         user_name, scope_id, session_key, session_id, ui_session_id, message_id, profile,
-        cron_session, parent_chat_id, user_id if actor_id is None else actor_id, user_name if actor_name is None else actor_name,
+        parent_chat_id, user_id if actor_id is None else actor_id, user_name if actor_name is None else actor_name,
     )
     tokens = [var.set(value) for var, value in zip(_SESSION_VARS, values)]
     tokens.append(_SESSION_ASYNC_DELIVERY.set(bool(async_delivery)))

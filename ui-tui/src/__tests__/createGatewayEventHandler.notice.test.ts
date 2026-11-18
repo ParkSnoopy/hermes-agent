@@ -51,11 +51,6 @@ const buildCtx = (appended: Msg[]) =>
         appended.push({ kind: 'panel', panelData: { sections, title }, role: 'system', text: '' }),
       setHistoryItems: vi.fn()
     },
-    voice: {
-      setProcessing: vi.fn(),
-      setRecording: vi.fn(),
-      setVoiceEnabled: vi.fn()
-    }
   }) as any
 
 describe('createGatewayEventHandler', () => {

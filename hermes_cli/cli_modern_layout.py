@@ -213,7 +213,7 @@ def diff_printer(print_fn):
 def turn_footer(summary: str) -> str:
     """``─ 12.4s · read 3 files · edited 1 file +4 -0 · 7:02 AM`` closing each turn."""
     body = summary.lstrip("⋯ ").strip()
-    clock = datetime.now().strftime("%-I:%M %p") if os.name != "nt" else datetime.now().strftime("%I:%M %p")
+    clock = datetime.now().strftime("%-I:%M %p")
     return _take_gap() + (f"{_DIM}─ {body} · {clock}{_RST}" if body else f"{_DIM}─ {clock}{_RST}")
 
 

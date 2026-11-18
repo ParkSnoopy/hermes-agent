@@ -176,3 +176,29 @@ def test_a_live_owner_keeps_its_server_tree(tmp_path):
         assert _alive(leader) and _alive(child) and owner.poll() is None
     finally:
         _cleanup(owner, leader, child)
+
+
+@pytest.mark.asyncio
+async def test_mocked_lsp_spawn_retains_stdio_and_own_session(monkeypatch, tmp_path):
+    captured = []
+
+    class FakeProc:
+        pid = 424242
+        stdin = stdout = stderr = None
+
+    async def fake_exec(*cmd, **kwargs):
+        captured.append((list(cmd), kwargs))
+        return FakeProc()
+
+    monkeypatch.setattr(lsp_client, "own_process_groups", lambda pgids: None)
+    monkeypatch.setattr(lsp_client, "register_child", lambda pid, purpose: None)
+    monkeypatch.setattr(lsp_client.asyncio, "create_subprocess_exec", fake_exec)
+    client = LSPClient(server_id="test-server", workspace_root=str(tmp_path), command=["fake-langserver", "--stdio"])
+    await client._spawn()
+    await asyncio.gather(client._stderr_task, client._reader_task)
+    assert len(captured) == 1
+    command, kwargs = captured[0]
+    assert command == ["fake-langserver", "--stdio"]
+    assert kwargs["stdin"] == asyncio.subprocess.PIPE
+    assert kwargs["stdout"] == asyncio.subprocess.PIPE
+    assert kwargs["start_new_session"] is True

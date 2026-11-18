@@ -48,22 +48,6 @@ export function markSubmitting(): void {
   patchUiState({ busy: true, status: 'running…' })
 }
 
-// A voice-mode transcript about to be submitted: the matching prompt.submit carries
-// `voice_turn` so the gateway runs it on `auxiliary.voice_chat`. Matched by text, so a
-// transcript the user edited or that went to the queue still lands as typed text.
-let pendingVoiceTranscript: null | string = null
-
-export function markNextSubmitVoice(text: string): void {
-  pendingVoiceTranscript = text
-}
-
-function takeVoiceTranscript(): null | string {
-  const transcript = pendingVoiceTranscript
-  pendingVoiceTranscript = null
-
-  return transcript
-}
-
 interface SubmitPromptOpts {
   attachments?: Array<{ path: string; mime: string }>
   skipDetectDrop?: boolean
@@ -138,7 +122,6 @@ function submitParams(
   item: QueueItem | undefined,
   submitText: string,
   attachments: SubmitPromptOpts['attachments'],
-  voice: boolean,
   clarifyBatch: boolean
 ) {
   return {
@@ -147,8 +130,6 @@ function submitParams(
     ...((item?.attachments ?? attachments)?.length ? { attachments: item?.attachments ?? attachments } : {}),
     ...(item?.controlMethod ? { execution_generation: item.executionGeneration } : {}),
     ...(item && !item.controlMethod ? { submission_id: item.submissionId, queued: item.queued !== false } : {}),
-    // A busy correction (steer/redirect) is not a turn: it never claims the voice route.
-    ...(!item?.controlMethod && voice && { voice_turn: true }),
     // Ink renders a whole question set as one form; undeclared, the owner asks one card per question.
     ...(!item?.controlMethod && clarifyBatch && { clarify_batch: true })
   }
@@ -170,21 +151,8 @@ function settleControlReply(
   item: QueueItem,
   r: PromptSubmitResponse,
   deps: SubmitPromptDeps,
-  focused: () => boolean,
-  sid: string
+  focused: () => boolean
 ): boolean {
-  // A bare stop phrase typed as a busy correction ended the voice chat and reached
-  // no turn (TUI-26): settled, rendered as the stop-phrase event, the turn untouched.
-  if (r?.voice_stopped === true) {
-    item.settle?.(true)
-
-    if (deps.gw.isCanonical) {
-      deps.gw.publishLocalEvent({ payload: { stop_phrase: true, typed: true }, session_id: sid, type: 'voice.transcript' })
-    }
-
-    return true
-  }
-
   const control = r as PromptSubmitResponse & { delivered?: false; execution_generation?: number }
 
   // Only a 'rejected' the owner marks undelivered (no live agent took it) becomes the next prompt. A
@@ -300,9 +268,6 @@ export function submitPrompt(
   displayOverride?: string,
   opts: SubmitPromptOpts = {}
 ): void {
-  // The voice marker belongs to the input submitted right after it, whatever happens to that input
-  // (busy correction, refusal): consumed here, so a later identical typed prompt never inherits it.
-  const voiceTranscript = takeVoiceTranscript()
   const destination = opts.destination ?? captureDestination()
   const owner = pendingInputOwner(opts.queueItem?.ownerDestination ?? destination)
   const { sid } = owner
@@ -375,39 +340,13 @@ export function submitPrompt(
           item,
           submitText,
           opts.attachments,
-          voiceTranscript === submitText.trim(),
           deps.gw.clarifyBatch === true
         )
       )
       .then(r => {
         if (item?.controlMethod) {
-          if (!settleControlReply(item, r, deps, focused, sid)) {
+          if (!settleControlReply(item, r, deps, focused)) {
             readmit(item)
-          }
-
-          return
-        }
-
-        // The gateway consumed a typed voice stop phrase server-side (voice
-        // chat ended, nothing admitted) — release the busy latch. The sidecar
-        // sends a voice.transcript {stop_phrase} event for the mode flags and
-        // notice; the shared gateway answers in this reply only (TUI-26), so
-        // render that same event locally.
-        if (r?.voice_stopped === true) {
-          item?.settle?.(true)
-
-          if (deps.gw.isCanonical) {
-            deps.gw.publishLocalEvent({
-              payload: { stop_phrase: true, typed: true },
-              session_id: sid,
-              type: 'voice.transcript'
-            })
-          }
-
-          // Only the busy latch this submission took: a stop typed behind a running
-          // turn ends the voice chat, not that turn, so its busy/status stay.
-          if (ownsTurn()) {
-            patchUiState({ busy: false, status: 'ready' })
           }
 
           return

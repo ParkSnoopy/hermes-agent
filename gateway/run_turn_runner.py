@@ -243,9 +243,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         if ctx.mute_notification_reply:
             return None, None, None, False
         stream_consumer = None
-        # The streaming-TTS consumer is created on the outer loop thread before run_sync launches;
-        # run_sync only reads it via the holder for delta-callback wiring.
-        stts = ctx.streaming_tts_consumer_holder[0]
+
         scfg = getattr(getattr(self._runner, 'config', None), 'streaming', None)
         if scfg is None:
             from gateway.config import StreamingConfig
@@ -295,11 +293,11 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                     stream_consumer.stream_deltas_enabled = consumer_stream_deltas
             except Exception as err:
                 logger.debug("Could not set up stream consumer: %s", err)
-        # Deltas tee to the stream consumer (when text streaming is on) and to streaming TTS.
+        # Deltas go to the text stream consumer when enabled.
         delta_sinks = [
             sc for sc in (
                 stream_consumer if stream_consumer and stream_consumer.stream_deltas_enabled else None,
-                stts,
+
             ) if sc is not None
         ]
         stream_delta_cb = None
@@ -336,12 +334,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                 # as delivered only when a viewer or observer actually took it.
                 payload = {"text": text, "already_streamed": False}
                 unseen = not self._publish_execution("message.interim", payload)
-            if stts is not None:
-                # Flush accepted deltas; completed commentary is a separate speech segment.
-                stts.on_delta(None)
-                if not already_streamed:
-                    stts.on_delta(text)
-                    stts.on_delta(None)
+
             if unseen:
                 return
             if stream_consumer is not None:
@@ -497,9 +490,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         agent.daybreak_surface = callable(_surface) and _surface(ctx.source) is True
         self._merge_turn_request_overrides(agent, turn_route)
         from gateway.session_surface import arm_surface_turn
-        # auxiliary.voice_chat route (a voice note, or an admission committed as a voice turn) and
-        # this turn's must-deliver notes; a managed worker arms its agent through the same helper.
-        arm_surface_turn(agent, runner._consume_pending_turn_sidecar_notes(ctx.session_key), voice_turn=ctx.voice_turn)
+        arm_surface_turn(agent, runner._consume_pending_turn_sidecar_notes(ctx.session_key))
         agent.background_review_callback, bg_release = self._make_bg_review_callbacks()
         # Register the release hook on the adapter so base.py's finally block fires it after the
         # main response is delivered.

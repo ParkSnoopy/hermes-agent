@@ -190,7 +190,7 @@ test('built TUI stays current after documentation, test and unrelated recipe cha
   for (const name of [
     'ui-tui/README.md', 'ui-tui/src/__tests__/new.test.ts', 'ui-tui/src/value.spec.ts',
     'ui-tui/packages/hermes-ink/src/value.test.ts', 'apps/shared/src/value.test.ts',
-    'apps/shared/README.md', 'scripts/build/web.mjs', 'scripts/build/desktop.mjs',
+    'apps/shared/README.md',
     'scripts/build/README.md', 'scripts/build/node-deps.mjs',
   ]) {
     put(source, name, 'not a compiler input')

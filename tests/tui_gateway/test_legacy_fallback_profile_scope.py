@@ -1,6 +1,6 @@
 """B11: a ticket bound to a secondary profile reads ITS profile through the legacy session fallback.
 
-``session.most_recent`` / ``session.workspace.move`` / ``session.foreign.*`` open ``_profile_db``
+``session.most_recent`` / ``session.workspace.move`` open ``_profile_db``
 (the LAUNCH store when no ``profile`` is named) and ``session.active_list`` lists every legacy
 session in the process, so a profile-bound Ink/CLI ticket got the launch profile's latest session id
 and title (and Ink's auto-resume resumed it) and another profile's live rows."""

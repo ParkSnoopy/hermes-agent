@@ -1,0 +1,5 @@
+session_policy_peer: GUI launch removed; CLI/TUI real-turn model, cwd, tools, skill, session id, retry, agent resume, env/config isolation retained.
+shell_exec_peer: native authority preserves cwd, exit/output, credential scrubbing, dangerous/sessionless denial; sandbox-backend driver retained.
+estop_interactive_peer: native events retain in-flight, paused, resumed completions and provider call assertions.
+No exclusive peer deleted. Mock inference servers retained in future-run fixtures only.
+Shared dependency: tests.gateway.fixtures.local_recovery_probe supplies Model and child_env to drivers; parent owns its retirement/migration.

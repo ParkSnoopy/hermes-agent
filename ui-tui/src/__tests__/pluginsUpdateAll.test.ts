@@ -89,6 +89,5 @@ function buildCtx(request: ReturnType<typeof vi.fn>) {
       sys: vi.fn(),
       trimLastExchange: vi.fn((items: unknown[]) => items)
     },
-    voice: { setVoiceEnabled: vi.fn() }
   }
 }

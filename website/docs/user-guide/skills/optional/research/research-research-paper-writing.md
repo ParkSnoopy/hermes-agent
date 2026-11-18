@@ -440,7 +440,7 @@ analyze_results.py             # Statistical analysis
 make_charts.py                 # Visualization
 ```
 
-See [references/experiment-patterns.md](https://github.com/NousResearch/hermes-agent/blob/main/optional-skills/research/research-paper-writing/references/experiment-patterns.md) for complete design patterns, cron monitoring, and error recovery.
+See [references/experiment-patterns.md](https://github.com/NousResearch/hermes-agent/blob/main/optional-skills/research/research-paper-writing/references/experiment-patterns.md) for complete design patterns, monitoring, and error recovery.
 
 ### Step 2.5: Design Human Evaluation (If Applicable)
 
@@ -497,23 +497,6 @@ echo $!  # Record the PID
 ```
 
 **Parallel execution**: Run independent experiments simultaneously, but be aware of API rate limits. 4+ concurrent experiments on the same API will slow each down.
-
-### Step 3.2: Set Up Monitoring (Cron Pattern)
-
-For long-running experiments, set up periodic status checks. The cron prompt should follow this template:
-
-```
-Monitor Prompt Template:
-1. Check if process is still running: ps aux | grep <pattern>
-2. Read last 30 lines of log: tail -30 <logfile>
-3. Check for completed results: ls <result_dir>
-4. If results exist, read and report: cat <result_file>
-5. If all done, commit: git add -A && git commit -m "<descriptive message>" && git push
-6. Report in structured format (tables with key metrics)
-7. Answer the key analytical question for this experiment
-```
-
-**Silent mode**: If nothing has changed since the last check, respond with `[SILENT]` to suppress notification to the user. Only report when there's news.
 
 ### Step 3.3: Handle Failures
 
@@ -1414,9 +1397,7 @@ Compose this skill with other Hermes skills for specific phases:
 | **`delegate_task`** | **Parallel section drafting** — spawn isolated subagents for each section. Also for concurrent citation verification. |
 | **`todo`** | Primary state tracker across sessions. Update after every phase transition. |
 | **`memory`** | Persist key decisions across sessions: contribution framing, venue choice, reviewer feedback. |
-| **`cronjob`** | Schedule experiment monitoring, deadline countdowns, automated arXiv checks. |
 | **`clarify`** | Ask the user targeted questions when blocked (venue choice, contribution framing). |
-| **cron `deliver:`** | Notify the user when experiments complete or drafts are ready even if they're not in chat — schedule the check as a cron job with a messaging `deliver:` target (the agent no longer has a `send_message` tool; outbound delivery is handled by cron/`hermes send`). |
 
 ### Tool Usage Patterns
 
@@ -1427,7 +1408,7 @@ terminal("ps aux | grep <pattern>")
 → terminal("ls results/")
 → execute_code("analyze results JSON, compute metrics")
 → terminal("git add -A && git commit -m '<descriptive message>' && git push")
-→ (final response auto-delivers "Experiment complete: <summary>"; for unattended runs, schedule via cron with a deliver: target)
+→ Report "Experiment complete: <summary>" in the final response.
 ```
 
 **Parallel section drafting** (using delegation):
@@ -1494,40 +1475,9 @@ todo("update", id=1, status="completed")
 6. Report status to user, ask for direction
 ```
 
-### Cron Monitoring with `cronjob`
-
-Use the `cronjob` tool to schedule periodic experiment checks:
-
-```
-cronjob("create", {
-  "schedule": "*/30 * * * *",  # Every 30 minutes
-  "prompt": "Check experiment status:
-    1. ps aux | grep run_experiment
-    2. tail -30 logs/experiment_haiku.log
-    3. ls results/haiku_baselines/
-    4. If complete: read results, compute Borda scores, 
-       git add -A && git commit -m 'Add Haiku results' && git push
-    5. Report: table of results, key finding, next step
-    6. If nothing changed: respond with [SILENT]"
-})
-```
-
-**[SILENT] protocol**: When nothing has changed since the last check, respond with exactly `[SILENT]`. This suppresses notification delivery to the user. Only report when there are genuine changes worth knowing about.
-
-**Deadline tracking**:
-```
-cronjob("create", {
-  "schedule": "0 9 * * *",  # Daily at 9am
-  "prompt": "NeurIPS 2025 deadline: May 22. Today is {date}. 
-    Days remaining: {compute}. 
-    Check todo list — are we on track? 
-    If <7 days: warn user about remaining tasks."
-})
-```
-
 ### Communication Patterns
 
-**When to notify the user** (via your direct/final response, or a cron `deliver:` target for unattended runs):
+**When to notify the user** (via your direct/final response):
 - Experiment batch completed (with results table)
 - Unexpected finding or failure requiring decision
 - Draft section ready for review

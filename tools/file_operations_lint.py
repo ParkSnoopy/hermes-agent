@@ -199,22 +199,20 @@ class LintMixin:
         import shutil
         import subprocess
 
-        from hermes_cli._subprocess_compat import windows_hide_flags
         from hermes_constants import with_hermes_node_path
-        from tools.environments.local import _IS_WINDOWS, _msys_to_windows_path, hermes_subprocess_env
+        from tools.environments.local import hermes_subprocess_env
 
         tool, *args = _MANAGED_NODE_LINTERS[ext]
         executable = shutil.which(tool, path=with_hermes_node_path({"PATH": ""})["PATH"])
         if executable is None:
             return None
         cwd = getattr(self.env, "cwd", None) or self.cwd
-        if _IS_WINDOWS:
-            path, cwd = _msys_to_windows_path(path), cwd and _msys_to_windows_path(cwd)
+
         try:
             proc = subprocess.run(
                 [executable, *args, path], cwd=cwd or None, env=with_hermes_node_path(hermes_subprocess_env()),
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace", timeout=30, creationflags=windows_hide_flags(), check=False)
+                text=True, encoding="utf-8", errors="replace", timeout=30, check=False)
         except subprocess.TimeoutExpired:
             return ExecuteResult(stdout=f"{tool} timed out after 30s", exit_code=124)
         return ExecuteResult(stdout=proc.stdout or "", exit_code=proc.returncode)

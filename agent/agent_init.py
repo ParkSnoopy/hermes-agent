@@ -528,7 +528,7 @@ _SESSION_STATE: dict[str, Any] = {
 
 # Streaming delivery state.
 _STREAM_STATE: dict[str, Any] = {
-    "_stream_callback": None,  # streaming TTS; set early so _vprint can reference it
+    "_stream_callback": None,  # per-turn text sink; set early so _vprint can reference it
     "_stream_needs_break": False,  # one "\n\n" before the next real text delta after tools
     # Stateful scrubbers: <memory-context> / thinking spans split across deltas defeat
     # per-delta regexes (both tags must be in one string).
@@ -545,7 +545,7 @@ _STREAM_STATE: dict[str, Any] = {
     "_stream_writer_dropped": 0,
     # Set once a strict endpoint 400/422s on ``stream_options``; later streams on that route omit it (#9705).
     "_stream_options_unsupported": False,
-    # API-facing user message override when it differs from the persisted transcript (voice).
+    # API-facing user message override when it differs from the persisted transcript.
     "_persist_user_message_idx": None,
     "_persist_user_message_override": None,
     "_persist_user_message_timestamp": None,
@@ -1948,7 +1948,7 @@ def _warn_nonagentic_hermes_model(agent):
             _user_msg = (
                 "⚠ Nous Research Hermes 3 & 4 models are NOT agentic — they "
                 "lack reliable tool-calling for agent workflows (delegation, "
-                "cron, proactive tools). Consider an agentic model instead "
+                "proactive tools). Consider an agentic model instead "
                 "(Claude, GPT, Gemini, Qwen-Coder, etc.)."
             )
             agent._emit_warning(_user_msg)

@@ -426,7 +426,9 @@ def test_line_two_stays_young_through_the_r6_release_wait(tmp_path):
             time.sleep(0.05)
         for _ in range(4):  # several refresh intervals, all inside the wait
             time.sleep(1.5)
-            pid, started = marker.read_text(encoding="utf-8-sig").splitlines()[:2]
+            lines = marker.read_text(encoding="utf-8-sig").splitlines()
+            pid, started = lines[:2]
+            run_id = next(line.removeprefix("run:") for line in lines if line.startswith("run:"))
             assert script.poll() is None and pid == _custodian(home)
             assert time.time() - int(started) <= 3.5, started
     finally:
@@ -434,6 +436,8 @@ def test_line_two_stays_young_through_the_r6_release_wait(tmp_path):
         if script.poll() is None:
             assert script.wait(timeout=30) == 0
     assert not marker.exists()
+    result = json.loads((home / ".hermes-update-result.json").read_text(encoding="utf-8-sig"))
+    assert run_id and result["run_id"] == run_id
 
 
 def test_checkout_lock_probe_never_makes_a_concurrent_acquire_fail(tmp_path):

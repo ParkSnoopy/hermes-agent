@@ -100,14 +100,14 @@ _PLATFORM_ALLOWLIST: dict[str, str] = {}
 _PRELOAD = (
     "openai", "httpx", "pydantic", "rich", "prompt_toolkit", "yaml", "ruamel.yaml", "requests", "jinja2",
     "fastapi", "starlette", "uvicorn", "anthropic", "cryptography", "psutil", "websockets", "dotenv",
-    "fire", "croniter", "markdown", "jwt", "packaging", "PIL",
+    "fire", "markdown", "jwt", "packaging", "PIL",
 )
 
 # Import sites the pre-hand-off updater (v2026.9.14 update_cmd_fleet/_maint) reaches AFTER
 # its purge in the pre-pull interpreter: the restart phase (``hermes_cli.gateway`` and what
 # it pulls), the maintenance/summary steps, and the atexit browser cleanup that re-imports
 # ``tools.browser_tool`` -> ``hermes_cli.config`` (#112522). Entry points that only ever start
-# in a NEW process (gateway.run, tui_gateway.entry, cron.scheduler) are covered by the
+# in a NEW process (gateway.run, tui_gateway.entry) are covered by the
 # fresh-interpreter smoke instead.
 _POST_PURGE_IMPORTS = (
     "hermes_cli.config", "hermes_cli.managed_scope", "hermes_cli.gateway", "gateway.status",

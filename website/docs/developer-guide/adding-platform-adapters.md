@@ -57,14 +57,14 @@ requires_env:
     password: false
 optional_env:
   - name: MY_PLATFORM_HOME_CHANNEL
-    description: "Default channel for cron delivery"
+    description: "Default channel for delivery"
     password: false
 ```
 
 #### Outbound client tools: `provides_tools`
 
 `kind: platform` plugins are **deferred**: the adapter module (and its SDK
-imports) only load when a gateway, cron, or `send_message` path first asks the
+imports) only load when a gateway or `send_message` path first asks the
 platform registry for the platform. If your plugin also ships outbound *client
 tools* the agent should be able to call from any session (the bundled `a2a`
 plugin's `a2a_call` / `a2a_discover` etc.), put them in a dedicated `tools.py`
@@ -160,10 +160,6 @@ def register(ctx):
         # env vars before adapter construction. See "Env-Driven Auto-
         # Configuration" section below.
         env_enablement_fn=_env_enablement,
-        # Cron home-channel delivery support. Lets deliver=my_platform cron
-        # jobs route without editing cron/scheduler.py. See "Cron Delivery"
-        # section below.
-        cron_deliver_env_var="MY_PLATFORM_HOME_CHANNEL",
         # Per-platform user authorization env vars
         allowed_users_env="MY_PLATFORM_ALLOWED_USERS",
         allow_all_env="MY_PLATFORM_ALLOW_ALL_USERS",
@@ -215,7 +211,6 @@ When you call `ctx.register_platform()`, the following integration points are ha
 | User authorization | `allowed_users_env` / `allow_all_env` checked; `group_allowed_chats_env` / `allowlist_suppresses_pairing` (see below) |
 | Env-only auto-enable | `env_enablement_fn` seeds `PlatformConfig.extra` + `home_channel` |
 | YAML config bridge | `apply_yaml_config_fn` translates `config.yaml` keys into env vars / extras |
-| Cron delivery | `cron_deliver_env_var` makes `deliver=<name>` work |
 | `hermes config` UI entries | `requires_env` / `optional_env` in `plugin.yaml` auto-populate |
 | send engine (`tools/send_message_tool.py`) | Routes through live gateway adapter |
 | Webhook cross-platform delivery | Registry checked for known platforms |
@@ -325,7 +320,7 @@ result by identity with the entry your card was rendered for before acting on a 
 ## Standalone send-path extensions
 
 A standalone platform can participate in host-driven outbound delivery through
-direct `hermes send --to ...` and cron `deliver=platform:...` by declaring send
+direct `hermes send --to ...` by declaring send
 behavior on the same `PlatformEntry` created by `ctx.register_platform()`.
 `send_message` is intentionally not an agent-callable model tool; plugins must
 not register an equivalent model surface that lets the agent initiate outbound
@@ -366,8 +361,7 @@ def register(ctx):
         # May be a regular function or async def. Hermes awaits any awaitable
         # result, including callable objects and functools.partial wrappers.
         send_message_handler=_send_request,
-        # Prefer this lower-level hook when cron must send from a process
-        # without the live gateway.
+        # Use this lower-level hook without a live gateway.
         standalone_sender_fn=_standalone_send,
     )
 ```
@@ -382,7 +376,7 @@ the next profile.
 
 ## Env-Driven Auto-Configuration
 
-Most users set up a platform by dropping env vars into `~/.hermes/.env` rather than editing `config.yaml`. The `env_enablement_fn` hook lets your plugin pick those env vars up **before** the adapter is constructed, so `hermes gateway status`, `get_connected_platforms()`, and cron delivery see the correct state without instantiating the platform SDK.
+Most users set up a platform by dropping env vars into `~/.hermes/.env` rather than editing `config.yaml`. The `env_enablement_fn` hook lets your plugin pick those env vars up **before** the adapter is constructed, so `hermes gateway status`, `get_connected_platforms()`, see the correct state without instantiating the platform SDK.
 
 Read env through `gateway.platforms._shared.get_scoped_secret` — never `os.getenv`. Under `gateway.multiplex_profiles` the process env holds the DEFAULT profile's values; a secondary profile's `.env` exists only in its secret scope, and a raw read would enable your platform for the wrong profile with the wrong credentials. `seed_extra_from_env` builds the seed dict from a `(ENV_VAR, extra_key, conv)` table through that reader.
 
@@ -467,51 +461,6 @@ The hook is invoked during `load_gateway_config()` after the generic shared-key 
 Exceptions raised by the hook are swallowed and logged at debug level — a misbehaving plugin never aborts gateway config load.
 
 
-## Cron Delivery
-
-To let `deliver=my_platform` cron jobs route to a configured home channel, set `cron_deliver_env_var` to the env var name that holds the default chat/room/channel ID:
-
-```python
-ctx.register_platform(
-    name="my_platform",
-    ...
-    cron_deliver_env_var="MY_PLATFORM_HOME_CHANNEL",
-)
-```
-
-The scheduler reads this env var when resolving the home target for `deliver=my_platform` jobs, and also treats the platform as a valid cron target in `_KNOWN_DELIVERY_PLATFORMS`-style checks. If your `env_enablement_fn` seeds a `home_channel` dict (see above), that takes precedence — `cron_deliver_env_var` is the fallback for cron jobs that run before env seeding.
-
-### Out-of-process cron delivery
-
-`cron_deliver_env_var` makes your platform a recognized `deliver=` target. To make the actual send succeed when the cron job runs in a separate process from the gateway (i.e., `hermes cron run` separate from `hermes gateway`), register a `standalone_sender_fn`:
-
-```python
-async def _standalone_send(
-    pconfig,
-    chat_id,
-    message,
-    *,
-    thread_id=None,
-    media_files=None,
-    force_document=False,
-):
-    """Open an ephemeral connection / acquire a fresh token, send, and close."""
-    # ... open connection, send message, return result ...
-    return {"success": True, "message_id": "..."}
-    # or {"error": "..."}
-
-ctx.register_platform(
-    name="my_platform",
-    ...
-    cron_deliver_env_var="MY_PLATFORM_HOME_CHANNEL",
-    standalone_sender_fn=_standalone_send,
-)
-```
-
-Why this hook is necessary: the live adapter is only reachable through `_gateway_runner_ref()`, which returns `None` outside the gateway process, so without `standalone_sender_fn` the cron-side send fails with `No live adapter for platform '<name>'`. The bundled platforms use this same hook: Telegram's out-of-process sender (`hermes send`, the `send_message` tool, standalone cron delivery) is `plugins/platforms/telegram/standalone.py::standalone_send` and Signal's is `plugins/platforms/signal/standalone.py`; core reaches them only through the platform registry.
-
-The function receives the same `pconfig` and `chat_id` that the live adapter would, plus optional `thread_id`, `media_files`, and `force_document` keyword arguments. Optional keywords added later are forwarded only to a sender that declares them (by name or through `**kwargs`), so a sender written to the signature above keeps working: `notify=True` (cron's `cron.delivery.notify`: this delivery should ring even under a quiet notification mode) is one; Telegram's sender takes it. Returning `{"success": True, "message_id": ...}` is treated as a successful delivery; returning `{"error": "..."}` surfaces the message in cron's `delivery_errors`. Exceptions raised inside the function are caught by the dispatcher and reported as `Plugin standalone send failed: <reason>`. Reference implementations live in `plugins/platforms/{irc,teams,google_chat}/adapter.py`.
-
 ## Surfacing Env Vars in `hermes config`
 
 `hermes_cli/config.py` scans `plugins/platforms/*/plugin.yaml` at import time and auto-populates `OPTIONAL_ENV_VARS` from `requires_env` and (optional) `optional_env` blocks. Use the rich-dict form to contribute proper descriptions, prompts, password flags, and URLs — the CLI setup UI picks them up for free.
@@ -537,7 +486,7 @@ requires_env:
     password: false
 optional_env:
   - name: MY_PLATFORM_HOME_CHANNEL
-    description: "Default channel for cron delivery (defaults to MY_PLATFORM_CHANNEL)"
+    description: "Default channel for delivery (defaults to MY_PLATFORM_CHANNEL)"
     prompt: "Home channel (or empty)"
     password: false
   - name: MY_PLATFORM_ALLOWED_USERS
@@ -740,7 +689,6 @@ Six touchpoints:
 ### 5. Cross-Platform Delivery
 
 1. **`gateway/platforms/webhook.py`** — Add `"newplat"` to the delivery type tuple
-2. **`cron/scheduler_delivery.py`** — Add to `_KNOWN_DELIVERY_PLATFORMS` frozenset and `_deliver_result()` platform map
 
 ### 6. CLI Integration
 
@@ -754,7 +702,6 @@ Six touchpoints:
 ### 7. Tools
 
 1. **`tools/send_message_tool.py`** — Add `"newplat": Platform.NEWPLAT` to platform map
-2. **`tools/cronjob_tools.py`** — Add `newplat` to the delivery target description string
 
 ### 8. Toolsets
 

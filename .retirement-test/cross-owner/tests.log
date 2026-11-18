@@ -1,0 +1,237 @@
+▶ not activated — using HERMES_PYTHON: /home/admin/host/tmp/hermes-agent-fix-workspace/source/.retirement-test/cross-owner-python
+▶ running per-file parallel test suite via run_tests_parallel.py
+  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; clean env)
+▶ pre-compiling bytecode cache
+▶ launching test runner
+Discovered 3 test files (~19 tests) under ['tests/hermes_cli/test_gateway_connections_watch.py', 'tests/pm/test_workspace_build_inputs.py', 'tests/gateway/test_base_topic_sessions.py']; running with -j 1
+[ 21.1% |     4/~19 | ✓2 | ✗3] ✗ tests/hermes_cli/test_gateway_connections_watch.py (2✓ 3✗, 0.9s)
+
+  ╔╍ Failed: tests/hermes_cli/test_gateway_connections_watch.py ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍
+  ║     minted by ``POST /api/webapp/socket-ticket?socket=relay``) for the same identity, and is tracked with
+  ║     the browser's other sockets, so signing out here closes it. The socket's credential at the other
+  ║     gateway is minted here per dial (its session token, or a one-use ticket). Frames pass through as they
+  ║     are; each side's close reaches the other, and removing the connection closes it.
+  ║     """
+  ║     from __future__ import annotations
+  ║     
+  ║     import asyncio
+  ║     import contextlib
+  ║     import http.cookiejar
+  ║     import logging
+  ║     import threading
+  ║     import urllib.parse
+  ║     import weakref
+  ║     from typing import Optional
+  ║     
+  ║     import httpx
+  ║     from fastapi import APIRouter, HTTPException, Request, WebSocket
+  ║     from fastapi.responses import JSONResponse, StreamingResponse
+  ║     from starlette.background import BackgroundTask
+  ║     
+  ║ >   from hermes_cli import webapp_relay_target as reach
+  ║ E   ImportError: cannot import name 'webapp_relay_target' from 'hermes_cli' (/home/admin/host/tmp/hermes-agent-fix-workspace/source/hermes_cli/__init__.py)
+  ║ 
+  ║ hermes_cli/web_routers/webapp_relay_proxy.py:35: ImportError
+  ║ =========================== short test summary info ============================
+  ║ FAILED tests/hermes_cli/test_gateway_connections_watch.py::test_another_writer_repoints_or_removes_socket_but_rename_keeps_it[re-point]
+  ║ FAILED tests/hermes_cli/test_gateway_connections_watch.py::test_another_writer_repoints_or_removes_socket_but_rename_keeps_it[remove]
+  ║ FAILED tests/hermes_cli/test_gateway_connections_watch.py::test_one_entrys_failed_teardown_still_tears_down_the_others
+  ║ ================== 3 failed, 2 passed, 1 deselected in 0.55s ===================
+  ║
+  ║  Repro: python -m pytest tests/hermes_cli/test_gateway_connections_watch.py -k external_store_changes_preserve_rename or another_writer_repoints_or_removes_socket or one_entrys_failed_teardown or tool_store_inside_a_package or audio_attachment_preserves_topic_metadata -p no:cacheprovider
+  ╚╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍
+
+[ 84.2% |    16/~19 | ✓3 | ✗3] ✓ tests/pm/test_workspace_build_inputs.py (1✓, 0.4s)
+[100.0% |    19/~19 | ✓4 | ✗3] ✓ tests/gateway/test_base_topic_sessions.py (1✓, 0.6s)
+
+=== Summary: 3 files, 4 tests passed, 3 failed; FAILED: 1 of 3 files (100% complete) in 1.9s (1 workers) ===
+  Durations cached to test_durations.json (2 files)
+
+=== Per-file subprocess time distribution ===
+  Files:   3
+  Total subprocess CPU-wall: 1.9s  (runner wall: 1.9s, parallelism: 1x)
+  P50: 0.62s  P90: 0.89s  P95: 0.89s  P99: 0.89s  Max: 0.89s
+  <1s: 3 files (100%)  <2s: 3 files (100%)
+  Top 10 slowest:
+      0.89s  tests/hermes_cli/test_gateway_connections_watch.py
+      0.62s  tests/gateway/test_base_topic_sessions.py
+      0.40s  tests/pm/test_workspace_build_inputs.py
+
+=== Failure output ===
+
+--- tests/hermes_cli/test_gateway_connections_watch.py ---
+============================= test session starts ==============================
+platform linux -- Python 3.14.10, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/admin/host/tmp/hermes-agent-fix-workspace/source
+configfile: pyproject.toml
+plugins: asyncio-1.3.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 6 items / 1 deselected / 5 selected
+
+tests/hermes_cli/test_gateway_connections_watch.py ..FFF                 [100%]
+
+=================================== FAILURES ===================================
+_ test_another_writer_repoints_or_removes_socket_but_rename_keeps_it[re-point] _
+
+tmp_path = PosixPath('/var/tmp/hermes-pytest-1000/r-nlvq0dfr/pytest-of-admin/pytest-0/test_another_writer_repoints_o0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f79e525fad0>
+edit = 're-point'
+
+    @pytest.mark.parametrize("edit", ["re-point", "remove"])
+    @pytest.mark.asyncio
+    async def test_another_writer_repoints_or_removes_socket_but_rename_keeps_it(tmp_path, monkeypatch, edit):
+>       from hermes_cli.web_routers import webapp_relay_proxy
+
+tests/hermes_cli/test_gateway_connections_watch.py:49: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    """The Webapp's forwarding proxy: ``/api/relay/<connection id>/<path>`` carries a signed-in browser's
+    REST calls and sockets to a gateway saved in this machine's connection list
+    (``hermes_cli.gateway_connections``), keyed by the same registry id native Desktop uses.
+    
+    HTTP. The browser's request is sent on as ``<connection url>/<path>`` with the credential saved for
+    that connection, the way Desktop sends it (``hermes_cli.webapp_relay_target``), body and response
+    streamed both ways. Cookies, the browser's own credentials and forwarding headers never cross. Only
+    headers that describe the body come back, under a sandboxing content policy, and a redirect only
+    within the gateway: what it serves never acts on this gateway's origin. A 401 from the gateway means
+    the saved credential no longer works there, so the browser gets a 409 ``relay_reconnect`` instead of
+    being sent to this gateway's sign-in.
+    
+    Sockets. A relayed socket opens only with this gateway's one-use ``relay`` ticket (``?relay_ticket=``,
+    minted by ``POST /api/webapp/socket-ticket?socket=relay``) for the same identity, and is tracked with
+    the browser's other sockets, so signing out here closes it. The socket's credential at the other
+    gateway is minted here per dial (its session token, or a one-use ticket). Frames pass through as they
+    are; each side's close reaches the other, and removing the connection closes it.
+    """
+    from __future__ import annotations
+    
+    import asyncio
+    import contextlib
+    import http.cookiejar
+    import logging
+    import threading
+    import urllib.parse
+    import weakref
+    from typing import Optional
+    
+    import httpx
+    from fastapi import APIRouter, HTTPException, Request, WebSocket
+    from fastapi.responses import JSONResponse, StreamingResponse
+    from starlette.background import BackgroundTask
+    
+>   from hermes_cli import webapp_relay_target as reach
+E   ImportError: cannot import name 'webapp_relay_target' from 'hermes_cli' (/home/admin/host/tmp/hermes-agent-fix-workspace/source/hermes_cli/__init__.py)
+
+hermes_cli/web_routers/webapp_relay_proxy.py:35: ImportError
+__ test_another_writer_repoints_or_removes_socket_but_rename_keeps_it[remove] __
+
+tmp_path = PosixPath('/var/tmp/hermes-pytest-1000/r-nlvq0dfr/pytest-of-admin/pytest-0/test_another_writer_repoints_o1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f79e3f7d7b0>
+edit = 'remove'
+
+    @pytest.mark.parametrize("edit", ["re-point", "remove"])
+    @pytest.mark.asyncio
+    async def test_another_writer_repoints_or_removes_socket_but_rename_keeps_it(tmp_path, monkeypatch, edit):
+>       from hermes_cli.web_routers import webapp_relay_proxy
+
+tests/hermes_cli/test_gateway_connections_watch.py:49: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    """The Webapp's forwarding proxy: ``/api/relay/<connection id>/<path>`` carries a signed-in browser's
+    REST calls and sockets to a gateway saved in this machine's connection list
+    (``hermes_cli.gateway_connections``), keyed by the same registry id native Desktop uses.
+    
+    HTTP. The browser's request is sent on as ``<connection url>/<path>`` with the credential saved for
+    that connection, the way Desktop sends it (``hermes_cli.webapp_relay_target``), body and response
+    streamed both ways. Cookies, the browser's own credentials and forwarding headers never cross. Only
+    headers that describe the body come back, under a sandboxing content policy, and a redirect only
+    within the gateway: what it serves never acts on this gateway's origin. A 401 from the gateway means
+    the saved credential no longer works there, so the browser gets a 409 ``relay_reconnect`` instead of
+    being sent to this gateway's sign-in.
+    
+    Sockets. A relayed socket opens only with this gateway's one-use ``relay`` ticket (``?relay_ticket=``,
+    minted by ``POST /api/webapp/socket-ticket?socket=relay``) for the same identity, and is tracked with
+    the browser's other sockets, so signing out here closes it. The socket's credential at the other
+    gateway is minted here per dial (its session token, or a one-use ticket). Frames pass through as they
+    are; each side's close reaches the other, and removing the connection closes it.
+    """
+    from __future__ import annotations
+    
+    import asyncio
+    import contextlib
+    import http.cookiejar
+    import logging
+    import threading
+    import urllib.parse
+    import weakref
+    from typing import Optional
+    
+    import httpx
+    from fastapi import APIRouter, HTTPException, Request, WebSocket
+    from fastapi.responses import JSONResponse, StreamingResponse
+    from starlette.background import BackgroundTask
+    
+>   from hermes_cli import webapp_relay_target as reach
+E   ImportError: cannot import name 'webapp_relay_target' from 'hermes_cli' (/home/admin/host/tmp/hermes-agent-fix-workspace/source/hermes_cli/__init__.py)
+
+hermes_cli/web_routers/webapp_relay_proxy.py:35: ImportError
+_________ test_one_entrys_failed_teardown_still_tears_down_the_others __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f79e3e7c350>
+
+    def test_one_entrys_failed_teardown_still_tears_down_the_others(monkeypatch):
+        """An SSH host that stopped answering raises from its teardown; the next entry is still torn down."""
+        from hermes_cli import gateway_connections_reach as reach
+        from hermes_cli import gateway_connections_watch as watch_mod
+        from hermes_cli.gateway_connections_ssh_transport import SshReachError
+>       from hermes_cli.web_routers import webapp_relay_proxy
+
+tests/hermes_cli/test_gateway_connections_watch.py:97: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    """The Webapp's forwarding proxy: ``/api/relay/<connection id>/<path>`` carries a signed-in browser's
+    REST calls and sockets to a gateway saved in this machine's connection list
+    (``hermes_cli.gateway_connections``), keyed by the same registry id native Desktop uses.
+    
+    HTTP. The browser's request is sent on as ``<connection url>/<path>`` with the credential saved for
+    that connection, the way Desktop sends it (``hermes_cli.webapp_relay_target``), body and response
+    streamed both ways. Cookies, the browser's own credentials and forwarding headers never cross. Only
+    headers that describe the body come back, under a sandboxing content policy, and a redirect only
+    within the gateway: what it serves never acts on this gateway's origin. A 401 from the gateway means
+    the saved credential no longer works there, so the browser gets a 409 ``relay_reconnect`` instead of
+    being sent to this gateway's sign-in.
+    
+    Sockets. A relayed socket opens only with this gateway's one-use ``relay`` ticket (``?relay_ticket=``,
+    minted by ``POST /api/webapp/socket-ticket?socket=relay``) for the same identity, and is tracked with
+    the browser's other sockets, so signing out here closes it. The socket's credential at the other
+    gateway is minted here per dial (its session token, or a one-use ticket). Frames pass through as they
+    are; each side's close reaches the other, and removing the connection closes it.
+    """
+    from __future__ import annotations
+    
+    import asyncio
+    import contextlib
+    import http.cookiejar
+    import logging
+    import threading
+    import urllib.parse
+    import weakref
+    from typing import Optional
+    
+    import httpx
+    from fastapi import APIRouter, HTTPException, Request, WebSocket
+    from fastapi.responses import JSONResponse, StreamingResponse
+    from starlette.background import BackgroundTask
+    
+>   from hermes_cli import webapp_relay_target as reach
+E   ImportError: cannot import name 'webapp_relay_target' from 'hermes_cli' (/home/admin/host/tmp/hermes-agent-fix-workspace/source/hermes_cli/__init__.py)
+
+hermes_cli/web_routers/webapp_relay_proxy.py:35: ImportError
+=========================== short test summary info ============================
+FAILED tests/hermes_cli/test_gateway_connections_watch.py::test_another_writer_repoints_or_removes_socket_but_rename_keeps_it[re-point]
+FAILED tests/hermes_cli/test_gateway_connections_watch.py::test_another_writer_repoints_or_removes_socket_but_rename_keeps_it[remove]
+FAILED tests/hermes_cli/test_gateway_connections_watch.py::test_one_entrys_failed_teardown_still_tears_down_the_others
+================== 3 failed, 2 passed, 1 deselected in 0.55s ===================
+
+=== 1 file with test failures ===
+  tests/hermes_cli/test_gateway_connections_watch.py  (3 tests failed)

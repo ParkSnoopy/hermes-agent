@@ -112,7 +112,7 @@ def _memory_provider_init_kwargs(agent, platform) -> dict[str, Any]:
         # platform="cron" (scheduler) / "subagent" (delegate_task) → providers skip writes (MemoryProvider.initialize);
         # a fork that loads a provider only for the checkpoint gate names its scope (memory_agent_context).
         "agent_context": getattr(agent, "memory_agent_context", None)
-        or (platform if platform in ("cron", "subagent") else "primary"),
+        or (platform if platform == "subagent" else "primary"),
     }
     # Documented in MemoryProvider.initialize: forks tell their shape apart by platform + parent.
     if getattr(agent, "_parent_session_id", None):

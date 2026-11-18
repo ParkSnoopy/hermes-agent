@@ -1,27 +1,25 @@
-"""Ink/Desktop verbs the owner answered -32601 or refused now run their gateway handlers."""
+"""Native authority routes preserve session controls and command semantics."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 
 import pytest
 
-from tests.gateway.fixtures.local_recovery_probe import child_env
-
-
 def probe(tmp_path, mode):
     root = Path(__file__).resolve().parents[2]
     home, user = tmp_path / 'state', tmp_path / 'user'
     home.mkdir()
     user.mkdir()
-    env = child_env()
+    env = {key: os.environ[key] for key in ('PATH', 'LANG', 'TZ') if key in os.environ}
     env.update(HOME=str(user), USERPROFILE=str(user), HERMES_HOME=str(home),
                PYTHONPATH=str(root), PYTHONUNBUFFERED='1')
     result = subprocess.run([sys.executable, str(root / 'tests/gateway/fixtures/tui_desktop_routes_peer.py'), mode],
                             cwd=root, env=env, capture_output=True, text=True, timeout=120, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
     receipt = json.loads((home / 'receipt.json').read_text(encoding='utf-8'))
-    assert receipt['mode'] == mode and receipt['authenticated_ws']
+    assert receipt['mode'] == mode and receipt['in_process']
     return receipt
 
 

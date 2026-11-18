@@ -40,7 +40,7 @@ hermes chat [flags]
 ### Configuration
 
 ```
-hermes setup [section]      Wizard (model|tts|terminal|tools|agent)
+hermes setup [section]      Wizard (model|terminal|tools|agent)
 hermes model                Interactive model/provider picker
 hermes fallback [add|remove|list]  Fallback provider chain
 hermes config [show|edit|get|set|unset|path|env-path|check|migrate]
@@ -78,11 +78,9 @@ Details (transport, tool discovery, catalog): `references/native-mcp.md`.
 hermes sessions list|browse|rename ID TITLE|delete ID|export OUT|prune|stats
 ```
 
-### Cron / Webhooks
+### Webhooks
 
 ```
-hermes cron list|create SCHED|edit ID|pause|resume|run ID|remove|status
-    Schedules: '30m', 'every 2h', '0 9 * * *', ISO timestamp
 hermes webhook subscribe NAME|list|remove NAME|test NAME
 ```
 Webhook payloads/routes: `references/webhooks.md`.
@@ -126,7 +124,7 @@ hermes completion bash|zsh|fish
 hermes update / uninstall
 ```
 
-Plugin- and provider-supplied subcommands (e.g. `hermes photon setup`) only appear once their plugin is installed/active. Importing from OpenClaw, Claude Code, Codex CLI or Cursor (`hermes import-agent <agent>`, plus the older `hermes claw migrate|cleanup`) comes from the `agent-importers` plugin; a fresh `hermes setup` that finds one of those agents offers to install it.
+Plugin- and provider-supplied subcommands (e.g. `hermes photon setup`) only appear once their plugin is installed/active.
 
 ### Where to Find Things
 

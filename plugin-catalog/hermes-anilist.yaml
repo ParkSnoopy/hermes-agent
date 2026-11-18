@@ -37,7 +37,7 @@
 name: hermes-anilist
 repo: https://github.com/BatataBF/hermes-anilist
 sha: "0081dfd7b45a469eef1ec35d3d0797318694c640"
-description: "AniList tracker for Hermes Desktop — airing countdowns, a season browser, a local or account-backed watchlist, episode alerts and a daily digest, plus agent tools that read your own list and answer about a single show. Disclosure — stores your pasted AniList token in the active profile .env (sent only to graphql.anilist.co); alerts and the daily digest are Hermes cron jobs it creates on the host you pick, and the digest job asks that host's agent to query the public AniList API itself."
+description: "AniList lookup tools and Desktop watchlist with airing countdowns, season browsing and account-backed list access. Disclosure — the pinned upstream plugin stores a pasted AniList token in the active profile .env and sends it only to graphql.anilist.co. Account list and show lookups use that service."
 maintainer: BatataBF
 tier: community
 category: desktop
@@ -57,3 +57,4 @@ capabilities:
   # No env var is required to install or to read: the AniList token is optional
   # and lives in the profile's .env only after the user signs in from the pane.
   requires_env: []
+known_issues: ["Episode alerts and automatic daily digests require the removed built-in scheduler and are unavailable. The retained lookup/watchlist paths have not been runtime-tested against this fork."]

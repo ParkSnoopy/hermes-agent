@@ -103,23 +103,6 @@ export const slashCmdSessionEn = {
     verbose: {
       current: (value: string) => `verbose: ${value}`
     },
-    voice: {
-      disabled: 'Voice mode disabled.',
-      enabled: 'Voice mode enabled',
-      enabledWithTts: 'Voice mode enabled (TTS enabled)',
-      off: 'OFF',
-      offHint: '  /voice off  to disable voice mode',
-      on: 'ON',
-      recordHint: (recordKey: string) => `  ${recordKey} to start/stop recording`,
-      requirements: '  Requirements:',
-      statusMode: (mode: string) => `  Mode:       ${mode}`,
-      statusRecordKey: (recordKey: string) => `  Record key: ${recordKey}`,
-      statusTitle: 'Voice Mode Status',
-      statusTts: (tts: string) => `  TTS:        ${tts}`,
-      ttsDisabled: 'Voice TTS disabled.',
-      ttsEnabled: 'Voice TTS enabled.',
-      ttsHint: '  /voice tts  to toggle speech output'
-    },
     yolo: {
       off: 'yolo off',
       on: 'yolo on'

@@ -6,7 +6,6 @@ export const PLUGIN_CATEGORIES: Record<string, { label: string; icon: string; bl
   platform: { label: 'Platforms', icon: '💬', blurb: 'Messaging and channel adapters' },
   web: { label: 'Web & Browser', icon: '🌐', blurb: 'Search backends, extraction and browser control' },
   tools: { label: 'Tools', icon: '🛠️', blurb: 'New tools the agent can call' },
-  voice: { label: 'Voice', icon: '🎙️', blurb: 'Speech, TTS and realtime audio' },
   automation: { label: 'Automation', icon: '⏱️', blurb: 'Hooks, wake triggers and session automation' },
   models: { label: 'Models', icon: '✨', blurb: 'Model and inference providers' },
   general: { label: 'General', icon: '📦', blurb: 'Plugins that span several areas' }

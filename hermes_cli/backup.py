@@ -32,7 +32,6 @@ from hermes_cli.home_data_layout import PM_RUNTIME_ROOT_DIRS, SECRET_CACHE_FILES
 from hermes_cli.sizefmt import format_bytes as _format_size
 
 from hermes_cli.backup_restore import (
-    _count_cron_jobs,
     _count_session_rows,
     _default_new_file_mode,
     _detect_prefix,
@@ -191,20 +190,10 @@ def _backup_operation_lock(hermes_home: Path, timeout_seconds: float = 0.25):
     acquired = False
     deadline = time.monotonic() + max(0.0, timeout_seconds)
     try:
-        if os.name == "nt":
-            import msvcrt
-            if lock_path.stat().st_size == 0:
-                handle.write(b" ")
-                handle.flush()
-            def _lock_op(flag: int) -> None:
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), flag, 1)
-            lock_flag, unlock_flag = msvcrt.LK_NBLCK, msvcrt.LK_UNLCK
-        else:
-            import fcntl
-            def _lock_op(flag: int) -> None:
-                fcntl.flock(handle.fileno(), flag)
-            lock_flag, unlock_flag = fcntl.LOCK_EX | fcntl.LOCK_NB, fcntl.LOCK_UN
+        import fcntl
+        def _lock_op(flag: int) -> None:
+            fcntl.flock(handle.fileno(), flag)
+        lock_flag, unlock_flag = fcntl.LOCK_EX | fcntl.LOCK_NB, fcntl.LOCK_UN
         while not acquired:
             try:
                 _lock_op(lock_flag)
@@ -303,16 +292,12 @@ def _is_non_regular_path(path: Path) -> bool:
 
 
 def _is_link_path(path: Path) -> bool:
-    """True for symlinks and Windows junctions/reparse points — the only
-    directory entries a strict walk must never descend (os.walk already
-    refuses POSIX dir symlinks; this also covers junctions, which it follows)."""
+    """True for symlinks, which a strict walk must never descend."""
     try:
         info = path.lstat()
     except OSError:
         return False
-    if stat.S_ISLNK(info.st_mode):
-        return True
-    return os.name == "nt" and bool(getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+    return stat.S_ISLNK(info.st_mode)
 
 
 def _should_exclude(rel_path: Path) -> bool:
@@ -1136,8 +1121,6 @@ def _newest_first(root: Path, keep_entry) -> list[Path]:
     return sorted(filter(keep_entry, root.iterdir()), key=lambda p: p.name, reverse=True)
 
 
-# Kept in sync with ``_QUICK_STATE_FILES`` and ``cron/jobs.py``'s ``JOBS_FILE``.
-_CRON_JOBS_REL = "cron/jobs.json"
 
 
 def _prune_oldest(newest_first: list[Path], keep: int, remove, what: str) -> int:
@@ -1152,13 +1135,11 @@ def _prune_oldest(newest_first: list[Path], keep: int, remove, what: str) -> int
     return deleted
 
 
-# --- Pre-update / pre-migration auto-backups ---
+# --- Pre-update auto-backups ---
 
 _PRE_UPDATE_BACKUPS_DIR = "backups"
 _PRE_UPDATE_PREFIX = "pre-update-"
 _PRE_UPDATE_DEFAULT_KEEP = 5
-_PRE_MIGRATION_PREFIX = "pre-migration-"
-_PRE_MIGRATION_DEFAULT_KEEP = 5
 _INCOMPLETE_ZIP_SUFFIX = ".incomplete.zip"
 
 
@@ -1215,16 +1196,6 @@ def create_pre_update_backup(
     was found, the backup failed, or it was incomplete (salvage kept as ``*.incomplete.zip``).
     Never raises — ``hermes update`` continues anyway."""
     return _create_prefixed_full_backup(hermes_home, _PRE_UPDATE_PREFIX, max(keep, 1), "pre-update", "backup")
-
-
-def create_pre_migration_backup(
-    hermes_home: Optional[Path] = None, keep: int = _PRE_MIGRATION_DEFAULT_KEEP) -> Optional[Path]:
-    """Full zip backup to ``backups/pre-migration-<timestamp>.zip`` before a plugin's agent import
-    (``hermes import-agent openclaw``), so its name and signature are API; same dir as update backups
-    so ``hermes import`` finds it. ``None`` if nothing was found, the write failed, or it was
-    incomplete (salvage kept as ``*.incomplete.zip``). Never raises."""
-    return _create_prefixed_full_backup(
-        hermes_home, _PRE_MIGRATION_PREFIX, max(keep, 0), "pre-migration", "pre-migration backup")
 
 
 # ---------------------------------------------------------------------------
@@ -1308,8 +1279,7 @@ def _create_quick_snapshot_locked(
     staging_dir = root / f".{snap_id}.{os.getpid()}.partial"
     shutil.rmtree(staging_dir, ignore_errors=True)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if os.name != "nt":
-        os.chmod(root, 0o700)
+    os.chmod(root, 0o700)
     staging_dir.mkdir(mode=0o700, exist_ok=False)
     logger.info("quick snapshot phase=copy status=started id=%s", snap_id)
 
@@ -1445,14 +1415,13 @@ def _create_quick_snapshot_locked(
     # be normalized safely before the final atomic rename exposes the
     # snapshot. Permission failures are intentionally fatal: publishing a
     # readable recovery bundle is worse than reporting a failed snapshot.
-    if os.name != "nt":
-        os.chmod(root, 0o700)
-        os.chmod(staging_dir, 0o700)
-        for path in staging_dir.rglob("*"):
-            if path.is_dir():
-                os.chmod(path, 0o700)
-            elif path.is_file():
-                os.chmod(path, 0o600)
+    os.chmod(root, 0o700)
+    os.chmod(staging_dir, 0o700)
+    for path in staging_dir.rglob("*"):
+        if path.is_dir():
+            os.chmod(path, 0o700)
+        elif path.is_file():
+            os.chmod(path, 0o600)
 
     os.replace(staging_dir, snap_dir)
 
@@ -1676,80 +1645,6 @@ def _restore_quick_snapshot_exclusive(snapshot_id: str, home: Path) -> bool:
     return restored > 0 and not auth_restore_failed
 
 
-def restore_cron_jobs_if_emptied(
-    snapshot_id: str,
-    hermes_home: Optional[Path] = None,
-) -> Optional[dict[str, Any]]:
-    """Safety net for silent cron-job loss across ``hermes update``.
-
-    Config-version migrations have been observed to leave ``cron/jobs.json``
-    valid-but-empty after an update, silently dropping every scheduled job
-    (issue #34600). The desktop scheduler can also overwrite the file with its
-    own small set of internally-tracked crons, causing partial loss (issue
-    #52144).
-
-    This compares the *current* job count against the pre-update snapshot. If
-    the live file now has **fewer** jobs than the snapshot, the snapshot copy
-    of ``cron/jobs.json`` is restored in place.
-
-    The check is deliberately conservative — it only ever restores when there
-    is unambiguous evidence of loss (snapshot had more jobs than live file),
-    so a user who genuinely deleted jobs during/after the update is never
-    second-guessed, and an unreadable live file (count ``None``) is left
-    untouched so real corruption still surfaces.
-
-    Args:
-        snapshot_id: The pre-update quick-snapshot id (from
-            :func:`create_quick_snapshot`).
-        hermes_home: Override for the Hermes home directory (tests).
-
-    Returns:
-        ``None`` when no action was taken (the common, healthy path). On a
-        successful restore, a dict ``{"restored": True, "job_count": N,
-        "snapshot_id": ...}`` so the caller can warn the user.
-    """
-    if not snapshot_id:
-        return None
-
-    home = hermes_home or get_hermes_home()
-    live_path = home / _CRON_JOBS_REL
-
-    live_count = _count_cron_jobs(live_path)
-    # ``None`` (missing or unparseable) is intentionally left alone — that's a
-    # different failure mode the user should see rather than have papered over.
-    if live_count is None:
-        return None
-
-    snap_path = _quick_snapshot_root(home) / snapshot_id / _CRON_JOBS_REL
-    snap_count = _count_cron_jobs(snap_path)
-    if not snap_count:  # None or 0 — nothing worth restoring
-        return None
-
-    # Restore when live has FEWER jobs than the pre-update snapshot.
-    # Catches both total loss (0 vs N) and partial loss (1 vs 19) — the
-    # desktop scheduler can overwrite jobs.json with its own small set of
-    # internally-tracked crons after an update/restart.
-    if live_count >= snap_count:
-        return None
-
-    try:
-        live_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(snap_path, live_path)
-    except (OSError, PermissionError) as exc:
-        logger.error(
-            "Cron jobs were emptied during update but auto-restore failed: %s", exc
-        )
-        return None
-
-    logger.warning(
-        "Restored %d cron job(s) from pre-update snapshot %s "
-        "(live file had %d job(s), snapshot had %d — jobs were lost during migration)",
-        snap_count,
-        snapshot_id,
-        live_count,
-        snap_count,
-    )
-    return {"restored": True, "job_count": snap_count, "snapshot_id": snapshot_id}
 
 
 def _sibling_profile_homes(invoking_home: Path) -> list[tuple[str, Path]]:
@@ -1858,7 +1753,7 @@ def restore_config_model_settings_if_rewritten(
     consumed by the gateway and unattended cron jobs too, so a rewrite
     silently changes paid inference behavior machine-wide.
 
-    Mirrors :func:`restore_cron_jobs_if_emptied`: compare the *current*
+    Compare the *current*
     config against the pre-update snapshot taken minutes earlier by this
     same update run, and restore only the protected keys — never the whole
     file — when a value the user had set was changed or dropped. Everything
@@ -1965,37 +1860,6 @@ def restore_config_model_settings_all_profiles(
     return restored
 
 
-def restore_cron_jobs_all_profiles(
-    profile_snapshots: dict[str, str],
-    invoking_home: Optional[Path] = None,
-) -> list[dict[str, Any]]:
-    """Run the cron-jobs safety net for every sibling profile (#66140).
-
-    ``profile_snapshots`` is the map returned by
-    :func:`create_pre_update_snapshots_all_profiles`. Each profile's live
-    ``cron/jobs.json`` is compared against ITS OWN snapshot — restores are
-    same-generation by construction (the snapshot was taken minutes ago by
-    this update run). Returns one result dict per restored profile, each
-    with a ``profile`` key added. Never raises.
-    """
-    restored: list[dict[str, Any]] = []
-    if not profile_snapshots:
-        return restored
-    home = invoking_home or get_hermes_home()
-    by_name = dict(_sibling_profile_homes(home))
-    for name, snap_id in profile_snapshots.items():
-        profile_home = by_name.get(name)
-        if profile_home is None:
-            continue
-        try:
-            result = restore_cron_jobs_if_emptied(snap_id, hermes_home=profile_home)
-        except Exception as exc:
-            logger.debug("Cron restore check for profile %s failed: %s", name, exc)
-            continue
-        if result:
-            result["profile"] = name
-            restored.append(result)
-    return restored
 
 
 def _prune_quick_snapshots(root: Path, keep: int = _QUICK_DEFAULT_KEEP) -> int:

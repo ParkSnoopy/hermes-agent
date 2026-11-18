@@ -1,5 +1,5 @@
 """File previews may not cancel SQLite's live POSIX locks (including WAL sidecars)."""
-import asyncio
+
 import os
 from pathlib import Path
 import sqlite3
@@ -7,18 +7,16 @@ import subprocess
 import sys
 
 import pytest
-from fastapi import HTTPException
 
 from agent.context_references import _expand_path_reference, parse_context_references
 from hermes_state import SessionDB
-from hermes_cli.web_routers.files import fs_download, fs_read_text
 from tests.posix_lock_probe import own_posix_locks
 
 
 @pytest.mark.platforms("linux")
 @pytest.mark.requires_wal
 @pytest.mark.parametrize("route,target_kind", [
-    ("file", "main"), ("folder", "directory"), ("desktop", "main"), ("desktop", "shm"),
+    ("file", "main"), ("file", "shm"), ("folder", "directory"),
 ])
 def test_preview_preserves_live_database_locks(tmp_path, route, target_kind):
     path = tmp_path / "state.db"
@@ -55,26 +53,15 @@ def test_preview_preserves_live_database_locks(tmp_path, route, target_kind):
         assert all(before), "fixture must hold POSIX main and WAL-sidecar locks"
         assert rival_locked(), "second process must be excluded before the preview"
 
-        if route == "desktop":
-            # FileResponse opens/closes in-process too, so a download must be refused as well,
-            # with the same (sidecar-aware) refusal text as the read.
-            for route_fn in (fs_read_text, fs_download):
-                with pytest.raises(HTTPException) as refused:
-                    asyncio.run(route_fn(str(target)))
-                assert refused.value.status_code == 409
-                if target_kind == "shm":
-                    assert "main database" in refused.value.detail
-            assert asyncio.run(fs_read_text(str(text)))["text"] == "ordinary readable text"
-        else:
-            ref = parse_context_references(f"@{route}:{target}")[0]
-            warning, block = _expand_path_reference(ref, tmp_path.parent)
-            assert warning is None
-            assert block is not None
-            if route == "file":
-                assert "not previewed" in block
-            ordinary = parse_context_references(f"@file:{text}")[0]
-            warning, block = _expand_path_reference(ordinary, tmp_path.parent)
-            assert warning is None and block is not None and "ordinary readable text" in block
+        ref = parse_context_references(f"@{route}:{target}")[0]
+        warning, block = _expand_path_reference(ref, tmp_path.parent)
+        assert warning is None
+        assert block is not None
+        if route == "file":
+            assert "not previewed" in block
+        ordinary = parse_context_references(f"@file:{text}")[0]
+        warning, block = _expand_path_reference(ordinary, tmp_path.parent)
+        assert warning is None and block is not None and "ordinary readable text" in block
 
         assert (own_posix_locks(path), own_posix_locks(shm)) == before
         assert rival_locked(), "second process entered a still-open write transaction"
@@ -107,6 +94,3 @@ def test_closed_database_can_still_be_previewed(tmp_path):
     ref = parse_context_references(f"@file:{path}")[0]
     warning, block = _expand_path_reference(ref, tmp_path.parent)
     assert warning is None and block is not None and "binary file" in block
-    preview = asyncio.run(fs_read_text(str(path)))
-    assert preview["binary"] is True and preview["byteSize"] == path.stat().st_size
-    assert asyncio.run(fs_download(str(path))).path == str(path)

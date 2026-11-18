@@ -211,39 +211,6 @@ def leases_held(generation: Path) -> bool:
     return _prune_unlocked_leases(generation / ".leases")
 
 
-def _open_lease_probe(lease: Path) -> int:
-    """Let a Windows pruner unlink while still holding its exclusion lock.
-
-    Creator handles deliberately keep their ordinary sharing: an open creator
-    between O_EXCL and locking must still prevent a peer from deleting its lease.
-    """
-    if os.name != "nt":
-        return os.open(lease, os.O_RDWR)
-
-    import ctypes
-    from ctypes import wintypes
-    import msvcrt
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateFileW.argtypes = [
-        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
-        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
-    ]
-    kernel32.CreateFileW.restype = wintypes.HANDLE
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    kernel32.CloseHandle.restype = wintypes.BOOL
-    # GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | WRITE | DELETE, OPEN_EXISTING.
-    handle = kernel32.CreateFileW(str(lease), 0xC0000000, 0x7, None, 3, 0x80, None)
-    if handle == ctypes.c_void_p(-1).value:
-        raise ctypes.WinError(ctypes.get_last_error())
-    try:
-        # The CRT owns the handle after conversion; os.close releases it and its lock.
-        return msvcrt.open_osfhandle(handle, os.O_RDWR | os.O_BINARY | os.O_NOINHERIT)
-    except BaseException:
-        kernel32.CloseHandle(handle)
-        raise
-
-
 def _prune_unlocked_leases(leases: Path) -> bool:
     """Remove abandoned lease files and report whether any live lock remains.
 
@@ -256,7 +223,7 @@ def _prune_unlocked_leases(leases: Path) -> bool:
     held = False
     for lease in leases.glob("*"):
         try:
-            fd = _open_lease_probe(lease)
+            fd = os.open(lease, os.O_RDWR)
         except FileNotFoundError:
             continue
         except OSError:

@@ -68,7 +68,7 @@ class TurnContext:
     persist_user_display_metadata: Optional[dict] = None
     user_config: Any = None
     mute_notification_reply: bool = False
-    voice_turn: bool = False  # a voice-note turn: runs on auxiliary.voice_chat
+
     enabled_toolsets: Any = None
     disabled_toolsets: Any = None
     log_mode_enabled: bool = False
@@ -81,7 +81,7 @@ class TurnContext:
     result_holder: list = field(default_factory=lambda: [None])
     tools_holder: list = field(default_factory=lambda: [None])
     stream_consumer_holder: list = field(default_factory=lambda: [None])
-    streaming_tts_consumer_holder: list = field(default_factory=lambda: [None])
+
 
     # hook / status bridge wiring
     _loop_for_step: Any = None

@@ -126,7 +126,6 @@ def test_session_interrupt_uses_explicit_stop_compatibility(server, monkeypatch,
         "session_key": "session-key",
         "_run_thread": None,
     }
-    monkeypatch.setattr(server, "_tts_stream_stop", lambda: None)
     monkeypatch.setattr(server, "_sess_nowait", lambda _params, _rid: (session, None))
     monkeypatch.setattr(server, "_sess", lambda _params, _rid: (session, None))
     monkeypatch.setattr(server, "_session_uses_compute_host", lambda _session: False)
@@ -1726,13 +1725,12 @@ def test_dispatch_runs_short_handlers_inline(server):
 
 @pytest.mark.parametrize(
     "slow_method",
-    ["complete.path", "complete.slash", "voice.toggle", "voice.record", "voice.tts", "wake.start", "wake.status"],
+    ["complete.path", "complete.slash"],
 )
 def test_slow_handlers_run_off_the_reader_thread(slow_method, server, monkeypatch):
     """dispatch() must hand these RPCs to the pool and return at once, so a stalled handler never blocks
     the stdin/WS reader behind it. Completion (#21123: git ls-files / skill scan froze prompt.submit for
-    the 120s RPC timeout) and voice/wake (synchronous faster-whisper lazy install, up to 300s: sent
-    messages never reached the agent) are the same bug class as #50005."""
+    the 120s RPC timeout) is the same bug class as #50005."""
     release = threading.Event()
     written = []
 

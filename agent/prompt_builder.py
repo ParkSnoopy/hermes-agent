@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from hermes_constants import (
-    get_hermes_home, get_scratch_dir, get_skills_dir, is_wsl, reset_hermes_home_override, set_hermes_home_override,
+    get_hermes_home, get_scratch_dir, get_skills_dir, reset_hermes_home_override, set_hermes_home_override,
 )
 
 from agent.model_metadata import CHARS_PER_TOKEN
@@ -581,19 +581,11 @@ DEVELOPER_ROLE_MODELS = ("gpt-5", "codex")
 # Hints for core surfaces only. A messaging platform's hint ships with its plugin
 # (``PlatformEntry.platform_hint``, read by agent/system_prompt._default_platform_hint).
 PLATFORM_HINTS = {
-    "cron": (
-        "You are running as a scheduled cron job. There is no user present — you cannot ask questions, "
-        "request clarification, or wait for follow-up. Execute the task fully and autonomously, making "
-        "reasonable decisions where needed. Your final response is automatically delivered to the job's "
-        "configured destination — put the primary content directly in your response."
-    ),
     "cli": (
         # Maintainer-verified live: the CLI prints raw text.
         "You are in a plain terminal (CLI). Markdown does NOT render — asterisks, headers, and fences appear as "
         "literal characters, so write plain text (indentation and blank lines are your only layout tools). Files: "
         "there is no attachment channel and MEDIA:/path tags are NOT intercepted here (they print as literal text) — "
-        # The cron local-only delivery caveat lives in cronjob_manage's deliver description (deferred: paid
-        # only when the tool is loaded), not in every CLI/TUI prompt.
         "deliver a file by stating its absolute path or URL in plain text; the user opens it themselves."
     ),
     "tui": (
@@ -637,13 +629,6 @@ PLATFORM_HINTS = {
 
 # Environment hints — the machine/OS the agent's tools actually run on
 # (PLATFORM_HINTS describe the messaging channel instead).
-WSL_ENVIRONMENT_HINT = (
-    "You are running inside WSL (Windows Subsystem for Linux). The Windows host filesystem is mounted under /mnt/ — "
-    "/mnt/c/ is the C: drive, /mnt/d/ is D:, etc. The user's Windows files are typically at "
-    "/mnt/c/Users/<username>/Desktop/, Documents/, Downloads/, etc. When the user references Windows paths or desktop "
-    "files, translate to the /mnt/c/ equivalent. You can list /mnt/c/Users/ to discover the Windows username if needed."
-)
-
 
 # Backends that run commands (and every file tool) in a separate container / remote host: host OS/$HOME/cwd
 # would mislead, so the agent only sees the machine it can touch.
@@ -657,40 +642,6 @@ WSL_ENVIRONMENT_HINT = (
 
 
 
-
-
-def _windows_marketing_version() -> str:
-    """"10"/"11" (``platform.release()`` says 10 for both; 11 is build >= 22000).
-
-    ``platform.release()`` reports the kernel version, which is ``10`` for BOTH Windows 10 and Windows 11 —
-    the prompt then claims "Windows (10)" on Windows 11 hosts and misleads the model about the OS (#51755).
-    Windows 11 is distinguished by build number: >= 22000 is 11. Falls back to ``platform.release()`` on any
-    lookup failure.
-    """
-    try:
-        return "11" if sys.getwindowsversion().build >= 22000 else "10"  # type: ignore[attr-defined]
-    except Exception:
-        import platform
-        return platform.release()
-
-
-_WINDOWS_BASH_SHELL_HINT = (
-    "Shell: on this Windows host your `terminal` tool runs commands through bash (git-bash / MSYS), NOT PowerShell or "
-    "cmd.exe. Use POSIX shell syntax (`ls`, `$HOME`, `&&`, `|`, single-quoted strings) inside terminal calls. "
-    "MSYS-style paths like `/c/Users/<user>/...` work alongside native `C:\\Users\\<user>\\...` paths. PowerShell "
-    "builtins (`Get-ChildItem`, `$env:FOO`, `Select-String`) will NOT work — use their POSIX equivalents (`ls`, "
-    "`$FOO`, `grep`). Path arguments for NATIVE Windows programs (git, rg, node, python, ...) are NOT translated: MSYS "
-    # no-tmp: ok — illustrates the MSYS path that FAILS for native Windows tools
-    "path conversion is disabled here, so `git -C /c/Users/x` or `node /tmp/a.js` fails with 'cannot change to'/'not "
-    "found' even though `cd /c/Users/x` (a bash builtin) works. Pass `C:/Users/x`-style forward-slash native paths to "
-    # no-tmp: ok — tells the model what NOT to use
-    "native tools, and prefer `$LOCALAPPDATA/Temp` (or `$TMPDIR`, which Hermes points at its own scratch dir) for scratch files a native tool must read — never a bare `/tmp`. When "
-    "answering prompts in a pty background process, use process(submit) — never process(write) with a bare trailing "
-    "newline: Enter on a Windows PTY is a carriage return, and a lone `\\n"
-    "` is not delivered as a line terminator, so the child's prompt silently never returns. When a CLI offers a "
-    "non-interactive path (flags, `--with-token`, config files, an OAuth device flow polled with curl), prefer it over "
-    "driving prompts."
-)
 
 
 def _tenv_read(name: str, default: str = "") -> str:
@@ -722,12 +673,7 @@ def _local_host_hints() -> list[str]:
     """Host OS / home / cwd block for a local terminal backend (tools run on this host)."""
     import platform
 
-    host = (
-        "WSL (Windows Subsystem for Linux)" if is_wsl()
-        else f"Windows ({_windows_marketing_version()})" if sys.platform == "win32"
-        else f"macOS ({platform.mac_ver()[0] or platform.release()})" if sys.platform == "darwin"
-        else f"{platform.system()} ({platform.release()})"
-    )
+    host = f"{platform.system()} ({platform.release()})"
     host_lines = [f"Host: {host}", f"User home directory: {os.path.expanduser('~')}"]
     try:
         host_lines.append(f"Current working directory: {resolve_agent_cwd()}")
@@ -740,14 +686,7 @@ def _local_host_hints() -> list[str]:
                           "and probes there, never under the system temp dir; entries idle for 24h are pruned)")
     except OSError:
         pass
-    if not (sys.platform == "win32" and not is_wsl()):
-        return ["\n".join(host_lines)]
-    host_lines.append(
-        "Note: on Windows, the machine hostname (e.g. from `hostname` or uname) is NOT the username. "
-        "Use the 'User home directory' above to construct paths under C:\\Users\\<user>\\, never the hostname."
-    )
-    # Windows-local terminal runs bash, not PowerShell — without this the model issues PowerShell syntax.
-    return ["\n".join(host_lines), _WINDOWS_BASH_SHELL_HINT]
+    return ["\n".join(host_lines)]
 
 
 def bot_screen_note(running: bool, display: str | None, holder: str) -> str:
@@ -810,7 +749,7 @@ def build_environment_hints() -> str:
     from tools.terminal_tool_config import require_local_environment
     require_local_environment(_tenv_read("TERMINAL_ENV", "local"))
     hints = [*_local_host_hints(), _bot_screen_hint()]
-    hints += [WSL_ENVIRONMENT_HINT] if is_wsl() else []
+
     return "\n\n".join(h for h in (*hints, _embedder_environment_hint()) if h)
 
 

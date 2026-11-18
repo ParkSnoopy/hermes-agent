@@ -13,7 +13,7 @@ import logging
 import os
 import re
 import shlex
-import sys
+
 import time
 from datetime import datetime
 from pathlib import Path
@@ -52,11 +52,6 @@ _BUSY_MODE_BEHAVIOR = {
 _DIFF_MODE_BY_ARG = {**dict.fromkeys(("staged", "--staged", "cached", "--cached"), "staged"),
                      **dict.fromkeys(("all", "--all", "head"), "all"), "session": "session"}
 
-# /voice subcommand -> stored mode (None = auto-TTS disabled), confirmation text.
-_VOICE_MODE_BY_ARG = {
-    **dict.fromkeys(("on", "enable"), ("voice_only", "Voice mode enabled.\nI'll reply with voice when you send voice messages.\nUse /voice tts to get voice replies for all messages.")),
-    **dict.fromkeys(("off", "disable"), ("off", 'Voice mode disabled. Text-only replies.')),
-    "tts": ("all", 'Auto-TTS enabled.\nAll replies will include a voice message.')}
 
 # /footer argument -> new enabled state ("" toggles; anything else is a usage error).
 _FOOTER_STATE_BY_ARG = {**dict.fromkeys(("on", "enable", "true", "1"), True),
@@ -66,18 +61,6 @@ _FOOTER_STATE_BY_ARG = {**dict.fromkeys(("on", "enable", "true", "1"), True),
 _APPROVE_CHOICE_BY_ARG = {**dict.fromkeys(("always", "permanent", "permanently"), "always"),
                           **dict.fromkeys(("session", "ses"), "session")}
 
-
-_WINDOWS_UPDATE_HELPER = """
-import os, subprocess, sys
-output_path, exit_code_path, cmd = sys.argv[1], sys.argv[2], sys.argv[3:]
-env = dict(os.environ, PYTHONUNBUFFERED="1")
-with open(output_path, "wb") as f:
-    rc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=env).wait(timeout=3600)
-# Temp + replace: the gateway watcher polls the exit code and reads an empty file as failure.
-with open(exit_code_path + ".tmp", "w", encoding="utf-8") as f:
-    f.write(str(rc))
-os.replace(exit_code_path + ".tmp", exit_code_path)
-""".strip()
 
 
 def _nested_dict(root: dict, *keys: str) -> dict:
@@ -129,19 +112,10 @@ def _spawn_detached_update(hermes_cmd, output_path, exit_code_path) -> None:
     """Spawn ``hermes update --gateway`` detached so it survives the gateway restart it may trigger.
     setsid is portable (works where ``systemd-run --user`` lacks a D-Bus session); ``--gateway``
     enables file-based IPC so interactive prompts are forwarded; PYTHONUNBUFFERED lets the gateway
-    stream output live.  Windows has no setsid: an inline helper runs the updater as a module under
-    this interpreter (not venv\\Scripts\\hermes.exe — that shim holds its own file open, and the
-    update must replace it), redirects both outputs to one file and writes the exit code."""
+    stream output live."""
     import shutil
     import subprocess
-    if sys.platform == "win32":
-        from hermes_cli._subprocess_compat import windows_detach_popen_kwargs
-        subprocess.Popen(
-            [sys.executable, "-c", _WINDOWS_UPDATE_HELPER, str(output_path), str(exit_code_path),
-             sys.executable, "-m", "hermes_cli.main", "update", "--gateway"],
-            # detached-spawn: ok — /update runs `hermes update`, which must outlive the gateway it restarts
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **windows_detach_popen_kwargs())
-        return
+
     hermes_cmd_str = " ".join(shlex.quote(part) for part in hermes_cmd)
     update_cmd = (
         f"PYTHONUNBUFFERED=1 {hermes_cmd_str} update --gateway"
@@ -481,46 +455,6 @@ class GatewaySlashCommandsMixin(
         return reply.text
 
 
-    async def _handle_voice_command(self, event: MessageEvent) -> str:
-        """Handle /voice [on|off|tts|status] command."""
-        args = event.get_command_args().strip().lower()
-        chat_id = event.source.chat_id
-        # Voice state belongs to the (bot, chat) pair: resolve the adapter that received the
-        # command and key the mode by its owning profile so two multiplexed bots in one chat keep
-        # independent /voice state.
-        # See #75198.
-        voice_key = self._voice_key_for_source(event.source)
-        adapter = self._delivery_adapter_for(event.source)
-
-        def _set_mode(mode: str) -> None:
-            self._voice_mode[voice_key] = mode
-            self._save_voice_modes()
-            from gateway.session_config import local_voice_transition
-            local_voice_transition(event.source, mode)
-            if not adapter:
-                return
-            if mode == "off":
-                self._set_adapter_auto_tts_disabled(adapter, chat_id, disabled=True)
-            else:
-                self._set_adapter_auto_tts_enabled(adapter, chat_id, enabled=True)
-
-        if args in _VOICE_MODE_BY_ARG:
-            mode, reply_key = _VOICE_MODE_BY_ARG[args]
-            _set_mode(mode)
-            return reply_key
-        if args in {"channel", "join", "leave"}:
-            return "Voice channels are no longer supported."
-        if args == "status":
-            mode = self._voice_mode.get(voice_key, "off")
-            label = {'off': 'Off (text only)', 'voice_only': 'On (voice reply to voice messages)', 'all': 'TTS (voice reply to all messages)'}.get(mode, mode)
-            lines = [(f'Voice mode: {label}')]
-            return "\n".join(lines)
-
-        # Toggle: off → on, on/all → off
-        turning_on = self._voice_mode.get(voice_key, "off") == "off"
-        _set_mode("voice_only" if turning_on else "off")
-        toggle_line = ('Voice mode enabled.' if turning_on else 'Voice mode disabled.')
-        return ('{toggle}\n\n**How /voice works**\n• `/voice on` — voice reply when you send a voice message\n• `/voice tts` — voice reply to *every* message\n• `/voice off` — back to text-only replies\n• `/voice status` — show the current mode\n• `/voice` (no argument) — quick toggle between on and off{channels}').format(toggle=toggle_line, channels="")
 
     async def _handle_rollback_command(self, event: MessageEvent) -> str:
         """Handle /rollback command — list or restore filesystem checkpoints."""

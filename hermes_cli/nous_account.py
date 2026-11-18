@@ -18,7 +18,7 @@ NousAccountInfoSource = Literal["jwt", "account_api", "inference_key", "none", "
 # Supported tool-pool coverage categories from Portal's `tool_access.coverage`
 # on the JWT and /api/oauth/account. `fal-video` is
 # intentionally excluded from the pool.
-TOOL_COVERAGE_CATEGORIES = ("firecrawl", "fal", "fal-video", "openai-audio", "browser-use")
+TOOL_COVERAGE_CATEGORIES = ("firecrawl", "fal", "fal-video", "browser-use")
 
 _ACCOUNT_INFO_CACHE_TTL = 60
 _account_info_cache: tuple[str, float, NousPortalAccountInfo] | None = None

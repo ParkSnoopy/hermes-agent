@@ -23,7 +23,7 @@ from utils import env_var_enabled, is_truthy_value
 
 from tools import approval_context
 from tools.approval_context import (
-    _get_session_platform, _is_cron_approval_context,
+    _get_session_platform,
     _is_gateway_approval_context, _is_interactive_cli, _is_single_query_approval_context,
     _is_unattended_platform_approval_context, _resolve_cli_approval_callback, _should_fall_through_to_cli_approval,
     get_current_session_key,
@@ -678,10 +678,10 @@ def _pending_result(spec, session_key: str, *, command: str, description: str,
 @dataclass(frozen=True)
 class _Unattended:
     """One non-interactive context and the text every gate uses to explain it."""
-    name: str       # "single_query" | "cron" | "unattended"
+    name: str       # "single_query" | "unattended"
     cfg_key: str    # approvals.<cfg_key>: approve|deny
     clause: str     # "why nobody can approve" (lower-case sentence fragment)
-    scope: str      # "in cron jobs" — completes "To allow ... {scope}"
+    scope: str      # completes "To allow ... {scope}"
     trust: str      # execute_code: "approve only if {trust}"
 
     def mode(self) -> str:
@@ -703,22 +703,16 @@ _SINGLE_QUERY_CTX = _Unattended(
     "single-query mode (-q) runs without a user present to approve it",
     "in single-query mode", "this single-query run is intentionally trusted",
 )
-_CRON_CTX = _Unattended(
-    "cron", "cron_mode", "cron jobs run without a user present to approve it",
-    "in cron jobs", "this cron profile is intentionally trusted",
-)
+
 
 
 def _unattended_contexts() -> list[_Unattended]:
     """Active unattended contexts in evaluation order: single-query first (``hermes chat -q``
-    exports HERMES_INTERACTIVE=1 but nobody answers); cron beats a platform marker because
-    cron binds the platform for delivery routing only."""
+    exports HERMES_INTERACTIVE=1 but nobody answers)."""
     contexts = []
     if _is_single_query_approval_context():
         contexts.append(_SINGLE_QUERY_CTX)
-    if _is_cron_approval_context():
-        contexts.append(_CRON_CTX)
-    elif _is_unattended_platform_approval_context():
+    if _is_unattended_platform_approval_context():
         contexts.append(_Unattended(
             "unattended", "unattended_mode",
             "this session runs on an unattended platform "
@@ -1066,7 +1060,7 @@ def _presence(approval_callback=None) -> tuple:
     approval_callback = _resolve_cli_approval_callback(approval_callback)
     is_cli, is_gateway = _is_interactive_cli(), _is_gateway_approval_context()
     is_ask = env_var_enabled("HERMES_EXEC_ASK")
-    if _is_single_query_approval_context() or _is_cron_approval_context():
+    if _is_single_query_approval_context():
         is_cli = is_gateway = is_ask = False
     elif is_ask and _is_unattended_platform_approval_context() \
             and (_gateway_notify_cb(get_current_session_key()) is None
@@ -1087,7 +1081,7 @@ def _run_approval_gate(
     *, pattern_key: str, description: str, display_target: str, approval_callback=None,
     subject: str = "", noun: str = "flagged actions",
     advice: str = "Find an alternative approach that avoids this action.",
-    cron_deny_message: str = "", single_query_deny_message: str = "", unattended_deny_message: str = "",
+    single_query_deny_message: str = "", unattended_deny_message: str = "",
     autoapprove_log_prefix: str, fail_closed_when_no_human: bool = False, no_human_block_message: str = "",
     pattern_keys: list[str] | None = None,
 ) -> dict:
@@ -1118,7 +1112,7 @@ def _run_approval_gate(
         log_args = (autoapprove_log_prefix, pattern_key, description)
         # Every unattended context resolves instantly — never a pending approval nobody can answer.
         deny_messages = {
-            "single_query": single_query_deny_message, "cron": cron_deny_message,
+            "single_query": single_query_deny_message,
             "unattended": unattended_deny_message,
         }
         for ctx in _unattended_contexts():
@@ -1228,8 +1222,8 @@ def request_tool_approval(tool_name: str, reason: str, *, rule_key: str = "", ap
     Entry point for a plugin ``pre_tool_call`` hook returning ``{"action": "approve", ...}``:
     it asks the SAME human gate as Tier-2 dangerous shell patterns (session/permanent
     allowlist, CLI prompt, gateway pending, once/session/always/deny, timeout fail-closed), so
-    the LLM cannot skip it. Cron honors ``approvals.cron_mode``; any OTHER non-interactive
-    context without an approval bridge fails CLOSED. ``rule_key`` controls the ``[a]lways``
+    the LLM cannot skip it. Unattended contexts follow their configured approval mode;
+    a non-interactive context without an approval bridge fails CLOSED. ``rule_key`` controls the ``[a]lways``
     allowlist grain; when empty it is ``tool_name`` + a hash of ``reason`` so DISTINCT reasons
     on the same tool persist independently. Returns the ``check_dangerous_command`` result shape.
     """
@@ -1328,9 +1322,6 @@ def check_execute_code_guard(code: str, env_type: str) -> dict:
     ``terminal()`` commands the script issues.
 
     See #30882.
-    The hardline floor still blocks catastrophic ``terminal()`` commands the script issues; running
-    arbitrary code headlessly without any approval surface is trusted-by-config (set a gateway/ask surface
-    or ``approvals.cron_mode`` to require approval). See #30882.
     """
     pattern_key = "execute_code"
     description = _EXECUTE_CODE_DESCRIPTION

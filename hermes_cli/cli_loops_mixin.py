@@ -384,14 +384,14 @@ class CLILoopsMixin:
         _cprint(f"  {(key).format(preview=_preview(payload))}")
 
     def _queue_list(self, rest: str) -> None:
-        from cli import _VoiceInputMessage, _cprint
+        from cli import _cprint
         items = self._queue_items()
         if not items:
             _cprint(f"  {'Queue is empty.'}" + ("" if rest else "  " + _queue_usage()))
             return
         _cprint(f"  {(f'Queue ({len(items)} pending):')}")
         for idx, (_, item) in enumerate(items, 1):
-            tag = " [voice]" if isinstance(item, _VoiceInputMessage) else ""
+            tag = ""
             _cprint(f"    {idx}. {_preview(str(item).replace(chr(10), ' '))}{tag}")
 
     def _queue_gateway_call(self, verb, index, *args):
@@ -450,7 +450,7 @@ class CLILoopsMixin:
             _cprint(f"  {(f'Queue item {idx} not found. Current size: {owned + len(before)}')}")
 
     def _queue_edit(self, rest: str) -> None:
-        from cli import _VoiceInputMessage, _cprint
+        from cli import _cprint
         # Split on any whitespace, like ``_cmd_queue``'s routing check, so
         # ``edit 1<TAB>text`` doesn't leave "1\ttext" as the index token.
         bits = rest.split(None, 1)
@@ -471,10 +471,8 @@ class CLILoopsMixin:
 
         def _edit(items: list) -> list:
             if 1 <= local <= len(items):
-                # A voice-queued item keeps its sentinel so the concise voice-response
-                # prefix still applies (#65827).
-                voice = isinstance(items[local - 1], _VoiceInputMessage)
-                items[local - 1] = _VoiceInputMessage(new_text) if voice else new_text
+
+                items[local - 1] = new_text
             return items
 
         before, after = self._mutate_pending_input(_edit)
@@ -549,9 +547,7 @@ class CLILoopsMixin:
             except Exception as exc:
                 _cprint(f"  {(f'Steer failed: {exc}')}")
             else:
-                if accepted == "voice_stopped":  # TUI-26: the owner ended the voice chat; consumed
-                    pass
-                elif accepted:
+                if accepted:
                     _cprint(f"  {(f'⏩ Steer queued — arrives after the next tool call: {_preview(payload)}')}")
                 else:
                     _cprint(f"  {'Steer rejected (empty payload).'}")
@@ -673,8 +669,6 @@ class CLILoopsMixin:
                             continue
                         busy = (
                             self._agent_running
-                            or getattr(self, "_voice_recording", False)
-                            or getattr(self, "_voice_processing", False)
                             or not self._pending_input.empty())
                         if busy:
                             continue

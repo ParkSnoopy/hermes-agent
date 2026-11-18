@@ -130,8 +130,7 @@ def session_inventory(authority, policy, agent, cwd):
     with owner_scope(authority):
         config = policy.config(authority, secrets=False) if policy is not None else {}
         if agent is not None:
-            from agent.voice_turn_route import session_runtime_view
-            info["provider"] = _session_provider(session_runtime_view(agent), config if policy is not None else None)
+            info["provider"] = _session_provider(agent, config if policy is not None else None)
             info["tools"] = _grouped(getattr(agent, "tools", None))
             info["system_prompt"] = getattr(agent, "_cached_system_prompt", "") or ""
             compressor = getattr(agent, "context_compressor", None)
@@ -200,8 +199,7 @@ def agent_inventory(agent) -> dict:
     length. Cheap attribute reads, safe on the agent thread at turn end."""
     info: dict = {}
     with contextlib.suppress(Exception):
-        from agent.voice_turn_route import session_runtime_view
-        info["provider"] = _session_provider(session_runtime_view(agent))
+        info["provider"] = _session_provider(agent)
     with contextlib.suppress(Exception):
         info["tools"] = _grouped(getattr(agent, "tools", None))
     info["system_prompt"] = getattr(agent, "_cached_system_prompt", "") or ""

@@ -1,7 +1,7 @@
 """Live plugin-catalog lookups must not multiply per installed plugin.
 
-A slow or unreachable catalog host used to cost one request timeout per plugin row, on the
-dashboard plugins-hub rebuild (inline on the event loop) and on ``hermes plugins list``.
+A slow or unreachable catalog host must not cost one request timeout per plugin row
+on ``hermes plugins list``.
 """
 
 from __future__ import annotations
@@ -9,17 +9,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
+
 from types import SimpleNamespace
 
 import pytest
 
 from hermes_cli import plugin_catalog as pc
 from hermes_cli import plugins_cmd
-from hermes_cli import web_server
 import hermes_cli.config as _cfg_mod
-import hermes_cli.web_server_dashboard as _web_server_dashboard
-import hermes_cli.web_server_memory as _web_server_memory
 from tools import registry as tools_registry
 
 
@@ -28,7 +25,7 @@ def _isolated_live_catalog(monkeypatch, tmp_path):
     monkeypatch.setattr(pc, "_live_fetch_failed_until", 0.0, raising=False)
     monkeypatch.setattr(pc, "_live_cache_path", lambda: tmp_path / "cache" / "plugin-catalog.json")
     tools_registry.invalidate_check_fn_cache()
-    _web_server_dashboard._invalidate_plugins_hub_cache()
+
 
 
 class _UnreachableCatalog:
@@ -74,18 +71,15 @@ _PLUGIN_ROWS = [
 ]
 
 
-def test_hub_rebuild_and_plugins_list_resolve_the_kill_list_once(monkeypatch, tmp_path, capsys):
-    """Both listing surfaces cost at most ONE network attempt with the catalog unreachable — not
+def test_plugins_list_resolves_the_kill_list_once(monkeypatch, tmp_path, capsys):
+    """A listing costs at most ONE network attempt with the catalog unreachable — not
     one per installed plugin — and still report an in-tree removal for every affected row."""
     unreachable = _UnreachableCatalog()
     monkeypatch.setattr("httpx.get", unreachable)
     monkeypatch.setattr(pc, "get_catalog_dir", lambda: tmp_path)
     (tmp_path / "removed.yaml").write_text("removed:\n- name: demo\n  reason: exfiltrated env vars\n")
 
-    monkeypatch.setattr(web_server, "_get_dashboard_plugins", lambda force_rescan=False: [])
-    monkeypatch.setattr(_web_server_memory, "_discover_memory_provider_statuses", list)
-    monkeypatch.setattr(_cfg_mod, "get_hermes_home", lambda: Path("/tmp/hermes-home"))
-    monkeypatch.setattr(_cfg_mod, "load_config", lambda: {"dashboard": {"hidden_plugins": []}})
+    monkeypatch.setattr(_cfg_mod, "get_hermes_home", lambda: tmp_path / "hermes-home")
     monkeypatch.setattr(plugins_cmd, "_discover_all_plugins", lambda: list(_PLUGIN_ROWS))
     monkeypatch.setattr(plugins_cmd, "_get_current_context_engine", lambda: "compressor")
     monkeypatch.setattr(plugins_cmd, "_get_current_memory_provider", lambda: "")
@@ -96,16 +90,10 @@ def test_hub_rebuild_and_plugins_list_resolve_the_kill_list_once(monkeypatch, tm
     monkeypatch.setattr(plugins_cmd, "_read_install_metadata", dict)
     monkeypatch.setattr(tools_registry.registry, "get_entry", lambda _name: SimpleNamespace(check_fn=None))
 
-    payload = _web_server_dashboard._merged_plugins_hub(force_refresh=True)
-    by_name = {row["name"]: row["removed_reason"] for row in payload["plugins"]}
-    assert by_name == {"demo": "exfiltrated env vars", "second": None, "third": None}
-    assert unreachable.attempts == 1
-
-    monkeypatch.setattr(pc, "_live_fetch_failed_until", 0.0)  # forget the failure: a fresh window
     plugins_cmd.cmd_list(argparse.Namespace(enabled=False, user=False, no_bundled=False, plain=False, json=True))
     rows = {row["name"]: row["removed"] for row in json.loads(capsys.readouterr().out)}
     assert rows == {"demo": "exfiltrated env vars", "second": None, "third": None}
-    assert unreachable.attempts == 2  # one more for the whole listing, not one per row
+    assert unreachable.attempts == 1  # one request for the whole listing, not one per row
 
 
 def test_dropped_cache_no_longer_outvotes_the_in_tree_catalog(monkeypatch):

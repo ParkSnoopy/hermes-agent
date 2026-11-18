@@ -20,8 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Cache keyed by timezone *source* identity. This process can multiplex profiles by switching
 # HERMES_HOME, so one unkeyed global would leak the first profile's timezone into later
-# profile-scoped work (e.g. the desktop multiplex cron ticker persisting another profile's
-# ``next_run_at``). Entries are published atomically under ``_cache_lock`` as one
+# profile-scoped work. Entries are published atomically under ``_cache_lock`` as one
 # ``identity -> (name, ZoneInfo | None)`` value, so racing resolvers can never publish a mixed
 # identity/value pair. Call reset_cache() after in-place config changes.
 _cache_lock = threading.Lock()

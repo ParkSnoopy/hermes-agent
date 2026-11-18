@@ -65,25 +65,13 @@ mirror_url_for() { # $1 = lowercase sha256
 
 case "$(uname -s)" in
   Linux) os=linux ;;
-  Darwin) os=darwin ;;
-  MINGW*|MSYS*|CYGWIN*) os=win32 ;;
-  *) echo -e "${RED}✗${NC} unsupported OS $(uname -s)" >&2; exit 1 ;;
+  *) echo -e "${RED}✗${NC} unsupported OS $(uname -s); Linux is required" >&2; exit 1 ;;
 esac
-if [ "$os" = win32 ]; then
-  # PROCESSOR_ARCHITECTURE lies under an emulated shell (x64 msys on a
-  # WoA box reports AMD64); the registry carries the machine's truth.
-  winarch="$(MSYS2_ARG_CONV_EXCL='*' reg.exe query 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' /v PROCESSOR_ARCHITECTURE 2>/dev/null | tr -d '\r' | awk '/PROCESSOR_ARCHITECTURE/ {print $NF}')"
-  case "${winarch:-${PROCESSOR_ARCHITECTURE:-}}" in
-    ARM64) arch=arm64 ;;
-    *) arch=x64 ;;
-  esac
-else
-  case "$(uname -m)" in
-    arm64|aarch64) arch=arm64 ;;
-    x86_64|amd64) arch=x64 ;;
-    *) echo -e "${RED}✗${NC} unsupported arch $(uname -m)" >&2; exit 1 ;;
-  esac
-fi
+case "$(uname -m)" in
+  arm64|aarch64) arch=arm64 ;;
+  x86_64|amd64) arch=x64 ;;
+  *) echo -e "${RED}✗${NC} unsupported arch $(uname -m)" >&2; exit 1 ;;
+esac
 target="$os-$arch"
 
 # The machine-written lock has one member per line. Follow object names and
@@ -164,17 +152,11 @@ fi
 echo -e "${CYAN}→${NC} Installing python + tools + dependencies via pm (hash-verified via uv.lock)..."
 echo -e "${CYAN}→${NC} (first run on a fresh checkout can take 1-5 minutes)"
 # PM can replace its uv entry only after the bootstrap uv has exited.
-# A bare version lets uv pick emulated x86_64 on Windows-on-ARM.
 py_request="$py_version"
-if [ "$os" = win32 ]; then
-  case "$arch" in arm64) py_request="cpython-$py_version-windows-aarch64-none" ;;
-                  *) py_request="cpython-$py_version-windows-x86_64-none" ;; esac
-fi
 "$uv" python install --no-bin --no-registry "$py_request"
 boot_py="$("$uv" python find --managed-python "$py_request")"
 boot_py="${boot_py%$'\r'}"
 # Activation trusts the recorded tool digest; a direct setup re-checks it
-# (setup-hermes.ps1 draws the same line).
 pm_args=("$test_environment")
 [ "$runtime_only" = true ] && pm_args+=(--trust-recorded)
 if ! "$boot_py" -m pm.cli install "${pm_args[@]}"; then

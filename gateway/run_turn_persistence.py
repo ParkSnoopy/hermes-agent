@@ -667,15 +667,6 @@ class GatewayTurnPersistenceMixin:
             response = ""
 
         adapter = self._delivery_adapter_for(source)
-        # Auto voice reply (TTS audio before the text) unless streaming TTS already delivered audio.
-        _streaming_tts_done = adapter is not None and bool(
-            getattr(adapter, "_streaming_tts_turn_completed", lambda *_a, **_k: False)(session_key, run_generation)
-        )
-        if not _streaming_tts_done and self._should_send_voice_reply(
-            event, response, agent_messages, already_sent=bool(agent_result.get("already_sent")),
-        ):
-            await self._send_voice_reply(event, response)
-
         # Streamed responses still need MEDIA: files delivered (chunks carry the tags verbatim). Never
         # skip when the agent failed: the error text is new content streaming didn't show.
         if agent_result.get("already_sent") and not agent_result.get("failed"):

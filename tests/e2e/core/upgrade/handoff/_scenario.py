@@ -1,8 +1,7 @@
 """One user's machine across one real ``hermes update``, observed once per column.
 
-A manual gateway (with its cron ticker) and a manual dashboard run
-in one shared-PID-namespace sandbox. A one-shot cron job comes due
-mid-update. The scenario runs once per column and records what the user would see; each property
+A manual gateway and a manual dashboard run in one shared-PID-namespace sandbox.
+The scenario runs once per column and records what the user would see; each property
 is its own test over that record, gated on its own issue. The expensive part (stage, boot, update,
 settle) is paid once per column, not once per property.
 """
@@ -10,15 +9,11 @@ settle) is paid once per column, not once per property.
 from __future__ import annotations
 
 import contextlib
-import datetime as dt
-import json
 import os
 import re
-import secrets
 import shutil
 import sys
 import tempfile
-import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,10 +25,8 @@ from tests.e2e.core.upgrade import _helpers as H
 from tests.e2e.core.upgrade.handoff import _handoff as X
 from tests.fakes.fake_llm_provider import FakeLLMServer, Text
 
-CRON_DUE_S = 65  # after the update starts: the checkout holds the new code, the old gateway still ticks
 _PORT_IN_USE = re.compile(r"address already in use|port \d+ is (already )?in use|errno 98", re.IGNORECASE)
 REPLY = "handoff reply"
-_IMPORT_ERR = re.compile(r"ModuleNotFoundError|ImportError|No module named|cannot import name")
 
 # Open issues behind a property, per column (a fix PR deletes its entry). Each pattern matches only the
 # verdict text its bug produces; any other failure of the same property propagates.
@@ -45,10 +38,6 @@ _FOREIGN_UNIT_GATE = (r"the update restarted the systemd unit \S+ the dashboard 
                       "gated on #124938: the update restarts the systemd unit whose cgroup a manual dashboard "
                       "was started in instead of respawning the dashboard")
 DASHBOARD_GATES = {"n1": [_FOREIGN_UNIT_GATE]}
-CRON_GATES = {
-    "n1": (r"fired into the update swap window and failed importing",
-           "gated on #113293: a cron job due during an update fires into the swap window, fails, and loses its slot"),
-}
 
 # ``hermes update``'s own line for each systemd unit it restarted (or tried to) after stopping a dashboard.
 _UNIT_RESTART = re.compile(r"✓ restarted systemd service (\S+\.service)|⚠ (\S+\.service): systemctl restart returned")
@@ -64,20 +53,9 @@ def _gated(entries):
 
 
 class Model:
-    """The fake provider replies to chat turns and counts the cron job's prompt."""
-
-    def __init__(self, cron_marker: str) -> None:
-        self.cron_marker = cron_marker
-        self.cron_calls: list[float] = []
-        self._lock = threading.Lock()
+    """The fake provider replies to chat turns."""
 
     def __call__(self, rec: dict):
-        msgs = rec["body"].get("messages", [])
-        text = json.dumps(msgs)
-        if self.cron_marker in text:
-            with self._lock:
-                self.cron_calls.append(time.time())
-            return Text(f"cron ran {self.cron_marker}")
         return Text(REPLY)
 
 
@@ -128,31 +106,6 @@ def dashboards(inst: X.Install) -> list[dict]:
 
 
 
-def cron_jobs(inst: X.Install) -> list[dict]:
-    data = X.read_json(inst.hermes_home / "cron" / "jobs.json")
-    jobs = data.get("jobs", data) if isinstance(data, dict) else data
-    return [j for j in (jobs or []) if isinstance(j, dict)]
-
-
-def cron_outputs(inst: X.Install, job_id: str) -> list[str]:
-    d = inst.hermes_home / "cron" / "output" / job_id
-    return sorted(p.name for p in d.iterdir()) if d.is_dir() else []
-
-
-
-def cron_failure(inst: X.Install, name: str, job: dict | None) -> str:
-    """Why the job's run failed, as the scheduler logged it ('' when nothing failed)."""
-    if job and job.get("last_error"):
-        return str(job["last_error"])
-    pat = re.compile(rf"Job '{re.escape(name)}' failed: (.+)")
-    for log in (inst.root / "gateway.log", inst.hermes_home / "logs" / "gateway.log",
-                inst.hermes_home / "logs" / "errors.log"):
-        m = pat.search(log.read_text(errors="replace")) if log.exists() else None
-        if m:
-            return m.group(1).strip()
-    return ""
-
-
 
 def _quiet_wait(pred, *, timeout: float, what: str, interval: float = 1.0):
     try:
@@ -167,7 +120,7 @@ def _quiet_wait(pred, *, timeout: float, what: str, interval: float = 1.0):
 def run(column: str, root: Path) -> SimpleNamespace:
     """Boot the fleet, update, let everything settle, and record what the user would see."""
     o = SimpleNamespace(column=column)
-    model = Model(f"CRON-HANDOFF-{secrets.token_hex(4)}")
+    model = Model()
     with FakeLLMServer(model) as srv, X.cell(column, root, srv.base_url) as inst:
         before = X.start_gateway(inst)
         o.old_pid = before["pid"]
@@ -188,14 +141,6 @@ def run(column: str, root: Path) -> SimpleNamespace:
 
             o.boots = len(X.gateway_starts(inst))
             o.target = X.publish_target(inst)
-            due = dt.datetime.now(dt.UTC).replace(microsecond=0) + dt.timedelta(seconds=CRON_DUE_S + 5)
-            cp = inst.cli("cron", "create", due.isoformat(), f"Reply with the word done. {model.cron_marker}",
-                          "--name", model.cron_marker)
-            assert cp.returncode == 0, "premise: cron create failed\n" + H.describe(cp)
-            job = next((j for j in cron_jobs(inst) if j.get("name") == model.cron_marker), None)
-            assert job and job.get("id"), f"premise: the job is not in jobs.json: {cron_jobs(inst)}"
-            o.job_id = job["id"]
-            assert not model.cron_calls, "premise: the job ran before it was due"
 
             o.up = inst.update()
             o.sha_after = inst.sha()
@@ -219,18 +164,10 @@ def run(column: str, root: Path) -> SimpleNamespace:
             back = _quiet_wait(dash_back, timeout=240, what="a new dashboard on its port")
             o.dash_new = back if back and back > 0 else None
 
-            if o.ident:  # the cron ticker lives in the gateway
-                _quiet_wait(lambda: dt.datetime.now(dt.UTC) > due + dt.timedelta(seconds=5), timeout=600,
-                            what="the cron due time")
-                _quiet_wait(lambda: model.cron_calls, timeout=240, what="the cron job's provider call")
-                # A re-fire shows up within a full ticker interval on the new gateway.
-                settle_until = max([time.time(), *model.cron_calls]) + 65
-                time.sleep(max(0.0, settle_until - time.time()))
-
 
             o.gateways = X.gateway_pids(inst)
             o.status = inst.cli("gateway", "status", timeout=120)
-            o.cron_list = inst.cli("cron", "list", "--all", timeout=120)
+
             time.sleep(2)  # let the pid-file watch see what the status probes did
         o.pid_history = watch.history
         o.relaunch = X.relaunch_verdict(inst, o.old_pid, o.boots, o.ident, o.up)
@@ -240,17 +177,12 @@ def run(column: str, root: Path) -> SimpleNamespace:
         o.dash_roots = dashboards(inst)
         restart_log = inst.hermes_home / "logs" / "dashboard-restart.log"
         o.dash_restarts = restart_log.read_text(errors="replace") if restart_log.exists() else ""
-        o.cron_calls = list(model.cron_calls)
-        o.cron_outputs = cron_outputs(inst, o.job_id)
-        o.cron_job_after = next((j for j in cron_jobs(inst) if j.get("id") == o.job_id), None)
-        o.cron_error = cron_failure(inst, model.cron_marker, o.cron_job_after)
 
         inst.logs.append(restart_log)
         # bwrap keeps the caller's cgroup: the sandbox's processes (the dashboard too) live in ours.
         o.cgroup = Path("/proc/self/cgroup").read_text(errors="replace").strip() if sys.platform == "linux" else ""
         o.diag = (inst.diagnostics(o.up) + f"\n--- cgroup of the sandbox ---\n{o.cgroup}"
-                  f"\n--- gateway.pid history ---\n{watch.render()}"
-                  f"\n--- cron job ---\n{json.dumps(o.cron_job_after, indent=1)[-2000:]}")
+                  f"\n--- gateway.pid history ---\n{watch.render()}")
     return o
 
 
@@ -326,18 +258,6 @@ class HandoffProperties:
         assert o.dash_listener == o.dash_new, f"the dashboard on port {o.dash_port} churned\n{o.diag}"
         assert not _PORT_IN_USE.search(o.dash_restarts), f"the respawned dashboard hit port-in-use\n{o.diag}"
 
-    def test_cron_job_due_mid_update_runs_exactly_once(self, fleet):
-        o = fleet
-        self._relaunched(o)
-        with known_gate(CRON_GATES, o.column):
-            assert len(o.cron_calls) == 1, f"{cron_verdict(o)}\n{o.diag}"
-        assert len(o.cron_outputs) == 1, f"run records: {o.cron_outputs}\n{o.diag}"
-        assert o.cron_list.returncode == 0 and X.TRACEBACK not in o.cron_list.stdout + o.cron_list.stderr, (
-            f"the new code cannot read the job back:\n{H.describe(o.cron_list)}\n{o.diag}")
-        if o.cron_job_after is not None:  # a spent one-shot may be dropped; a kept one records its run
-            job = o.cron_job_after
-            assert job.get("last_run_at") and job.get("last_status") == "ok", f"bookkeeping lost: {job}\n{o.diag}"
-
 
 def dashboard_verdict(o) -> str:
     """Why no new dashboard serves its port, in words a gate can key on."""
@@ -351,12 +271,3 @@ def dashboard_verdict(o) -> str:
         return (f"the update restarted the systemd unit {unit} the dashboard was started under (cgroup "
                 f"{o.cgroup}) instead of respawning the dashboard; port {o.dash_port} is dark")
     return f"no new dashboard serves port {o.dash_port} (old pid {o.dash_old}, listener now {o.dash_listener})"
-
-
-def cron_verdict(o) -> str:
-    """How many times the job due mid-update reached the provider, and why not when it never did."""
-    n = len(o.cron_calls)
-    if n == 0 and _IMPORT_ERR.search(o.cron_error or ""):
-        return (f"the job due mid-update fired into the update swap window and failed importing "
-                f"({o.cron_error[:240]}); it never reached the provider")
-    return f"the job due mid-update ran {n} times" + (f" (last error: {o.cron_error[:240]})" if o.cron_error else "")

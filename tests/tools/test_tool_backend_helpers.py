@@ -3,7 +3,7 @@
 Tests cover:
 - managed_nous_tools_enabled() subscription-based gate
 - normalize_browser_cloud_provider() coercion
-- resolve_openai_audio_api_key() priority chain
+- resolve_provider_secret("XAI_API_KEY", "xai") priority chain
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from tools.tool_backend_helpers import (
     nous_tool_gateway_unavailable_message,
     normalize_browser_cloud_provider,
     prefers_gateway,
-    resolve_openai_audio_api_key,
+    resolve_provider_secret,
 )
 
 
@@ -111,35 +111,10 @@ class TestPrefersGateway:
 
 
 # ---------------------------------------------------------------------------
-# resolve_openai_audio_api_key
+# resolve_provider_secret — profile secret scope
 # ---------------------------------------------------------------------------
-class TestResolveOpenaiAudioApiKey:
-    """Priority: VOICE_TOOLS_OPENAI_KEY > OPENAI_API_KEY."""
-
-    def test_voice_key_preferred(self, monkeypatch):
-        monkeypatch.setenv("VOICE_TOOLS_OPENAI_KEY", "voice-key")
-        monkeypatch.setenv("OPENAI_API_KEY", "general-key")
-        assert resolve_openai_audio_api_key() == "voice-key"
-
-
-    def test_strips_whitespace(self, monkeypatch):
-        monkeypatch.setenv("VOICE_TOOLS_OPENAI_KEY", "  voice-key  ")
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        assert resolve_openai_audio_api_key() == "voice-key"
-
-
-# ---------------------------------------------------------------------------
-# resolve_openai_audio_api_key — profile secret scope
-# ---------------------------------------------------------------------------
-class TestResolveOpenaiAudioApiKeyIsProfileScoped:
-    """The key this returns authenticates the TTS/STT client.
-
-    In a multiplex gateway ``os.environ`` holds whichever profile's ``.env``
-    loaded at boot, not the profile the current turn belongs to — so a raw
-    read here would let one profile's voice reply or voice-note transcription
-    run on (and be billed to) another profile's OpenAI account. Same contract
-    ``agent/vertex_adapter`` and the WeChat send path already follow.
-    """
+class TestResolveProviderSecretIsProfileScoped:
+    """Provider credentials must remain isolated by profile."""
 
     @pytest.fixture(autouse=True)
     def _reset_multiplex(self):
@@ -152,20 +127,22 @@ class TestResolveOpenaiAudioApiKeyIsProfileScoped:
     def test_scope_wins_over_another_profiles_environ(self, monkeypatch):
         from agent import secret_scope as ss
 
-        monkeypatch.delenv("VOICE_TOOLS_OPENAI_KEY", raising=False)
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-other-profile")
+        monkeypatch.setenv("XAI_API_KEY", "sk-other-profile")
         ss.set_multiplex_active(True)
-        token = ss.set_secret_scope({"OPENAI_API_KEY": "sk-this-profile"})
+        token = ss.set_secret_scope({"XAI_API_KEY": "sk-this-profile"})
         try:
-            assert resolve_openai_audio_api_key() == "sk-this-profile", (
-                "voice/STT authenticated with another profile's OpenAI key"
+            assert resolve_provider_secret("XAI_API_KEY", "xai") == "sk-this-profile", (
+                "provider authenticated with another profile's key"
             )
         finally:
             ss.reset_secret_scope(token)
 
 
+    def test_explicit_key_precedes_environment_and_is_stripped(self, monkeypatch):
+        monkeypatch.setenv("XAI_API_KEY", "other-key")
+        assert resolve_provider_secret("XAI_API_KEY", "xai", "  explicit-key  ") == "explicit-key"
+
     def test_single_profile_still_reads_environ(self, monkeypatch):
         """Control: no multiplexing, no scope — unchanged behaviour."""
-        monkeypatch.delenv("VOICE_TOOLS_OPENAI_KEY", raising=False)
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-plain")
-        assert resolve_openai_audio_api_key() == "sk-plain"
+        monkeypatch.setenv("XAI_API_KEY", "sk-plain")
+        assert resolve_provider_secret("XAI_API_KEY", "xai") == "sk-plain"

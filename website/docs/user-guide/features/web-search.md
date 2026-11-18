@@ -77,7 +77,7 @@ Repeat web calls within a short window are served from cache instead of the paid
 | Call | Cache | Scope |
 |------|-------|-------|
 | `web_search` — same query (case/whitespace-insensitive), same provider | In-memory memo | Per process |
-| `web_extract` — same URL, same format, same provider | Full text stored under `~/.hermes/cache/web/` | Shared across CLI, gateway, cron, and subagent processes |
+| `web_extract` — same URL, same format, same provider | Full text stored under `~/.hermes/cache/web/` | Shared across CLI, gateway, and subagent processes |
 
 Concurrent identical searches (a parallel subagent fan-out firing the same query at once) are **coalesced into a single backend request** — the first caller pays; the rest share the response. Requested search limits are bucketed up to 10/20/50/100 so near-identical requests (`limit=5` vs `limit=8`) share one entry, with each caller receiving its requested count.
 
@@ -452,7 +452,7 @@ If no shared backend has **ever** been selected (no `web.backend` written by you
 
 **One-shot keyless rescue for keyed backends:** when your chosen/keyed backend — including the Nous Tool Gateway route (`web.backend: nous`) — fails a call (bad key, outage, unreachable gateway, upstream 5xx), that single call automatically retries on the keyless free-tier ring instead of erroring — the result notes which vendor served it and why (`rescued_from` / `backend_error`). The failover is never sticky: the very next `web_search`/`web_extract` call attempts your chosen backend again. Disable with `web.keyless_rescue: false` (also off whenever `keyless_fallback` is off).
 
-xAI Web Search is **not** in the auto-detection chain — having `XAI_API_KEY` set (or being signed in via xAI Grok OAuth) does not automatically route web traffic through xAI, since those credentials are also used for inference / TTS / image gen and the user may want a different backend for web. Opt in explicitly with `web.backend: "xai"`.
+xAI Web Search is **not** in the auto-detection chain — having `XAI_API_KEY` set (or being signed in via xAI Grok OAuth) does not automatically route web traffic through xAI, since those credentials are also used for inference / image gen and the user may want a different backend for web. Opt in explicitly with `web.backend: "xai"`.
 
 ---
 

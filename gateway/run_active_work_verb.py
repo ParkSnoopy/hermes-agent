@@ -41,11 +41,9 @@ def _profile_units(runner, profile: str, units: list[dict[str, Any]]) -> list[di
     authority = registry.for_home(home) if registry is not None and home is not None else None
     from gateway.session_runtime_workers import managed_worker_units, side_agents
 
-    crons = len(getattr(authority, "_cron_cancellations", None) or {})
     sides = len(side_agents(authority)) if authority is not None else 0
     pid = os.getpid()
-    return (mine + managed_worker_units(authority) + [{"kind": "cron", "job_id": "?", "pid": pid}] * crons
-            + [{"kind": "side_agent", "pid": pid}] * sides)
+    return mine + managed_worker_units(authority) + [{"kind": "side_agent", "pid": pid}] * sides
 
 
 def active_work_verb(runner, loop) -> Callable[[], dict[str, Any]]:

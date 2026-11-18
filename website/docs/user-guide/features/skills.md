@@ -504,7 +504,7 @@ Like external dirs, project skill directories are treated as repo-owned: autonom
 Every surface resolves a skill name the same way:
 
 - **Across directories**, the higher-precedence directory wins (`project → local → skills.create_dir → external_dirs`), including for the same relative path (`productivity/xdup` local and external loads the local copy). The shadowed copy is hidden and a warning is logged.
-- **Inside one directory**, two *different* skills that share a name are never guessed between. Both are listed under their exact relative path (for example `a/one` and `b/two`), and loading the bare name fails with `Ambiguous skill name dup-demo: use one of a/one, b/two`. That message is also what `hermes -s dup-demo` and cron jobs report. Identical copies of one skill (a symlink view or byte-identical copy) resolve to the shallowest path.
+- **Inside one directory**, two *different* skills that share a name are never guessed between. Both are listed under their exact relative path (for example `a/one` and `b/two`), and loading the bare name fails with `Ambiguous skill name dup-demo: use one of a/one, b/two`. That message is also what `hermes -s dup-demo` reports. Identical copies of one skill (a symlink view or byte-identical copy) resolve to the shallowest path.
 
 Plugin skills use their own `plugin:skill` names and never collide with these.
 
@@ -512,9 +512,9 @@ Plugin skills use their own `plugin:skill` names and never collide with these.
 
 Trust is a repo-level decision, but a repo's skill content changes with every `git pull`. To close that gap, every project skill is scanned with the same security scanner used for Skills Hub installs before it enters the index. A skill whose scan verdict is **dangerous** (prompt-injection directives, credential-exfiltration commands, hidden-text tricks) is quarantined: it does not appear in the skill index, `skills_list`, slash commands, and refuses to load by name with an explanatory error. Scans are content-hash cached under `~/.hermes/cache/project_skill_scans/` (never inside your repo) and re-run automatically when the skill's content changes.
 
-### Non-interactive surfaces (cron, API, ACP)
+### Non-interactive surfaces (API, ACP)
 
-Cron jobs and other non-interactive surfaces inherit your interactive trust decision — they never prompt and never auto-trust. The project root resolves from the surface's working directory (a cron job's `workdir`, via the same mechanism the terminal tool uses). A cron job whose `workdir` is inside a repo you previously trusted loads that repo's project skills; a job in an untrusted or undecided repo loads none.
+Non-interactive surfaces inherit your interactive trust decision — they never prompt and never auto-trust. The project root resolves from the surface's working directory. A previously trusted repo loads its project skills; an untrusted or undecided repo loads none.
 
 In the TUI and Desktop the project root follows each **session's workspace** (the directory shown in the sidebar / set with the workspace picker), so starting `hermes --tui` inside a trusted repo registers its project skills as slash commands even when `terminal.cwd` is left at the default placeholder `.`; two sessions open in two repos each see their own.
 

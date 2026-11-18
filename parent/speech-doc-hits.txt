@@ -1,0 +1,635 @@
+website/sidebars.ts:122:            'user-guide/features/voice-mode',
+website/sidebars.ts:123:            'user-guide/features/wake-word',
+website/sidebars.ts:134:            'user-guide/features/tts',
+website/sidebars.ts:647:        'guides/use-voice-mode-with-hermes',
+website/sidebars.ts:739:            'developer-guide/streaming-tts',
+website/src/components/PluginCatalog/catalog.ts:124:  voice: { label: "Voice", icon: "\u{1F399}\u{FE0F}", blurb: "Speech, TTS and realtime audio" },
+.env.example:303:# VOICE TRANSCRIPTION & OPENAI TTS
+.env.example:305:# Required for voice message transcription (Whisper) and OpenAI TTS voices.
+.env.example:344:# Groq API key (free tier — used for Whisper STT in voice mode)
+.env.example:347:# ElevenLabs API key (cloud STT/TTS — Scribe transcription)
+.env.example:348:# ELEVENLABS_API_KEY=
+.env.example:351:# STT PROVIDER SELECTION
+.env.example:353:# Default STT provider is "local" (faster-whisper) — runs on your machine, no API key needed.
+.env.example:356:# To use cloud providers instead, set GROQ_API_KEY, VOICE_TOOLS_OPENAI_KEY, or ELEVENLABS_API_KEY above.
+.env.example:357:# Provider priority: local > groq > openai > mistral > xai > elevenlabs
+.env.example:358:# Configure in config.yaml: stt.provider: local | groq | openai | mistral | xai | elevenlabs
+.env.example:361:# STT ADVANCED OVERRIDES (optional)
+.env.example:363:# Override default STT models per provider (normally set via stt.model in config.yaml)
+.env.example:366:# STT_ELEVENLABS_MODEL=scribe_v2
+.env.example:368:# Override STT provider endpoints (for proxies or self-hosted instances)
+.env.example:371:# ELEVENLABS_STT_BASE_URL=https://api.elevenlabs.io/v1
+website/docs/getting-started/termux.md:153:this package path. The prebuilt CLI/TUI is not proof of local voice or wake-word
+skills/autonomous-ai-agents/hermes-agent/references/troubleshooting.md:4:1. Check `stt.enabled: true` in config.yaml
+skills/autonomous-ai-agents/hermes-agent/references/troubleshooting.md:5:2. Verify provider: `python -c "import pm; pm.sync_venv(['stt-whisper'], explicit=True)"` or set API key
+skills/autonomous-ai-agents/hermes-agent/references/cli-reference.md:43:hermes setup [section]      Wizard (model|tts|terminal|tools|agent)
+skills/autonomous-ai-agents/hermes-agent/references/portal-auth-for-third-party-apps.md:126:*tools* (web search, browser, image gen, TTS) flowing through the Portal
+website/docs/guides/use-voice-mode-with-hermes.md:3:title: "Use Voice Mode with Hermes"
+website/docs/guides/use-voice-mode-with-hermes.md:4:description: "A practical guide to setting up and using Hermes CLI voice mode"
+website/docs/guides/use-voice-mode-with-hermes.md:7:# Use Voice Mode with Hermes
+website/docs/guides/use-voice-mode-with-hermes.md:13:This guide is the practical companion to the [Voice Mode feature reference](../user-guide/features/voice-mode.md).
+website/docs/guides/use-voice-mode-with-hermes.md:15:If the feature page explains what voice mode can do, this guide shows how to actually use it well.
+website/docs/guides/use-voice-mode-with-hermes.md:18:[Nous Portal](../integrations/nous-portal.md) bundles both the LLM and TTS through one OAuth — voice mode works end-to-end with no extra credentials.
+website/docs/guides/use-voice-mode-with-hermes.md:21:## What voice mode is good for
+website/docs/guides/use-voice-mode-with-hermes.md:23:Voice mode is especially useful when:
+website/docs/guides/use-voice-mode-with-hermes.md:28:## Choose your voice mode setup
+website/docs/guides/use-voice-mode-with-hermes.md:31:Get text working first, then enable voice mode.
+website/docs/guides/use-voice-mode-with-hermes.md:35:Before touching voice mode, verify that:
+website/docs/guides/use-voice-mode-with-hermes.md:61:### Premium ElevenLabs TTS
+website/docs/guides/use-voice-mode-with-hermes.md:64:cd ~/.hermes/hermes-agent && python -c "import pm; pm.sync_venv(['tts-premium'], explicit=True)"
+website/docs/guides/use-voice-mode-with-hermes.md:86:- `portaudio` → microphone input / playback for CLI voice mode
+website/docs/guides/use-voice-mode-with-hermes.md:87:- `ffmpeg` → audio conversion for TTS
+website/docs/guides/use-voice-mode-with-hermes.md:90:## Step 4: choose STT and TTS providers
+website/docs/guides/use-voice-mode-with-hermes.md:96:Use local STT and free Edge TTS:
+website/docs/guides/use-voice-mode-with-hermes.md:97:- STT provider: `local`
+website/docs/guides/use-voice-mode-with-hermes.md:98:- TTS provider: `edge`
+website/docs/guides/use-voice-mode-with-hermes.md:107:# Cloud STT options (local needs no key)
+website/docs/guides/use-voice-mode-with-hermes.md:111:# Premium TTS (optional)
+website/docs/guides/use-voice-mode-with-hermes.md:112:ELEVENLABS_API_KEY=***
+website/docs/guides/use-voice-mode-with-hermes.md:117:#### Speech-to-text
+website/docs/guides/use-voice-mode-with-hermes.md:123:#### Text-to-speech
+website/docs/guides/use-voice-mode-with-hermes.md:126:- `neutts` → free local/on-device TTS
+website/docs/guides/use-voice-mode-with-hermes.md:127:- `elevenlabs` → best quality
+website/docs/guides/use-voice-mode-with-hermes.md:155:stt:
+website/docs/guides/use-voice-mode-with-hermes.md:160:tts:
+website/docs/guides/use-voice-mode-with-hermes.md:180:If you want local TTS instead, switch the `tts` block to:
+website/docs/guides/use-voice-mode-with-hermes.md:183:tts:
+website/docs/guides/use-voice-mode-with-hermes.md:192:## Use case 1: CLI voice mode
+website/docs/guides/use-voice-mode-with-hermes.md:218:5. if TTS is on, it speaks the answer
+website/docs/guides/use-voice-mode-with-hermes.md:227:/voice tts
+website/docs/guides/use-voice-mode-with-hermes.md:255:If typing is inconvenient, voice mode is one of the fastest ways to stay in the full Hermes loop.
+website/docs/guides/use-voice-mode-with-hermes.md:293:- STT: local `large-v3` or Groq `whisper-large-v3`
+website/docs/guides/use-voice-mode-with-hermes.md:294:- TTS: ElevenLabs
+website/docs/guides/use-voice-mode-with-hermes.md:298:- STT: local `base` or Groq
+website/docs/guides/use-voice-mode-with-hermes.md:299:- TTS: Edge
+website/docs/guides/use-voice-mode-with-hermes.md:303:- STT: local
+website/docs/guides/use-voice-mode-with-hermes.md:304:- TTS: Edge
+website/docs/guides/use-voice-mode-with-hermes.md:316:- TTS provider config
+website/docs/guides/use-voice-mode-with-hermes.md:317:- API key / quota for ElevenLabs or OpenAI
+website/docs/guides/use-voice-mode-with-hermes.md:325:- different STT provider/model
+website/docs/guides/use-voice-mode-with-hermes.md:334:2. run `hermes setup tts` to enable voice support
+website/docs/guides/use-voice-mode-with-hermes.md:335:3. use CLI voice mode with local STT + Edge TTS
+website/docs/guides/use-voice-mode-with-hermes.md:342:- [Voice Mode feature reference](../user-guide/features/voice-mode.md)
+website/docs/guides/operate-teams-meeting-pipeline.md:213:- [ ] recording subscription is created if STT fallback is required
+website/docs/guides/google-gemini.md:110:applies to the Gemini TTS base URL (`tts.gemini.base_url`). Chat requests only
+website/docs/guides/google-gemini.md:142:`hermes doctor`, TTS — now goes to the AI Studio host and a Vertex express key
+website/docs/guides/microsoft-graph-app-registration.md:72:| `OnlineMeetingRecording.Read.All` | Download Teams meeting recordings for offline STT processing. |
+website/docs/developer-guide/multiplexing-gateway.md:317:| Provider/capability registries | Same hybrid overlay pattern (browser, image-gen, TTS, transcription, video-gen, web-search, secret sources). |
+website/docs/guides/xai-grok-oauth.md:15:The same OAuth bearer token is also reused by every direct-to-xAI surface in Hermes — TTS, image generation, video generation, and transcription — so a single login covers all four.
+website/docs/guides/xai-grok-oauth.md:129:## Direct-to-xAI Tools (TTS / Image / Video / Transcription / X Search)
+website/docs/guides/xai-grok-oauth.md:137:# → Text-to-Speech       → "xAI TTS"
+website/docs/guides/xai-grok-oauth.md:168:| TTS | (default voice) | xAI `/v1/tts` endpoint |
+website/docs/guides/xai-grok-oauth.md:243:- [Voice & TTS](../user-guide/features/tts.md)
+website/docs/getting-started/learning-path.md:16:First-time users almost always want `hermes setup --portal` — one OAuth covers a model plus the four Tool Gateway tools (search/image/TTS/browser). See [Nous Portal](../integrations/nous-portal.md).
+website/docs/getting-started/learning-path.md:58:3. [Voice Mode](../user-guide/features/voice-mode.md)
+website/docs/getting-started/learning-path.md:59:4. [Use Voice Mode with Hermes](../guides/use-voice-mode-with-hermes.md)
+website/docs/guides/run-hermes-with-nous-portal.md:37:5. Turns on the Tool Gateway for web search, image generation, TTS, and browser automation
+website/docs/guides/run-hermes-with-nous-portal.md:76:  Text-to-speech        via Nous Portal
+website/docs/guides/run-hermes-with-nous-portal.md:136:# → TTS              → "Nous Subscription"     (recommended)
+website/docs/guides/run-hermes-with-nous-portal.md:149:## 7. (Optional) Enable voice mode
+website/docs/guides/run-hermes-with-nous-portal.md:151:Because the Tool Gateway includes OpenAI TTS, [voice mode](../user-guide/features/voice-mode.md) works without a separate OpenAI key:
+website/docs/guides/run-hermes-with-nous-portal.md:154:hermes setup tts
+website/docs/guides/run-hermes-with-nous-portal.md:155:# → pick "Nous Subscription" for TTS
+website/docs/guides/run-hermes-with-nous-portal.md:156:# → pick a speech-to-text backend (local faster-whisper is free, no setup)
+website/docs/guides/run-hermes-with-nous-portal.md:251:| 1× OpenAI key for TTS / voice mode | TTS routed through gateway |
+website/docs/guides/run-hermes-with-nous-portal.md:262:- **[Voice mode](../user-guide/features/voice-mode.md)** — Set up voice conversations on the Portal subscription
+skills/autonomous-ai-agents/hermes-agent/references/slash-commands.md:44:/voice [on|off|tts]      Voice mode
+website/docs/getting-started/quickstart.md:74:One subscription covers 300+ models plus the [Tool Gateway](../user-guide/features/tool-gateway.md) (web search, image generation, TTS, cloud browser). On a fresh install:
+website/docs/getting-started/quickstart.md:256:### Voice mode
+website/docs/getting-started/quickstart.md:261:is not available on every architecture. See [Voice Mode](../user-guide/features/voice-mode.md).
+website/docs/reference/toolsets-reference.md:77:| `tts` | `text_to_speech` | Text-to-speech audio generation. |
+website/docs/developer-guide/creating-skills.md:23:- Examples: browser automation, TTS, vision analysis
+website/docs/developer-guide/streaming-tts.md:2:title: "Streaming TTS Internals"
+website/docs/developer-guide/streaming-tts.md:3:description: "Sentence chunker, streaming provider ABC, capability matrix and how to add a streaming TTS provider"
+website/docs/developer-guide/streaming-tts.md:6:# Streaming TTS
+website/docs/developer-guide/streaming-tts.md:8:Hermes can stream TTS audio as it arrives from the provider, instead of waiting
+website/docs/developer-guide/streaming-tts.md:9:for the full audio before playing. This is used by voice mode (CLI/TUI live
+website/docs/developer-guide/streaming-tts.md:23:3. **TTS provider** — a registered `StreamingTTSProvider` turns each sentence
+website/docs/developer-guide/streaming-tts.md:30:sync `text_to_speech_tool` path, so edge (the default) is conversational too.
+website/docs/developer-guide/streaming-tts.md:37:(`tts.provider`) when that provider has a chunked API — it never silently
+website/docs/developer-guide/streaming-tts.md:40:To override, set `tts.streaming.provider` in your `config.yaml`:
+website/docs/developer-guide/streaming-tts.md:42:- a provider name (`elevenlabs`, `gemini`, `openai`, `xai`) pins that streamer
+website/docs/developer-guide/streaming-tts.md:43:- `auto` walks the priority list `elevenlabs → gemini → openai → xai` and uses
+website/docs/developer-guide/streaming-tts.md:48:tts:
+website/docs/developer-guide/streaming-tts.md:54:    model: gemini-2.5-flash-preview-tts
+website/docs/developer-guide/streaming-tts.md:62:| elevenlabs  | chunked HTTP (`pcm_24000`)            | yes         | `ELEVENLABS_API_KEY` / `tts.elevenlabs` |
+website/docs/developer-guide/streaming-tts.md:63:| openai      | chunked HTTP (`with_streaming_response`, `pcm`) | yes | `tts.openai.api_key` → env → managed gateway |
+website/docs/developer-guide/streaming-tts.md:65:| xai         | WebSocket (`wss://api.x.ai/v1/tts`)   | yes         | `XAI_API_KEY` preferred, else xAI OAuth (the subscription bearer 403s on metered TTS) |
+website/docs/developer-guide/streaming-tts.md:96:same `tts.voice` / `tts.model` / `tts.speed` as `synthesize()`. A configured
+website/docs/developer-guide/streaming-tts.md:97:plugin streams first. Under `tts.streaming.provider: auto` it is tried only after
+website/docs/developer-guide/streaming-tts.md:116:turn's streaming audio completes, the whole-file auto-TTS reply for that turn
+skills/autonomous-ai-agents/hermes-agent/references/configuration.md:16:| `stt` | `enabled`, `provider` (local/groq/openai/mistral/elevenlabs/deepinfra) |
+skills/autonomous-ai-agents/hermes-agent/references/configuration.md:17:| `tts` | `provider` (edge/elevenlabs/openai/minimax/mistral/neutts/gemini/piper/kittentts/deepinfra/xai) |
+skills/autonomous-ai-agents/hermes-agent/references/configuration.md:45:| `tts` | Text-to-speech |
+skills/autonomous-ai-agents/hermes-agent/references/configuration.md:63:### STT (Voice → Text)
+skills/autonomous-ai-agents/hermes-agent/references/configuration.md:68:stt:
+skills/autonomous-ai-agents/hermes-agent/references/configuration.md:70:  provider: local   # local (faster-whisper, free) | groq | openai | mistral | elevenlabs | deepinfra
+skills/autonomous-ai-agents/hermes-agent/references/configuration.md:75:Auto-detect priority: local faster-whisper (`python -c "import pm; pm.sync_venv(['stt-whisper'], explicit=True)"`) → Groq (`GROQ_API_KEY`, free tier) → OpenAI (`VOICE_TOOLS_OPENAI_KEY`) → Mistral Voxtral (`MISTRAL_API_KEY`).
+skills/autonomous-ai-agents/hermes-agent/references/configuration.md:77:### TTS (Text → Voice)
+skills/autonomous-ai-agents/hermes-agent/references/configuration.md:81:| Edge TTS (default) | None | Yes |
+skills/autonomous-ai-agents/hermes-agent/references/configuration.md:82:| ElevenLabs | `ELEVENLABS_API_KEY` | Free tier |
+skills/autonomous-ai-agents/hermes-agent/references/configuration.md:89:Voice commands: `/voice on` (voice-to-voice), `/voice tts` (always voice), `/voice off`.
+website/docs/developer-guide/gateway-command-parity.md:130:| `/voice` | control | HermesCLI._handle_voice_command | config.get, slash.exec; sidecar: voice.toggle; `tts` refused | unavailable: composer-voice | slash.exec | per-session setting (gateway handler) |
+skills/autonomous-ai-agents/hermes-agent/SKILL.md:96:| config.yaml sections, toolsets, voice/STT/TTS | `references/configuration.md` |
+website/docs/developer-guide/adding-tools.md:25:Make it a **Tool** when it requires end-to-end integration with API keys, custom processing logic, binary data handling, or streaming (browser automation, TTS, vision analysis).
+website/docs/reference/faq.md:24:- **[Nous Portal](../integrations/nous-portal.md)** — Nous Research's subscription gateway — 300+ models plus web/image/TTS/browser through one OAuth login (recommended for newcomers)
+website/docs/getting-started/nix-setup.md:853:| `voice` | Local speech-to-text (faster-whisper) |
+website/docs/getting-started/nix-setup.md:854:| `edge-tts` | Edge TTS provider |
+website/docs/getting-started/nix-setup.md:855:| `tts-premium` | ElevenLabs TTS |
+website/docs/developer-guide/extending-the-cli.md:168:    voice_status_bar,       # voice mode status (conditional)
+cli-config.yaml.example:777:# browser screenshot analysis, web page summarization, TTS audio-tag insertion,
+cli-config.yaml.example:848:#   # Gemini 3.1 TTS hidden audio-tag insertion
+cli-config.yaml.example:1339:#     cli: [web, terminal, file, skills, todo, tts]
+cli-config.yaml.example:1387:#   tts          - text_to_speech  (Edge TTS free, or ELEVENLABS/OPENAI/MINIMAX/MISTRAL key)
+cli-config.yaml.example:1412:#   tts          - Text-to-speech (Edge TTS free, ElevenLabs, OpenAI, MiniMax, Mistral)
+cli-config.yaml.example:1496:# Text-to-Speech
+cli-config.yaml.example:1498:# TTS defaults to Edge TTS unless changed in ~/.hermes/config.yaml.
+cli-config.yaml.example:1499:# Gemini TTS supports persona/director prompt files, and Gemini 3.1 Flash TTS
+cli-config.yaml.example:1501:# audio tags into the TTS script without showing tags in chat.
+cli-config.yaml.example:1503:# tts:
+cli-config.yaml.example:1508:#     model: "gemini-3.1-flash-tts-preview"
+cli-config.yaml.example:1511:#     persona_prompt_file: ""  # e.g. ~/.hermes/tts/radio-host.md
+cli-config.yaml.example:1523:# Voice Transcription (Speech-to-Text)
+cli-config.yaml.example:1525:# Transcribe audio input.
+cli-config.yaml.example:1528:stt:
+cli-config.yaml.example:1531:  # --- Cloud pre-upload silence trim (groq/openai/mistral/xai/elevenlabs/deepinfra) ---
+cli-config.yaml.example:1544:  # Privacy: the final prompt is sent to the configured STT provider alongside
+cli-config.yaml.example:1559:  #   elevenlabs             -> unsupported; DEBUG log, then continue
+cli-config.yaml.example:1564:    # language: ""             # blank = inherit stt.language; set "en", "es", "fr", etc. to force
+cli-config.yaml.example:1568:    #                          # Set false to restore raw behavior (e.g. transcribing music/ambient audio).
+cli-config.yaml.example:1576:  #   language: ""             # blank inherits stt.language, then HERMES_LOCAL_STT_LANGUAGE
+cli-config.yaml.example:1579:    language: ""               # blank = inherit stt.language; set "en", "es", "fr", etc. to force
+cli-config.yaml.example:1588:  #   # language: ""             # blank = stt.language > HERMES_LOCAL_STT_LANGUAGE > auto-detect
+cli-config.yaml.example:1591:  #   # by the `stt` surface tag — leave `model` blank to take the first
+cli-config.yaml.example:1594:  # Custom command providers (stt.providers.<name>: type: command) can
+cli-config.yaml.example:1604:# Text-to-speech. Only the deepinfra block is documented here — the
+cli-config.yaml.example:1606:# elevenlabs, neutts, kittentts, piper) inherit sensible defaults from
+cli-config.yaml.example:1608:# tts:
+cli-config.yaml.example:1612:#     # by the `tts` surface tag — leave `model` blank to take the first
+cli-config.yaml.example:1617:# "Hey Hermes" hands-free wake word (off by default; toggle with /wake).
+cli-config.yaml.example:1620:# wake_word:
+cli-config.yaml.example:1626:#                      # local: always the backend mic (wake_word.input_device).
+website/docs/reference/cli-symbols.md:49:| `● REC` | Voice mode is recording. |
+website/docs/reference/cli-symbols.md:50:| `◉ STT` | Voice recording stopped; speech-to-text is transcribing. |
+website/docs/index.mdx:104:| 🎙️ **[Voice Mode](./user-guide/features/voice-mode.md)**                    | Real-time voice interaction in CLI, Telegram, Discord, and Discord VC |
+website/docs/index.mdx:105:| 🗣️ **[Use Voice Mode with Hermes](./guides/use-voice-mode-with-hermes.md)** | Hands-on setup and usage patterns for Hermes voice workflows          |
+website/docs/index.mdx:122:- **Full web control** — Search, extract, browse, vision, image generation, TTS — one subscription via [Nous Portal](./integrations/nous-portal.md) bundles all of them
+website/docs/reference/slash-commands.md:89:| `/voice [on\|off\|tts\|status]` | Toggle CLI voice mode and spoken playback. Recording uses `voice.record_key` (default: `Ctrl+B`). |
+website/docs/reference/slash-commands.md:97:| `/wake [on\|off\|status]` | CLI-only: toggle the "Hey Hermes" wake word listener. |
+website/docs/user-guide/tui.md:322:- [Voice Mode](features/voice-mode.md) — works in both interfaces
+website/docs/reference/tools-reference.md:297:## `tts` toolset
+website/docs/reference/tools-reference.md:301:| `text_to_speech` | Convert text to speech audio. Returns a MEDIA: path that the platform delivers as a voice message. On Telegram it plays as a voice bubble, on Discord/WhatsApp as an audio attachment. In CLI mode, saves to ~/voice-memos/. Voice and provider… | — |
+website/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-claude-code.md:428:| `/voice` | Enable push-to-talk voice mode (20 languages; hold Space to record, release to send) |
+website/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-hermes-agent.md:113:| config.yaml sections, toolsets, voice/STT/TTS | `references/configuration.md` |
+website/docs/developer-guide/plugins/index.md:31:| A **TTS backend** (any CLI — Piper, VoxCPM, Kokoro, voice cloning, …) | [TTS custom command providers](../../user-guide/features/tts.md#custom-command-providers) — config-driven, no Python needed |
+website/docs/developer-guide/plugins/index.md:32:| An **STT backend** (custom whisper / ASR CLI) | [Voice Message Transcription](../../user-guide/features/tts.md#voice-message-transcription-stt) — set `HERMES_LOCAL_STT_COMMAND` to an argv-tokenized template |
+website/docs/developer-guide/plugins/index.md:39:See the full [Pluggable interfaces table](../../user-guide/features/plugins.md#pluggable-interfaces--where-to-go-for-each) for a consolidated view of every extension surface including config-driven (TTS, STT, MCP, shell hooks) and drop-in directory (gateway hooks) styles.
+website/docs/developer-guide/plugins/index.md:2299:### TTS / STT via command templates
+website/docs/developer-guide/plugins/index.md:2304:tts:
+website/docs/developer-guide/plugins/index.md:2314:For STT, point `HERMES_LOCAL_STT_COMMAND` at an argv-tokenized template. It runs without implicit shell interpretation; wrap it in `sh -c`, `cmd /c`, or PowerShell explicitly if the trusted local command requires shell syntax. Supported placeholders: `{input_path}`, `{output_path}`, `{format}`, `{voice}`, `{model}`, `{speed}` (TTS); `{input_path}`, `{output_dir}`, `{language}`, `{model}` (STT). Any path-interacting CLI is automatically a plugin.
+website/docs/developer-guide/plugins/index.md:2316:**Full guides:** [TTS custom command providers](../../user-guide/features/tts.md#custom-command-providers) · [STT](../../user-guide/features/tts.md#voice-message-transcription-stt).
+website/docs/reference/environment-variables.md:105:| `XAI_API_KEY` | xAI (Grok) API key for chat + TTS + web search ([console.x.ai](https://console.x.ai/)) |
+website/docs/reference/environment-variables.md:107:| `MISTRAL_API_KEY` | Mistral API key for Voxtral TTS and Voxtral STT ([console.mistral.ai](https://console.mistral.ai)) |
+website/docs/reference/environment-variables.md:118:| `VOICE_TOOLS_OPENAI_KEY` | Preferred OpenAI key for OpenAI speech-to-text and text-to-speech providers |
+website/docs/reference/environment-variables.md:119:| `HERMES_LOCAL_STT_COMMAND` | Optional local speech-to-text command template. Supports `{input_path}`, `{output_dir}`, `{language}`, and `{model}` placeholders |
+website/docs/reference/environment-variables.md:120:| `HERMES_LOCAL_STT_LANGUAGE` | Fallback STT language hint, used only when both the provider's own `language` and the global `stt.language` are empty. Command backends (`HERMES_LOCAL_STT_COMMAND`, the local `whisper` CLI) may apply their own default (`en`) when no hint resolves. |
+website/docs/reference/environment-variables.md:165:| `GROQ_API_KEY` | Groq Whisper STT API key ([groq.com](https://groq.com/)) |
+website/docs/reference/environment-variables.md:166:| `ELEVENLABS_API_KEY` | ElevenLabs premium TTS voices ([elevenlabs.io](https://elevenlabs.io/)) |
+website/docs/reference/environment-variables.md:167:| `PORCUPINE_ACCESS_KEY` | Picovoice Porcupine wake-word engine ([console.picovoice.ai](https://console.picovoice.ai/)) — required when Porcupine is selected; openWakeWord and sherpa need no key |
+website/docs/reference/environment-variables.md:168:| `STT_GROQ_MODEL` | Override the Groq STT model (default: `whisper-large-v3-turbo`) |
+website/docs/reference/environment-variables.md:169:| `GROQ_BASE_URL` | Override the Groq OpenAI-compatible STT endpoint |
+website/docs/reference/environment-variables.md:170:| `STT_OPENAI_MODEL` | Override the OpenAI STT model (default: `whisper-1`) |
+website/docs/reference/environment-variables.md:171:| `STT_OPENAI_BASE_URL` | Override the OpenAI-compatible STT endpoint |
+website/docs/user-guide/bot-mode.md:101:A Bot speaks with its **own profile's** TTS settings (`tts.*` in that profile's `config.yaml`) on its **own gateway**. Read Aloud, auto-speak and voice conversation in a Bot chat — in a split tile or opened in the main pane — all synthesize through the Bot's (connection, profile), so two Bots with different voices sound different and two Bots with the same profile name on different gateways never share a voice. A Bot profile with no `tts.*` of its own uses that profile's server defaults; only a chat with no known owner (a plain session) uses the active profile's voice. Speech-to-text in a Bot chat still uses the active profile's STT settings.
+website/docs/reference/cli-commands.md:404:hermes setup [model|tts|terminal|gateway|tools|agent] [--non-interactive] [--reset] [--quick] [--reconfigure] [--portal]
+website/docs/reference/cli-commands.md:446:| `tools` | List Tool Gateway partners (Firecrawl, FAL, OpenAI TTS, Browser Use) and which are routed via Nous. |
+website/docs/reference/cli-commands.md:1660:| `repair-profiles` | Settle session, routing, Telegram-topic and voice-mode state that landed under the wrong profile (rows in another profile's store, labels disagreeing with the session key, parent links crossing profiles, index rows for deleted profiles). Dry-run by default; `--apply` performs the repairs after snapshotting every store (stop the gateway first); `--legacy-main rekey\|move` decides what `agent:main` rows inside a named profile's store are; `--json` for automation. See [Sessions → Repair State Crossed Between Profiles](../user-guide/sessions.md#repair-state-crossed-between-profiles). |
+website/docs/user-guide/sessions.md:76:- Audio is transcribed into text when speech-to-text is configured.
+website/docs/user-guide/sessions.md:866:| Telegram topic bindings and voice-mode entries missing their bot's profile | relabel from the sessions that hold the chat |
+website/docs/user-guide/configuring-models.md:44:- **Right** — the curated model list for the selected provider. These are the agentic models Hermes recommends for that provider, not the raw `/models` dump (which on OpenRouter includes 400+ models including TTS, image generators, and rerankers).
+website/docs/user-guide/configuring-models.md:107:| **Voice Chat** | Spoken voice-chat replies. Point it at a faster model than your main one; reasoning is off on voice turns by default, and GPT-Live voice chat ignores this slot. See [Voice chat model](./features/voice-mode.md#voice-chat-model). |
+website/docs/integrations/providers.md:74:[Nous Portal](https://portal.nousresearch.com) is Nous Research's unified subscription gateway and **the recommended way to run Hermes Agent**. One OAuth login covers 300+ frontier agentic models (Claude, GPT, Gemini, DeepSeek, Qwen, Kimi, GLM, MiniMax, Grok, ...) plus the [Tool Gateway](../user-guide/features/tool-gateway.md) (web search, image generation, TTS, browser automation) — billed against your Nous subscription instead of separate per-provider accounts.
+website/docs/integrations/providers.md:116:Paid Nous Portal subscribers also get access to the **[Tool Gateway](../user-guide/features/tool-gateway.md)** — web search, image generation, TTS, and browser automation routed through your subscription. No extra API keys needed. On a fresh install, `hermes setup --portal` logs you in, sets Nous as your provider, and turns the gateway on in one command. Existing users can enable it from `hermes model` or per-tool from `hermes tools`. Inspect routing at any time with `hermes portal info`.
+website/docs/integrations/providers.md:149:**xAI (SuperGrok / X Premium+).** Browser OAuth works with either an active SuperGrok subscription or an X Premium+ subscription on the linked X account, and the same bearer token is reused by direct-to-xAI tools (TTS, image gen, video gen, transcription, X Search). If inference returns `HTTP 403` after a successful login, that's a tier/entitlement restriction on xAI's side, not a stale token — the workaround is switching to an `XAI_API_KEY`. See [xAI (Grok)](#xai-grok--responses-api--prompt-caching) below and the [xAI Grok OAuth guide](../guides/xai-grok-oauth.md).
+website/docs/integrations/providers.md:315:SuperGrok and X Premium+ subscribers can sign in with browser OAuth instead of using an API key — pick **xAI Grok OAuth (SuperGrok / Premium+)** in `hermes model`, or run `hermes auth add xai-oauth`. The same OAuth bearer token is automatically reused by direct-to-xAI tools (TTS, image gen, video gen, transcription). See the [xAI Grok OAuth guide](../guides/xai-grok-oauth.md) for the full flow — and if Hermes runs on a remote host, also see [OAuth over SSH / Remote Hosts](../guides/oauth-over-ssh.md) for the required `ssh -L` tunnel.
+website/docs/integrations/providers.md:321:xAI also ships a dedicated TTS endpoint (`/v1/tts`). Select **xAI TTS** in `hermes tools` → Voice & TTS, or see the [Voice & TTS](../user-guide/features/tts.md#text-to-speech) page for config.
+website/docs/integrations/providers.md:1462:| Premium TTS voices | [ElevenLabs](https://elevenlabs.io/) | `ELEVENLABS_API_KEY` |
+website/docs/integrations/providers.md:1463:| OpenAI TTS + voice transcription | [OpenAI](https://platform.openai.com/api-keys) | `VOICE_TOOLS_OPENAI_KEY` |
+website/docs/integrations/providers.md:1464:| Mistral TTS + voice transcription | [Mistral](https://console.mistral.ai/) | `MISTRAL_API_KEY` |
+website/docs/integrations/index.md:12:If you only have time to set up one integration, set up [Nous Portal](./nous-portal.md) — a single OAuth login covers 300+ models plus the four Tool Gateway tools (web search, image generation, TTS, and browser automation).
+website/docs/integrations/index.md:63:## Voice & TTS Providers
+website/docs/integrations/index.md:65:Text-to-speech and speech-to-text providers:
+website/docs/integrations/index.md:69:| **Edge TTS** (default) | Good | Free | None needed |
+website/docs/integrations/index.md:70:| **ElevenLabs** | Excellent | Paid | `ELEVENLABS_API_KEY` |
+website/docs/integrations/index.md:71:| **OpenAI TTS** | Good | Paid | `VOICE_TOOLS_OPENAI_KEY` |
+website/docs/integrations/index.md:73:| **xAI TTS** | Good | Paid | `XAI_API_KEY` |
+website/docs/integrations/index.md:76:Speech-to-text supports eight providers: local faster-whisper (free, runs on-device), a local command wrapper, Groq, OpenAI Whisper API, Mistral, xAI, ElevenLabs Scribe, and DeepInfra. See [Voice & TTS](../user-guide/features/tts.md) and [Voice Mode](../user-guide/features/voice-mode.md) for details.
+website/docs/user-guide/features/plugins.md:393:| A **TTS backend** (any CLI — Piper, VoxCPM, Kokoro, xtts, voice-cloning scripts, …) | Config-driven (recommended) — declare under `tts.providers.<name>` with `type: command` in `config.yaml`. OR Python backend plugin — `ctx.register_tts_provider()` for Python-SDK / streaming engines that need more than a shell template. | [TTS Setup](./tts.md#custom-command-providers) · [Python plugin guide](./tts.md#python-plugin-providers) |
+website/docs/user-guide/features/plugins.md:394:| An **STT backend** (any CLI — whisper.cpp, custom whisper binary, local ASR CLI) | Config-driven (recommended) — declare under `stt.providers.<name>` with `type: command` in `config.yaml`, or set `HERMES_LOCAL_STT_COMMAND` for the legacy single-command escape hatch. OR Python backend plugin — `ctx.register_transcription_provider()` for Python-SDK engines (OpenRouter, SenseAudio, Gemini-STT, etc.). | [STT Setup](./tts.md#stt-custom-command-providers) · [Python plugin guide](./tts.md#python-plugin-providers-stt) |
+website/docs/user-guide/features/plugins.md:401:Not everything is a Python plugin. Some extension surfaces intentionally use **config-driven shell commands** (TTS, STT, shell hooks) so any CLI you already have becomes a plugin without writing Python. Others are **external servers** (MCP) the agent connects to and auto-registers tools from. And some are **drop-in directories** (gateway hooks) with their own manifest format. Pick the right surface for the integration style that fits your use case; the authoring guides in the table above each cover placeholders, discovery, and examples.
+website/docs/user-guide/features/plugins.md:702:description: STT + streaming TTS + approval relay
+website/docs/user-guide/features/plugins.md:860:provider objects (image/video generation, web search, browser, TTS/STT, memory, context engines,
+website/docs/user-guide/cli.md:270:| `Ctrl+B` | Start/stop voice recording when voice mode is enabled (`voice.record_key`, default: `ctrl+b`) |
+website/docs/user-guide/cli.md:321:| `/voice on` | Enable CLI voice mode (press `Ctrl+B` to record) |
+website/docs/user-guide/cli.md:322:| `/voice tts` | Toggle spoken playback for Hermes replies |
+website/docs/user-guide/cli.md:331:For voice setup and providers, see [Use Voice Mode with Hermes](../guides/use-voice-mode-with-hermes.md).
+website/docs/integrations/nous-portal.md:59:| **Text-to-speech** | OpenAI TTS | High-quality TTS without a separate OpenAI key. Enables [voice mode](../user-guide/features/voice-mode.md). |
+website/docs/integrations/nous-portal.md:103:5. Turns on the Tool Gateway (web, image, TTS, browser routing)
+website/docs/integrations/nous-portal.md:155:  Text-to-speech        via Nous Portal
+website/docs/integrations/nous-portal.md:192:# → TTS              → "Nous Subscription"
+website/docs/integrations/nous-portal.md:224:tts:
+website/docs/integrations/nous-portal.md:282:- **[Voice mode](../user-guide/features/voice-mode.md)** — Voice conversations using the Portal's OpenAI TTS
+website/docs/user-guide/skills/optional/mlops/mlops-nemo-curator.md:286:transcribed = asr(audio_dataset)
+website/docs/user-guide/skills/optional/mlops/mlops-nemo-curator.md:290:high_quality_audio = wer_filter(transcribed)
+website/docs/user-guide/skills/bundled/creative/creative-popular-web-designs.md:133:| `elevenlabs.md` | ElevenLabs | Dark cinematic UI, audio-waveform aesthetics |
+website/docs/user-guide/skills/bundled/creative/creative-popular-web-designs.md:218:- **Dark mode UIs:** Linear, Cursor, ElevenLabs, Warp, Superhuman
+website/docs/user-guide/skills/bundled/creative/creative-ascii-video.md:66:| **TTS narration** | Text quotes + TTS API | Narrated testimonial/quote video with typed text | `references/inputs.md` § TTS Integration |
+website/docs/user-guide/skills/bundled/creative/creative-ascii-video.md:79:| TTS | ElevenLabs API (optional) | Generate narration clips |
+website/docs/user-guide/skills/bundled/creative/creative-ascii-video.md:236:| `references/inputs.md` | Audio analysis (FFT, bands, beats), video sampling, image conversion, text/lyrics, TTS integration (ElevenLabs, voice assignment, audio mixing) |
+website/docs/user-guide/skills/optional/devops/devops-inference-sh-cli.md:153:# Audio / TTS
+website/docs/user-guide/skills/optional/devops/devops-inference-sh-cli.md:154:infsh app list --search tts
+website/docs/user-guide/skills/bundled/creative/creative-manim-video.md:78:| TTS | ElevenLabs / Qwen3-TTS (optional) | Narration voiceover |
+website/docs/user-guide/features/tool-gateway.md:3:description: "One subscription, every tool. Web search, image generation, TTS, and cloud browsers — all routed through Nous Portal with no extra API keys."
+website/docs/user-guide/features/tool-gateway.md:12:The Tool Gateway is included with every paid [Nous Portal](https://portal.nousresearch.com) subscription. It routes Hermes' tool calls — web search, image generation, text-to-speech, and cloud browser automation — through infrastructure Nous already runs, so you don't have to sign up with a web search vendor, FAL, OpenAI, Browser Use, or anyone else just to make your agent useful.
+website/docs/user-guide/features/tool-gateway.md:24:| 🔊 | **Text-to-speech** | OpenAI TTS voices wired into the `text_to_speech` tool. Drop voice notes into Telegram, generate audio for pipelines, narrate anything. |
+website/docs/user-guide/features/tool-gateway.md:27:All four are pay-as-you-use billed against your Nous subscription. Use any combination — run the gateway for web and images while keeping your own ElevenLabs key for TTS, or route everything through Nous.
+website/docs/user-guide/features/tool-gateway.md:58:**You don't have to log in first.** With `hermes tools`, the Nous-managed backends (Web search, Image, Video, TTS, Browser) are always listed, even if you've never signed into Nous Portal. Select one and Hermes runs the Portal login right there if you aren't already authenticated — no need to run `hermes model` beforehand. If your Nous OAuth is already active, selecting the backend enables it immediately with no extra prompt. This path only logs you in and turns on the one tool you picked — it does **not** switch your inference provider, and it does **not** prompt you to enable the gateway for every other tool.
+website/docs/user-guide/features/tool-gateway.md:75:  TTS             ✓ active via Nous subscription
+website/docs/user-guide/features/tool-gateway.md:101:- **Gateway for web + images, bring your own TTS** — keep your ElevenLabs voice, let Nous handle the rest.
+website/docs/user-guide/features/tool-gateway.md:161:tts:
+website/docs/user-guide/features/tool-gateway.md:162:  provider: nous         # TTS via the Tool Gateway
+website/docs/user-guide/features/tool-gateway.md:164:stt:
+website/docs/user-guide/features/tool-gateway.md:165:  provider: nous         # speech-to-text via the Tool Gateway
+website/docs/user-guide/features/wake-word.md:3:title: "Wake Word"
+website/docs/user-guide/features/wake-word.md:4:description: "Hands-free 'Hey Hermes' wake word — start a voice session by speaking, the 'Hey Siri' way"
+website/docs/user-guide/features/wake-word.md:7:# Wake Word ("Hey Hermes")
+website/docs/user-guide/features/wake-word.md:9:The wake word turns Hermes into a hands-free assistant across the CLI, TUI, and
+website/docs/user-guide/features/wake-word.md:12:captures your command via the normal [voice pipeline](./voice-mode.md),
+website/docs/user-guide/features/wake-word.md:22:1. With `wake_word.enabled: true` (or after `/wake on`), a lightweight hotword
+website/docs/user-guide/features/wake-word.md:24:   microphone when `wake_word.input_device` is unset.
+website/docs/user-guide/features/wake-word.md:26:   session, and records one utterance with voice mode's silence detection.
+website/docs/user-guide/features/wake-word.md:28:   listener resumes automatically and waits for the next wake word.
+website/docs/user-guide/features/wake-word.md:45:wake-word microphone.”
+website/docs/user-guide/features/wake-word.md:58:wake_word:
+website/docs/user-guide/features/wake-word.md:93:run `hermes config set wake_word.provider auto`. Wake detection stays **off**
+website/docs/user-guide/features/wake-word.md:102:wake-word detection. `security.allow_lazy_installs` controls this installation.
+website/docs/user-guide/features/wake-word.md:125:that fans out of it. The ear is solid when the wake word is listening.
+website/docs/user-guide/features/wake-word.md:127:The toggle IS the setting: turning the wake word on or off — via `/wake` or the
+website/docs/user-guide/features/wake-word.md:128:desktop ear button — also writes `wake_word.enabled` to `~/.hermes/config.yaml`,
+website/docs/user-guide/features/wake-word.md:132:wake_word:
+website/docs/user-guide/features/wake-word.md:139:wake_word:
+website/docs/user-guide/features/wake-word.md:161:device-name substring. This setting only changes wake-word capture; desktop
+website/docs/user-guide/features/wake-word.md:168:threshold and fire the wake word unintentionally. Two knobs control this:
+website/docs/user-guide/features/wake-word.md:197:The wake word works in all three Hermes surfaces, and `surface` picks which one
+website/docs/user-guide/features/wake-word.md:229:wake_word:
+website/docs/user-guide/features/wake-word.md:241:whose config has `wake_word.enabled: true` is enrolled automatically; its
+website/docs/user-guide/features/wake-word.md:250:Set `wake_word.profile_routing: false` on the listener's profile to opt out
+website/docs/user-guide/features/wake-word.md:267:wake_word:
+website/docs/user-guide/features/wake-word.md:292:wake_word:
+website/docs/user-guide/features/wake-word.md:309:  voice mode).
+website/docs/user-guide/features/wake-word.md:310:- An STT provider for transcribing the spoken command — local `faster-whisper`
+website/docs/user-guide/features/wake-word.md:311:  works out of the box; see [Voice Mode](./voice-mode.md) for the
+website/docs/user-guide/features/wake-word.md:313:- A TTS provider for speaking the reply (the default `edge-tts` works with no
+website/docs/user-guide/features/wake-word.md:315:  both STT and TTS are ready — `hermes tools` (Voice section) sets them up.
+website/docs/user-guide/features/wake-word.md:322:Desktop push-to-talk and wake-word capture use different microphone paths.
+website/docs/user-guide/features/wake-word.md:324:wake-word listener opens a PortAudio stream in the Python backend. One can work
+website/docs/user-guide/features/wake-word.md:328:When it reports silence, set `wake_word.input_device` to the numeric index or an
+website/docs/user-guide/features/wake-word.md:329:unambiguous name of the working PortAudio input, then toggle the wake word:
+website/docs/user-guide/features/wake-word.md:332:hermes config set wake_word.input_device "Microphone Array"
+website/docs/user-guide/features/wake-word.md:338:hermes config set wake_word.input_device null
+website/docs/user-guide/features/wake-word.md:343:- **Local surfaces only.** The wake word runs in the CLI, TUI, and desktop GUI —
+website/docs/user-guide/skills/optional/creative/creative-ai-presenter-video.md:23:| Tags | `video`, `presenter`, `avatar`, `lipsync`, `tts`, `captions`, `creative` |
+website/docs/user-guide/skills/optional/creative/creative-ai-presenter-video.md:43:`image_generate` and the video-gen plugin, TTS via `text_to_speech`, ASR via
+website/docs/user-guide/skills/optional/creative/creative-ai-presenter-video.md:44:the whisper/STT tooling, ffmpeg for everything deterministic).
+website/docs/user-guide/skills/optional/creative/creative-ai-presenter-video.md:63:  capability", use `text_to_speech` (OpenAI/Edge/ElevenLabs per user config);
+website/docs/user-guide/skills/optional/creative/creative-ai-presenter-video.md:66:  endpoint the user has access to; "word-timestamp ASR" → whisper via the STT
+website/docs/user-guide/skills/optional/creative/creative-ai-presenter-video.md:74:- **Paid-generation consent** — remote avatar/TTS generation is billable.
+website/docs/user-guide/skills/optional/creative/creative-ai-presenter-video.md:134:   full narration via `text_to_speech` → ASR-verify the narration against the
+website/docs/user-guide/skills/optional/creative/creative-ai-presenter-video.md:164:  sample or a stock TTS voice.
+website/docs/user-guide/features/skins.md:77:| `voice_status_bg` | Background color for the voice-mode status badge | `#1a1a2e` |
+website/docs/user-guide/docker.md:503:Voice mode in Docker needs two separate things to work: Hermes must be allowed to probe audio devices inside the container, and the container must be able to reach your host audio server. The setup below covers the host audio plumbing for Linux desktops that expose a PulseAudio-compatible socket, including many PipeWire setups.
+website/docs/user-guide/docker.md:506:This is a Linux desktop workaround, not a general Docker Desktop feature. It is useful when you already have host audio working and want CLI voice mode inside the Hermes container. If Hermes still reports `Running inside Docker container -- no audio devices`, use a build that includes Docker audio probing support for `PULSE_SERVER` / `PIPEWIRE_REMOTE`.
+website/docs/user-guide/docker.md:630:Opt-in backend SDKs (Edge TTS, Firecrawl, Exa, platform adapters, plugin
+website/docs/user-guide/features/batch-processing.md:38:Batch runs spin up many concurrent agent sessions, each making model calls and tool calls. A [Nous Portal](./tool-gateway.md) subscription bundles model access plus web search, image gen, TTS, and cloud browsers under one bill — useful when you want stable cost-per-trajectory without juggling rate limits across five vendor accounts. Set up with `hermes setup --portal`, then point `--model` at a Nous model.
+website/docs/user-guide/features/built-in-plugins.md:60:| `google_meet` | standalone | Join Meet calls, live-caption transcription, optional realtime duplex audio |
+website/docs/user-guide/features/built-in-plugins.md:149:Lets the agent **join, transcribe, and participate in Google Meet calls** — take notes on a meeting, summarize the back-and-forth after, follow up on specific points, and (optionally) speak replies back into the call via TTS.
+website/docs/user-guide/features/built-in-plugins.md:154:- Live transcription derived from Meet's own live captions (the bot never decodes the meeting audio, so no STT billing — and captions are lossy and English-biased)
+website/docs/user-guide/features/voice-mode.md:3:title: "Voice Mode"
+website/docs/user-guide/features/voice-mode.md:7:# Voice Mode
+website/docs/user-guide/features/voice-mode.md:11:If you want a practical setup walkthrough with recommended configurations and real usage patterns, see [Use Voice Mode with Hermes](../../guides/use-voice-mode-with-hermes.md).
+website/docs/user-guide/features/voice-mode.md:13:For hands-free session start — saying "hey hermes" (or any phrase) to open a fresh voice session on the CLI, TUI, or desktop app — see [Wake Word](./wake-word.md).
+website/docs/user-guide/features/voice-mode.md:28:A paid [Nous Portal](./tool-gateway.md) subscription supplies the LLM (step 2) **and** OpenAI TTS via the Tool Gateway — no separate OpenAI key needed. On a fresh install, `hermes setup --portal` wires both up at once.
+website/docs/user-guide/features/voice-mode.md:56:| `voice` | `sounddevice`, `numpy`, and Faster-Whisper where supported | CLI audio and optional local STT |
+website/docs/user-guide/features/voice-mode.md:58:| `tts-premium` | `elevenlabs` | ElevenLabs TTS provider |
+website/docs/user-guide/features/voice-mode.md:61:the microphone/playback dependencies without local STT. The `all` extra does
+website/docs/user-guide/features/voice-mode.md:82:| **PortAudio** | Microphone input and audio playback | CLI voice mode |
+website/docs/user-guide/features/voice-mode.md:92:# Speech-to-Text — local provider needs NO key at all
+website/docs/user-guide/features/voice-mode.md:93:# PM prepares local Faster-Whisper on supported targets; no STT API key is needed.
+website/docs/user-guide/features/voice-mode.md:97:# Text-to-Speech (optional — Edge TTS and NeuTTS work without any key)
+website/docs/user-guide/features/voice-mode.md:98:ELEVENLABS_API_KEY=***           # ElevenLabs — premium quality
+website/docs/user-guide/features/voice-mode.md:99:# VOICE_TOOLS_OPENAI_KEY above also enables OpenAI TTS
+website/docs/user-guide/features/voice-mode.md:103:If `faster-whisper` is installed, voice mode works with **zero API keys** for STT. The model (~150 MB for `base`) downloads automatically on first use.
+website/docs/user-guide/features/voice-mode.md:117:## CLI Voice Mode
+website/docs/user-guide/features/voice-mode.md:119:Voice mode is available in both the **classic CLI** (`hermes chat`) and the **TUI** (`hermes --tui`). Behavior is identical across both — same slash commands, same VAD silence detection, same streaming TTS, same hallucination filter. The TUI additionally forwards crash-forensic logs to `~/.hermes/logs/` so push-to-talk failures on exotic audio backends can be reported with a full stack trace rather than disappearing silently.
+website/docs/user-guide/features/voice-mode.md:123:Start the CLI and enable voice mode:
+website/docs/user-guide/features/voice-mode.md:132:/voice          Toggle voice mode on/off
+website/docs/user-guide/features/voice-mode.md:133:/voice on       Enable voice mode
+website/docs/user-guide/features/voice-mode.md:134:/voice off      Disable voice mode
+website/docs/user-guide/features/voice-mode.md:135:/voice tts      Toggle TTS output
+website/docs/user-guide/features/voice-mode.md:141:1. Start the CLI with `hermes` and enable voice mode with `/voice on`
+website/docs/user-guide/features/voice-mode.md:146:6. Audio is transcribed via Whisper and sent to the agent
+website/docs/user-guide/features/voice-mode.md:147:7. If TTS is enabled, the agent's reply is spoken aloud
+website/docs/user-guide/features/voice-mode.md:169:Say **"stop"** — and nothing else — to end the voice conversation hands-free. The match is deliberately strict: the whole utterance (case-insensitive, surrounding punctuation ignored) must equal a configured phrase, so "stop doing that and try X instead" still reaches the agent normally. Customize the phrase list with `voice.stop_phrases` in `config.yaml` (e.g. `["stop", "goodbye hermes"]`), or set it to `[]` to disable. Phrases can be in any language (e.g. `["отбой", "стоп"]` with `stt.language: ru`). The desktop app honours the same list; while `voice.stop_phrases` is left at its default it also accepts a few English extras ("goodbye", "never mind", "cancel", …), and a customised list replaces them. A voice chat also ends on its own after three consecutive silent cycles (no speech detected).
+website/docs/user-guide/features/voice-mode.md:173:### Live transcription (streaming STT)
+website/docs/user-guide/features/voice-mode.md:175:Set `stt.streaming: true` to transcribe while you speak instead of after you stop. Partial text appears as you talk (in the classic CLI and TUI input placeholder, and in the Desktop dictation pill), and the transcript is ready when you stop speaking instead of after a full upload.
+website/docs/user-guide/features/voice-mode.md:178:stt:
+website/docs/user-guide/features/voice-mode.md:179:  provider: openai        # or xai, elevenlabs
+website/docs/user-guide/features/voice-mode.md:187:| `openai` | Realtime transcription session | Needs your own `OPENAI_API_KEY`; the Nous-managed audio gateway serves file transcription only |
+website/docs/user-guide/features/voice-mode.md:188:| `xai` | `wss://api.x.ai/v1/stt` | Needs `XAI_API_KEY` (the Grok OAuth login is not used for live STT) |
+website/docs/user-guide/features/voice-mode.md:189:| `elevenlabs` | Scribe v2 realtime | `ELEVENLABS_API_KEY` |
+website/docs/user-guide/features/voice-mode.md:192:Live transcription covers CLI and TUI voice mode and Desktop dictation. Local whisper, Groq, Mistral and DeepInfra keep using the file path. If a live session can't open, or fails mid-recording, Hermes transcribes the recording as usual, so turning this on never loses a take.
+website/docs/user-guide/features/voice-mode.md:194:### Streaming TTS
+website/docs/user-guide/features/voice-mode.md:196:When TTS is enabled, the agent speaks its reply **sentence-by-sentence** as it generates text — you don't wait for the full response. This works with **every TTS provider**:
+website/docs/user-guide/features/voice-mode.md:200:3. Plays audio per sentence in real-time — providers with a chunked PCM API (ElevenLabs, OpenAI) stream raw audio for the lowest time-to-first-word; every other provider (including the default Edge) synthesizes and plays each sentence as it completes
+website/docs/user-guide/features/voice-mode.md:206:When Hermes Desktop is connected to a **remote gateway**, audio does not need to be relayed through the gateway at all. At voice-session start the desktop fetches the active profile's resolved STT/TTS settings (provider, model, language/voice, and credential) from the gateway over the authenticated REST channel (`GET /api/audio/voice-config`) and then calls the providers **directly**:
+website/docs/user-guide/features/voice-mode.md:208:- **Dictation / voice input:** the mic recording goes straight from your desktop to the profile's STT provider; only the resulting *text* is sent to the gateway as the prompt.
+website/docs/user-guide/features/voice-mode.md:209:- **Spoken replies:** the reply text is already streaming to the desktop over the chat socket, so the desktop synthesizes it locally with the profile's TTS provider and plays it — the gateway link never carries audio.
+website/docs/user-guide/features/voice-mode.md:213:Providers that can only run on the gateway host (local whisper, `edge` TTS, command providers, plugins) automatically fall back to the relay path (`/api/audio/transcribe` and the speech WebSocket), as does any older backend without the endpoint. The Webapp (the desktop UI in a browser) always relays: a browser tab cannot call a provider that does not allow cross-origin requests (such as Nous-managed audio), and its keys stay on the host. To force the relay for every provider, set:
+website/docs/user-guide/features/voice-mode.md:220:Client-direct wire support: OpenAI (incl. Nous-managed audio), Groq, Mistral, and DeepInfra via the OpenAI-compatible shapes, xAI Grok STT, and ElevenLabs STT + TTS. xAI configured through OAuth stays on the relay (the OAuth bearer refreshes server-side).
+website/docs/user-guide/features/voice-mode.md:224:The chained loop above is one of two voice chat modes in the desktop app. The other replaces the whole STT → turn → TTS chain with **one full-duplex voice model**, OpenAI's `gpt-live-1`: it listens while it speaks, handles interruptions, backchannels and background noise itself, and has **no tools of its own**. Whenever you ask for real work it *delegates* to Hermes, which answers as usual — with whatever model and provider the session has selected, the full toolset, memory and approvals — and the voice paraphrases the answer aloud.
+website/docs/user-guide/features/voice-mode.md:238:Not supported in this mode: the Nous-managed audio proxy (direct key only), the CLI/TUI (`/voice` keeps the chained loop), and the `tts` tool (it keeps using `tts.provider`).
+website/docs/user-guide/features/voice-mode.md:254:It applies to every chained voice turn: CLI and TUI voice mode, the Desktop voice conversation, and voice notes on messaging platforms. The voice turn has the full toolset; only the model answering it changes. The next typed message goes back to the session's model, and so do memory and skill reviews after the turn. Usage is recorded under the `voice_chat` task, so the session keeps the model you picked as its own.
+website/docs/user-guide/features/voice-mode.md:256:The voice model never forces a compaction: when the conversation is already larger than its context window, that turn runs on the session's model and a one-time notice says so. GPT-Live voice chat ignores this slot, because there the voice layer already is the fast model and delegates real work to the session's model.
+website/docs/user-guide/features/voice-mode.md:262:- **Interject while it's thinking** — in continuous voice mode, speaking during LLM generation (before any audio plays) interrupts the in-flight turn and your interjection becomes the next message, the same as typing over a running turn.
+website/docs/user-guide/features/voice-mode.md:286:  auto_tts: false                  # Auto-enable TTS when voice mode starts
+website/docs/user-guide/features/voice-mode.md:292:# Speech-to-Text
+website/docs/user-guide/features/voice-mode.md:293:stt:
+website/docs/user-guide/features/voice-mode.md:299:  provider: "local"                  # "local" (free) | "groq" | "openai" | "mistral" | "xai" | "elevenlabs" | "deepinfra"
+website/docs/user-guide/features/voice-mode.md:303:    language: ""                     # optional ISO-639-1 hint; blank = stt.language, then HERMES_LOCAL_STT_LANGUAGE, then auto-detect
+website/docs/user-guide/features/voice-mode.md:305:    language: ""                     # optional ISO-639-1 hint; blank = stt.language, then HERMES_LOCAL_STT_LANGUAGE, then auto-detect
+website/docs/user-guide/features/voice-mode.md:308:# Text-to-Speech
+website/docs/user-guide/features/voice-mode.md:309:tts:
+website/docs/user-guide/features/voice-mode.md:310:  provider: "edge"                 # "edge" (free) | "elevenlabs" | "openai" | "neutts" | "minimax" | "mistral" | "gemini" | "xai" | "kittentts" | "piper"
+website/docs/user-guide/features/voice-mode.md:313:  elevenlabs:
+website/docs/user-guide/features/voice-mode.md:317:    model: "gpt-4o-mini-tts"
+website/docs/user-guide/features/voice-mode.md:320:    # The `text_to_speech` tool accepts an optional per-call `instructions`
+website/docs/user-guide/features/voice-mode.md:322:    # to `gpt-4o-mini-tts` and to OpenAI-compatible voice-design servers
+website/docs/user-guide/features/voice-mode.md:323:    # (e.g. Qwen3-TTS-VoiceDesign via oMLX). See OpenAI's voice-design guide:
+website/docs/user-guide/features/voice-mode.md:324:    # https://platform.openai.com/docs/guides/text-to-speech
+website/docs/user-guide/features/voice-mode.md:332:Blank provider language settings inherit the global `stt.language` value (default `"en"`) before consulting the environment. See [STT language resolution](../configuration.md#speech-to-text-stt) for the auto-detection conditions and command-backend limits.
+website/docs/user-guide/features/voice-mode.md:337:# Speech-to-Text providers (local needs no key)
+website/docs/user-guide/features/voice-mode.md:338:# PM prepares local Faster-Whisper on supported targets; no STT API key is needed.
+website/docs/user-guide/features/voice-mode.md:342:# STT advanced overrides (optional)
+website/docs/user-guide/features/voice-mode.md:343:STT_GROQ_MODEL=whisper-large-v3-turbo    # Override default Groq STT model
+website/docs/user-guide/features/voice-mode.md:344:STT_OPENAI_MODEL=whisper-1               # Override default OpenAI STT model
+website/docs/user-guide/features/voice-mode.md:346:STT_OPENAI_BASE_URL=https://api.openai.com/v1    # Custom OpenAI STT endpoint
+website/docs/user-guide/features/voice-mode.md:348:# Text-to-Speech providers (Edge TTS and NeuTTS need no key)
+website/docs/user-guide/features/voice-mode.md:349:ELEVENLABS_API_KEY=***             # ElevenLabs (premium quality)
+website/docs/user-guide/features/voice-mode.md:350:# VOICE_TOOLS_OPENAI_KEY above also enables OpenAI TTS
+website/docs/user-guide/features/voice-mode.md:357:### STT Provider Comparison
+website/docs/user-guide/features/voice-mode.md:376:Cloud providers cap a single request: OpenAI and Groq accept 25 MB, Mistral 500 MB (60 minutes), xAI 500 MB and ElevenLabs just under 5 GB. Some OpenAI models also have a practical length limit per request: about 7.5 minutes for `gpt-4o-transcribe` and `gpt-4o-mini-transcribe` (their 2,000-token output ceiling) and 10 minutes for `whisper-1` (so each request finishes inside the default 60 s timeout). When a voice note, audio attachment or voice-mode recording is over the active provider's limit, Hermes first re-encodes it to compact 16 kHz mono AAC, which fits most recordings into one request. If it is still too large, Hermes splits it at pauses, transcribes the pieces in order and joins the text. Local providers have no upload limit and are never split. ffmpeg is required for both steps.
+website/docs/user-guide/features/voice-mode.md:378:### TTS Provider Comparison
+website/docs/user-guide/features/voice-mode.md:382:| **Edge TTS** | Good | Free | ~1s | No |
+website/docs/user-guide/features/voice-mode.md:383:| **ElevenLabs** | Excellent | Paid | ~2s | Yes |
+website/docs/user-guide/features/voice-mode.md:384:| **OpenAI TTS** | Good | Paid | ~1.5s | Yes |
+website/docs/user-guide/features/voice-mode.md:387:NeuTTS uses the `tts.neutts` config block above.
+website/docs/user-guide/features/voice-mode.md:389:For `openai`, the `text_to_speech` tool accepts an optional `instructions`
+website/docs/user-guide/features/voice-mode.md:390:argument that unlocks `gpt-4o-mini-tts`'s voice-design capability (tone,
+website/docs/user-guide/features/voice-mode.md:392:OpenAI-compatible voice-design servers mounted via `tts.openai.base_url`
+website/docs/user-guide/features/voice-mode.md:393:(e.g. Qwen3-TTS-VoiceDesign via oMLX).
+website/docs/user-guide/features/voice-mode.md:416:- Try a different STT model
+website/docs/user-guide/skills/optional/productivity/productivity-telephony.md:105:- Vapi gives you better conversational AI call quality and more voice/model flexibility
+website/docs/user-guide/skills/optional/productivity/productivity-telephony.md:118:- pairs well with Hermes `text_to_speech` plus a public file host or tunnel
+website/docs/user-guide/skills/optional/productivity/productivity-telephony.md:300:### D. Make a direct Twilio call with built-in TTS
+website/docs/user-guide/skills/optional/productivity/productivity-telephony.md:308:This is the main path for reusing Hermes's existing `text_to_speech` support.
+website/docs/user-guide/skills/optional/productivity/productivity-telephony.md:311:- you want the call to use Hermes's configured TTS voice rather than Twilio `<Say>`
+website/docs/user-guide/skills/optional/productivity/productivity-telephony.md:321:Recommended Hermes TTS -> Twilio Play workflow:
+website/docs/user-guide/skills/optional/productivity/productivity-telephony.md:323:1. Generate the audio with Hermes `text_to_speech`.
+website/docs/user-guide/skills/optional/productivity/productivity-telephony.md:328:- Ask Hermes to create the message audio with `text_to_speech`
+website/docs/user-guide/skills/optional/productivity/productivity-telephony.md:338:- Hermes TTS is great for prerecorded outbound messages
+website/docs/user-guide/skills/optional/productivity/productivity-telephony.md:340:- Hermes STT/TTS alone is not being used here as a full duplex phone conversation engine; that would require a much heavier streaming/webhook integration than this skill is trying to introduce
+website/docs/user-guide/skills/optional/creative/creative-hyperframes.md:42:- Captioned narration video (TTS + captions synced to waveform)
+website/docs/user-guide/skills/optional/creative/creative-hyperframes.md:143:### 6. Audio, captions, TTS, audio-reactive, highlighting
+website/docs/user-guide/skills/optional/creative/creative-hyperframes.md:146:- **TTS:** `npx hyperframes tts "Script text" --voice af_nova --output narration.wav`. List voices with `--list`. Voice ID first letter encodes language (`a`/`b`=English, `e`=Spanish, `f`=French, `j`=Japanese, `z`=Mandarin, etc.) — the CLI auto-infers the phonemizer locale; pass `--lang` only to override. Non-English phonemization requires `espeak-ng` installed system-wide.
+website/docs/user-guide/skills/optional/creative/creative-hyperframes.md:147:- **Captions:** `npx hyperframes transcribe narration.wav` → word-level transcript. Pick style from the transcript tone (hype / corporate / tutorial / storytelling / social — see the table in `references/features.md`). **Language rule:** never use `.en` whisper models unless the audio is confirmed English — `.en` translates non-English audio instead of transcribing it. Every caption group MUST have a hard `tl.set(el, { opacity: 0, visibility: "hidden" }, group.end)` kill after its exit tween — otherwise groups leak visible into later ones.
+website/docs/user-guide/skills/optional/creative/creative-hyperframes.md:218:- [cli.md](https://github.com/NousResearch/hermes-agent/blob/main/optional-skills/creative/hyperframes/references/cli.md) — every CLI command (init, capture, lint, validate, inspect, preview, render, transcribe, tts, doctor, browser, info, upgrade, benchmark)
+website/docs/user-guide/skills/optional/creative/creative-hyperframes.md:220:- [features.md](https://github.com/NousResearch/hermes-agent/blob/main/optional-skills/creative/hyperframes/references/features.md) — captions, TTS, audio-reactive, marker highlighting, transitions (load on demand)
+website/docs/user-guide/features/deliverable-mode.md:27:   `text_to_speech` for audio, and so on.
+website/docs/user-guide/features/overview.md:12:`hermes setup --portal` covers a model provider plus all four Tool Gateway tools (web search, image generation, TTS, browser) in one command. See [Nous Portal](../../integrations/nous-portal.md).
+website/docs/user-guide/features/overview.md:33:- **[Voice Mode](voice-mode.md)** — Full voice interaction across CLI and messaging platforms. Talk to the agent using your microphone, hear spoken replies, and have live voice conversations in Discord voice channels.
+website/docs/user-guide/features/overview.md:34:- **[Wake Word](wake-word.md)** — Hands-free "Hey Hermes" trigger for the CLI, TUI, and desktop app. An on-device hotword listener starts a voice session when you speak the wake phrase.
+website/docs/user-guide/features/overview.md:38:- **[Voice & TTS](tts.md)** — Text-to-speech output and voice message transcription across all messaging platforms, with ten native provider options: Edge TTS (free), ElevenLabs, OpenAI TTS, MiniMax, Mistral Voxtral, Google Gemini, xAI, NeuTTS, KittenTTS, and Piper — plus custom command providers for any local TTS CLI.
+website/docs/user-guide/features/tts.md:3:title: "Voice & TTS"
+website/docs/user-guide/features/tts.md:4:description: "Text-to-speech and voice message transcription across all platforms"
+website/docs/user-guide/features/tts.md:7:# Voice & TTS
+website/docs/user-guide/features/tts.md:13:Hermes Agent supports both text-to-speech output and voice message transcription across all messaging platforms.
+website/docs/user-guide/features/tts.md:16:If you have a paid [Nous Portal](https://portal.nousresearch.com) subscription, OpenAI TTS is available through the **[Tool Gateway](tool-gateway.md)** without a separate OpenAI API key. New installs can run `hermes setup --portal` to log in and turn on every gateway tool at once; existing installs can pick **Nous Subscription** for just TTS via `hermes model` or `hermes tools`.
+website/docs/user-guide/features/tts.md:19:## Text-to-Speech
+website/docs/user-guide/features/tts.md:21:Convert text to speech with eleven providers:
+website/docs/user-guide/features/tts.md:25:| **Edge TTS** (default) | Good | Free | None needed |
+website/docs/user-guide/features/tts.md:26:| **ElevenLabs** | Excellent | Paid | `ELEVENLABS_API_KEY` |
+website/docs/user-guide/features/tts.md:27:| **OpenAI TTS** | Good | Paid | `VOICE_TOOLS_OPENAI_KEY` |
+website/docs/user-guide/features/tts.md:28:| **MiniMax TTS** | Excellent | Paid | `MINIMAX_API_KEY` or `MINIMAX_CN_API_KEY` |
+website/docs/user-guide/features/tts.md:29:| **Mistral (Voxtral TTS)** | Excellent | Paid | `MISTRAL_API_KEY` |
+website/docs/user-guide/features/tts.md:30:| **Google Gemini TTS** | Excellent | Free tier | `GEMINI_API_KEY` |
+website/docs/user-guide/features/tts.md:31:| **xAI TTS** | Excellent | Paid | `XAI_API_KEY` |
+website/docs/user-guide/features/tts.md:32:| **DeepInfra TTS** | Good | Paid | `DEEPINFRA_API_KEY` |
+website/docs/user-guide/features/tts.md:50:tts:
+website/docs/user-guide/features/tts.md:51:  provider: "edge"              # "edge" | "elevenlabs" | "openai" | "minimax" | "mistral" | "gemini" | "xai" | "deepinfra" | "neutts" | "kittentts" | "piper" — or "nous" for the managed Tool Gateway (written when you pick Nous Subscription in `hermes tools`)
+website/docs/user-guide/features/tts.md:56:  elevenlabs:
+website/docs/user-guide/features/tts.md:60:    model: "gpt-4o-mini-tts"
+website/docs/user-guide/features/tts.md:62:    base_url: "https://api.openai.com/v1"  # Override for OpenAI-compatible TTS endpoints
+website/docs/user-guide/features/tts.md:68:    min_len: 20                 # Streaming TTS: shortest first sentence (chars) spoken on its own; CJK setups use ~6
+website/docs/user-guide/features/tts.md:76:    # base_url: "https://tts.example/v1/t2a_v2"  # Optional endpoint override for the selected region
+website/docs/user-guide/features/tts.md:78:    model: "voxtral-mini-tts-2603"
+website/docs/user-guide/features/tts.md:81:    model: "gemini-2.5-flash-preview-tts"  # or gemini-3.1-flash-tts-preview
+website/docs/user-guide/features/tts.md:83:    audio_tags: false           # Enable hidden Gemini 3.1 TTS audio-tag insertion
+website/docs/user-guide/features/tts.md:101:    model: KittenML/kitten-tts-nano-0.8-int8   # 25MB int8; also: kitten-tts-micro-0.8 (41MB), kitten-tts-mini-0.8 (80MB)
+website/docs/user-guide/features/tts.md:118:MiniMax TTS selects its region, endpoint, and credential together:
+website/docs/user-guide/features/tts.md:125:**Speed control**: The global `tts.speed` value applies to all providers by default. Each provider can override it with its own `speed` setting (e.g., `tts.openai.speed: 1.5`). Provider-specific speed takes precedence over the global value. Default is `1.0` (normal speed).
+website/docs/user-guide/features/tts.md:129:Gemini TTS can follow natural-language performance direction. Set `tts.gemini.persona_prompt_file` to a local Markdown or text file that describes the voice persona. The file can include Gemini-style sections such as `AUDIO PROFILE`, `SCENE`, `DIRECTOR'S NOTES`, `SAMPLE CONTEXT`, and `TRANSCRIPT`.
+website/docs/user-guide/features/tts.md:131:If the file contains `{transcript}` or `{{ transcript }}`, Hermes replaces that placeholder with the live TTS text. Otherwise, Hermes appends a labeled `TRANSCRIPT` section automatically. The persona prompt stays local and is not shown in the chat reply.
+website/docs/user-guide/features/tts.md:134:tts:
+website/docs/user-guide/features/tts.md:138:    persona_prompt_file: ~/.hermes/tts/butler-voice.md
+website/docs/user-guide/features/tts.md:143:Google's Gemini 3.1 Flash TTS and xAI's Grok TTS support freeform square-bracket audio tags such as `[whispers]`, `[excitedly]`, `[very slow]`, `[laughs]`, and other expressive delivery notes. Enable `tts.gemini.audio_tags` or `tts.xai.auto_speech_tags` to have Hermes run a hidden rewrite pass before TTS. The rewrite inserts inline tags into the TTS script only; the visible chat reply stays unchanged.
+website/docs/user-guide/features/tts.md:146:tts:
+website/docs/user-guide/features/tts.md:149:    model: gemini-3.1-flash-tts-preview
+website/docs/user-guide/features/tts.md:157:**Streaming sample rate (OpenAI-compatible endpoints)**: streaming playback receives headerless raw PCM, so Hermes must know its sample rate. The official OpenAI API emits 24 kHz. A compatible server that reports its rate — the `X-Audio-Sample-Rate` response header, or `rate=` in the `Content-Type` (`audio/pcm; rate=44100`) — is honored automatically: the speaker, the temp-WAV player and the gateway audio stream all open at the reported rate once the response arrives. For servers that report nothing, set `tts.openai.pcm_sample_rate` to the endpoint's output rate (e.g. `22050` for Piper-backed servers); otherwise speech plays at the wrong speed and pitch. Invalid values log a warning and fall back to `24000`.
+website/docs/user-guide/features/tts.md:159:**Language (OpenAI-compatible endpoints)**: `tts.openai.language` is forwarded to the endpoint as a `lang_code` request parameter. It is intended for OpenAI-compatible TTS servers that support `lang_code` — for example [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), where `language: "es"` selects the Spanish phonemizer instead of the English default. Leave it unset when using the official OpenAI API, which does not accept this parameter. When unset, nothing extra is sent.
+website/docs/user-guide/features/tts.md:161:**Cloned-voice consent (OpenAI-compatible endpoints)**: some self-hosted OpenAI-compatible TTS servers reject a cloned voice with `400 consent_required` unless the request carries a `consent_attestation` field. Set `tts.openai.consent_attestation` to the attestation text your server expects; Hermes forwards it verbatim in the request body on every OpenAI-compatible path (whole-file synthesis, streaming, and the desktop's client-direct voice). Leave it unset for the official OpenAI API — when unset, the field is not sent.
+website/docs/user-guide/features/tts.md:170:| Edge TTS | 5000 |
+website/docs/user-guide/features/tts.md:176:| ElevenLabs | Model-aware (see below) |
+website/docs/user-guide/features/tts.md:181:**ElevenLabs** picks a cap from the configured `model_id`:
+website/docs/user-guide/features/tts.md:191:**Override per provider** with `max_text_length:` under the provider section of your TTS config:
+website/docs/user-guide/features/tts.md:194:tts:
+website/docs/user-guide/features/tts.md:205:- **OpenAI, ElevenLabs, and Mistral** produce Opus natively — no extra setup
+website/docs/user-guide/features/tts.md:206:- **Edge TTS** (default) outputs MP3 and needs **ffmpeg** to convert:
+website/docs/user-guide/features/tts.md:207:- **MiniMax TTS** outputs MP3 and needs **ffmpeg** to convert for Telegram voice bubbles
+website/docs/user-guide/features/tts.md:208:- **Google Gemini TTS** outputs raw PCM and uses **ffmpeg** to encode Opus directly for Telegram voice bubbles
+website/docs/user-guide/features/tts.md:209:- **xAI TTS** outputs MP3 and needs **ffmpeg** to convert for Telegram voice bubbles
+website/docs/user-guide/features/tts.md:223:Without ffmpeg, Edge TTS, MiniMax TTS, NeuTTS, KittenTTS, and Piper audio are sent as regular audio files (playable, but shown as a rectangular player instead of a voice bubble).
+website/docs/user-guide/features/tts.md:226:If you want voice bubbles without installing ffmpeg, switch to the OpenAI, ElevenLabs, or Mistral provider.
+website/docs/user-guide/features/tts.md:229:### ElevenLabs: agent-selected voices
+website/docs/user-guide/features/tts.md:231:With `tts.provider: elevenlabs` and `ELEVENLABS_API_KEY` set, the agent can pick a different voice for each `text_to_speech` call, for example one voice per character in a script. The ElevenLabs version of `text_to_speech` has two extra fields that other providers never see (they keep the configured voice):
+website/docs/user-guide/features/tts.md:233:- `voice_id` picks the voice for this call. Leaving it out uses `tts.elevenlabs.voice_id`; the config is never rewritten.
+website/docs/user-guide/features/tts.md:235:  - `source: library` (default) searches the public Voice Library: thousands of community voices, most-used first. Library voices work directly by `voice_id` without saving them first; ElevenLabs only allows them over the API on paid plans, and a few carry a higher credit rate (shown as `credit_rate`).
+website/docs/user-guide/features/tts.md:241:The ElevenLabs API key needs the **Text to Speech** permission to speak and **Voices: Read** to search.
+website/docs/user-guide/features/tts.md:247:xAI supports cloning your voice and using it with TTS. Create a custom voice in the [xAI Console](https://console.x.ai/team/default/voice/voice-library), then set the resulting `voice_id` in your config:
+website/docs/user-guide/features/tts.md:250:tts:
+website/docs/user-guide/features/tts.md:260:Piper is a fast, local neural TTS engine from the Open Home Foundation (the Home Assistant maintainers). It runs entirely on CPU, supports **44 languages** with pre-trained voices, and needs no API key.
+website/docs/user-guide/features/tts.md:262:**Install via `hermes tools`** → Voice & TTS → Piper. Hermes requests the
+website/docs/user-guide/features/tts.md:269:tts:
+website/docs/user-guide/features/tts.md:275:On the first TTS call for a voice that isn't cached locally, Hermes runs `python -m piper.download_voices <name>` and downloads the model (~20-90MB depending on quality tier) into `~/.hermes/cache/piper-voices/`. Subsequent calls reuse the cached model.
+website/docs/user-guide/features/tts.md:279:**Using a pre-downloaded voice.** Set `tts.piper.voice` to an absolute path ending in `.onnx`:
+website/docs/user-guide/features/tts.md:282:tts:
+website/docs/user-guide/features/tts.md:287:**Advanced knobs** (`tts.piper.length_scale` / `noise_scale` / `noise_w_scale` / `volume` / `normalize_audio`, `use_cuda`) correspond 1:1 to Piper's `SynthesisConfig`. They're ignored on older `piper-tts` versions.
+website/docs/user-guide/features/tts.md:291:Local engines (Piper, KittenTTS) load their model lazily, so without help the *first* spoken reply after you turn speech on pays the whole model load — and on a fresh install the voice download — as silence before the first word. Hermes treats the speech-output toggles as the signal that TTS is about to be needed:
+website/docs/user-guide/features/tts.md:294:- **CLI / TUI** — `/voice tts` (and `/voice on` when `voice.auto_tts` is set) do the same; `/voice off` releases. A TUI attached to the shared gateway refuses `/voice tts`, because the gateway cannot play speech in that terminal.
+website/docs/user-guide/features/tts.md:296:Each toggle holds a *lease* on the engine; the model is only unloaded when the last lease across surfaces is released, so switching off read-aloud in one Desktop window never pulls the voice out from under a conversation running in another. The unload waits `tts.keep_warm_seconds` (default `60`) after the last release, and any toggle turning speech back on within that window keeps the loaded model, so a wake-word loop or a quickly restarted voice conversation doesn't reload the voice each time. Set it to `0` to unload immediately. For cloud providers there is no model to hold — the toggle only makes sure a lazily-installed SDK (edge-tts, ElevenLabs, Mistral) is present. Warm-up is best-effort: if the engine can't load, the toggle still succeeds and the first reply falls back to loading on demand as before.
+website/docs/user-guide/features/tts.md:298:The Desktop calls `POST /api/audio/tts-lease` with `{"lease": "<name>", "active": true|false}`; other frontends can use the same endpoint.
+website/docs/user-guide/features/tts.md:300:The same lease also reaches user-declared providers, so a self-hosted TTS server can preload and unload its model on the toggles: a [command provider](#custom-command-providers) runs its optional `warm_command` / `release_command`, and a [Python plugin provider](#python-plugin-providers) gets `warm()` / `release()`.
+website/docs/user-guide/features/tts.md:304:If a TTS engine you want isn't natively supported (VoxCPM, MLX-Kokoro, XTTS CLI, a voice-cloning script, anything else that exposes a CLI), you can wire it in as a **command-type provider** without writing any Python. Hermes writes the input text to a temp UTF-8 file, runs your shell command, and reads the audio file the command produced.
+website/docs/user-guide/features/tts.md:306:Declare one or more providers under `tts.providers.<name>` and switch between them with `tts.provider: <name>` — the same way you switch between built-ins like `edge` and `openai`.
+website/docs/user-guide/features/tts.md:309:tts:
+website/docs/user-guide/features/tts.md:310:  provider: voxcpm                 # pick any name under tts.providers
+website/docs/user-guide/features/tts.md:325:    piper-custom:                  # native Piper also supports custom .onnx via tts.piper.voice
+website/docs/user-guide/features/tts.md:333:**Subprocess environment:** command providers (TTS and STT) run with Hermes secrets scrubbed from the child environment — gateway bot tokens, LLM provider API keys, and internal relay credentials are removed; `PATH`, `HOME`, locale, and other normal variables are kept. If your command template needs its own API key from the environment (e.g. a `curl` one-liner), list the variable names under `env_passthrough` in the provider config:
+website/docs/user-guide/features/tts.md:336:tts:
+website/docs/user-guide/features/tts.md:345:#### Example: Doubao (Chinese seed-tts-2.0)
+website/docs/user-guide/features/tts.md:347:For high-quality Chinese TTS via ByteDance's [seed-tts-2.0](https://www.volcengine.com/docs/6561/1257544) bidirectional-streaming API, install the [`doubao-speech`](https://pypi.org/project/doubao-speech/) PyPI package and wire it in as a command provider:
+website/docs/user-guide/features/tts.md:359:tts:
+website/docs/user-guide/features/tts.md:370:Credentials come from your shell environment (`VOLCENGINE_APP_ID` / `VOLCENGINE_ACCESS_TOKEN`) or `~/.doubao-speech/config.yaml`. Pick a voice by adding `--voice zh-female-warm` (or any other alias from `doubao-speech list-voices`) to the command. `doubao-speech` also bundles streaming ASR — see the [STT section below](#example-doubao--volcengine-asr) for Hermes integration. Source and full docs: [github.com/Hypnus-Yuan/doubao-speech](https://github.com/Hypnus-Yuan/doubao-speech).
+website/docs/user-guide/features/tts.md:382:| `{voice}`        | `tts.providers.<name>.voice`, empty when unset       |
+website/docs/user-guide/features/tts.md:383:| `{model}`        | `tts.providers.<name>.model`                         |
+website/docs/user-guide/features/tts.md:397:| `warm_command` / `release_command` | unset | Shell commands run when a surface toggles speech output on / when the last lease across surfaces is released — e.g. `curl -s localhost:5002/load?model={model}` to preload a local TTS server, and its `unload` counterpart. Best-effort and non-blocking: run in the background with the same `timeout`, `env_passthrough` and `{voice}` / `{model}` / `{speed}` placeholders as `command`; output is discarded and failures are only logged at debug. |
+website/docs/user-guide/features/tts.md:401:- **Built-in names always win.** A `tts.providers.openai` entry never shadows the native OpenAI provider, so no user config can silently replace a built-in.
+website/docs/user-guide/features/tts.md:413:For TTS engines that can't be expressed as a single shell command — Python SDKs without a CLI, streaming engines, voice-listing APIs, OAuth-refreshing auth — register a Python plugin via `ctx.register_tts_provider()`. The plugin **coexists with** (does not replace) the [Custom command providers](#custom-command-providers) registry; pick the surface that fits your engine.
+website/docs/user-guide/features/tts.md:430:Drop this in `~/.hermes/plugins/my-tts/`:
+website/docs/user-guide/features/tts.md:434:name: my-tts
+website/docs/user-guide/features/tts.md:436:description: "My custom Python TTS backend"
+website/docs/user-guide/features/tts.md:447:        return "my-tts"  # what tts.provider matches against
+website/docs/user-guide/features/tts.md:451:        return "My Custom TTS"
+website/docs/user-guide/features/tts.md:476:Enable it (`hermes plugins enable my-tts`), point `tts.provider` at it (`tts.provider: my-tts` in `config.yaml`), and the `text_to_speech` tool will route through your plugin.
+website/docs/user-guide/features/tts.md:486:- `streams_pcm = True` + `stream_sample_rate` (Hz) → join the streaming voice path (CLI/TUI voice mode, desktop read-aloud, gateway streaming audio). Hermes then calls `stream(text, format="pcm", voice=..., model=..., speed=...)` with the same `tts.voice` / `tts.model` / `tts.speed` that `synthesize()` gets, and expects raw int16 little-endian mono PCM at that rate. Both attributes and `is_available()` are read each time a reply starts, so they can be properties that reflect live state. Unlike `synthesize()`, `stream()` can be called for up to three consecutive sentences at once while earlier audio plays, so it must be thread-safe. Without a positive `stream_sample_rate`, or when `is_available()` is `False`, Hermes keeps synthesizing one sentence at a time.
+website/docs/user-guide/features/tts.md:488:- `warm()` / `release()` → called when a surface toggles speech output on / when the last lease across surfaces is released, while your provider is the configured `tts.provider` — preload or unload a local model server here. Both default to no-ops; exceptions are logged at debug and never fail the toggle.
+website/docs/user-guide/features/tts.md:492:## Voice Message Transcription (STT)
+website/docs/user-guide/features/tts.md:510:stt:
+website/docs/user-guide/features/tts.md:511:  provider: "local"           # "local" | "groq" | "openai" | "mistral" | "xai" | "elevenlabs" | "deepinfra"
+website/docs/user-guide/features/tts.md:515:    language: ""              # blank inherits stt.language, then HERMES_LOCAL_STT_LANGUAGE
+website/docs/user-guide/features/tts.md:517:    language: ""              # blank inherits stt.language, then HERMES_LOCAL_STT_LANGUAGE
+website/docs/user-guide/features/tts.md:524:    language: ""              # blank inherits stt.language, then HERMES_LOCAL_STT_LANGUAGE
+website/docs/user-guide/features/tts.md:527:Blank provider language settings in this example inherit the global `"en"`; they do not select auto-detection. See [STT language resolution](../configuration.md#speech-to-text-stt) for precedence, an auto-detection example, and command-backend limits.
+website/docs/user-guide/features/tts.md:550:**Groq API** — Requires `GROQ_API_KEY`. Good cloud fallback when you want a free hosted STT option. Use `stt.groq.language` for a provider-specific language hint or `stt.language` for a global hint. `HERMES_LOCAL_STT_LANGUAGE` is used only when neither setting supplies a non-empty hint. Groq Whisper auto-detects when no hint remains after resolution.
+website/docs/user-guide/features/tts.md:554:**Mistral API (Voxtral Transcribe)** — Requires `MISTRAL_API_KEY`. Uses Mistral's [Voxtral Transcribe](https://docs.mistral.ai/capabilities/audio/speech_to_text/) models. Supports 13 languages, speaker diarization, and word-level timestamps. Install with `cd ~/.hermes/hermes-agent && python -c "import pm; pm.sync_venv(['mistral'], explicit=True)"`.
+website/docs/user-guide/features/tts.md:556:**xAI Grok STT** — Requires `XAI_API_KEY` (or xAI OAuth). Posts to `https://api.x.ai/v1/stt` as multipart/form-data and sends `model` (default `grok-voice-transcribe-2.0`; pin `grok-voice-transcribe-1.0` with `stt.xai.model` or `STT_XAI_MODEL`). Hermes always names the model, so a server-default change never silently switches what you run. With `stt.language: ""` (auto-detect) the `format` flag is dropped, since xAI requires a language for text formatting. Good choice if you're already using xAI for chat or TTS and want one API key for everything. Auto-detection order puts it after Mistral — explicitly set `stt.provider: xai` to force it.
+website/docs/user-guide/features/tts.md:562:If you use [`doubao-speech`](https://pypi.org/project/doubao-speech/) for Doubao TTS (see [above](#example-doubao-chinese-seed-tts-20)), the same package handles speech-to-text via the local-command STT surface:
+website/docs/user-guide/features/tts.md:583:stt:
+website/docs/user-guide/features/tts.md:591:An **explicit** `stt.provider` selection (written in `config.yaml`, e.g. via `hermes tools`) is honored strictly — if that provider can't run, transcription fails with a clear error (`stt is configured to use <provider> (set via hermes tools), but <failure>. Run 'hermes tools' to change it.`) instead of silently switching engines. Note that `stt.provider: local` written in your config counts as an explicit selection.
+website/docs/user-guide/features/tts.md:600:### STT custom command providers
+website/docs/user-guide/features/tts.md:602:If the STT engine you want isn't natively supported (Doubao ASR, NVIDIA Parakeet, a whisper.cpp build, an open-source SenseVoice CLI, anything else that exposes a shell command), wire it in as a **command-type provider** without writing any Python. Hermes runs your shell command against the audio file and reads back the transcript.
+website/docs/user-guide/features/tts.md:604:Declare one or more providers under `stt.providers.<name>` and switch between them with `stt.provider: <name>` — same shape as the TTS [command-provider registry](#custom-command-providers), adapted for the input=audio → output=transcript direction.
+website/docs/user-guide/features/tts.md:607:stt:
+website/docs/user-guide/features/tts.md:608:  provider: parakeet                # pick any name under stt.providers
+website/docs/user-guide/features/tts.md:628:This complements the legacy `HERMES_LOCAL_STT_COMMAND` escape hatch via the built-in `local_command` path. Unlike the shell-driven command-provider registry, the legacy template is tokenized into argv and runs without implicit shell interpretation. Use `stt.providers.<name>` when you want **multiple** shell-driven STT engines, a name you can pick via `stt.provider`, or anything that needs per-provider `language` / `model` / `timeout`.
+website/docs/user-guide/features/tts.md:630:#### STT placeholders
+website/docs/user-guide/features/tts.md:641:| `{model}`         | `stt.providers.<name>.model`, empty when unset                       |
+website/docs/user-guide/features/tts.md:651:3. Otherwise → error: "Command STT provider wrote no output file and produced no stdout".
+website/docs/user-guide/features/tts.md:657:#### STT command-provider optional keys
+website/docs/user-guide/features/tts.md:663:| `language`      | `en`    | Forwarded to `{language}`; follows [STT language resolution](../configuration.md#speech-to-text-stt), with a final `en` fallback. |
+website/docs/user-guide/features/tts.md:664:| `model`         | empty   | Forwarded to `{model}`. The `model=` argument to `transcribe_audio()` overrides this.                |
+website/docs/user-guide/features/tts.md:667:#### STT command-provider behavior notes
+website/docs/user-guide/features/tts.md:669:- **Built-ins always win.** Declaring `stt.providers.openai: type: command` does NOT override the real OpenAI Whisper handler. The built-in name is short-circuited before the command-provider resolver runs.
+website/docs/user-guide/features/tts.md:673:#### STT command-provider security
+website/docs/user-guide/features/tts.md:675:The shell command runs under the same user as Hermes with full filesystem access — same trust model as `tts.providers.<name>: type: command` and `HERMES_LOCAL_STT_COMMAND`. Only declare command providers from sources you trust.
+website/docs/user-guide/features/tts.md:677:### Python plugin providers (STT)
+website/docs/user-guide/features/tts.md:679:For STT engines that aren't built-in AND can't be expressed as a shell command (need a Python SDK, OAuth-refreshing auth, streaming chunks, etc.), register a Python plugin via `ctx.register_transcription_provider()`. The plugin **coexists with** the 8 built-in providers (`local`, `local_command`, `groq`, `openai`, `mistral`, `xai`, `elevenlabs`, `deepinfra`) and the `stt.providers.<name>: type: command` registry — built-ins keep their native implementations and always win on name collision; command providers win over plugins of the same name (config is more local than plugin install).
+website/docs/user-guide/features/tts.md:681:#### When to pick which (STT)
+website/docs/user-guide/features/tts.md:685:| A single shell command that takes an audio file and emits text | `stt.providers.<name>: type: command` (no Python needed)        |
+website/docs/user-guide/features/tts.md:689:| A built-in already covers it (`local`, `groq`, `openai`, …)  | Set `stt.provider: <name>` — built-ins are inline               |
+website/docs/user-guide/features/tts.md:693:1. **`stt.provider` is a built-in name** → built-in dispatch. **Always wins.**
+website/docs/user-guide/features/tts.md:694:2. **`stt.provider` matches `stt.providers.<name>` with `command:` set** → command-provider runner (see [STT custom command providers](#stt-custom-command-providers)). Wins over a same-name plugin.
+website/docs/user-guide/features/tts.md:695:3. **`stt.provider` matches a plugin-registered `TranscriptionProvider`** → plugin dispatch:
+website/docs/user-guide/features/tts.md:696:   - if the plugin's `is_available()` returns `False` (missing creds or SDK), the call surfaces an unavailability error envelope identifying the plugin — **not** the generic "No STT provider available" message.
+website/docs/user-guide/features/tts.md:697:   - otherwise the plugin's `transcribe()` is called with `model` (from the public `model=` arg, falling back to `stt.<provider>.model`) and the resolved `language` hint (see [STT language resolution](../configuration.md#speech-to-text-stt)).
+website/docs/user-guide/features/tts.md:698:4. **No match** → "No STT provider available" error.
+website/docs/user-guide/features/tts.md:702:Plugins read their per-provider configuration from `stt.<provider>` in `config.yaml`, mirroring how built-ins read `stt.openai.model` / `stt.mistral.model`:
+website/docs/user-guide/features/tts.md:705:stt:
+website/docs/user-guide/features/tts.md:706:  provider: my-stt
+website/docs/user-guide/features/tts.md:707:  my-stt:
+website/docs/user-guide/features/tts.md:718:Drop this in `~/.hermes/plugins/my-stt/`:
+website/docs/user-guide/features/tts.md:722:name: my-stt
+website/docs/user-guide/features/tts.md:724:description: "My custom Python STT backend"
+website/docs/user-guide/features/tts.md:735:        return "my-stt"  # what stt.provider matches against
+website/docs/user-guide/features/tts.md:739:        return "My Custom STT"
+website/docs/user-guide/features/tts.md:759:                "provider": "my-stt",
+website/docs/user-guide/features/tts.md:765:                "error": f"my-stt failed: {exc}",
+website/docs/user-guide/features/tts.md:766:                "provider": "my-stt",
+website/docs/user-guide/features/tts.md:774:Enable it (`hermes plugins enable my-stt`), set `stt.provider: my-stt` in `config.yaml`, and voice-message transcription will route through your plugin.
+website/docs/user-guide/features/tts.md:782:- `get_setup_schema()` → return `{name, badge, tag, env_vars: [{key, prompt, url}]}` to power picker rows in `hermes tools` / `hermes setup` (the picker category for STT is not yet shipped — this metadata is available to plugins for forward compatibility).
+website/docs/user-guide/features/tools.md:31:| **Media** | `vision_analyze`, `image_generate`, `text_to_speech` | Multimodal analysis and generation. |
+website/docs/user-guide/features/tools.md:39:Paid [Nous Portal](https://portal.nousresearch.com) subscribers can use web search, image generation, TTS, and browser automation through the **[Tool Gateway](tool-gateway.md)** — no separate API keys needed. Run `hermes model` to enable it, or configure individual tools with `hermes tools`.
+website/docs/user-guide/features/tools.md:55:Common toolsets include `web`, `search`, `terminal`, `file`, `browser`, `vision`, `image_gen`, `skills`, `tts`, `todo`, `memory`, `session_search`, `code_execution`, `delegation`, `clarify`, `messaging`, `discord`, `discord_admin`, `debugging`, and `safe`.
+website/docs/user-guide/features/codex-app-server-runtime.md:21:- **Hermes' richer tools come along** — web_search, web_extract, vision, image generation, skills, and TTS work via an MCP callback. Codex calls back into Hermes for tools it doesn't have built in.
+website/docs/user-guide/features/codex-app-server-runtime.md:67:- **`text_to_speech`** — TTS through Hermes' configured provider.
+website/docs/user-guide/features/codex-app-server-runtime.md:95:- The Hermes tool callback for web, vision, image_gen, skills, TTS
+website/docs/user-guide/features/codex-app-server-runtime.md:115:| `text_to_speech` | yes | yes (via MCP callback) |
+website/docs/user-guide/features/codex-app-server-runtime.md:436:**Tools available via the callback:** `web_search`, `web_extract`, `vision_analyze`, `image_generate`, `skill_view`, `skills_list`, `text_to_speech`.
+website/docs/user-guide/features/codex-app-server-runtime.md:516:        │   image_generate, skill_view, skills_list, text_to_speech│
+website/docs/user-guide/features/web-search.md:455:xAI Web Search is **not** in the auto-detection chain — having `XAI_API_KEY` set (or being signed in via xAI Grok OAuth) does not automatically route web traffic through xAI, since those credentials are also used for inference / TTS / image gen and the user may want a different backend for web. Opt in explicitly with `web.backend: "xai"`.
+website/docs/user-guide/features/hooks.md:457:| `pre_transcription` | Transform | Fired by the STT dispatcher after provider resolution and before any backend (built-in, command-type, or plugin-registered) is invoked; dict results are applied in registration order, last-writer-wins per field (`prompt`, `language`, `model`; `file_path` is read-only). | `file_path`, `provider`, `model`, `language`, `prompt`, `source` | The final prompt is uploaded to the configured STT provider with the audio — keep secrets out of hook returns. |
+website/docs/user-guide/features/hooks.md:506:These observer-only hooks let plugins consume streaming LLM output for telemetry, live dashboards, or TTS pipelines without changing the response. They are delivered through host-owned bounded queues with one background worker per registered callback, so plugin callbacks never run inline on the token path. If one callback stalls, only that callback's queue can fill and drop its oldest pending observer event; other observers continue receiving events independently.
+website/docs/user-guide/features/hooks.md:1689:Fires inside the STT dispatcher (`tools.transcription_tools.transcribe_audio`) **after** the provider has been resolved and **before** any backend is invoked, whether that backend is built-in, a `type: command` provider, or a plugin-registered provider. Lets a plugin steer the transcription request itself instead of only observing the transcript afterwards.
+website/docs/user-guide/features/hooks.md:1707:| `file_path` | `str` | Absolute path to the audio file about to be transcribed. Read-only. |
+website/docs/user-guide/features/hooks.md:1708:| `provider` | `str` | Resolved STT provider (`local`, `groq`, `openai`, `mistral`, `xai`, `elevenlabs`, `deepinfra`, `local_command`, a command provider name, or a plugin provider name). |
+website/docs/user-guide/features/hooks.md:1711:| `prompt` | `str \| None` | The static [`stt.prompt`](../configuration.md#transcription-prompt-vocabulary-hints) value, or `None`. |
+website/docs/user-guide/features/hooks.md:1712:| `source` | `str \| None` | Caller surface label (`gateway`, `voice_mode`, …). Observability only, not used for dispatch. |
+website/docs/user-guide/features/hooks.md:1714:**Return value:** a `dict` with any of `"prompt"`, `"language"`, `"model"` mapped to strings, or `None` to leave the request unchanged. Non-string values, unknown keys, and `file_path` are ignored (`file_path` attempts are logged as a warning). Results are applied in **registration order, last-writer-wins per field**, on top of the `stt.prompt` config value. Returning `""` for `prompt` clears the configured prompt for that request.
+website/docs/user-guide/features/hooks.md:1730:Not every backend accepts a prompt. `local` maps it to faster-whisper's `initial_prompt`; `openai`, `groq`, `mistral`, and `deepinfra` send it as `prompt`; `xai`, `elevenlabs`, `local_command`, and `type: command` providers log at DEBUG and transcribe without it. See the [provider support table](../configuration.md#transcription-prompt-vocabulary-hints) for the full matrix and the privacy boundary. Hook-plumbing errors are fail-open: the dispatch continues with the unmodified request.
+website/docs/user-guide/configuration.md:23:├── config.yaml     # Settings (model, terminal, TTS, compression, etc.)
+website/docs/user-guide/configuration.md:1135:The **Voice chat** entry picks the model that answers spoken voice-mode turns (tools included); typed turns stay on the main model. See [Voice chat model](features/voice-mode.md#voice-chat-model).
+website/docs/user-guide/configuration.md:1233:`xai-oauth` logs in via browser OAuth for SuperGrok and X Premium+ subscribers (no API key needed). Run `hermes model` and select **xAI Grok OAuth (SuperGrok / Premium+)** to authenticate. The same OAuth token is reused for every direct-to-xAI surface (chat, auxiliary tasks, TTS, image gen, video gen, transcription). See the [xAI Grok OAuth guide](../guides/xai-grok-oauth.md), and if Hermes is on a remote host see [OAuth over SSH / Remote Hosts](../guides/oauth-over-ssh.md).
+website/docs/user-guide/configuration.md:1266:  # Gemini 3.1 TTS hidden audio-tag insertion
+website/docs/user-guide/configuration.md:1428:| `"xai-oauth"` | Force xAI Grok OAuth (browser login for SuperGrok or X Premium+ subscribers, no API key). Same OAuth token covers chat, TTS, image, video, and transcription. | `hermes model` → xAI Grok OAuth (SuperGrok / Premium+) |
+website/docs/user-guide/configuration.md:1833:## TTS Configuration
+website/docs/user-guide/configuration.md:1836:tts:
+website/docs/user-guide/configuration.md:1837:  provider: "edge"              # "edge" | "elevenlabs" | "openai" | "minimax" | "mistral" | "gemini" | "xai" | "neutts" | "kittentts" | "piper" | "deepinfra"
+website/docs/user-guide/configuration.md:1843:  elevenlabs:
+website/docs/user-guide/configuration.md:1847:    model: "gpt-4o-mini-tts"
+website/docs/user-guide/configuration.md:1850:    base_url: "https://api.openai.com/v1"  # Override for OpenAI-compatible TTS endpoints
+website/docs/user-guide/configuration.md:1854:    # base_url: ""              # Optional: override for OpenAI-compatible TTS endpoints
+website/docs/user-guide/configuration.md:1856:    model: "voxtral-mini-tts-2603"
+website/docs/user-guide/configuration.md:1859:    model: "gemini-2.5-flash-preview-tts"   # or gemini-3.1-flash-tts-preview
+website/docs/user-guide/configuration.md:1861:    audio_tags: false           # Hidden Gemini 3.1 TTS audio-tag insertion
+website/docs/user-guide/configuration.md:1864:    voice_id: "eve"             # xAI TTS voice
+website/docs/user-guide/configuration.md:1876:This controls both the `text_to_speech` tool and spoken replies in voice mode (`/voice tts` in the CLI or messaging gateway).
+website/docs/user-guide/configuration.md:1878:**Speed fallback hierarchy:** provider-specific speed (e.g. `tts.edge.speed`) → global `tts.speed` → `1.0` default. Set the global `tts.speed` to apply a uniform speed across all providers, or override per-provider for fine-grained control.
+website/docs/user-guide/configuration.md:2091:## Speech-to-Text (STT)
+website/docs/user-guide/configuration.md:2094:stt:
+website/docs/user-guide/configuration.md:2097:  provider: "local"            # "local" | "groq" | "openai" | "mistral" | "xai" | "elevenlabs" | "deepinfra" | ...
+website/docs/user-guide/configuration.md:2099:  streaming: false             # live partial text while you speak (openai, xai, elevenlabs); see Voice Mode > Live transcription
+website/docs/user-guide/configuration.md:2106:    language: ""               # blank inherits stt.language, then HERMES_LOCAL_STT_LANGUAGE
+website/docs/user-guide/configuration.md:2114:    language: ""               # blank inherits stt.language, then HERMES_LOCAL_STT_LANGUAGE
+website/docs/user-guide/configuration.md:2117:    language: ""               # blank inherits stt.language, then HERMES_LOCAL_STT_LANGUAGE
+website/docs/user-guide/configuration.md:2122:    language: ""               # blank inherits stt.language, then HERMES_LOCAL_STT_LANGUAGE
+website/docs/user-guide/configuration.md:2126:The shared language resolver checks `stt.<provider>.language`, then `stt.language`, then `HERMES_LOCAL_STT_LANGUAGE`, and uses the **first nonempty string**:
+website/docs/user-guide/configuration.md:2129:stt.<provider>.language -> stt.language -> HERMES_LOCAL_STT_LANGUAGE -> no language hint
+website/docs/user-guide/configuration.md:2132:A blank value means **continue to the next source**, not "force auto-detection". ElevenLabs also accepts `stt.elevenlabs.language_code` as a provider-specific alias. **The global default is `stt.language: "en"`**, so leaving only the provider language blank still resolves to English. To pin another language, set a provider or global language code such as `"zh"`, `"es"`, or `"uk"`.
+website/docs/user-guide/configuration.md:2146:stt:
+website/docs/user-guide/configuration.md:2157:Command backends have additional behavior. `local_command` uses `stt.local.language` as its provider setting. Named command providers first use `language` from their command configuration (`stt.providers.<name>`, or the legacy `stt.<name>` block), then fall back through the shared resolver. Both paths use `en` for the `{language}` placeholder if no language is resolved. Custom templates may omit that placeholder or use their own engine's detection option. If `local` falls back to a Whisper CLI because faster-whisper is unavailable, the same blank settings therefore do not currently guarantee auto-detection. See [command providers](features/tts.md#stt-custom-command-providers) for their configuration.
+website/docs/user-guide/configuration.md:2159:`stt.openai.timeout` and `stt.openai.max_retries` shape the OpenAI-SDK transcription client that the `openai`, `groq` and `deepinfra` providers share (there are no per-provider siblings yet, and the SDK reads no environment variables for these). The defaults are `60` / `1` rather than the previous fixed 30 s / no retries because a self-hosted OpenAI-compatible endpoint can take longer than 30 s to load its model on the first request, which used to lose that voice message outright. The trade-off: an unreachable backend now holds a voice message for up to two attempts × the timeout before Hermes gives up; set `timeout: 30` and `max_retries: 0` for the old shape.
+website/docs/user-guide/configuration.md:2161:Set `stt.echo_transcripts: false` when the gateway should transcribe voice notes for the agent but must not post the raw transcript back to the chat.
+website/docs/user-guide/configuration.md:2165:- `local` uses `faster-whisper` running on your machine. Install it separately with `python -c "import pm; pm.sync_venv(['stt-whisper'], explicit=True)"`. Silence-hallucination hardening is on by default: a Silero VAD filter keeps silence/noise from ever reaching Whisper, cross-window conditioning is disabled, and segments the model itself flags as probably-not-speech *and* low-confidence are dropped. Set `stt.local.vad: false` to transcribe non-speech audio (music, ambient) with the raw behavior. The model stays loaded in memory between voice messages for low-latency transcription; set `stt.local.unload_after_idle_seconds` (e.g. `300` for 5 minutes) to automatically release the model when idle. This frees GPU memory on CUDA hosts (the main win when a local LLM shares the GPU); on CPU the memory becomes reusable by the process, though the OS-visible footprint may not shrink until the process needs the space for something else. The next voice message reloads the model transparently.
+website/docs/user-guide/configuration.md:2166:- `groq` uses Groq's Whisper-compatible endpoint and reads `GROQ_API_KEY`. Set `stt.groq.language` or `stt.language` to pin a hint; `HERMES_LOCAL_STT_LANGUAGE` is used only when both are empty.
+website/docs/user-guide/configuration.md:2169:Cloud providers (groq, openai, mistral, xai, elevenlabs, deepinfra) get a **pre-upload silence trim** by default when `ffmpeg` is installed: long pauses in a voice note are collapsed client-side before the file uploads, keeping `cloud_trim_keep_ms` of each pause so natural pacing survives. Shorter audio means faster uploads, lower per-audio-minute billing, and fewer silence hallucinations from the remote model. Clips shorter than 12 seconds skip the trim entirely (savings can't matter there, and several providers bill a per-request minimum anyway). The trim is best-effort — if ffmpeg is missing, the trim fails, the clip is mostly silence, or trimming would save less than ~10%, the original file is uploaded untouched. Set `stt.cloud_trim_silence: false` to always upload the original (e.g. when transcribing music or ambient audio through a cloud provider). Command-type and plugin providers never get trimmed audio.
+website/docs/user-guide/configuration.md:2171:Recordings over the provider's per-request upload limit (25 MB for OpenAI/Groq/DeepInfra, 500 MB for Mistral and xAI, about 5 GB for ElevenLabs, plus per-model length limits for OpenAI's `gpt-4o-transcribe` family and `whisper-1`) are re-encoded to compact AAC and, if still too large, split at pauses and transcribed piece by piece. See [Long recordings and upload limits](features/voice-mode.md#long-recordings-and-upload-limits).
+website/docs/user-guide/configuration.md:2173:An explicitly selected `stt.provider` is honored strictly — if it's unavailable, transcription errors with guidance to run `hermes tools` rather than switching providers. Only when no provider has ever been selected does Hermes auto-detect in this order: `local` → `groq` → `openai`.
+website/docs/user-guide/configuration.md:2187:`stt.prompt` is an optional static hint passed to prompt-capable STT backends. Use it for proper nouns, product names, and jargon that Whisper-family models otherwise mis-hear:
+website/docs/user-guide/configuration.md:2190:stt:
+website/docs/user-guide/configuration.md:2195:**Composition.** The config value is the base. Plugins that register the [`pre_transcription`](./features/hooks.md#pre_transcription) hook mutate on top of it, last-writer-wins per field. Multiple plugins' hints compose deterministically: plugin discovery loads plugins in sorted order by plugin id, and each plugin's callbacks run in its own registration order, so the same set of plugins always produces the same final prompt. A hook returning an empty string for `prompt` clears the config prompt for that request. Hooks may also override `language` and `model`; `file_path` is read-only and any attempt to change it is logged and dropped. With no hook registered and no `stt.prompt` set, the outgoing request is identical to previous releases.
+website/docs/user-guide/configuration.md:2207:| `elevenlabs` | not supported | Logged at DEBUG, the request proceeds without the prompt |
+website/docs/user-guide/configuration.md:2209:| `stt.providers.<name>` with `type: command` | not supported | Logged at DEBUG, the request proceeds without the prompt |
+website/docs/user-guide/configuration.md:2215:The final prompt is sent to the configured STT provider alongside the audio file. Keep secrets and session-derived context out of `stt.prompt` and out of anything a `pre_transcription` hook returns, especially when the provider is a hosted API rather than local `faster-whisper`.
+website/docs/user-guide/configuration.md:2218:## Voice Mode (CLI)
+website/docs/user-guide/configuration.md:2225:  beep_enabled: true            # Play record start/stop beeps in CLI voice mode
+website/docs/user-guide/configuration.md:2231:Use `/voice on` in the CLI to enable microphone mode, `record_key` to start/stop recording, and `/voice tts` to toggle spoken replies. See [Voice Mode](./features/voice-mode.md) for end-to-end setup and platform-specific behavior.
+website/docs/user-guide/features/mcp.md:1089:Hermes can also **be** an MCP server, so Claude Code, Claude Desktop, Cursor, Codex or any MCP client can list and read your messaging conversations, wait for new messages and send messages across every platform Hermes is connected to, and optionally call Hermes' own web, browser, vision, image generation, skills and TTS tools. This ships as the official **mcp-serve** plugin:

@@ -57,25 +57,23 @@ Or in-session:
 | `code_execution` | `execute_code` | Run Python scripts that call Hermes tools programmatically. |
 | `connections` | `manage_connections` | Connect the user to apps: managed connector accounts through the Nous gateway, and local MCP servers from the catalog. It can add a second named account of an app and rename accounts. On the desktop every action is a card that blocks until the user settles it; off the desktop managed actions return a connect link per app. |
 | `coding` | composite (`file` + `terminal` + `search` + `web` + `skills` + `browser` + `todo` + `memory` + `session_search` + `clarify` + `code_execution` + `delegation` + `vision`) | Coding-focused bundle for software work: file editing, terminal, search, web docs, skills, browser, delegate, and code execution. |
-| `cronjob` | `cronjob_manage` | Schedule and manage recurring tasks. |
 | `debugging` | composite (`file` + `terminal` + `web`) | Debug bundle — file, process/terminal, web extract/search. |
 | `delegation` | `delegate_task` | Spawn isolated subagent instances for parallel work. |
 | `file` | `patch`, `read_file`, `search_files`, `write_file` | File reading, writing, searching, and editing. |
-| `computer_use` | `computer_use` | Background desktop control via cua-driver — does not steal cursor/focus. Works with any tool-capable model. macOS, Windows, and Linux; requires `cua-driver` on `$PATH`. |
+| `computer_use` | `computer_use` | Background desktop control via cua-driver — does not steal cursor/focus. Works with any tool-capable model. Linux; requires `cua-driver` on `$PATH`. |
 | `context_engine` | (varies) | Runtime tools exposed by the active context-engine plugin (empty until a plugin populates it). |
 | `image_gen` | `image_generate` | Text-to-image generation via FAL.ai (with opt-in OpenAI / xAI backends). |
 | `video_gen` | `video_generate`, `xai_video_edit`, `xai_video_extend` | Text-to-video and image-to-video via plugin-registered backends (xAI Grok-Imagine, FAL.ai Veo 3.1 / Pixverse v6 / Kling 3.0 / Kling O3). Pass `image_url` to animate an image; omit it for text-to-video. `xai_video_edit` / `xai_video_extend` are provider-specific edit/extend tools, gated on xAI Imagine credentials. |
 | `memory` | `memory` | Persistent cross-session memory management. |
-| `desktop_ui` | `annotate_preview`, `close_terminal`, `desktop_preview`, `drive_preview`, `focus_pane`, `gui_tour`, `react_to_message`, `read_terminal`, `read_window_below`, `set_theme`, `show_tip` | Affordances that act on the Hermes desktop app itself — read/close the embedded terminal pane, open, read, close, interact with, and annotate the in-app browser, identify the OS window behind the app, reveal a pane, react to a message, run a guided tour (highlight + narrate UI elements in the app or the preview pane), and set the accent colour, light/dark mode and layout (or show a picker card for the user to choose). Enabled for sessions whose source is the desktop app, whichever backend it's connected to (local, SSH, URL, or Hermes Cloud). Never present on CLI, TUI, messaging, or cron sessions. |
+| `desktop_ui` | `annotate_preview`, `close_terminal`, `desktop_preview`, `drive_preview`, `focus_pane`, `gui_tour`, `react_to_message`, `read_terminal`, `read_window_below`, `set_theme`, `show_tip` | Affordances that act on the Hermes desktop app itself — read/close the embedded terminal pane, open, read, close, interact with, and annotate the in-app browser, identify the OS window behind the app, reveal a pane, react to a message, run a guided tour (highlight + narrate UI elements in the app or the preview pane), and set the accent colour, light/dark mode and layout (or show a picker card for the user to choose). Enabled for sessions whose source is the desktop app, whichever backend it's connected to (local, SSH, URL, or Hermes Cloud). Never present on CLI, TUI, or messaging sessions. |
 | `project` | `desktop_project` | Create and switch desktop [Projects](../user-guide/cli.md) (named, multi-folder workspaces) via one `create`/`switch`/`list` action enum. GUI / desktop sessions only. |
-| `catalog` | `manage_catalog` | Search the plugin catalog and skills hub, and install items through the approval card into this chat's profile. Enabled for sessions whose source is the desktop app, whichever backend it's connected to (local, SSH, URL, or Hermes Cloud). Never present on CLI, TUI, messaging, or cron sessions, even when a config list names it. `all` does not include it. Deferred behind `tool_search` by default. Remove it with `agent.disabled_toolsets: [catalog]`. |
+| `catalog` | `manage_catalog` | Search the plugin catalog and skills hub, and install items through the approval card into this chat's profile. Enabled for sessions whose source is the desktop app, whichever backend it's connected to (local, SSH, URL, or Hermes Cloud). Never present on CLI, TUI, or messaging sessions, even when a config list names it. `all` does not include it. Deferred behind `tool_search` by default. Remove it with `agent.disabled_toolsets: [catalog]`. |
 | `safe` | `image_generate`, `vision_analyze`, `web_extract`, `web_search` (via `includes`) | Read-only research + media generation. No file writes, no terminal, no code execution. |
 | `search` | `web_search` | Web search only (without extract). |
 | `session_search` | `session_search` | Search past conversation sessions. |
 | `skills` | `skill_manage`, `skill_view`, `skills_list` | Skill CRUD and browsing. |
 | `terminal` | `process_manage`, `terminal` | Shell command execution and background process management. |
 | `todo` | `todo_list` | Task list management within a session. |
-| `tts` | `text_to_speech` | Text-to-speech audio generation. |
 | `vision` | `vision_analyze` | Image analysis via vision-capable models. |
 | `video` | `video_analyze` | Video analysis and understanding tools (opt-in, not in the default toolset — add explicitly via `--toolsets`). |
 | `web` | `web_extract`, `web_search` | Web search and page content extraction. |
@@ -90,7 +88,6 @@ Platform toolsets define the complete tool configuration for a deployment target
 | `hermes-cli` | Full toolset — the default for interactive CLI sessions. Tools can be gated by runtime availability. |
 | `hermes-acp` | Focused on coding tasks in IDE context. |
 | `hermes-api-server` | Suitable for programmatic access where user interaction isn't possible. |
-| `hermes-cron` | Same as `hermes-cli`. |
 | `hermes-webhook` | Restricted safe subset — only `web_search`, `web_extract`, `vision_analyze`, and `clarify`. Webhook-triggered runs get no terminal, file, or browser access. |
 | `hermes-gateway` | Internal gateway orchestrator toolset — union of every `hermes-<platform>` toolset; used when the gateway needs to accept any message source. |
 
@@ -137,7 +134,7 @@ custom_toolsets:
 
 A handful of tools have an additional availability check on top of toolset membership and are **not** turned on by `all`/`*` alone:
 
-- **Capability-gated** tools (browser, `computer_use`, `code_execution`, cronjob) appear only when their backend/credential prerequisite is configured.
+- **Capability-gated** tools (browser, `computer_use`, `code_execution`) appear only when their backend/credential prerequisite is configured.
 
 ## Relationship to `hermes tools`
 

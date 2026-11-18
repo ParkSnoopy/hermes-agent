@@ -19,6 +19,19 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+def test_existing_binary_prefers_executable_staged_binary_and_falls_back_to_path(tmp_path, monkeypatch):
+    from agent.lsp import install
+
+    monkeypatch.setattr(install, "hermes_lsp_bin_dir", lambda: tmp_path)
+    monkeypatch.setattr(install.shutil, "which", lambda name: "/usr/bin/" + name)
+    staged = tmp_path / "example-server"
+    staged.write_text("#!/bin/sh\n", encoding="utf-8")
+    staged.chmod(0o755)
+    assert install._existing_binary("example-server") == str(staged)
+    staged.chmod(0o644)
+    assert install._existing_binary("example-server") == "/usr/bin/example-server"
+
+
 def test_install_python_server_uses_pm_tool_environment(tmp_path, monkeypatch):
     import pm
     from agent.lsp import install as install_mod

@@ -8,8 +8,7 @@ it has served nobody and has nothing to do for ``gateway.unmanaged_idle_exit_sec
 
 - no attached client (live ticketed WebSocket, outstanding ticket, or recent HTTP/WS activity);
 - no messaging adapter configured, connected or reconnecting (any profile);
-- no runnable cron job;
-- no queued/started admission, live managed worker, in-flight agent/cron/API run, background
+- no queued/started admission, live managed worker, in-flight agent/API run, background
   process or async delegation, active heartbeat/loop, pending handoff or hosted-room task.
 
 Every probe fails CLOSED: an unreadable source counts as work, so the gateway stays up. A gateway with
@@ -85,27 +84,9 @@ def _messaging_busy(runner) -> str | None:
 
 
 def _served_homes(runner) -> list[Path]:
-    from gateway.run import _cron_tick_profile_homes
     from gateway.session_authorities import all_authorities
     homes = {Path(a.profile_id) for a in all_authorities(runner)}
-    homes.update(Path(h) for _name, h in _cron_tick_profile_homes(runner.config))
     return sorted(homes)
-
-
-def _cron_busy(homes) -> str | None:
-    from cron.jobs import is_job_runnable, is_terminal_job, load_jobs, use_cron_store
-    from cron.scheduler import get_running_job_ids
-    if get_running_job_ids():
-        return "cron job running"
-    for home in homes:
-        if not (home / "cron" / "jobs.json").exists():
-            continue
-        with use_cron_store(home):
-            jobs = load_jobs()
-        if any(is_job_runnable(job) and not is_terminal_job(job) for job in jobs):
-            return f"cron jobs scheduled in {home}"
-    return None
-
 
 
 def _ledger_busy(runner) -> str | None:
@@ -165,7 +146,7 @@ def busy_reason(runner, *, window: float, count_clients: bool = True) -> str | N
     """Why the gateway must stay up, or None when it may exit. Fails closed on any error.
 
     ``count_clients=False``: a restart is pending, and an attached or returning client is exactly who
-    needs the fresh gateway; every duty nothing would restart (adapters, cron, admissions) still counts.
+    needs the fresh gateway; every duty nothing would restart (adapters, admissions) still counts.
     A client mid-attach (unredeemed ticket) still holds it: its first connect would be refused with
     no rediscovery, while an attached client waits out the drain and starts the fresh gateway.
     """
@@ -182,7 +163,7 @@ def busy_reason(runner, *, window: float, count_clients: bool = True) -> str | N
             return "background work in flight"
         homes = _served_homes(runner)
         return (_messaging_busy(runner) or _ledger_busy(runner) or _profile_start_busy(runner)
-                or _cron_busy(homes) or _store_gates_busy(homes))
+                or _store_gates_busy(homes))
     except Exception as exc:
         logger.debug("idle-exit probe failed; staying up", exc_info=True)
         return f"idle probe failed ({type(exc).__name__})"
@@ -230,7 +211,7 @@ async def unmanaged_idle_exit_watcher(runner) -> None:
     if window <= 0:
         logger.info("Auto-started gateway idle exit disabled (gateway.unmanaged_idle_exit_seconds=0)")
         return
-    logger.info("Auto-started gateway: exits after %.0fs with no clients, adapters, cron work or "
+    logger.info("Auto-started gateway: exits after %.0fs with no clients, adapters or "
                 "admissions (gateway.unmanaged_idle_exit_seconds)", window)
     interval = min(30.0, max(0.5, window / 4))
     idle_since = None
@@ -242,7 +223,7 @@ async def unmanaged_idle_exit_watcher(runner) -> None:
             continue
         if await _retired_for_restart(runner, window):
             return
-        # The store/cron reads touch disk; keep them off the loop, then re-check the
+        # Store reads touch disk; keep them off the loop, then re-check the
         # loop-only facts (clients, tickets, draining) synchronously right before acting.
         reason = await asyncio.to_thread(busy_reason, runner, window=window)
         if reason is not None:

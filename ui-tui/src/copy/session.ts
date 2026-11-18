@@ -58,11 +58,6 @@ export const sessionEn = {
       clarifyQuestionsOne: (count: string) => `${count} question`,
       clarifyQuestionsOther: (count: string) => `${count} questions`,
       skipped: '(skipped)',
-      voiceRec: '● REC',
-      voiceStt: '◉ STT',
-      voiceOn: 'voice on',
-      voiceOff: 'voice off',
-      voiceTtsSuffix: ' [tts]'
     },
     approval: {
       denied: 'denied',
@@ -70,9 +65,6 @@ export const sessionEn = {
     },
     input: {
       dashboardNewSession: 'starting a fresh dashboard chat...',
-      voiceStillTranscribing: 'voice: still transcribing; try again shortly',
-      voiceModeOff: 'voice: mode is off — enable with /voice on',
-      voiceError: (message: string) => `voice error: ${message}`,
       sudoCancelled: 'sudo cancelled',
       secretCancelled: 'secret entry cancelled',
       vaultStaysLocked: (displayName: string) => `${displayName} stays locked`,

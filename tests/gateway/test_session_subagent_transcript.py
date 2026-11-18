@@ -4,30 +4,24 @@
 Before it, ``session.resume`` on a child id answered ``not_found``, so a viewer (the hermes-tern plugin's
 sidebar) opened ``state.db`` itself and guessed the child by ``parent_session_id`` + first user message.
 """
+import asyncio
 import json
-from pathlib import Path
-import subprocess
-import sys
 
 import pytest
 
-from tests.gateway.fixtures.local_recovery_probe import child_env
+from tests.gateway.fixtures.subagent_transcript_peer import probe
 
 
 @pytest.fixture(scope='module')
 def receipt(tmp_path_factory):
     tmp_path = tmp_path_factory.mktemp('subagent-transcript')
-    root = Path(__file__).resolve().parents[2]
     home, user = tmp_path / 'state', tmp_path / 'user'
     home.mkdir()
     user.mkdir()
-    env = child_env()
-    env.update(HOME=str(user), USERPROFILE=str(user), HERMES_HOME=str(home),
-               PYTHONPATH=str(root), PYTHONUNBUFFERED='1')
-    result = subprocess.run([sys.executable, str(root / 'tests/gateway/fixtures/subagent_transcript_peer.py')],
-                            cwd=root, env=env, capture_output=True, text=True, timeout=90, check=False)
-    assert result.returncode == 0, result.stdout + result.stderr
-    return json.loads((home / 'receipt.json').read_text())
+    with pytest.MonkeyPatch.context() as env:
+        env.setenv('HOME', str(user))
+        env.setenv('HERMES_HOME', str(home))
+        return asyncio.run(probe(home))
 
 
 def _texts(reply):
@@ -85,7 +79,7 @@ def test_unknown_session_foreign_profile_and_bad_cursor_are_refused(receipt):
     assert receipt['bad_cursor']['message'] == 'invalid_params', receipt['bad_cursor']
 
 
-def test_another_authenticated_viewer_reads_the_same_transcript(receipt):
+def test_another_operator_connection_reads_the_same_transcript(receipt):
     assert receipt['peer_live'] == receipt['live']
 
 

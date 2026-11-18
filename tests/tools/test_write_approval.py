@@ -336,18 +336,18 @@ def test_memory_inline_deny_blocks(hermes_home, approval_callback_cleanup):
     assert wa.pending_count("memory") == 0  # denied, not staged
 
 
-@pytest.mark.parametrize("context", ["single_query", "cron", "webhook"])
+@pytest.mark.parametrize("context", ["single_query", "webhook"])
 def test_headless_memory_write_stages_without_inline_prompt(
     hermes_home, approval_callback_cleanup, monkeypatch, context
 ):
-    """`hermes chat -q`, cron and unattended platforms can register the CLI callback but have no human to answer
+    """`hermes chat -q` and unattended platforms can register the CLI callback but have no human to answer
     it: the write stages at once instead of waiting the approval timeout."""
     from tools.memory_tool import memory_tool, MemoryStore
     from tools.terminal_tool import set_approval_callback
     from tools import write_approval as wa
 
     _set_approval("memory", True)
-    monkeypatch.setenv(*{"single_query": ("HERMES_SINGLE_QUERY_SESSION", "1"), "cron": ("HERMES_CRON_SESSION", "1"),
+    monkeypatch.setenv(*{"single_query": ("HERMES_SINGLE_QUERY_SESSION", "1"),
                          "webhook": ("HERMES_SESSION_PLATFORM", "webhook")}[context])
 
     calls = []
@@ -405,24 +405,19 @@ def test_staged_hint_names_the_review_command_on_slash_surfaces(hermes_home):
 def test_staged_hint_names_the_pending_dir_on_headless_surfaces(hermes_home, monkeypatch):
     from tools import write_approval as wa
     _set_approval("memory", True)
-    monkeypatch.setenv("HERMES_CRON_SESSION", "1")
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "webhook")
     r = _stage_one_memory_write()
     assert "review with /memory pending" not in r["message"], r["message"]
     assert "pending records live in" in r["message"]
     assert str(wa._pending_path(wa.MEMORY, "").parent) in r["message"]
-    monkeypatch.delenv("HERMES_CRON_SESSION")
-
-    monkeypatch.setenv("HERMES_KANBAN_TASK", "task-7")
-    r = _stage_one_memory_write()
-    assert "review with /memory pending" not in r["message"], r["message"]
-    monkeypatch.delenv("HERMES_KANBAN_TASK")
+    monkeypatch.delenv("HERMES_SESSION_PLATFORM")
 
     monkeypatch.setenv("HERMES_SESSION_PLATFORM", "api_server")
     r = _stage_one_memory_write()
     assert "review with /memory pending" not in r["message"], r["message"]
     assert "pending records live in" in r["message"]
     monkeypatch.delenv("HERMES_SESSION_PLATFORM")
-    assert wa.pending_count("memory") == 3
+    assert wa.pending_count("memory") == 2
 
 
 def test_staged_hint_keeps_command_for_chat_gateway_platform(hermes_home, monkeypatch):

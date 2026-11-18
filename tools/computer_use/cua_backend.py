@@ -1,10 +1,9 @@
-"""Cua-driver backend (macOS, Windows, Linux): MCP over stdio to `cua-driver`. The async `mcp` SDK runs on a
-background loop (``cua_backend_session``); the same tool surface works on all three platforms, and per-host gaps
-(no DISPLAY, missing AT-SPI, TCC) surface via `hermes computer-use doctor` instead of failing silently. Install
-with `hermes computer-use install`. The macOS path uses private SkyLight SPIs that can break on OS updates.
+"""Linux cua-driver backend: MCP over stdio to `cua-driver`. The async `mcp` SDK runs on a
+background loop (``cua_backend_session``); display and accessibility gaps surface via
+`hermes computer-use doctor`. Install with `hermes computer-use install`.
 Siblings: ``cua_backend_driver`` (binary/contract), ``cua_backend_capture`` + ``cua_backend_input``
 (mixins), ``cua_backend_parse``, ``cua_backend_session`` (bridge + session + CLI fallback), ``cua_backend_daemon``
-(private daemon + macOS app identity). Siblings look this module's config/policy helpers up lazily."""
+(private daemon). Siblings look this module's config/policy helpers up lazily."""
 
 from __future__ import annotations
 
@@ -14,10 +13,9 @@ import os
 import subprocess
 import sys
 import uuid
-from pathlib import PureWindowsPath
+
 from typing import Any, Dict, List, Optional, Tuple
 
-from hermes_cli._subprocess_compat import windows_hide_flags
 from hermes_platform.host.runtime import is_wsl
 from tools.computer_use.backend import ActionResult, ComputerUseBackend
 from tools.computer_use.cua_backend_capture import _CaptureMixin
@@ -43,16 +41,16 @@ def _computer_use_cfg() -> dict[str, Any]:
     return {}
 
 def _cua_no_overlay() -> bool:
-    """Pass ``--no-overlay``? ``computer_use.no_overlay`` overrides; else off on macOS (cursor-overlay redraw
-    loop can peg a core after a session), headless Linux / WSL2 / containers, and Linux X11 (the overlay is a
+    """Pass ``--no-overlay``? ``computer_use.no_overlay`` overrides; else off on
+    headless Linux / WSL2 / containers and Linux X11 (the overlay is a
     fullscreen always-on-top all-workspaces window with no compositor-owned lifecycle, so an unclean session
-    end can leave it wedged over every app); on for Windows and Linux Wayland (compositor owns the surface).
+    end can leave it wedged over every app); on for Linux Wayland (compositor owns the surface).
 
     Explicit ``True`` / ``False`` overrides auto-detection. See #28152, #47032.
     """
     val = _computer_use_cfg().get("no_overlay")
-    if val is not None or sys.platform != "linux":
-        return bool(val) if val is not None else sys.platform == "darwin"
+    if val is not None:
+        return bool(val)
     wsl = is_wsl()
     return wsl or not os.environ.get("DISPLAY") or (
         # Linux/X11: the cursor overlay is a fullscreen, always-on-top, all-workspaces X11 window
@@ -147,14 +145,10 @@ def cua_driver_child_env(base_env: Optional[dict[str, str]] = None) -> dict[str,
 
 def sanitized_cua_driver_env() -> dict[str, str]:
     """``cua_driver_child_env()`` with Hermes provider secrets stripped — cua-driver is a third-party binary and must
-    never inherit API keys. Falls back to the unsanitized telemetry env if the sanitizer can't import."""
-    env = cua_driver_child_env()
-    with contextlib.suppress(Exception):
-        # cua-driver is a third-party binary — never hand it provider API keys via inherited env (same
-        # policy as the manifest probe and MCP spawn; #53503/#55709/#58889 lineage).
-        from tools.environments.local import _sanitize_subprocess_env
-        return _sanitize_subprocess_env(env)
-    return env
+    never inherit API keys. Refuse the spawn if sanitization fails."""
+    from tools.environments.local import _sanitize_subprocess_env
+
+    return _sanitize_subprocess_env(cua_driver_child_env())
 
 def _run_quiet(argv: list[str], *, timeout: float, swallow: Any = (), **kw: Any) -> Any:
     """``subprocess.run`` for short probe verbs: text mode, stdin=DEVNULL unless overridden (older drivers fall into a
@@ -171,9 +165,9 @@ def _run_quiet(argv: list[str], *, timeout: float, swallow: Any = (), **kw: Any)
         return None
 
 def _run_driver(driver_cmd: str, *args: str, timeout: float, swallow: Any = ()) -> Any:
-    """Run a short cua-driver verb with the sanitized env and hidden window."""
+    """Run a short cua-driver verb with the sanitized environment."""
     return _run_quiet([driver_cmd, *args], timeout=timeout, swallow=swallow, encoding="utf-8",
-                      errors="replace", creationflags=windows_hide_flags(), env=sanitized_cua_driver_env())
+                      errors="replace", env=sanitized_cua_driver_env())
 
 def cua_daemon_listening(driver_cmd: str, socket_path: Optional[str] = None, *, timeout: float = 3.0) -> Optional[bool]:
     """Socket-level liveness of a ``cua-driver serve`` daemon: ``cua-driver status`` connects to the daemon
@@ -192,8 +186,7 @@ def _linux_session_locked() -> Optional[bool]:
     """Is the graphical session locked? (Linux; best-effort.) A locked KDE/GNOME session freezes renderers and
     half-disables the AX tree, so discovery legitimately returns nothing — which otherwise reads as a driver bug.
     True/False when loginctl answers, None when unavailable (non-Linux, no systemd-logind, probe failure)."""
-    # Auto-detect: macOS overlay can peg a core indefinitely after a computer_use session (#47032). Prefer
-    # off until the driver teardown is solid; set computer_use.no_overlay: false to keep the cursor.
+
     if sys.platform != "linux":
         return None
     try:
@@ -213,13 +206,10 @@ def _empty_discovery_reason() -> str:
                 "a locked compositor hides windows and freezes app renderers")
     if sys.platform == "linux" and not os.environ.get("DISPLAY"):
         return "no DISPLAY is set — X11/XWayland is not reachable from this process"
-    if sys.platform == "darwin":  # headless Mac / asleep panel: ScreenCaptureKit has 0 shareable displays while TCC looks fine
-        return ("window discovery returned no windows; on macOS this usually means no shareable display (headless Mac or "
-                "panel asleep) — wake the display or attach a monitor/HDMI dummy, then run `hermes computer-use doctor`")
     return "window discovery returned no windows; run `hermes computer-use doctor` (display reachability, AX capability)"
 
 class CuaDriverBackend(_CaptureMixin, _InputMixin, ComputerUseBackend):
-    """Default computer-use backend. Cross-platform via cua-driver MCP."""
+    """Default Linux computer-use backend via cua-driver MCP."""
 
     def __init__(self, permission_mode: str = "standard") -> None:
         if permission_mode not in {"standard", "bounded", "unrestricted"}:
@@ -315,7 +305,7 @@ class CuaDriverBackend(_CaptureMixin, _InputMixin, ComputerUseBackend):
             logger.debug("cua-driver %s: %s", what, e)
 
     def is_available(self) -> bool:
-        return sys.platform in ("darwin", "win32", "linux") and cua_driver_binary_available()  # other Unix-likes untested E2E
+        return sys.platform == "linux" and cua_driver_binary_available()
 
     def _clear_active_target(self) -> None:
         """Forget a capture/focus target so a failed lookup cannot misroute input."""

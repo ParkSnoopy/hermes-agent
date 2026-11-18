@@ -41,14 +41,13 @@ _TOOL_VERBS = {
     'execute_code': 'Running code',
     'image_generate': 'Generating image',
     'video_generate': 'Generating video',
-    'text_to_speech': 'Generating speech',
+
     'vision_analyze': 'Looking at the image',
     'session_search': 'Searching past sessions',
     'skill_view': 'Reading skill',
     'skills_list': 'Listing skills',
     'skill_manage': 'Updating skill',
     'delegate_task': 'Delegating',
-    'cronjob_manage': 'Scheduling',
     'clarify': 'Asking',
     'memory': 'Updating memory',
     'todo_list': 'Updating tasks',
@@ -387,8 +386,8 @@ def _browser_exec_step_label(args: dict, max_chars: int = 80) -> str | None:
 _PRIMARY_ARGS = {
     "terminal": "command", "web_search": "query", "web_extract": "urls", "read_file": "path",
     "write_file": "path", "patch": "path", "search_files": "pattern", "browser_navigate": "url",
-    "browser_click": "ref", "browser_type": "text", "image_generate": "prompt", "text_to_speech": "text",
-    "vision_analyze": "question", "skill_view": "name", "skills_list": "category", "cronjob_manage": "action",
+    "browser_click": "ref", "browser_type": "text", "image_generate": "prompt",
+    "vision_analyze": "question", "skill_view": "name", "skills_list": "category",
     "execute_code": "code", "browser_exec": "code", "delegate_task": "goal",
     "skill_manage": "name",
 }
@@ -1212,17 +1211,6 @@ def _cute_skill_view(a: dict, _r) -> str:
     return _cute_row("📚", "skill", _cute_trunc(label))
 
 
-def _cute_cronjob(a: dict, _r) -> str:
-    action = a.get("action", "?")
-    if action == "create":
-        skills = a.get("skills") or ([a.get("skill")] if a.get("skill") else [])
-        label = a.get("name") or (skills[0] if skills else None) or a.get("prompt", 'task')
-        return _cute_row("⏰", "cron", (f'create {_cute_trunc(label)}'))
-    if action == "list":
-        return _cute_row("⏰", "cron", 'listing')
-    return _cute_row("⏰", "cron", f"{action} {a.get('job_id', '')}")
-
-
 def _cute_execute_code(a: dict, _r) -> str:
     code = a.get("code", "").strip()
     return _cute_row("🐍", "exec", _cute_trunc(code.split(chr(10))[0] if code else ""))
@@ -1285,13 +1273,9 @@ _CUTE_LINES = {
     "skills_list": lambda a, r: _cute_row("📚", "skills", ('list {category}').format(category=a.get("category") or 'all')),
     "skill_view": _cute_skill_view,
     "image_generate": lambda a, r: _cute_row("🎨", "create", _cute_trunc(a.get("prompt", ""))),
-    "text_to_speech": lambda a, r: (
-        _cute_row("🗣️ ", "voices", _cute_trunc((a.get("find_voices") or {}).get("query") or "browse"))
-        if isinstance(a.get("find_voices"), dict)
-        else _cute_row("🔊", "speak", _cute_trunc(a.get("text", "")))),
+
     "vision_analyze": lambda a, r: _cute_row("👁️ ", "vision", _cute_trunc(a.get("question", ""))),
     "send_message": lambda a, r: _cute_row("📨", "send", f"{a.get('target', '?')}: \"{_cute_trunc(a.get('message', ''))}\""),
-    "cronjob_manage": _cute_cronjob,
     "execute_code": _cute_execute_code,
     "browser_exec": _cute_browser_exec,
     "delegate_task": _cute_delegate,

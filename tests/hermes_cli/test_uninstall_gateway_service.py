@@ -1,70 +1,58 @@
-"""Tests for ``uninstall_gateway_service`` — the per-platform service dispatch.
-
-The dispatch is table-driven (``_GATEWAY_SERVICE_REMOVERS``, keyed by
-``platform.system()``): exactly the current host's remover runs, a remover
-failure is reported with the table's warning label, and a platform with no
-entry (tested here via an empty table) cleans up nothing. The tests run on the
-actual host — no OS faking — and all removers plus the standalone-process kill
-are stubbed, so no real service is stopped and no real gateway process is
-killed.
-"""
-from __future__ import annotations
-
-import platform
+"""Gateway cleanup uses Linux systemd and only touches owned units."""
+from types import ModuleType
+import sys
 
 import pytest
 
-from hermes_cli import gateway
 from hermes_cli import uninstall
 
 
 @pytest.fixture
-def no_live_gateways(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The standalone-process sweep finds nothing (and must not kill)."""
-    monkeypatch.setattr(gateway, "find_gateway_pids", lambda *a, **k: [])
-    monkeypatch.setattr(
-        gateway, "kill_gateway_processes",
-        lambda *a, **k: pytest.fail("kill_gateway_processes must not run without live pids"))
-    # Neutral env in case the CI runner exports Termux variables; this host
-    # always reaches the dispatch table.
+def gateway_stub(monkeypatch):
+    gateway = ModuleType("hermes_cli.gateway")
+    gateway.find_gateway_pids = list
+    gateway.kill_gateway_processes = lambda: pytest.fail("no gateway to kill")
+    monkeypatch.setitem(sys.modules, "hermes_cli.gateway", gateway)
     monkeypatch.delenv("TERMUX_VERSION", raising=False)
     monkeypatch.setenv("PREFIX", "")
+    return gateway
 
 
-def _dispatch_table(calls: list) -> dict:
-    """A remover table that records which platform's remover ran."""
-    def remover(name):
-        def run():
-            calls.append(name)
-            return True
-        return run
-    return {
-        "Linux": (remover("Linux"), "linux label"),
-        "Darwin": (remover("Darwin"), "darwin label"),
-        "Windows": (remover("Windows"), "windows label"),
-    }
-
-
-def test_current_platform_remover_runs_and_others_do_not(monkeypatch, no_live_gateways):
-    calls: list = []
-    monkeypatch.setattr(uninstall, "_GATEWAY_SERVICE_REMOVERS", _dispatch_table(calls))
-
+def test_gateway_calls_systemd_remover(gateway_stub, monkeypatch):
+    calls = []
+    monkeypatch.setattr(uninstall, "_remove_systemd_gateway", lambda: calls.append(True) or True)
     assert uninstall.uninstall_gateway_service() is True
-    assert calls == [platform.system()]
+    assert calls == [True]
 
 
-def test_remover_failure_reports_the_table_label(monkeypatch, no_live_gateways, capsys):
-    table = _dispatch_table([])
-    def boom():
-        raise RuntimeError("no service manager here")
-    table[platform.system()] = (boom, "remover blew up")
-    monkeypatch.setattr(uninstall, "_GATEWAY_SERVICE_REMOVERS", table)
-
+def test_gateway_reports_remover_failure(gateway_stub, monkeypatch, capsys):
+    def fail():
+        raise RuntimeError("fixture failure")
+    monkeypatch.setattr(uninstall, "_remove_systemd_gateway", fail)
     assert uninstall.uninstall_gateway_service() is False
-    assert "remover blew up" in capsys.readouterr().out
+    assert "Could not check systemd gateway services" in capsys.readouterr().out
 
 
-def test_unknown_platform_runs_no_remover(monkeypatch, no_live_gateways):
-    monkeypatch.setattr(uninstall, "_GATEWAY_SERVICE_REMOVERS", {})
+def test_termux_skips_systemd_but_reports_stopped_process(gateway_stub, monkeypatch):
+    gateway_stub.find_gateway_pids = lambda: [123]
+    gateway_stub.kill_gateway_processes = lambda: 1
+    monkeypatch.setenv("TERMUX_VERSION", "fixture")
+    monkeypatch.setattr(uninstall, "_remove_systemd_gateway", lambda: pytest.fail("no systemd in Termux"))
+    assert uninstall.uninstall_gateway_service() is True
 
-    assert uninstall.uninstall_gateway_service() is False
+
+def test_systemd_removes_only_owned_units(gateway_stub, monkeypatch, tmp_path):
+    user = tmp_path / "user.service"
+    system = tmp_path / "system.service"
+    user.write_text("owned", encoding="utf-8")
+    system.write_text("foreign", encoding="utf-8")
+    gateway_stub.get_service_name = lambda: "hermes-gateway.service"
+    gateway_stub.get_systemd_unit_path = lambda system: tmp_path / ("system.service" if system else "user.service")
+    gateway_stub._systemd_unit_belongs_to_current_home = lambda system: not system
+    gateway_stub._systemctl_cmd = lambda system: ["systemctl", "--system" if system else "--user"]
+    calls = []
+    monkeypatch.setattr(uninstall.subprocess, "run", lambda cmd, **kwargs: calls.append(cmd))
+    assert uninstall._remove_systemd_gateway() is True
+    assert not user.exists()
+    assert system.read_text(encoding="utf-8") == "foreign"
+    assert [cmd[2] for cmd in calls] == ["stop", "disable", "daemon-reload"]

@@ -18,7 +18,7 @@ import sqlite3
 import stat
 import tempfile
 import threading
-from hermes_dir_acl import make_user_dir
+from hermes_user_dirs import make_user_dir
 
 from hermes_state_runtime import ADMITTED_REQUEST_CONFLICT, RuntimeStoreError
 from utils import fsync_directory
@@ -99,9 +99,7 @@ async def release_abandoned_capture(scope):
 
 
 def native_inputs_store():
-    """The store's path as the profile names it, unresolved. The one value ``make_user_dir`` gets:
-    ``resolve()`` erases a link planted below the Hermes home (``cache/documents`` -> elsewhere),
-    and an elevated grant on the resolved path would land outside the home with no home fence."""
+    """The store path as the profile names it, before resolution for identity checks."""
     from gateway.platforms.base import get_document_cache_dir
     return get_document_cache_dir() / 'native-inputs'
 

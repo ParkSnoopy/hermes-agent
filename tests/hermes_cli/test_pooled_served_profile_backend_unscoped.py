@@ -50,16 +50,3 @@ def test_unscoped_liveness_in_a_served_profile_process_matches_the_scoped_answer
     assert (unscoped.running, unscoped.pid, unscoped.source) == (scoped.running, scoped.pid, "multiplexer")
     plats = profile_platforms_from_multiplexer(unscoped.runtime, "alpha")
     assert plats["telegram"] == {"state": "connected"} and plats["api_server"]["state"] == "connected"
-
-
-def test_unscoped_lifecycle_verbs_in_a_served_profile_process_address_the_multiplexer(pooled_served_process):
-    from hermes_cli.web_server_gateway import _gateway_subcommand, _profile_action_environment, multiplexed_profile_refusal
-    # `stop` on a served profile PARKS it under the host (no refusal); `start` while unparked refuses.
-    assert multiplexed_profile_refusal(None, "stop") is None and multiplexed_profile_refusal(None, "start")
-    restart = _gateway_subcommand(None, "restart")
-    assert restart[-2:] == ["gateway", "restart"]
-    # The child must run under the DEFAULT home (the multiplexer's), not inherit alpha's HERMES_HOME.
-    assert _profile_action_environment(restart)["HERMES_HOME"] == str(pooled_served_process)
-    # A profile with no multiplexer relationship is still managed as its own gateway.
-    assert _gateway_subcommand("solo", "restart") == ["-p", "solo", "gateway", "restart"]
-    assert multiplexed_profile_refusal("solo", "stop") is None

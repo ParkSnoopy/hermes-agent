@@ -99,14 +99,6 @@ def _complete_locked(
     from hermes_cli.update_cmd_maint import _run_post_update_maintenance
     from hermes_cli.venv_sync import publish_launchers
 
-    try:
-        from hermes_cli._subprocess_compat import expose_pm_git
-
-        # The builds, the release-history refresh and the install stamp all run
-        # git; a fresh Windows machine has only PM's.
-        expose_pm_git(root)
-    except Exception as exc:
-        print(f"⚠ Could not provide git for the source completion: {exc}", file=sys.stderr)
     owed: list[tuple[str, str]] = []
 
     def step(name: str, run) -> None:

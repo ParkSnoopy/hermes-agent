@@ -129,16 +129,6 @@ def _looks_like_credential(name: str) -> bool:
 # HERMES_* vars that change test behavior by being set. Unset all of these
 # unconditionally — individual tests that need them set do so explicitly.
 _HERMES_BEHAVIORAL_VARS = frozenset({
-    # Voice/TTS runtime flags. ``tui_gateway/server.py`` reads these straight
-    # off ``os.environ`` at call time (``_voice_mode_enabled`` /
-    # ``_voice_tts_enabled``) and, on every completed turn, hands the turn's
-    # final response text to ``hermes_cli.voice.speak_text`` — real synthesis,
-    # real playback, out of the developer's speakers. Blank them per-test so a
-    # leak (from the shell, or from an earlier test that drove the
-    # ``voice.toggle`` RPC, which writes ``os.environ`` directly) cannot carry
-    # into the next test. See ``_audio_playback_guard`` for the second layer.
-    "HERMES_VOICE",
-    "HERMES_VOICE_TTS",
     "HERMES_YOLO_MODE",
     # Injected into subprocess envs by the terminal tool (_make_run_env), so
     # any test run launched FROM a Hermes agent session inherits them and

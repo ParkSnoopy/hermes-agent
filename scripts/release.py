@@ -2,7 +2,7 @@
 """Hermes Agent release entrypoint.
 
 Stable releases use the ``release``, ``publish``, and ``abandon`` subcommands.
-Canary, commit, and dynamic-channel operations retain their top-level flags.
+Canary and commit builds retain their top-level flags.
 See ``website/docs/developer-guide/stable-releases.md`` for the operator flow.
 """
 
@@ -308,16 +308,6 @@ def generate_changelog(commits, tag_name, semver, repo_url="https://github.com/N
     lines.append("")
     lines.append(f"**Release Date:** {date_str}")
     lines.append("")
-    # The builds-pending job in desktop-bundled-release.yml replaces this
-    # marker with a "builds in progress" link to the run as soon as the
-    # workflow starts. The builds-table job then replaces the link with
-    # the download tables once every matrix leg has uploaded its
-    # artifacts to the R2 bucket (real object names, never predicted
-    # ones; the release body links point at the R2 public URL). A release
-    # whose matrix never finishes keeps the link — visibly unfinished,
-    # and it points at the run that stopped.
-    lines.append("<!-- HERMES_BUILDS_TABLE -->")
-    lines.append("")
 
     if first_release:
         lines.append("> 🎉 **First official release!** This marks the beginning of regular weekly releases")
@@ -610,14 +600,7 @@ def main():
     parser.add_argument("--build-commit", type=str, metavar="REV",
                         help="Preview an exact-commit build into releases/commit/<sha>/ on R2. "
                              "Add --publish to dispatch without a tag or release. The same "
-                             "direct dispatch runs from any GitHub remote; add --channel NAME "
-                             "to publish into an updatable R2 channel instead of a one-off.")
-    parser.add_argument("--bundle-env", action="append", default=[], metavar="NAME=VALUE",
-                        help="Bake a non-secret environment default into a commit desktop bundle. "
-                             "Repeat for multiple variables. Runtime environment values win.")
-    parser.add_argument("--bundle-unset", action="append", default=[], metavar="NAME",
-                        help="Clear an inherited variable at desktop launch, even when set. "
-                             "Uses an explicit empty value; repeat for multiple variables.")
+                             "direct dispatch runs from a GitHub remote without moving a channel.")
     parser.add_argument("--prune-canaries", action="store_true",
                         help="Delete canary releases+tags older than 14 days")
     parser.add_argument("--publish", action="store_true",
@@ -671,9 +654,6 @@ def main():
         "abandon", help="Clear the outstanding attempt, keeping its attempt ref and writing an abandon marker")
     abandon_cmd.add_argument("--version", required=True)
     abandon_cmd.add_argument("--remote", type=str)
-    from scripts.releases.channel_build import add_arguments, validate_arguments, cmd_channel
-
-    add_arguments(parser)
     args = parser.parse_args()
 
     from scripts.releases.entrypoint import cmd_abandon, cmd_changelog, cmd_publish, cmd_release
@@ -683,11 +663,6 @@ def main():
     if args.command:
         stable_commands[args.command](args)
         return
-    if validate_arguments(parser, args):
-        cmd_channel(args)
-        return
-    if args.bundle_env or args.bundle_unset:
-        parser.error("--bundle-env and --bundle-unset are not supported for one-off Termux builds")
     if args.build_commit is not None:
         conflicting = [name for name, supplied in (
             ("--canary", args.canary), ("--prune-canaries", args.prune_canaries),
@@ -706,7 +681,7 @@ def main():
         if selected:
             handler(args)
             return
-    parser.error("select release, publish, abandon, changelog, --canary, --build-commit, or a channel operation")
+    parser.error("select release, publish, abandon, changelog, --canary, or --build-commit")
 
 
 if __name__ == "__main__":

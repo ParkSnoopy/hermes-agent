@@ -14,7 +14,7 @@ from . import (
     machine,
     profiles_vault_complete_foreign_subagents,
     projects_pets,
-    prompt_voice,
+    prompt,
     server_requests,
     sessions,
     tools_commands,

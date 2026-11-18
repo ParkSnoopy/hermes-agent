@@ -6,7 +6,7 @@ import chalk from 'chalk'
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { AUDIO_DIRECTIVE_RE, INLINE_RE, Md, MEDIA_LINE_RE, stripInlineMarkup } from '../components/markdown.js'
+import { INLINE_RE, Md, MEDIA_LINE_RE, stripInlineMarkup } from '../components/markdown.js'
 import { __resetLinkTitleCache, fetchLinkTitle } from '../lib/externalLink.js'
 import { DEFAULT_THEME, LIGHT_THEME } from '../theme.js'
 
@@ -193,11 +193,6 @@ describe('protocol sentinels', () => {
     expect('the media: section is empty'.match(MEDIA_LINE_RE)).toBeNull()
   })
 
-  it('matches the [[audio_as_voice]] directive', () => {
-    expect(AUDIO_DIRECTIVE_RE.test('[[audio_as_voice]]')).toBe(true)
-    expect(AUDIO_DIRECTIVE_RE.test('  [[audio_as_voice]]  ')).toBe(true)
-    expect(AUDIO_DIRECTIVE_RE.test('audio_as_voice')).toBe(false)
-  })
 })
 
 describe('Md wrapping', () => {

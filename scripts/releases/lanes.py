@@ -32,7 +32,6 @@ LANES = (
     Lane("nix", True, "Nix checks"),
     Lane("docker-tests", True, "tests of the Docker image before it is published"),
     Lane("pm-bundle", True, "PM bundle acceptance"),
-    Lane("windows-live", True, "Windows live venv E2E"),
     Lane("install-e2e", True, "install and update E2E"),
 
     Lane("termux-checks", True, "Termux verification (runs only with termux)"),
@@ -54,7 +53,6 @@ JOB_LANES: dict[str, frozenset[str]] = {name: frozenset(needs) for name, needs i
     "publish-docker": ("docker",),
     "pm-bundle": ("pm-bundle",),
     "termux-checks": ("termux-checks", "termux"),
-    "windows-live": ("windows-live",),
     "install-e2e": ("install-e2e",),
 
     "candidates-termux": ("termux",),

@@ -122,43 +122,5 @@ def test_select_provider_and_model_warns_if_named_custom_provider_disappears(
 # _setup_slack wizard migrated to the slack plugin's interactive_setup (#41112).
 
 
-@pytest.mark.parametrize("extra", ["neutts", "kittentts"])
-@pytest.mark.parametrize("succeeds", [True, False])
-def test_python_setup_uses_declared_extras_and_reports_restart(extra, succeeds, monkeypatch, capsys):
-    import pm
-    from hermes_cli import setup_tts
-
-    calls = []
-    def sync(extras, *, explicit):
-        calls.append((extras, explicit))
-        if not succeeds:
-            raise pm.InstallError("venv", "resolution refused")
-
-    monkeypatch.setattr(pm, "sync_venv", sync)
-    monkeypatch.setattr("pm.extras.extra_supported", lambda name: True)
-    monkeypatch.setitem(sys.modules, extra, None)
-    monkeypatch.setattr(setup_tts.shutil, "which", lambda name: "/usr/bin/espeak-ng")
-    assert getattr(setup_tts, f"_install_{extra}_deps")() is succeeds
-    assert calls == [([extra], True)]
-    output = capsys.readouterr().out
-    if succeeds:
-        assert "Restart Hermes" in output
-        assert sys.modules[extra] is None  # installing never activates in this process
-    else:
-        assert "resolution refused" in output
-        assert "Retry with: hermes setup" in output
-        assert "installed." not in output
 
 
-@pytest.mark.parametrize("extra", ["neutts", "kittentts"])
-def test_unsupported_tts_selection_is_retained_without_installing(extra, monkeypatch, capsys):
-    from hermes_cli import setup_tts
-
-    monkeypatch.setattr("pm.extras.extra_supported", lambda name: False)
-    def forbidden(*args, **kwargs):
-        raise AssertionError("unsupported engine must not install system or Python packages")
-    monkeypatch.setattr(setup_mod, "prompt_yes_no", forbidden)
-    monkeypatch.setattr("pm.sync_venv", forbidden)
-    assert setup_tts._tts_local_install_step(extra) == extra
-    output = capsys.readouterr().out
-    assert "not supported" in output and "selection is saved" in output

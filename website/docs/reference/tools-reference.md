@@ -63,12 +63,6 @@ token). Other sessions do not see it.
 |------|-------------|----------------------|
 | `execute_code` | Run a Python script that can call Hermes tools programmatically. Use this when you need 3+ tool calls with processing logic between them, need to filter/reduce large tool outputs before they enter your context, need conditional branching (… | — |
 
-## `cronjob` toolset
-
-| Tool | Description | Requires environment |
-|------|-------------|----------------------|
-| `cronjob_manage` | Unified scheduled-task manager. Use `action="create"`, `"list"`, `"update"`, `"pause"`, `"resume"`, `"run"`, or `"remove"` to manage jobs. Supports skill-backed jobs with one or more attached skills, and `skills=[]` on update clears attached skills. Cron runs happen in fresh sessions with no current-chat context. | — |
-
 ## `delegation` toolset
 
 | Tool | Description | Requires environment |
@@ -90,7 +84,7 @@ For local files, a full unredacted read (including all pages of the same file ve
 
 | Tool | Description | Requires environment |
 |------|-------------|----------------------|
-| `computer_use` | Background desktop control via cua-driver — screenshots (SOM / vision / AX), click / drag / scroll / type / key / wait, list_apps, focus_app. Does NOT steal the user's cursor or keyboard focus. Works with any tool-capable model. macOS, Windows, and Linux. | `cua-driver` on `$PATH` (install via `hermes tools`). |
+| `computer_use` | Background desktop control via cua-driver — screenshots (SOM / vision / AX), click / drag / scroll / type / key / wait, list_apps, focus_app. Does NOT steal the user's cursor or keyboard focus. Works with any tool-capable model. Linux. | `cua-driver` on `$PATH` (install via `hermes tools`). |
 
 
 :::note
@@ -125,7 +119,7 @@ Tools for driving desktop [Projects](../user-guide/cli.md) — named, multi-fold
 
 ## `catalog` toolset
 
-Enabled for sessions whose source is the desktop app, whichever backend it's connected to. CLI, TUI, `hermes -z`, cron, kanban and messaging sessions never get it, even when a config list names it. `all` does not include it. Remove it with `agent.disabled_toolsets: [catalog]`.
+Enabled for sessions whose source is the desktop app, whichever backend it's connected to. CLI, TUI, `hermes -z`, kanban and messaging sessions never get it, even when a config list names it. `all` does not include it. Remove it with `agent.disabled_toolsets: [catalog]`.
 
 | Tool | Description | Requires environment |
 |------|-------------|----------------------|
@@ -156,7 +150,7 @@ Enabled for sessions whose source is the desktop app, whichever backend it's con
 
 Enabled for sessions whose source is the Hermes desktop app, on any backend it
 is connected to (local, SSH, URL, or Hermes Cloud). Absent from CLI, TUI,
-messaging, and cron sessions.
+and messaging sessions.
 
 | Tool | Description | Requires environment |
 |------|-------------|----------------------|
@@ -188,7 +182,7 @@ Handles are applied at the **primitive**, not the call site, so one edit names e
 
 | Handle | What it names |
 |---|---|
-| `overlay-nav` | the left nav of any route overlay (settings, cron, profiles, agents) |
+| `overlay-nav` | the left nav of any route overlay (settings, profiles, agents) |
 | `nav-<id>` | one row in that nav — `nav-models`, `nav-appearance`, … |
 | `field-<schemaKey>` | one settings row, by its config key — `field-model`, `field-provider`, … |
 | `page-tabs` | the filter tabs on any `PageSearchShell` page (artifacts, skills, …) |
@@ -299,10 +293,4 @@ The single `video_generate` tool covers both modalities — pass `image_url` to 
 | Tool | Description | Requires environment |
 |------|-------------|----------------------|
 | `x_search` | Search X (Twitter) posts, profiles, and threads using xAI's built-in `x_search` Responses tool. Read-only public X discovery for current discussion, reactions, or claims on public X (not general web pages). Does not post, reply, like, DM, upload media, delete, or inspect the authenticated X account — those need a separate authenticated X API surface (e.g. the `xurl` skill). Off by default — opt in via `hermes tools` → 🐦 X (Twitter) Search. Schema is only registered when xAI credentials are configured (check_fn-gated). | XAI_API_KEY **or** xAI Grok OAuth (SuperGrok / Premium+) login |
-
-## `tts` toolset
-
-| Tool | Description | Requires environment |
-|------|-------------|----------------------|
-| `text_to_speech` | Convert text to speech audio. Returns a MEDIA: path that the platform delivers as a voice message. On Telegram it plays as a voice bubble, on Discord/WhatsApp as an audio attachment. In CLI mode, saves to ~/voice-memos/. Voice and provider… | — |
 

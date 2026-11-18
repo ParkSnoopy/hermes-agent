@@ -19,7 +19,6 @@ hermes-agent/
 ├── tools/                # One file per tool
 │   └── registry.py       # Central tool registry
 ├── gateway/              # Session and gateway runtime
-├── cron/                 # Job scheduler
 ├── tests/                # Extensive pytest suite (run via scripts/run_tests.sh)
 └── website/              # Docusaurus docs site
 ```
@@ -101,13 +100,12 @@ scripts/run_tests.sh -v --tb=long             # pass-through pytest flags
   that disposable environment before regeneration.
 - The runner probes repository `.venv`, `venv`, and the standard source-install
   venv before falling back to `HERMES_PYTHON`. Each candidate must contain pytest.
-- **Windows:** run the same wrapper through Git Bash. See `references/windows-quirks.md`.
 - After editing `pyproject.toml`, run `hermes pm lock`, re-source `./activate`, and
   commit `pyproject.toml` with `uv.lock`.
   Do not mutate Hermes environments with raw pip or uv commands.
 
 Host-specific tests run on the real host. Use one `@pytest.mark.platforms(...)`
-marker per test, such as `@pytest.mark.platforms("windows", arch="arm64")`.
+marker per test, such as `@pytest.mark.platforms("linux")`.
 Do not fake the host by patching `sys.platform` or platform probes.
 
 ### System prompt's execution-environment block

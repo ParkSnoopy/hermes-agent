@@ -60,7 +60,7 @@ import tempfile
 import time
 from pathlib import Path, PurePosixPath
 from hermes_constants import get_hermes_home
-from hermes_cli._subprocess_compat import selected_git_env, windows_hide_flags
+from hermes_cli._subprocess_compat import selected_git_env
 from hermes_cli.gitlock import clear_stale_tmp_packs
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -483,10 +483,7 @@ def _run_git(
             env=env,
             cwd=str(normalized_working_dir),
             stdin=subprocess.DEVNULL,
-            # Checkpoints fire several bare git calls per turn from the
-            # console-less desktop/gateway backend; suppress the per-call
-            # conhost flash on Windows (no-op on POSIX).
-            creationflags=windows_hide_flags(),
+
             check=False,
         )
         ok = result.returncode == 0
@@ -637,7 +634,7 @@ def _init_store(store: Path, working_dir: str) -> Optional[str]:
             capture_output=True, text=True, encoding='utf-8', errors='replace',
             env=init_env, timeout=_GIT_TIMEOUT,
             stdin=subprocess.DEVNULL,
-            creationflags=windows_hide_flags(),
+
             check=False,
         )
         if result.returncode != 0:

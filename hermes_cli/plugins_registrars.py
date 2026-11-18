@@ -65,17 +65,6 @@ _SCOPED_PROVIDER_REGISTRARS: tuple[tuple[str, str, str, str, str, str, dict[str,
      "orchestrator owns ordering/precedence/provenance; the source only fetches. Since dotenv usually "
      "loads before discovery, the manager re-pulls enabled plugin sources afterwards.",
      {"normalize": None, "register": "register_source", "param": "source"}),
-    ("register_tts_provider", "tts_provider", "agent.tts_registry",
-     "agent.tts_provider:TTSProvider", "TTS provider",
-     "Register an :class:`agent.tts_provider.TTSProvider`; ``provider.name`` is matched by "
-     "``tts.provider`` unless it is a built-in name (rejected with a warning) or a "
-     "``tts.providers.<name>: type: command`` entry shares it (command-providers win).",
-     {"normalize": "lower"}),
-    ("register_transcription_provider", "transcription_provider", "agent.transcription_registry",
-     "agent.transcription_provider:TranscriptionProvider", "transcription provider",
-     "Register an :class:`agent.transcription_provider.TranscriptionProvider`; ``provider.name`` is "
-     "matched by ``stt.provider`` unless it is a built-in name (rejected) or a ``stt.providers.<name>: "
-     "type: command`` entry shares it (command-providers win).", {"normalize": "lower"}),
     ("register_delegation_provider", "delegation_provider", "agent.delegation_registry",
      "agent.delegation_provider:DelegationProvider", "delegation provider",
      "Register an :class:`agent.delegation_provider.DelegationProvider`; ``provider.name`` is matched by "

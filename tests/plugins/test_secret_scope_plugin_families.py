@@ -11,9 +11,8 @@ NOT borrow from ``os.environ``.
 One representative test pair (scoped-wins / scoped-miss-no-borrow) per plugin
 family, plus the behavioral site:
 
-* google_meet ``process_manager.start`` must resolve OPENAI_API_KEY through
-  the scope AT SPAWN TIME and pass it explicitly in the child environment —
-  the detached child inherits the process env, not the contextvar scope.
+* google_meet caption collection must not inherit or forward retired speech
+  credentials, whether they exist in the process environment or profile scope.
 """
 
 from __future__ import annotations
@@ -130,18 +129,24 @@ class TestBrowserFamily:
 # ---------------------------------------------------------------------------
 
 class TestGoogleMeetSpawn:
-    def test_child_env_carries_scoped_openai_key(
-        self, multiplex_scope, monkeypatch, tmp_path
+    @pytest.mark.parametrize("inherited", [False, True])
+    def test_caption_child_does_not_receive_retired_speech_credentials(
+        self, multiplex_scope, monkeypatch, tmp_path, inherited
     ):
-        """start() resolves the key from the scope and injects it explicitly."""
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("HERMES_MEET_REALTIME_KEY", raising=False)
+        """Caption collection neither needs speech keys nor borrows another profile's."""
+        retired = ("OPENAI_API_KEY", "HERMES_MEET_REALTIME_KEY", "HERMES_MEET_REALTIME_MODEL",
+                   "HERMES_MEET_REALTIME_VOICE", "HERMES_MEET_REALTIME_INSTRUCTIONS")
+        for key in retired:
+            if inherited:
+                monkeypatch.setenv(key, "other-profile-value")
+            else:
+                monkeypatch.delenv(key, raising=False)
         multiplex_scope({"OPENAI_API_KEY": "scoped-openai-key"})
 
         import plugins.google_meet.process_manager as pm
 
         monkeypatch.setattr(pm, "_root", lambda: tmp_path)
-
+        monkeypatch.setattr(pm, "_pid_alive", lambda pid: False)
         captured: dict[str, Any] = {}
 
         class _FakeProc:
@@ -152,43 +157,13 @@ class TestGoogleMeetSpawn:
             return _FakeProc()
 
         monkeypatch.setattr(pm.subprocess, "Popen", fake_popen)
-
         result = pm.start(
             "https://meet.google.com/abc-defg-hij",
             out_dir=tmp_path / "meeting",
-            mode="realtime",
+            mode="transcribe",
         )
-
         assert result["ok"] is True
         child_env = captured["env"]
-        # The scoped key crosses the process boundary explicitly, not via
-        # inherited os.environ (which had no key at all).
-        assert child_env["HERMES_MEET_REALTIME_KEY"] == "scoped-openai-key"
-
-    def test_explicit_key_argument_still_wins(
-        self, multiplex_scope, monkeypatch, tmp_path
-    ):
-        multiplex_scope({"OPENAI_API_KEY": "scoped-openai-key"})
-
-        import plugins.google_meet.process_manager as pm
-
-        monkeypatch.setattr(pm, "_root", lambda: tmp_path)
-
-        captured: dict[str, Any] = {}
-
-        class _FakeProc:
-            pid = 4243
-
-        monkeypatch.setattr(
-            pm.subprocess,
-            "Popen",
-            lambda cmd, **kw: (captured.update(env=kw.get("env")), _FakeProc())[1],
-        )
-
-        pm.start(
-            "https://meet.google.com/abc-defg-hij",
-            out_dir=tmp_path / "meeting2",
-            realtime_api_key="explicit-key",
-        )
-
-        assert captured["env"]["HERMES_MEET_REALTIME_KEY"] == "explicit-key"
+        assert not set(retired) & child_env.keys()
+        assert child_env["HERMES_MEET_MODE"] == "transcribe"
+        assert child_env["HERMES_MEET_URL"] == "https://meet.google.com/abc-defg-hij"

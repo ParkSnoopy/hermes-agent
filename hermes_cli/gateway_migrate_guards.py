@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -23,17 +22,9 @@ if TYPE_CHECKING:
 
 
 def _pid_uid(pid: int) -> Optional[int]:
-    """Owner uid of a live process: ``/proc`` where it exists, ``ps`` on macOS; None when unknown."""
+    """Owner uid of a live process from ``/proc``; None when unknown."""
     with contextlib.suppress(OSError):
         return os.stat(f"/proc/{pid}").st_uid
-    from hermes_cli.gateway import is_macos
-    if not is_macos():
-        return None
-    with contextlib.suppress(OSError, ValueError, subprocess.SubprocessError):
-        result = subprocess.run(["ps", "-o", "uid=", "-p", str(pid)], capture_output=True, text=True, encoding="utf-8",
-                                check=False, timeout=2)
-        if result.returncode == 0 and result.stdout.strip():
-            return int(result.stdout.strip())
     return None
 
 
@@ -42,10 +33,10 @@ def pid_is_other_users(pid: int) -> bool:
 
     Gateway process scans match argv host-wide, so without this a second account's gateway (users
     isolate credentials by UID) became a ``restart --all`` SIGTERM target and "unfolded profile"
-    advice. Root keeps the host-wide view (``sudo … --system`` over a ``User=`` unit), as does
-    Windows (no ``geteuid``); an unknown owner is not called foreign.
+    advice. Root keeps the host-wide view (``sudo … --system`` over a ``User=`` unit);
+    an unknown owner is not called foreign.
     """
-    my_uid = os.geteuid() if hasattr(os, "geteuid") else 0
+    my_uid = os.geteuid()
     owner = _pid_uid(pid) if my_uid else None
     return owner is not None and owner != my_uid
 
@@ -68,7 +59,7 @@ def gateway_identity(home: Path, pid: Optional[int], services: list[tuple[str, b
     uid: the live process owner; else, for a system unit, its ``User=`` — and ONLY that: a system
     unit's principal is whatever systemd will run, so an unresolvable ``User=`` stays None rather than
     borrowing the profile directory's owner (a stopped unit pinned to an absent NSS user is not the
-    account that owns the files). Without a system unit (user-scope systemd / launchd / detached), the
+    account that owns the files). Without a system unit (user-scope systemd / detached), the
     profile directory owner is the account the gateway runs as. None means unknown. runtime_home: the
     HERMES_HOME an installed unit pins, which is where the gateway really runs; ``home`` otherwise.
     """
@@ -104,11 +95,10 @@ def _service_label(profile: ProfileGateway) -> str:
 
 
 def _guard_service_domain(plan: MigrationPlan, profile: ProfileGateway) -> Optional[str]:
-    """Different manager or scope than the one the fleet converges on (system vs user systemd, launchd vs
-    systemd). The reference is the default's own unit when it has one, else the manager
+    """Different manager or scope than the one the fleet converges on. The reference is the default's own unit when it has one, else the manager
     ``target_service_kind()`` elects from the secondaries: a default that never had a gateway unit is not a
     service domain of its own, and refusing every secondary against it left the common upgrade fleet (N
-    launchd profiles, unit-less default, #118097) printing blockers instead of folding. Two managers
+    service-managed profiles, unit-less default, #118097) printing blockers instead of folding. Two managers
     among the secondaries still refuse — the ones not elected differ from the target. Two units on one
     profile is an ambiguous topology the unattended path does not resolve either."""
     if len(profile.services) > 1:

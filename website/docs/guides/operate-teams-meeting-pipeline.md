@@ -5,7 +5,7 @@ description: "Runbook, go-live checklist, and operator worksheet for the Microso
 
 # Operate the Teams Meeting Pipeline
 
-Use this guide after you have already enabled the feature from [Teams Meetings](../user-guide/messaging/teams-meetings.md).
+Use this guide after enabling the Teams meeting pipeline. See the [pipeline skill prerequisites](../user-guide/skills/bundled/productivity/productivity-teams-meeting-pipeline.md#prerequisites) for the required Graph credentials.
 
 This page covers:
 - operator CLI flows
@@ -51,36 +51,6 @@ hermes teams-pipeline maintain-subscriptions --dry-run
 **Microsoft Graph subscriptions expire in at most 72 hours.** If nothing renews them, meeting notifications silently stop after 3 days and the pipeline looks "broken." This is the #1 operational failure mode for any Graph-backed integration.
 
 You MUST run `maintain-subscriptions` on a schedule. Pick one of these three options:
-
-#### Option 1: Hermes cron (recommended if you already run the Hermes gateway)
-
-Hermes ships a built-in cron scheduler. The `--no-agent` mode runs a script as the job (rather than using an LLM), and `--script` must point at a file under `~/.hermes/scripts/`. First create the script:
-
-```bash
-mkdir -p ~/.hermes/scripts
-cat > ~/.hermes/scripts/maintain-teams-subscriptions.sh <<'EOF'
-#!/usr/bin/env bash
-exec hermes teams-pipeline maintain-subscriptions
-EOF
-chmod +x ~/.hermes/scripts/maintain-teams-subscriptions.sh
-```
-
-Then register a script-only cron job that runs every 12 hours (gives 6x headroom against the 72h expiry window):
-
-```bash
-hermes cron create "0 */12 * * *" \
-  --name "teams-pipeline-maintain-subscriptions" \
-  --no-agent \
-  --script maintain-teams-subscriptions.sh \
-  --deliver none
-```
-
-Verify it was registered and inspect the next run time:
-
-```bash
-hermes cron list
-hermes cron status        # scheduler status
-```
 
 #### Option 2: systemd timer (recommended for Linux production deployments)
 
@@ -240,13 +210,12 @@ Check:
 - [ ] `msgraph_webhook` is enabled and reachable from the public internet
 - [ ] `MSGRAPH_WEBHOOK_CLIENT_STATE` is set and matches subscriptions
 - [ ] transcript subscription is created
-- [ ] recording subscription is created if STT fallback is required
 - [ ] `ffmpeg` is installed if recording fallback is enabled
 - [ ] Teams outbound delivery target is configured and verified
 - [ ] Notion and Linear sinks are configured only if actually needed
 - [ ] `hermes teams-pipeline validate` returns an OK snapshot
 - [ ] `hermes teams-pipeline token-health --force-refresh` succeeds
-- [ ] **`maintain-subscriptions` is scheduled** (Hermes cron, systemd timer, or crontab — see [Automating subscription renewal](#automating-subscription-renewal-required-for-production)). Without this, Graph subscriptions silently expire within 72 hours.
+- [ ] **`maintain-subscriptions` is scheduled** (systemd timer or crontab — see [Automating subscription renewal](#automating-subscription-renewal-required-for-production)). Without this, Graph subscriptions silently expire within 72 hours.
 - [ ] a real end-to-end meeting event has produced a stored job
 - [ ] at least one summary has reached the intended delivery sink
 
@@ -288,7 +257,3 @@ Use this before changing the deployment:
 | Are we moving to a new Teams chat or channel? | |
 | Do subscriptions need to be recreated or renewed? | |
 | Do we need a fresh end-to-end verification run? | |
-
-## Related Docs
-
-- [Teams Meetings setup](../user-guide/messaging/teams-meetings.md)

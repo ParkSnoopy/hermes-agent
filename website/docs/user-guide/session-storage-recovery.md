@@ -8,7 +8,7 @@ description: "What to do when Hermes says another process holds an old copy of t
 Hermes keeps every conversation in one SQLite file per profile, `state.db`, with two
 sidecar files SQLite manages itself: `state.db-wal` (the write-ahead log) and `state.db-shm`.
 Several Hermes processes can share that file safely — the gateway, the Desktop app, the
-dashboard, cron, and CLI commands all write through SQLite's own locking.
+dashboard and CLI commands all write through SQLite's own locking.
 
 One thing is not safe: **rewriting the store while another process is writing to it**.
 When that happens, the processes still holding the *old* copy of the log stop writing on
@@ -22,7 +22,7 @@ refusal exists precisely so nothing gets lost.
 
 ## The fix in three steps
 
-1. **Quit every Hermes process on that profile.** Desktop app, gateway, dashboard, cron:
+1. **Quit every Hermes process on that profile.** Desktop app, gateway, dashboard, and CLI:
 
    ```bash
    hermes gateway stop          # add -p <profile> for a named profile
@@ -72,7 +72,7 @@ Refusing `hermes sessions optimize-storage`: another process is using ~/.hermes/
   PID 41355 (hermes serve --profile work): state.db-wal
 Rewriting the database under a live writer is how every agent ends up refusing turns with the
 retired state.db-wal error. Nothing is lost.
-Stop them first (`hermes gateway stop`, quit the Desktop app, pause cron), then re-run.
+Stop them first (`hermes gateway stop`, quit the Desktop app), then re-run.
 Override with --force if you accept the risk.
 ```
 

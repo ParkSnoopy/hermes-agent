@@ -134,7 +134,7 @@ def test_dry_run_names_every_crossing_and_changes_nothing(homes, capsys):
         ("wrong_store", "acme-in-beta"), ("crossed_parent", "beta-child"),
         ("routing_unclaimed", f"{GHOST_KEY} (scope {str((homes['default'] / 'sessions').resolve())!r})"),
 
-        ("voice_profile_less", "telegram:200"),
+
         ("sessions_json_unclaimed", GHOST_KEY),
     } <= kinds
     # beta's own routing row: a standalone gateway's index lives in its own store; nothing recorded a
@@ -184,9 +184,9 @@ def test_apply_settles_every_repairable_crossing_and_is_idempotent(homes, monkey
         scope = str((homes["default"] / "sessions").resolve())
         assert set(root.load_gateway_routing_entries(scope=scope)) == {ACME_KEY}
         assert set(beta.load_gateway_routing_entries(scope=scope)) == {BETA_KEY}
-        # 5. voice key prefixed only for acme's chat
+        # Retired voice state is left untouched by profile repair.
         voice = json.loads((homes["default"] / "gateway_voice_mode.json").read_text())
-        assert voice == {"acme:telegram:200": "all", "telegram:100": "voice_only"}
+        assert voice == {"telegram:200": "all", "telegram:100": "voice_only"}
         # 6. ghost mirror entry dropped, the default's kept
         mirror = json.loads((homes["default"] / "sessions" / "sessions.json").read_text())
         assert set(mirror) == {"_README", ROOT_KEY}

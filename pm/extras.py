@@ -24,20 +24,7 @@ ANCHORS: dict[str, str | tuple[str, ...]] = {
     "parallel-web": "parallel",
     "ddgs": "ddgs",
 
-    "mistral": "mistralai",
-    "edge-tts": "edge_tts",
-    "neutts": "neutts",
-    "kittentts": ("kittentts", "soundfile"),
-    "piper": "piper",
-    "tts-premium": "elevenlabs",
-    "voice": "faster_whisper",
-    "stt-whisper": "faster_whisper",
-    "audio-io": ("sounddevice", "numpy"),
-    "silk": "pilk",
-    "wake": "pyopen_wakeword",
-    "wake-openwakeword": "pyopen_wakeword",
-    "wake-sherpa": "sherpa_onnx",
-    "wake-porcupine": "pvporcupine",
+
     "fal": "fal_client",
 
     "keychain": "keyring",
@@ -464,7 +451,7 @@ def legacy_selection(project_root: Path) -> list[str]:
     carried = sorted(
         # An umbrella extra shares its anchor with one member; carrying it
         # would install every sibling the user never chose.
-        extra for extra in ANCHORS if extra not in {"messaging", "voice", "wake"} and extra not in refused
+        extra for extra in ANCHORS if extra != "messaging" and extra not in refused
         # PM refuses a gated extra outside its platform even if a hand-synced venv carried it.
         # Installed first: judging a gate may cost a PM-runtime subprocess.
         if any(all(_installed_in(tree, anchor) for anchor in _anchors(extra)) for tree in trees)

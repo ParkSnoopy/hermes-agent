@@ -76,7 +76,7 @@ Re-selecting the model you're already on never prompts (the cache stays warm), a
 
 ### Unattended data-training tiers
 
-Models with a `-contributor` suffix (e.g. `muse-spark-1.2-contributor`, `muse-spark-1.3-contributor`) are discounted because the vendor may train on your prompts and completions. Interactive model selection always shows a confirmation prompt. Non-interactive startup paths such as Kanban workers and cron agents fail closed because they cannot ask that question.
+Models with a `-contributor` suffix (e.g. `muse-spark-1.2-contributor`, `muse-spark-1.3-contributor`) are discounted because the vendor may train on your prompts and completions. Interactive model selection always shows a confirmation prompt. Non-interactive startup paths such as Kanban workers fail closed because they cannot ask that question.
 
 If training on the unattended workload's data is acceptable, record a persistent acknowledgement:
 
@@ -104,7 +104,6 @@ Every auxiliary task defaults to `auto` — meaning Hermes tries your main model
 | **Approval** | For `approval_mode: smart` — a fast/cheap model (haiku, flash, gpt-5-mini) decides whether to auto-approve low-risk commands. Expensive models here are waste. |
 | **Review** | The `/review` reviewer subagent. `auto` uses the main model; pin a different (often stronger) model for reviews. See [Review model](./features/delegation.md#review-model). |
 | **MCP** | MCP tool routing. Usually fine at `auto`. |
-| **Voice Chat** | Spoken voice-chat replies. Point it at a faster model than your main one; reasoning is off on voice turns by default, and GPT-Live voice chat ignores this slot. See [Voice chat model](./features/voice-mode.md#voice-chat-model). |
 | **Triage Specifier** | Routes the Kanban triage specifier (`hermes kanban specify`) that expands a rough one-liner into a concrete spec. A cheap, capable model works well. |
 | **Kanban Decomposer** | Routes Kanban task decomposition — splits a triage task into a graph of child tasks for specialist profiles. |
 | **Profile Describer** | Routes profile-description generation (`hermes profile describe --auto` / the dashboard auto-generate button). Short, cheap call. |

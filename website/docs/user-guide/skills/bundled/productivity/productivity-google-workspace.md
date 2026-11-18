@@ -46,7 +46,7 @@ Gmail, Calendar, Drive, Contacts, Sheets, and Docs — through Hermes-managed OA
 ## First-Time Setup
 
 The setup is fully non-interactive — you drive it step by step so it works
-on CLI, Telegram, Discord, or any platform.
+on the CLI, TUI, or Desktop.
 
 Run the setup script with Python from the Hermes environment, not an unrelated
 system Python. `--install-deps` syncs Hermes' declared Google extra through PM;

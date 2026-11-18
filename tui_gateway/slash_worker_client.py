@@ -59,7 +59,7 @@ class _SlashWorker:
             + (["--provider", provider] if provider else []) \
             + (["--base-url", base_url] if base_url else [])
         self._closed = False
-        from hermes_cli._subprocess_compat import windows_hide_flags
+
         # slash_worker runs the Hermes agent → needs provider credentials. Tier-1 secrets
         # (gateway/GitHub/infra) are still stripped (#29157). Global-remote / multi-profile sessions: the
         # worker must resolve config/skills/state against the session's profile home, not the gateway's
@@ -93,7 +93,7 @@ class _SlashWorker:
         self.proc = spawn_owned(
             argv, purpose="slash-worker", stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1,
-            cwd=os.getcwd(), env=env, creationflags=windows_hide_flags())
+            cwd=os.getcwd(), env=env)
         threading.Thread(target=self._drain_stdout, daemon=True).start()
         threading.Thread(target=self._drain_stderr, daemon=True).start()
 

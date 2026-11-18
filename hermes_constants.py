@@ -57,10 +57,6 @@ def _expand_hermes_home(path: str) -> Path:
 def _platform_default_hermes_home(environ: Mapping[str, str], user_home: Callable[[], Path]) -> Path:
     """The platform default that *environ* names, with the literal data-directory suffix."""
     suffix = environ.get("HERMES_DATA_DIR_SUFFIX", "")
-    if sys.platform == "win32":
-        local_appdata = environ.get("LOCALAPPDATA", "").strip()
-        base = Path(local_appdata) if local_appdata else user_home() / "AppData" / "Local"
-        return base / ("hermes" + suffix)
     return user_home() / (".hermes" + suffix)
 
 
@@ -120,7 +116,7 @@ def hermes_root_for_environment(environ: Mapping[str, str]) -> Path | None:
     HERMES_HOME, an undefined variable, or a missing user profile folder.
     """
     names = {key.upper(): value for key, value in environ.items()}
-    profile = names.get("USERPROFILE" if sys.platform == "win32" else "HOME", "").strip()
+    profile = names.get("HOME", "").strip()
 
     def user_home() -> Path:
         if not profile:
@@ -462,10 +458,8 @@ def mkdir_under_hermes_home(path: str | Path) -> Path:
     """Create *path*, but never materialize a deleted/missing named profile."""
     target = Path(path)
     assert_named_profile_home_live(target)
-    # Lazy so this module still imports alone; hermes_dir_acl (stdlib only) ships beside it in every
-    # closure that creates home dirs, and a missing copy fails loudly instead of silently skipping the
-    # elevated grant (tests/pm/test_bootstrap_import_closure.py).
-    from hermes_dir_acl import make_user_dir
+    # Lazy so this module still imports alone; directory-creating closures ship the stdlib helper.
+    from hermes_user_dirs import make_user_dir
     make_user_dir(target, parents=True, exist_ok=True)
     return target
 
@@ -513,28 +507,18 @@ def get_hermes_dir(new_subpath: str, old_name: str, *, home: Path | None = None)
 def iter_hermes_node_dirs(home: Path | None = None) -> list[Path]:
     """Historical layout for old-updater diagnostics, never runtime selection."""
     node_dir = (home or get_hermes_home()) / "node"
-    return [node_dir, node_dir / "bin"] if sys.platform == "win32" else [node_dir / "bin", node_dir]
-
-
-_WINDOWS_NODE_SHIMS = {
-    "npm": ["npm.cmd", "npm.exe", "npm"], "npx": ["npx.cmd", "npx.exe", "npx"], "node": ["node.exe", "node"],
-}
+    return [node_dir / "bin", node_dir]
 
 
 def _candidate_node_command_names(command: str) -> list[str]:
-    base = Path(command).name
-    if sys.platform != "win32" or "." in base:
-        return [base]
-    # Prefer npm.cmd: PowerShell may block npm.ps1 by policy; CreateProcess cannot launch a bare .ps1.
-    return _WINDOWS_NODE_SHIMS.get(base.lower(), [f"{base}.cmd", f"{base}.exe", base])
+    return [Path(command).name]
 
 def _run_version_probe(argv: list[str], **kwargs):
     """Run a hidden ``--version`` probe; ``None`` when it cannot run."""
     import subprocess
     try:
-        from hermes_cli._subprocess_compat import windows_hide_flags
         return subprocess.run(  # noqa: PLW1510 -- forwarding wrapper: callers pass subprocess kwargs via **kwargs (check may arrive through it); an explicit check=False would raise TypeError
-            argv, capture_output=True, timeout=10, creationflags=windows_hide_flags(), **kwargs,
+            argv, capture_output=True, timeout=10, **kwargs,
         
         )
     except (OSError, subprocess.TimeoutExpired, ValueError):
@@ -562,8 +546,7 @@ def node_tool_runnable(path: str | None) -> bool:
     """True only when *path* is a Node/npm/npx binary that actually runs (``--version`` probe)."""
     if not path:
         return False
-    present = Path(path).is_file() if sys.platform == "win32" else _is_executable_file(path)
-    return present and _version_probe_ok(path)
+    return _is_executable_file(path) and _version_probe_ok(path)
 
 
 def hermes_managed_node_tree_present(home: Path | None = None) -> bool:
@@ -582,12 +565,8 @@ def find_node_executable(command: str) -> str | None:
     """
     command = str(command)
     if any(sep in command for sep in ("/", "\\")):
-        if sys.platform == "win32":
-            return command if Path(command).is_file() else None
         return shutil.which(command)
     base = command.lower()
-    for suffix in (".cmd", ".exe", ".ps1"):
-        base = base.removesuffix(suffix)
     package_name = {"node": "node", "npm": "npm", "npx": "npm"}.get(base)
     if package_name is not None:
         from pm import installed_package
@@ -602,15 +581,7 @@ def find_node_executable(command: str) -> str | None:
             if candidate.is_file():
                 return str(candidate)
         return None
-    if sys.platform != "win32":
-        return shutil.which(command)
-    directories = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d]
-    for name in _candidate_node_command_names(command):
-        for directory in directories:
-            candidate = Path(directory) / name
-            if candidate.is_file():
-                return str(candidate)
-    return None
+    return shutil.which(command)
 
 
 def with_hermes_node_path(env: dict[str, str] | None = None) -> dict[str, str]:
@@ -816,7 +787,7 @@ _SCRATCH_PRUNE_STAMP = ".last_prune"
 _SCRATCH_PRUNE_INTERVAL_SECONDS = 3600
 _scratch_pruned_once = False
 
-# AF_UNIX socket paths cap at 104 bytes (macOS) / 108 (Linux). Chrome appends
+# AF_UNIX socket paths cap at 108 bytes on Linux. Chrome appends
 # ``com.google.Chrome.XXXXXX/SingletonSocket`` (~45) and the code kernel
 # ``hermes_rpc_<32 hex>.sock`` (~49) to the temp root, so a root longer than this budget
 # makes the bind fail (Chrome: "Socket path too long" at startup).
@@ -824,12 +795,11 @@ SOCKET_TMPDIR_MAX_LEN = 50
 
 
 def socket_safe_tmpdir() -> str:
-    """Temp root short enough for AF_UNIX sockets. The scratch dir usually fits; macOS
-    ``TMPDIR`` never does and a deep profile home may not, so those fall back to the OS
+    """Temp root short enough for AF_UNIX sockets. A deep profile home may not fit,
+    so long paths fall back to the OS
     default root for sockets only (everything else stays in the scratch dir)."""
     import tempfile
-    if sys.platform == "darwin":
-        return "/tmp"  # no-tmp: ok — AF_UNIX 104-byte socket path limit on darwin
+
     candidate = tempfile.gettempdir()
     if len(candidate) <= SOCKET_TMPDIR_MAX_LEN or not os.path.isdir("/tmp"):  # no-tmp: ok — probe, not a write target
         return candidate
@@ -888,15 +858,14 @@ def _container_or_chmod_skipped() -> bool:
 
 
 def _resolve_hermes_uid_gid() -> tuple[int | None, int | None]:
-    """Read HERMES_UID / HERMES_GID (set by Docker deployments); (None, None) if unset/invalid/Windows.
+    """Read HERMES_UID / HERMES_GID (set by Docker deployments); (None, None) if unset/invalid.
     The entrypoint chowns HERMES_HOME once, but subdirs created at runtime (``profiles/<name>/``)
     need the same chown or they land root:root and block later uid-mapped workers.
 
     Docker containers running Hermes commonly set these to map the in-container user to a host user so
     volume-mounted state files end up with the right ownership. See #34107.
     """
-    if sys.platform == "win32":
-        return None, None
+
 
     def _env_int(name: str) -> int | None:
         try:
@@ -978,10 +947,8 @@ def get_scratch_dir(home: str | Path | None = None, *, prune: bool = True) -> Pa
     scratch = base / "cache" / "scratch"
     try:
         scratch.mkdir(parents=True, exist_ok=True)
-        if sys.platform != "win32":
-            # The caller's home decides the policy: re-reading the effective home here would
-            # warn about a profile the CLI has not switched to yet (boot scratch setup).
-            apply_secure_dir_policy(scratch, home=base)
+        # The caller's home decides the policy, including before profile selection.
+        apply_secure_dir_policy(scratch, home=base)
     except OSError:
         pass
     if prune:
@@ -1432,7 +1399,7 @@ def venv_python_path(venv_dir, *, windows: bool | None = None) -> Path:
 # First-party roots: an ImportError naming one means our own tree is inconsistent. The
 # update post-probe shares this set so the guard that BLOCKS and the hint that EXPLAINS agree.
 FIRST_PARTY_MODULE_ROOTS = frozenset({
-    "agent", "acp_adapter", "cli", "cron", "gateway", "model_tools", "plugins",
+    "agent", "acp_adapter", "cli", "gateway", "model_tools", "plugins",
     "providers", "tools", "toolsets", "run_agent", "tui_gateway", "utils",
 })
 

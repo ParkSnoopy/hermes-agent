@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 import tui_gateway.server as srv
-from hermes_cli.dashboard_auth.ws_tickets import INTERNAL_PROVIDER, INTERNAL_USER_ID
 from tools import bot_relay
 
 
@@ -203,14 +202,10 @@ SENDER_AUTHOR = {"id": "bot:cloud-1/scout", "name": "scout", "is_bot": True}
 
 @pytest.mark.parametrize("identity", [
     None,
-    {"user_id": INTERNAL_USER_ID, "provider": INTERNAL_PROVIDER},
+    {"user_id": "server-internal", "provider": "server-internal"},
 ], ids=["no identity", "server-internal identity"])
 def test_deliver_accepts_a_sender_from_an_admitted_non_login_client(home, monkeypatch, bound_client, identity):
-    """A caller with no identity, or one holding the ``?internal=`` credential, keeps its sender fields.
-
-    NOT the Desktop: it mints a ws-ticket carrying the signed-in ``{user_id, provider}`` on every
-    gateway that requires sign-in (``hermes_cli/dashboard_auth/routes.py``), so it is a login
-    identity and takes the principal-author branch below."""
+    """A non-login identity keeps its sender fields."""
     from tools import bot_live_delivery as live
     forwarded = []
     monkeypatch.setattr(live, "authority_delivery",

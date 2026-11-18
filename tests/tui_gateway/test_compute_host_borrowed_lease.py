@@ -107,7 +107,6 @@ def isolated_env(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "_sync_agent_model_with_config", lambda sid, session: None)
     monkeypatch.setattr(server, "_session_cwd", lambda session: str(tmp_path))
     monkeypatch.setattr(server, "_register_session_cwd", lambda session: None)
-    monkeypatch.setattr(server, "_tts_stream_begin", lambda: None)
     monkeypatch.setattr(server, "_get_usage", lambda agent_: {})
     monkeypatch.setattr(server, "_hydrate_session_cwd", lambda *a, **k: None)
     monkeypatch.setattr(server, "_wire_session_agent", lambda *a, **k: None)

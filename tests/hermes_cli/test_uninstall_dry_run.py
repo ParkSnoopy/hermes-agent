@@ -43,10 +43,6 @@ def test_dry_run_lists_named_profiles_without_desktop_userdata(monkeypatch, tmp_
     profile = SimpleNamespace(name="work", path=tmp_path / "profiles" / "work")
     monkeypatch.setattr(uninstall, "_is_default_hermes_home", lambda home: True)
     monkeypatch.setattr(uninstall, "_discover_named_profiles", lambda: [profile])
-    monkeypatch.setattr(
-        "hermes_cli.gui_uninstall.desktop_userdata_dir", lambda: tmp_path / "absent-userdata"
-    )
-
     uninstall._print_uninstall_dry_run(
         project_root=tmp_path, hermes_home=tmp_path / ".hermes", full_uninstall=True
     )

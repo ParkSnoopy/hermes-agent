@@ -692,12 +692,12 @@ def _build_top_level_description(*, independent_completions=None) -> str:
     # vocabulary); model_tools session-filters the list to tools the session has.
     if orchestration_available:
         restrictions_rule = (
-            "- Children cannot call clarify, memory, or cronjob.\n"
+            "- Children cannot call clarify or memory.\n"
             f"- Children can themselves delegate while depth remains (max_spawn_depth={_get_max_spawn_depth()}); the "
             "runtime derives this from depth automatically.\n"
         )
     else:
-        restrictions_rule = "- Children cannot call delegate_task, clarify, memory, or cronjob.\n"
+        restrictions_rule = "- Children cannot call delegate_task, clarify, or memory.\n"
     from tools.delegate_tool_config import _get_independent_completions
 
     if independent_completions is None:
@@ -708,7 +708,7 @@ def _build_top_level_description(*, independent_completions=None) -> str:
 _DELIVERY_INDEPENDENT, _DELIVERY_JOINED = "each ungrouped task / `group` returns on its own", "one message per call"
 
 _DESCRIPTION_DELIVERY = (
-    "Sessions without a later-result consumer (including one-shot CLI and cron) join parallel children "
+    "Sessions without a later-result consumer (including one-shot CLI) join parallel children "
     "and return results in this tool call. "
     "Otherwise runs in the background: dispatch returns live transcript paths and results re-enter "
     "as a new message when subagents finish ({delivery}). Background results are delivered only "
@@ -727,7 +727,7 @@ _DESCRIPTION_HEAD = (
     "- Mechanical multi-step work with no reasoning needed -> execute_code\n"
     "- A single tool call -> call the tool directly\n"
     "- Tasks needing user interaction -> subagents cannot ask questions\n"
-    "- Durable work that must survive this session -> cronjob or terminal(background=True, notify=True); /stop, /new, "
+    "- Durable work that must survive this session -> terminal(background=True, notify=True); /stop, /new, "
     "or process exit halts running subagents (whole tree); each returns an 'interrupted' completion with partial output.\n\n"
     "RULES:\n"
     "- Children know nothing of this conversation: pass everything needed via 'context', including any required "

@@ -659,7 +659,6 @@ class TestEnvironmentHints:
         """THE BUG: gateway/cron set TERMINAL_CWD but the prompt emitted os.getcwd()
         (the daemon launch dir). Regression for #24882/#24969/#27383/#29265."""
         import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
         configured = tmp_path / "workspace"
         configured.mkdir()
@@ -670,7 +669,6 @@ class TestEnvironmentHints:
     def test_build_environment_hints_falls_back_to_launch_dir(self, monkeypatch, tmp_path):
         """The #19242 local-CLI contract: no TERMINAL_CWD → the launch dir."""
         import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
         monkeypatch.delenv("TERMINAL_CWD", raising=False)
         monkeypatch.chdir(tmp_path)
@@ -681,7 +679,6 @@ class TestEnvironmentHints:
         display number and lease holder — so 'open chrome in screen 20' resolves to the bot's own
         screen instead of launching on the user's display via a confused terminal call."""
         import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
         monkeypatch.setattr("tools.bot_desktop.runtime.published_env",
                             lambda: {"DISPLAY": ":20", "XAUTHORITY": "/run/x"})
@@ -691,7 +688,6 @@ class TestEnvironmentHints:
 
     def test_human_held_bot_screen_says_so(self, monkeypatch):
         import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
         monkeypatch.setattr("tools.bot_desktop.runtime.published_env", lambda: {"DISPLAY": ":20"})
         monkeypatch.setattr("tools.bot_desktop.lease.get", lambda: SimpleNamespace(holder="human"))
@@ -701,7 +697,6 @@ class TestEnvironmentHints:
     def test_stopped_bot_screen_leaves_no_hint(self, monkeypatch):
         """No screen running → nothing added; the block must drop out entirely, not say 'None'."""
         import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
         monkeypatch.setattr("tools.bot_desktop.runtime.published_env", dict)
         assert "Bot Screen" not in _pb.build_environment_hints()
@@ -717,7 +712,6 @@ class TestEnvironmentHints:
     def test_environment_hint_from_env_var_is_appended(self, monkeypatch):
         """HERMES_ENVIRONMENT_HINT lets an embedder describe the runtime env."""
         import agent.prompt_builder as _pb
-        monkeypatch.setattr(_pb, "is_wsl", lambda: False)
         monkeypatch.delenv("TERMINAL_ENV", raising=False)
         monkeypatch.setenv("HERMES_ENVIRONMENT_HINT", "Running inside an OpenShell sandbox.")
         result = _pb.build_environment_hints()

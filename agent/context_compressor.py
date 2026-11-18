@@ -1881,29 +1881,6 @@ def _payload_failure_suffix(payload: dict) -> str:
     return _failure_suffix(error)
 
 
-def _sum_cronjob_manage(name, args, content, content_len, line_count):
-    """``[cronjob] <action>``, plus the outcome of the run it triggered.
-
-    A manual run reports a dead or skipped job inside the job view while the tool call itself
-    succeeded, so the payload is a clean ``{"success": true, "job": {...}}`` and a top-level probe
-    finds nothing to mark. Only this call's own fields decide: ``job`` also carries the job's stored
-    state, including an ``error`` left behind by an earlier run.
-    """
-    stub = f"[cronjob] {args.get('action', '?')}"
-    payload = _json_dict(content)
-    suffix = _payload_failure_suffix(payload)
-    if not suffix:
-        job = payload.get("job")
-        job = job if isinstance(job, dict) else {}
-        error, skipped = job.get("execution_error"), job.get("execution_skipped")
-        if error is not None or (skipped is None and job.get("execution_success") is False):
-            suffix = _failure_suffix(error)
-        elif skipped is not None:
-            # Skipped is not failed: the scheduler may be running this very job right now.
-            suffix = _failure_suffix(skipped, "SKIPPED")
-    return stub + suffix
-
-
 def _sum_process_manage(name, args, content, content_len, line_count):
     """``[process] <action> session=<id>``, plus how the process itself ended.
 
@@ -1966,8 +1943,7 @@ _TOOL_RESULT_SUMMARIZERS = {
     "memory": _sum_template("[memory] {action} on {target}", action="?", target="?"),
     "todo_list": lambda *a: "[todo] updated task list",
     "clarify": _sum_clarify,
-    "text_to_speech": _sum_template("[text_to_speech] generated audio ({content_len:,} chars)"),
-    "cronjob_manage": _sum_cronjob_manage,
+
     "process_manage": _sum_process_manage,
 }
 

@@ -17,18 +17,18 @@ from hermes_cli.toolset_scope import (
 from hermes_cli.toolset_validation import parse_platform_toolsets_value
 # Re-exports: keep ``hermes_cli.tools_config.X`` callers and test patch targets resolving.
 from hermes_cli.tools_config_cua import (
-    _post_setup_no_window_flags, _cua_driver_cmd, _cua_version_summary, _resolved_cua_driver_cmd, _cua_driver_env,
+    _cua_driver_cmd, _cua_version_summary, _resolved_cua_driver_cmd, _cua_driver_env,
     _cua_driver_contract_status, _cua_driver_install_ready)
 from hermes_cli.tools_config_post_setup import (
     _ensure_browser_use_cli, _run_post_setup, valid_post_setup_keys, run_post_setup_command, _POST_SETUP_INSTALLED,
     _post_setup_already_installed, _module_installed, _POST_SETUP_READY)
 from hermes_cli.tools_config_providers import (
     _plugin_image_gen_providers, _plugin_video_gen_providers, _plugin_web_search_providers, _plugin_browser_providers,
-    _plugin_tts_providers, web_provider_capabilities, _visible_providers, provider_readiness_status,
+    web_provider_capabilities, _visible_providers, provider_readiness_status,
     _toolset_needs_configuration_prompt, _configure_tool_category, _web_tier_matches, _is_provider_active,
     _detect_active_provider_index, IMAGEGEN_BACKENDS, _plugin_image_gen_catalog, _plugin_video_gen_catalog,
     _configure_imagegen_model, _configure_imagegen_model_for_plugin, _configure_videogen_model_for_plugin,
-    _select_plugin_image_gen_provider, _select_plugin_video_gen_provider, STT_MODEL_CATALOG, _configure_stt_model,
+    _select_plugin_image_gen_provider, _select_plugin_video_gen_provider,
     _write_provider_config, apply_provider_selection, _configure_provider, _reconfigure_provider,
     _configure_vision_backend, _configure_vision_provider_model, _configure_simple_requirements)
 from hermes_cli.tools_config_mcp import (
@@ -77,8 +77,6 @@ CONFIGURABLE_TOOLSETS = [
     ("image_gen",       "🎨 Image Generation",          "image_generate"),
     ("video_gen",       "🎬 Video Generation",          "video_generate (text/image/reference)"),
     ("x_search",        "🐦 X (Twitter) Search",        "x_search (requires xAI OAuth or XAI_API_KEY)"),
-    ("tts",             "🔊 Text-to-Speech",            "text_to_speech"),
-    ("stt",             "🎙️ Speech-to-Text",           "voice transcription (gateway voice messages + voice mode)"),
     ("skills",          "📚 Skills",                    "list, view, manage"),
     ("todo",            "📋 Task Planning",             "todo_list"),
 
@@ -88,9 +86,8 @@ CONFIGURABLE_TOOLSETS = [
     ("connections",     "🔌 Connections",               "remote connector tools and account authorization"),
     ("clarify",         "❓ Clarifying Questions",      "clarify"),
     ("delegation",      "👥 Task Delegation",           "delegate_task"),
-    ("cronjob",         "⏰ Cron Jobs",                 "create/list/update/pause/resume/run, with optional attached skills"),
 
-    ("computer_use",     "🖱️  Computer Use (macOS/Windows/Linux)", "background desktop control via cua-driver"),
+    ("computer_use",     "🖱️  Computer Use (Linux)", "background desktop control via cua-driver"),
 ]
 
 
@@ -109,9 +106,8 @@ def gui_toolset_label(label: str) -> str:
 # toolsets (catalog / bundled plugin) that stay opt-in once installed.
 _DEFAULT_OFF_TOOLSETS = {"spotify", "video", "video_gen", "x_search", "a2a"}
 
-# Config-only capabilities: provider setup in `hermes tools` (TOOL_CATEGORIES) but not model toolsets — zero
-# schemas, own switch (``stt.enabled``), never in ``platform_toolsets`` or the per-platform checklist.
-_CONFIG_ONLY_TOOLSETS = {"stt"}
+
+
 
 
 def _xai_credentials_present() -> bool:
@@ -186,7 +182,7 @@ def _checklist_toolset_keys(platform: str) -> set[str]:
     read-time-resolved toolsets (recovered composites, MCP names) are NOT here."""
     return {
         ts_key for ts_key, _, _ in _get_effective_configurable_toolsets()
-        if _toolset_allowed_for_platform(ts_key, platform) and ts_key not in _CONFIG_ONLY_TOOLSETS}
+        if _toolset_allowed_for_platform(ts_key, platform)}
 
 
 def _platform_default_toolset(platform: str) -> str:
@@ -233,52 +229,8 @@ def _row(name: str, badge: str = "", tag: str = "", env_vars: list = (), **marke
 
 
 _NOUS = {"requires_nous_auth": True}
-_OPENAI_VOICE_KEY = _key("VOICE_TOOLS_OPENAI_KEY", "OpenAI API key", "https://platform.openai.com/api-keys")
-_ELEVENLABS_KEY = _key("ELEVENLABS_API_KEY", "ElevenLabs API key", "https://elevenlabs.io/app/settings/api-keys")
-_DEEPINFRA_KEY = _key("DEEPINFRA_API_KEY", "DeepInfra API key", "https://deepinfra.com/dash/api_keys")
 
 TOOL_CATEGORIES = {
-    "tts": {
-        "name": "Text-to-Speech", "icon": "🔊",
-        "providers": [
-            _row("Microsoft Edge TTS", "★ recommended · free", "Good quality, no API key needed", tts_provider="edge"),
-            _row("Nous Subscription", "subscription", "Managed OpenAI TTS billed to your subscription", tts_provider="openai",
-                 **_NOUS, managed_nous_feature="tts", override_env_vars=["VOICE_TOOLS_OPENAI_KEY", "OPENAI_API_KEY"]),
-            _row("OpenAI TTS", "paid", "High quality voices", [_OPENAI_VOICE_KEY], tts_provider="openai"),
-            _row("xAI TTS", tag="Grok voices — uses xAI Grok OAuth or XAI_API_KEY", tts_provider="xai", post_setup="xai_grok"),
-            _row("ElevenLabs", "paid", "Most natural voices", [_ELEVENLABS_KEY], tts_provider="elevenlabs"),
-            # Mistral Voxtral TTS — `mistralai` SDK lazy-installs on first use.
-            _row("Mistral (Voxtral TTS)", "paid", "Multilingual, native Opus",
-                 [_key("MISTRAL_API_KEY", "Mistral API key", "https://console.mistral.ai/")], tts_provider="mistral"),
-            _row("Google Gemini TTS", "preview", "30 prebuilt voices, controllable via prompts",
-                 [_key("GEMINI_API_KEY", "Gemini API key", "https://aistudio.google.com/app/apikey")], tts_provider="gemini"),
-            _row("KittenTTS", "local · free", "Lightweight local ONNX TTS (~25MB), no API key", tts_provider="kittentts",
-                 post_setup="kittentts"),
-            _row("Piper", "local · free", "Local neural TTS, 44 languages (voices ~20-90MB)", tts_provider="piper",
-                 post_setup="piper"),
-            _row("DeepInfra TTS", "paid", "Chatterbox, Qwen3-TTS, … — live catalog from api.deepinfra.com", [_DEEPINFRA_KEY],
-                 tts_provider="deepinfra"),
-        ],
-    },
-    "stt": {
-        "name": "Speech-to-Text", "icon": "🎙️",
-        "providers": [
-            _row("Local Whisper", "★ recommended · free", "faster-whisper on-device, no API key", stt_provider="local",
-                 post_setup="faster_whisper"),
-            _row("Nous Subscription", "subscription", "Managed OpenAI transcription billed to your subscription",
-                 stt_provider="openai", **_NOUS, managed_nous_feature="stt",
-                 override_env_vars=["VOICE_TOOLS_OPENAI_KEY", "OPENAI_API_KEY"]),
-            _row("OpenAI", "paid", "whisper-1, gpt-4o-transcribe, gpt-transcribe", [_OPENAI_VOICE_KEY], stt_provider="openai"),
-            _row("Groq", "free tier", "whisper-large-v3-turbo, whisper-large-v3 — very fast",
-                 [_key("GROQ_API_KEY", "Groq API key", "https://console.groq.com/keys")], stt_provider="groq"),
-            _row("xAI", tag="Grok Voice Transcribe — uses xAI Grok OAuth or XAI_API_KEY", stt_provider="xai", post_setup="xai_grok"),
-            _row("ElevenLabs Scribe", "paid", "scribe_v2 — diarization + audio-event tagging", [_ELEVENLABS_KEY],
-                 stt_provider="elevenlabs"),
-            _row("Mistral Voxtral", "paid", "voxtral-mini-latest — multilingual",
-                 [_key("MISTRAL_API_KEY", "Mistral API key", "https://console.mistral.ai/")], stt_provider="mistral"),
-            _row("DeepInfra", "paid", "Live STT catalog from api.deepinfra.com", [_DEEPINFRA_KEY], stt_provider="deepinfra"),
-        ],
-    },
     "web": {
         "name": "Web Search & Extract", "setup_title": "Select Search Provider",
         "setup_note": "A free DuckDuckGo search skill is also included — skip this if you don't need a premium provider.",
@@ -352,9 +304,8 @@ TOOL_CATEGORIES = {
         ],
     },
     "computer_use": {
-        "name": "Computer Use (macOS/Windows/Linux)", "icon": "🖱️",
-        # Runtime backends ship for macOS, Windows, Linux (X11; Wayland via XWayland). Gaps surface via `computer-use doctor`.
-        "platform_gate": ["darwin", "win32", "linux"],
+        "name": "Computer Use (Linux)", "icon": "🖱️",
+        "platform_gate": ["linux"],
         # cua-driver reads HOME/TMPDIR from the process env; HERMES_CUA_DRIVER_CMD selects a specific
         # binary (e.g. a local build). There is no version-pin env var.
         "providers": [
@@ -841,7 +792,7 @@ def _toolset_has_keys(
             return resolve_vision_provider_client()[1] is not None
         except Exception:
             return False
-    if ts_key in {"web", "image_gen", "video_gen", "tts", "stt", "browser"}:
+    if ts_key in {"web", "image_gen", "video_gen", "browser"}:
         if features is None:
             features = get_nous_subscription_features(config, force_fresh=force_fresh)
         feature = features.features.get(ts_key)
@@ -902,10 +853,10 @@ def _prompt_toolset_checklist(platform_label: str, enabled: set[str], platform: 
     from toolsets import resolve_toolset
 
     tool_tokens = _estimate_tool_tokens()
-    # Drop platform-scoped toolsets that don't apply here and config-only capabilities (stt).
+    # Drop platform-scoped toolsets that don't apply here.
     effective = [
         (k, l, d) for (k, l, d) in _get_effective_configurable_toolsets()
-        if _toolset_allowed_for_platform(k, platform) and k not in _CONFIG_ONLY_TOOLSETS]
+        if _toolset_allowed_for_platform(k, platform)]
     labels = [
         f"{ts_label}  ({ts_desc})"
         + ("  [no API key]" if not _toolset_has_keys(ts_key, force_fresh=force_fresh) and _is_configurable(ts_key) else "")

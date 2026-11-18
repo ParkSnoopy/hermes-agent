@@ -245,30 +245,6 @@ def _route_turn_images(agent, prompt: Any, images: list[str]) -> Any:
     return _build_image_ref_message(prompt, images)
 
 
-def _start_turn_voice() -> tuple[Any, bool]:
-    """Arm voice-mode turn audio; ``(tts_queue, thinking_started)``.  ``_tts_stream_begin``
-    goes first: cutting a still-speaking previous turn IS this turn's barge-in, so it must
-    latch before the caller consumes the latch."""
-    tts_queue = _tts_stream_begin()
-    if not _voice_mode_enabled():
-        return tts_queue, False
-    if _voice_cfg_dict().get("barge_in", True):
-        _arm_full_duplex_listener()
-    try:
-        from tools.voice_mode import is_audio_output_active, start_thinking_sound
-
-        def _thinking_should_play() -> bool:
-            if is_audio_output_active():
-                return False
-            try:
-                from hermes_cli.voice import is_continuous_active
-                return not is_continuous_active()
-            except Exception:
-                return True
-        return tts_queue, start_thinking_sound(should_play=_thinking_should_play)
-    except Exception:
-        return tts_queue, False
-
 
 def _commit_turn_history(
     session: dict, result: dict, history: list, history_version: int) -> str | None:
@@ -384,7 +360,7 @@ def _goal_followup_after_turn(
 
 
 def _after_complete_turn(sid: str, session: dict, st: _TurnRun, raw: Any) -> None:
-    """Hooks for a ``complete`` turn: /loop tick evaluation, pending title, voice fallback."""
+    """Hooks for a ``complete`` turn: /loop tick evaluation and pending title."""
     try:
         from hermes_cli.loops import LoopManager
         loop_sid_key = session.get("session_key") or ""
@@ -410,15 +386,7 @@ def _after_complete_turn(sid: str, session: dict, st: _TurnRun, raw: Any) -> Non
             logger.info("Dropping pending title for session %s: %s", _session_key, exc)
         except Exception:
             pass  # transient DB failure — keep pending_title for retry
-    # Voice fallback when the streaming pipeline couldn't start (tts_queue already spoke
-    # everything otherwise); barge-aware.
-    if st.tts_queue is None and isinstance(raw, str) and raw.strip() and _voice_tts_enabled():
-        try:
-            threading.Thread(target=_speak_text_with_barge, args=(raw,), daemon=True).start()
-        except ImportError:
-            logger.warning("voice TTS skipped: hermes_cli.voice unavailable")
-        except Exception as e:
-            logger.warning("voice TTS dispatch failed: %s", e)
+
 
 
 def _dispatch_followup_turn(rid, sid: str, session: dict, prompt: Any, what: str, *,
@@ -496,8 +464,7 @@ class _TurnRun:
     receipt_committed: bool
     scopes: _TurnScopes = dataclasses.field(default_factory=_TurnScopes)
     result: Any = None  # read after the finally for leftover /steer
-    tts_queue: Any = None
-    thinking_started: bool = False
+
     history: list = dataclasses.field(default_factory=list)
     history_version: int = 0
     compression_count: int | None = None
@@ -735,16 +702,7 @@ def _prepare_turn_input(sid: str, session: dict, st: _TurnRun, text: Any, images
         prompt = ctx.message
     st.prompt_text = prompt if isinstance(prompt, str) else ""
     run_message: Any = _route_turn_images(agent, prompt, images) if images else prompt
-    from agent.notification_presentation import event_presentation_muted
-    if not event_presentation_muted("message.delta", sid):
-        st.tts_queue, st.thinking_started = _start_turn_voice()
-    # Per-turn API-message notes: barge mid-speech, reactions, HUD surface (per-turn state
-    # that must not touch the byte-stable system prompt).
-    from tools.tts_streaming import SPEECH_INTERRUPTED_NOTE, take_speech_interrupted
-    if take_speech_interrupted():
-        run_message = _prepend_note(run_message, SPEECH_INTERRUPTED_NOTE)
     run_message = _prepend_note(run_message, _pending_reaction_notes(session))
-    agent._voice_turn_pending = bool(session.pop("voice_turn", False))  # auxiliary.voice_chat route
     return prompt, _prepend_note(run_message, _hud_surface_note(session)), cols, streamer
 
 
@@ -778,8 +736,7 @@ def _invoke_agent(
         payload = {"text": delta}
         if streamer and (r := streamer.feed(delta)) is not None:
             payload["rendered"] = r
-        if st.tts_queue is not None and isinstance(delta, str):
-            st.tts_queue.put(delta)
+
         _emit("message.delta", sid, payload)
 
     # Interim assistant text (commentary beside tool calls, pre-nudge final answer) is sealed
@@ -1038,19 +995,14 @@ def _recover_turn_exception(sid: str, session: dict, st: _TurnRun, e: BaseExcept
 
 
 def _release_turn_scopes(sid: str, session: dict, st: _TurnRun) -> None:
-    """Finally-path, before settlement: drop snapshots, end turn audio, undo a one-turn model, reset scopes (not home)."""
+    """Finally-path: drop snapshots, undo a one-turn model, and reset scopes (not home)."""
     # Drop both pre-turn history snapshots before asking glibc to return pages (a test
     # inspects these two locals by name).
     history, run_kwargs = st.history, st.run_kwargs
     history.clear()
     if isinstance(run_kwargs, dict):
         run_kwargs.clear()
-    if st.thinking_started:
-        with contextlib.suppress(Exception):
-            from tools.voice_mode import stop_thinking_sound
-            stop_thinking_sound()
-    if st.tts_queue is not None:
-        st.tts_queue.put(None)  # end-of-text sentinel — flush + finish speaking
+
     if st.one_turn_restore:
         try:
             _restore_agent_model_runtime(st.agent, st.one_turn_restore)

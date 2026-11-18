@@ -11,7 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
-from pathlib import PureWindowsPath
+
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("tools.computer_use.cua_backend")
@@ -56,21 +56,6 @@ def _valid_mcp_args(invocation: Any) -> Optional[list[str]]:
 
 def _has_path_separator(value: str) -> bool:
     return os.sep in value or (os.altsep is not None and os.altsep in value)
-
-def _wsl_windows_path_to_posix(path: str) -> str:
-    """Translate a Windows absolute manifest command to its DrvFS ``/mnt/<drive>/...`` form when Hermes runs in WSL
-    (a Windows cua-driver manifest can report ``C:\\...`` while Hermes spawns via POSIX). Non-Windows paths and
-    non-WSL hosts are returned unchanged."""
-    if not re.match(r"^[A-Za-z]:[\\/]", path):
-        return path
-    try:
-        from hermes_constants import is_wsl
-        wsl = is_wsl()
-    except Exception:
-        wsl = False
-    win = PureWindowsPath(path)
-    drive = (win.drive or "").rstrip(":").lower()
-    return "/".join(["/mnt", drive, *win.parts[1:]]) if wsl and drive else path
 
 def resolve_cua_driver_cmd(override: Optional[str] = None) -> Optional[str]:
     """Read PM's selected binary without installing; never replace an explicit override."""
@@ -117,7 +102,7 @@ def _resolve_mcp_invocation(driver_cmd: str, *, timeout: float = 6.0) -> tuple[s
     via ``cua-driver manifest`` (trycua/cua#1961). The manifest carries a stable ``mcp_invocation`` pointer
     with both ``command`` and ``args``, so a future cua-driver that renames or relocates the subcommand
     keeps working without a Hermes patch.
-    When ``computer_use.no_overlay`` is enabled (or auto-detected — macOS, headless/WSL2/X11 Linux),
+    When ``computer_use.no_overlay`` is enabled (or auto-detected on headless/WSL2/X11 Linux),
     ``--no-overlay`` is appended to suppress the cursor overlay rendering loop that can consume CPU
     indefinitely when idle (#28152, #47032). Older drivers that don't recognise the flag will reject it;
     callers should fall back to the no-overlay invocation on spawn failure.
@@ -127,11 +112,9 @@ def _resolve_mcp_invocation(driver_cmd: str, *, timeout: float = 6.0) -> tuple[s
     args = _valid_mcp_args(invocation)
     command = invocation.get("command") if args is not None and isinstance(invocation, dict) else None
     args = list(_CUA_DRIVER_ARGS) if args is None else args
-    # Translate a Windows ``C:\...`` command for WSL BEFORE the separator check (backslash is not a separator on
-    # POSIX). A generic ``cua-driver`` name would lose the resolved user-local path under a GUI's thin PATH, so only
-    # a concrete (path-bearing) command replaces the one we verified — and THAT binary is probed for `--no-overlay`,
-    # not the system one.
-    command = _wsl_windows_path_to_posix(command) if isinstance(command, str) and command else ""
+    # A generic name would lose the resolved user-local path under a thin GUI PATH.
+    # Only a concrete path replaces the verified binary and receives the overlay probe.
+    command = command if isinstance(command, str) else ""
     command = command if command and _has_path_separator(command) else driver_cmd
     return command, _mcp_args_with_overlay_flag(args, driver_cmd=command)
 
@@ -164,7 +147,7 @@ def cua_driver_runtime_contract_status(binary: Optional[str] = None) -> dict[str
     reason = "cua-driver is not installed"
     if resolved:
         try:
-            result = _cb()._run_driver(resolved, "manifest", timeout=15.0 if sys.platform == "win32" else 5.0)
+            result = _cb()._run_driver(resolved, "manifest", timeout=5.0)
         except (OSError, subprocess.SubprocessError) as exc:
             result, reason = None, f"manifest check failed: {exc}"
         if result is not None and result.returncode != 0:

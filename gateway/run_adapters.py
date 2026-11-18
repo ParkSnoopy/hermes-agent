@@ -870,7 +870,6 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
         if platform == Platform.API_SERVER:
             from gateway.session_api_turn import recover_api_turns
             recover_api_turns(adapter)
-        self._sync_voice_mode_state_to_adapter(adapter)
 
     def _schedule_planned_restart_replay(self) -> None:
         """Replay the owed planned-restart notice after a reconnect, in the background: notification delivery
@@ -1260,9 +1259,6 @@ class GatewayAdapterLifecycleMixin(GatewaySecondaryReconnectMixin):
                 profile_map[platform] = adapter
             finally:
                 self._release_secondary_claims(profile_name, platform, adapter)
-            # Restore persisted /voice state for this bot (primary startup and reconnects do too).
-            # See #84872.
-            self._sync_voice_mode_state_to_adapter(adapter)
             for claim in claims:
                 if claim is not None:
                     claimed[claim] = profile_name

@@ -568,13 +568,8 @@ def test_a_git_elsewhere_exiting_mid_scan_is_gone_not_a_hidden_holder(repo: Path
 
 
 def test_lock_keeping_git_is_recognised_in_every_form_and_by_path_components(tmp_path: Path, monkeypatch) -> None:
-    """Review P1/secondary, the hosts with no /proc: the macOS branch had only an (empty) ``lsof``,
-    and the Windows scan matched ``git.exe`` alone and compared paths with ``startswith``
-    (``hermes-backup`` read as inside ``hermes``). Injected process metadata, not a native run."""
-    import types
-
+    """An unreadable or unrelated process must not weaken the checkout lock guard."""
     from hermes_cli import _early_recovery as er
-    from hermes_cli import gitlock
 
     assert er._git_subcommand_of(b"/usr/lib/git-core/git-commit\0-a\0") == "commit"
     assert er._git_subcommand_of(["C:\\Git\\mingw64\\libexec\\git-core\\GIT-COMMIT.EXE"]) == "commit"
@@ -604,15 +599,6 @@ def test_lock_keeping_git_is_recognised_in_every_form_and_by_path_components(tmp
     assert er._held_open_lsof(lock, root, False) is False and er._held_open_lsof(lock, root, True)
     monkeypatch.undo()
 
-    def scan(cwd: Path, name: str = "git.exe"):
-        proc = types.SimpleNamespace(info={"pid": 4242, "name": name, "cwd": str(cwd), "cmdline": [name, "commit"],
-                                           "environ": {}}, is_running=lambda: True)
-        psutil = types.SimpleNamespace(process_iter=lambda attrs: [proc])
-        monkeypatch.setitem(__import__("sys").modules, "psutil", psutil)
-        return gitlock._windows_git_in_checkout(root)
-
-    assert scan(tmp_path / "hermes-backup") is False, "a sibling directory is not this checkout"
-    assert scan(root / "sub") is True and scan(root, "git-commit.exe") is True
 
 
 def test_a_failed_retry_never_erases_the_killed_updates_claim(repo: Path) -> None:

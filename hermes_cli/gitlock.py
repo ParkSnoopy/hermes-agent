@@ -17,7 +17,6 @@ from hermes_cli._subprocess_compat import (
     NO_LAZY_FETCH_ENV,
     bounded_probe_run,
     noninteractive_git_env,
-    windows_hide_flags,
 )
 from hermes_cli.update_custody import run_git
 
@@ -63,28 +62,18 @@ def _git_proc_running() -> bool:
     whose name psutil may not read) answers True and the sweep removes nothing. The age floor is
     no proof on its own: a stopped or slow writer's lock ages like an abandoned one.
     """
-    if os.name != "nt":
-        try:
-            import psutil
-        except ImportError:  # the dependency-free bootstrap interpreter
-            pass
-        else:
-            return _psutil_git_running(psutil)
-    from hermes_cli._early_recovery import _git_program
-
     try:
-        # One shared spawn for both probes: the argv is the platform fork, the
-        # hide-flags wiring is common, so a console-less parent (pythonw backend)
-        # never flashes a console for either (#117781).
-        argv = ["tasklist", "/FO", "CSV", "/NH"] if os.name == "nt" else ["pgrep", _PGREP_GIT]
-        proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                               timeout=10, creationflags=windows_hide_flags(), check=False)
+        import psutil
+    except ImportError:  # the dependency-free bootstrap interpreter
+        pass
+    else:
+        return _psutil_git_running(psutil)
+    try:
+        proc = subprocess.run(["pgrep", _PGREP_GIT], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=10, check=False)
     except Exception:  # health: allow BLE001 -- whatever stops the probe, the locks stay
         logger.debug("git process probe failed; assuming git may be running", exc_info=True)
         return True
-    if os.name == "nt":
-        return proc.returncode != 0 or any(
-            _git_program(line.split(",", 1)[0].strip('"')) for line in proc.stdout.splitlines())
     return proc.returncode != 1  # 1 is pgrep's "no match"; 2 and 3 mean it could not tell
 
 
@@ -117,14 +106,6 @@ def _sweep_stale(directory: Path, candidates: Callable[[], Iterable[Path]], *, m
     for entry in candidates():
         try:
             if entry.is_file() and (st := entry.stat()).st_mtime < cutoff:
-                if os.name == "nt":
-                    # git renames its transfer temps into place read-only; Windows refuses to
-                    # unlink a read-only file (EACCES/13), so without clearing the write bit
-                    # this sweep silently removes nothing on real debris (#116384).
-                    try:
-                        os.chmod(entry, 0o666)
-                    except OSError:
-                        pass
                 entry.unlink()
                 removed.append(str(entry))
                 log_removed(entry, st.st_size)
@@ -180,9 +161,8 @@ def release_dead_index_lock(repo_root: Path) -> bool:
     ``git commit`` waiting in the editor has closed its lock fd, so an absent fd proves nothing, and
     it runs as ``git``, a dashed ``git-commit``, an alias or ``git.exe``. Linux reads every process's
     cwd, path arguments and ``GIT_DIR`` through /proc (``_early_recovery._held_open`` with
-    ``any_git``); macOS keeps the lock while any git runs (``ps`` cannot say where); Windows scans
-    with psutil (:func:`_windows_git_in_checkout`). Whatever cannot be read keeps the lock. An
-    interrupted tree move owns its own lock judgement, so its marker defers to that repair.
+    ``any_git``). Whatever cannot be read keeps the lock. An interrupted tree move owns its own
+    lock judgement, so its marker defers to that repair.
     """
     return bool(_release_killed_update_locks(Path(repo_root), lambda git_dir: [git_dir / "index.lock"]))
 
@@ -218,7 +198,7 @@ def _release_killed_update_locks(root: Path, candidates: Callable[[Path], Iterab
     if interrupted_pull_marker(root).exists():
         return []
     locks = [lock for lock in candidates(git_dir) if lock.exists() and _killed_update_owns(lock)]
-    if not locks or (os.name == "nt" and _windows_git_in_checkout(root) is not False):
+    if not locks:
         return []
     released: list[str] = []
     for lock in locks:
@@ -285,42 +265,6 @@ def _killed_update_owns(lock: Path) -> bool:
     return last.get("outcome") in ("running", "interrupted") and not update_receipt._owner_alive(last)
 
 
-def _windows_git_in_checkout(root: Path) -> bool | None:
-    """Whether any git (``git.exe``, a dashed ``git-<sub>.exe``) works in ``root``; None when unknowable.
-
-    Works in: its cwd, a path argument or a ``GIT_DIR``-style variable is inside the checkout or
-    its git dir, compared by path components (``hermes-backup`` is not inside ``hermes``). Scoped to
-    the checkout: a system-wide check would keep the lock whenever any editor or terminal elsewhere
-    runs git, which on Windows is most of the time. A git whose cwd cannot be read keeps the lock.
-    """
-    from hermes_cli._early_recovery import _NEVER_LOCKS, _checkout_places, _git_dir, _git_program, \
-        _git_subcommand_of, git_works_in
-
-    try:
-        import psutil
-    except ImportError:
-        return None
-    places = _checkout_places(root, _git_dir(Path(root)))
-    try:
-        for proc in psutil.process_iter(["pid", "name", "cwd", "cmdline", "environ"]):
-            info = proc.info
-            if info.get("pid") == os.getpid():
-                continue
-            args = [str(a) for a in info.get("cmdline") or () if a]
-            if _git_program(info.get("name") or "") is None and not (args and _git_program(args[0])):
-                continue
-            if _git_subcommand_of(args or [info.get("name") or ""]) in _NEVER_LOCKS:
-                continue
-            cwd = info.get("cwd")
-            if git_works_in(args or [info.get("name") or "git"], cwd, info.get("environ"), places):
-                return True
-            if not cwd and proc.is_running():
-                return None  # a git we cannot inspect may be working here
-    except Exception:  # health: allow BLE001 -- a failed scan keeps the lock, never drops it
-        return None
-    return False
-
-
 def _pack_dir(repo_root: Path) -> Path:
     git_dir = Path(repo_root) / ".git"
     return (git_dir if git_dir.is_dir() else Path(repo_root)) / "objects" / "pack"
@@ -380,8 +324,7 @@ def disable_tree0_auto_maintenance(repo_root: Path) -> None:
                 ["git"], ["config", "--local", "--get", key],
                 cwd=str(repo_root), capture_output=True, text=True,
                 encoding="utf-8", errors="replace", timeout=30,
-                creationflags=windows_hide_flags(),
-            ).stdout.strip()
+                ).stdout.strip()
             if current == value:
                 continue
             run_git(
@@ -389,8 +332,7 @@ def disable_tree0_auto_maintenance(repo_root: Path) -> None:
                 cwd=str(repo_root), check=True,
                 capture_output=True, text=True,
                 encoding="utf-8", errors="replace", timeout=30,
-                creationflags=windows_hide_flags(),
-            )
+                )
         except Exception:
             logger.warning("Could not set %s=%s in %s", key, value, repo_root)
 
@@ -416,8 +358,7 @@ def _migrate_earlier_maintenance_keys(repo_root: Path) -> None:
             run_git(
                 ["git"], ["config", "--local", "--unset", key],
                 cwd=str(repo_root), check=True, capture_output=True, timeout=30,
-                creationflags=windows_hide_flags(),
-            )
+                )
     except Exception:
         logger.warning("Could not migrate earlier maintenance keys in %s", repo_root)
 
@@ -454,7 +395,6 @@ def _git_stdout_lines(repo_root: Path, args: list[str]) -> list[str]:
         result = run_git(
             ["git"], [*args], cwd=str(repo_root),
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
-            creationflags=windows_hide_flags(),
         )
         if result.returncode != 0:
             return []
@@ -483,7 +423,6 @@ def _batch_missing_parents(repo_root: Path, candidates: list[str]) -> set[str]:
             input=request.encode(),
             capture_output=True,
             timeout=30,
-            creationflags=windows_hide_flags(),
         )
         if result.returncode != 0:
             return set()
@@ -521,7 +460,6 @@ def _batch_missing_parents(repo_root: Path, candidates: list[str]) -> set[str]:
             input=("\n".join(sorted(parents)) + "\n").encode(),
             capture_output=True,
             timeout=10,
-            creationflags=windows_hide_flags(),
         )
         if check.returncode != 0:
             return set()
@@ -609,7 +547,6 @@ def repair_broken_shallow_boundaries(repo_root: Path) -> int:
         probe = run_git(
             ["git"], ["rev-list", "--count", "--all", "--reflog"],
             cwd=str(repo_root), capture_output=True, timeout=10,
-            creationflags=windows_hide_flags(),
         )
         if probe.returncode == 0:
             return 0
@@ -703,8 +640,7 @@ def prune_stale_shallow_grafts(repo_root: Path) -> int:
                     run_git(
                         ["git"], ["reflog", "expire", "--expire=now", ref],
                         cwd=str(repo_root), capture_output=True, timeout=10,
-                        creationflags=windows_hide_flags(),
-                    )
+                                )
             _write_shallow(shallow_path, "\n".join(sorted(keep)) + "\n", suffix=".hermes-prune")
             # Fail-safe: if any reachable walk now crosses a boundary we wrongly
             # removed, put the grafts back — a growing file beats a broken repo.
@@ -777,10 +713,6 @@ def fetch_full_commit_graph(repo_root: Path, *extra_refspecs: str, **run_kwargs)
     """
     shallow_path = _shallow_file_path(repo_root)
     shallow = shallow_path is not None
-    # Callers already inject creationflags via no_prompt_git_kwargs(); OR the
-    # hide flag into the shared kwargs instead of passing the keyword twice
-    # (TypeError: got multiple values) — the config probes below inherit it.
-    run_kwargs["creationflags"] = run_kwargs.get("creationflags", 0) | windows_hide_flags()
     fetch_filter = _partial_clone_filter(repo_root, **run_kwargs)
     converts = fetch_filter is None and shallow and bool(_batch_missing_parents(
         repo_root, shallow_path.read_text(encoding="utf-8-sig").split()))
@@ -861,7 +793,6 @@ def convert_treeless_checkout(repo_root: Path, **run_kwargs) -> bool:
     2.36 has no ``--refetch`` and is left as it is. Returns whether it converted; fetch failures
     raise subprocess errors.
     """
-    run_kwargs["creationflags"] = run_kwargs.get("creationflags", 0) | windows_hide_flags()
     if _partial_clone_filter(repo_root, **run_kwargs) != "tree:0" or _git_version(**run_kwargs) < (2, 36):
         return False
     # A fetch spawns a detached gc/maintenance that would repack the whole refetch outside the
@@ -932,7 +863,7 @@ def settle_partial_clone_maintenance(repo_root: Path) -> None:
     Runs on every update so checkouts that predate the installer change converge. Never raises.
     """
     try:
-        if _partial_clone_filter(repo_root, creationflags=windows_hide_flags()) is not None:
+        if _partial_clone_filter(repo_root) is not None:
             disable_tree0_auto_maintenance(repo_root)
     except Exception:
         logger.debug("partial-clone maintenance settings failed for %s", repo_root, exc_info=True)

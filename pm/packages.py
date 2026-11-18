@@ -221,10 +221,6 @@ class Uv(_BionicDebArm, BinaryPackage, DebPackage):
         return github_release_tags("astral-sh/uv")
 
 
-# The POSIX interpreter name the pinned Windows Python also answers to (see Python.stage).
-WINDOWS_PYTHON3 = "python3.exe"
-
-
 @register
 class Python(_BionicDebArm, BinaryPackage, DebPackage):
     """The pinned interpreter for launchers and every PM-managed uv command.
@@ -252,42 +248,6 @@ class Python(_BionicDebArm, BinaryPackage, DebPackage):
         "python_3.14.6-1_aarch64.deb"
     )
 
-    def stage(self, store: Store, staged: Path, version: str, target: str) -> None:
-        super().stage(store, staged, version, target)
-        binary = self.binary(staged, target)
-        if binary is not None and sys.platform == "darwin":
-            from hermes_cli.macos_signing import sign_managed_python
-
-            sign_managed_python(binary)
-        # python-build-standalone ships the x64 VC runtime (vcruntime140_1.dll)
-        # beside ARM64 Windows Python; it cannot load on ARM64 and would fail
-        # the arch guard. Drop it HERE, before publish: the tree digest is
-        # recorded over the shipped bytes, so a post-publish deletion (as the
-        # old bundle-time drop did) makes doctor's re-hash mismatch.
-        if target == "win32-arm64":
-            (staged / "vcruntime140_1.dll").unlink(missing_ok=True)
-        # python-build-standalone's Windows build ships python.exe only, so `python3` (npm and
-        # vitest helpers, POSIX-minded scripts) resolves past the activated PATH to the Microsoft
-        # Store's App Execution Alias stub, which installs nothing and fails. python.exe is a
-        # small launcher of pythonXY.dll that finds its home from its own directory, so a copy
-        # under the POSIX name is the same interpreter. Staged before publish, so the recorded
-        # tree digest covers it.
-        if target.startswith("win32"):
-            shutil.copy2(staged / "python.exe", staged / WINDOWS_PYTHON3)
-
-    def verify(self, entry: Path, target: str) -> str:
-        reason = super().verify(entry, target)
-        if reason or not target.startswith("win32"):
-            return reason
-        # An entry staged before python3.exe existed fails here, so an explicit install
-        # (activation's setup) restages it once; startup's facts check never calls verify.
-        alias = entry / WINDOWS_PYTHON3
-        try:
-            if alias.read_bytes() == (entry / "python.exe").read_bytes():
-                return ""
-        except OSError:
-            return f"{WINDOWS_PYTHON3} is missing beside python.exe"
-        return f"{WINDOWS_PYTHON3} differs from python.exe"
 
     def fetch_url(self, version: str, target: str) -> str:
         if target == "linux-arm64-bionic":
@@ -534,13 +494,13 @@ class Venv(StatePackage):
         from pm.environments import install_state_dir, runtime_facts_path
         from pm.environment import managed_environment
         from pm.lock import Facts
-        from pm.native_build import source_build_environment
+
         from pm.workspace import build_member_dirs, lock_and_sync
 
         project = self.project_root()
         generation = install_state_dir(project) / "environments" / uuid.uuid4().hex
         candidate = generation / "venv"
-        environment = managed_environment(candidate, env=source_build_environment(project),
+        environment = managed_environment(candidate,
                                           explicit=explicit or repair, output=sys.stderr)
         if not repair:
             # Inspection may skip a broken secondary profile, but publishing a replacement

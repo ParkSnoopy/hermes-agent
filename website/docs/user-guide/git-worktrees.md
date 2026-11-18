@@ -194,7 +194,7 @@ worktree has uncommitted changes or unpushed commits, Hermes asks:
   the archive fails, the tree is kept.
 - **Remove it and discard the changes** — only when you pick it explicitly.
 
-One-shot runs (`-q`, `-z`), cron jobs, gateway sessions and any exit without a
+One-shot runs (`-q`, `-z`), gateway sessions and any exit without a
 terminal never ask: the tree is kept and the stale-worktree sweep handles it
 later. A clean tree whose commits are pushed is removed without asking.
 
@@ -203,7 +203,7 @@ later. A clean tree whose commits are pushed is removed without asking.
 Every repository Hermes creates a worktree in (`hermes -w`, `/worktree new`,
 subagent worktree isolation, the desktop app's git pane) is recorded in
 `<HERMES_HOME>/worktree_repos.json` for the active profile. At `hermes -w`
-startup and every 6 hours from the cron ticker, Hermes sweeps each of those
+startup, Hermes sweeps each of those
 repositories' `.worktrees/`:
 
 | Tree | Decision |

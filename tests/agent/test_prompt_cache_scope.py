@@ -324,8 +324,8 @@ class TestTransportWiring:
         assert key("root-sess", "root-sess") == key("rotated-1", "root-sess")
         assert key("rotated-1") != key("rotated-1", "root-sess")
 
-    def test_cron_normalization_still_applies_to_scope(self):
-        """cron_<job>_<ts> scopes still normalize per-fire timestamps away."""
+    def test_distinct_session_ids_remain_distinct_cache_scopes(self):
+        """Distinct session IDs remain isolated even when they have similar names."""
         from agent.transports.codex import ResponsesApiTransport
 
         transport = ResponsesApiTransport()
@@ -347,7 +347,7 @@ class TestTransportWiring:
             session_id="cron_backup_20260815_120000",
             cache_scope_id="cron_backup_20260815_120000",
         )
-        assert k1["prompt_cache_key"] == k2["prompt_cache_key"]
+        assert k1["prompt_cache_key"] != k2["prompt_cache_key"]
 
 
 class TestPerResponseRunNonceIsolation:
@@ -430,11 +430,11 @@ class TestPerResponseRunNonceIsolation:
             second
         )
 
-    def test_cron_normalization_stays_the_only_carve_out(self):
-        """The one accepted exception: cron's per-fire timestamp (#51395)."""
+    def test_similar_session_ids_are_not_normalized(self):
+        """Session IDs are not normalized based on their spelling."""
         assert (
             _cache_scope_from_session_id("cron_backup_20260814_120000")
-            == "cron_backup"
+            == "cron_backup_20260814_120000"
         )
         assert (
             _cache_scope_from_session_id(self.RESPONSE_1) == self.RESPONSE_1

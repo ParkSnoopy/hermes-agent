@@ -12,11 +12,9 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
+
 import signal
-import subprocess
 import sys
-import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,7 +28,6 @@ MEET_URL_RE = re.compile(
     r"^https://meet\.google\.com/([a-z0-9]{3,}-[a-z0-9]{3,}-[a-z0-9]{3,}|lookup/[^/?#]+|new)"
     r"(?:[/?#].*)?$")
 
-_FFMPEG_MISSING = "ffmpeg not found — install via `brew install ffmpeg` for realtime on macOS"
 
 
 def _is_safe_meet_url(url: str) -> bool:
@@ -60,11 +57,7 @@ _STATUS_FIELDS = (
     ("joinedAt", "joined_at", None), ("lastCaptionAt", "last_caption_at", None),
     ("transcriptLines", "transcript_lines", 0), ("transcriptPath", "transcript_path", None),
     ("error", "error", None), ("exited", "exited", False), ("pid", None, None),
-    # realtime telemetry
-    ("realtime", "realtime", False), ("realtimeReady", "realtime_ready", False),
-    ("realtimeDevice", "realtime_device", None), ("audioBytesOut", "audio_bytes_out", 0),
-    ("lastAudioOutAt", "last_audio_out_at", None), ("lastBargeInAt", "last_barge_in_at", None),
-    ("leaveReason", "leave_reason", None), ("micState", "mic_state", None))
+    ("leaveReason", "leave_reason", None))
 
 
 class _BotState:
@@ -199,136 +192,6 @@ def _visible(locator):
     return _quiet(lambda: locator.first if locator.first.count() and locator.first.is_visible() else None)
 
 
-def _pcm_tail_loop(proc, pcm_path: Path, stop_flag: dict, poll_interval: float = 0.05) -> None:
-    """Follow ``speaker.pcm`` as it grows and forward every appended chunk to the pump's stdin.
-    The pump itself would hit EOF on the (empty) file at start-up and exit; this thread keeps
-    feeding it until the stop flag is set or the pump dies."""
-    try:
-        with open(pcm_path, "rb") as f:
-            while not stop_flag.get("stop") and proc.poll() is None:
-                chunk = f.read(65536)
-                if not chunk:
-                    time.sleep(poll_interval)
-                    continue
-                proc.stdin.write(chunk)
-                proc.stdin.flush()
-    except (OSError, ValueError):
-        pass  # pump exited / pipe closed (BrokenPipeError, write on closed stdin): nothing left to stream to
-    finally:
-        _quiet(proc.stdin.close)
-
-
-def _start_pcm_pump(rt: dict, bridge_info: dict, pcm_path: Path, state: _BotState,
-                    stop_flag: dict) -> None:
-    """Stream the growing ``speaker.pcm`` (24kHz s16le mono) into the device Chrome's fake mic reads.
-    The pump reads raw PCM from stdin (``-``) so audio appended after start-up is still played —
-    pointed at the file it would read the empty sink to EOF and exit before Realtime spoke."""
-    bridge_info = bridge_info or {}
-    platform_tag = bridge_info.get("platform")
-    target = bridge_info.get("write_target")
-    if platform_tag == "linux":
-        cmd = ["paplay", "--raw", "--rate=24000", "--format=s16le", "--channels=1",
-               f"--device={target or 'hermes_meet_sink'}", "-"]
-        missing = "paplay not found — install pulseaudio-utils for realtime on Linux"
-    elif platform_tag == "darwin":
-        # User must have BlackHole as default input; ffmpeg targets it by audiotoolbox index.
-        if not shutil.which("ffmpeg"):
-            state.set(error=_FFMPEG_MISSING)
-            return
-        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error",
-               "-f", "s16le", "-ar", "24000", "-ac", "1", "-i", "-", "-f", "audiotoolbox",
-               "-audio_device_index", _mac_audio_device_index(target or "BlackHole 2ch"), "-"]
-        missing = _FFMPEG_MISSING
-    else:
-        return
-    try:
-        rt["pcm_pump"] = subprocess.Popen(
-            cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except FileNotFoundError:
-        state.set(error=missing)
-        return
-    except Exception as e:
-        if platform_tag != "darwin":
-            raise
-        state.set(error=f"macOS pcm pump failed to start: {e}")
-        return
-    rt["pcm_tail_thread"] = threading.Thread(
-        target=_pcm_tail_loop, args=(rt["pcm_pump"], pcm_path, stop_flag), name="meet-pcm-tail", daemon=True)
-    rt["pcm_tail_thread"].start()
-
-
-def _start_realtime_speaker(rt: dict, cfg: _BotConfig, stop_flag: dict, state: _BotState) -> None:
-    """Wire up the OpenAI Realtime session, the say-queue speaker thread and the PCM pump."""
-    pcm_path, queue_path = cfg.out_dir / "speaker.pcm", cfg.out_dir / "say_queue.jsonl"
-    pcm_path.write_bytes(b"")  # clean sink file per session
-    queue_path.touch()  # so the speaker poller doesn't error on first iteration
-    phase = "import"
-    try:
-        from plugins.google_meet.realtime.openai_client import RealtimeSession, RealtimeSpeaker
-        phase = "connect"
-        session = RealtimeSession(
-            api_key=cfg.realtime_api_key, model=cfg.realtime_model, voice=cfg.realtime_voice,
-            instructions=cfg.realtime_instructions, audio_sink_path=pcm_path, sample_rate=24000)
-        session.connect()
-    except Exception as e:
-        state.set(error=f"realtime {phase} failed: {e}")
-        return
-    rt["session"] = session
-    speaker = RealtimeSpeaker(session=session, queue_path=queue_path,
-                              processed_path=cfg.out_dir / "say_processed.jsonl")
-
-    def _speaker_loop():
-        try:
-            speaker.run_until_stopped(lambda: stop_flag.get("stop", False))
-        except Exception as e:
-            state.set(error=f"realtime speaker crashed: {e}")
-
-    rt["speaker_thread"] = threading.Thread(target=_speaker_loop, name="meet-speaker", daemon=True)
-    rt["speaker_thread"].start()
-    _start_pcm_pump(rt, rt["bridge_info"], pcm_path, state, stop_flag)
-    state.set(realtime_ready=True)
-
-
-def _mac_audio_device_index(device_name: str) -> str:
-    """ffmpeg ``-audio_device_index`` for *device_name* (case-insensitive; ``"0"`` if not found).
-    ffmpeg prints the avfoundation device table on stderr as ``[N] Name``."""
-    out = _quiet(subprocess.run, ["ffmpeg", "-f", "avfoundation", "-list_devices", "true", "-i", ""],
-                 capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
-    needle = device_name.strip().lower()
-    for line in (out.stderr if out else "").splitlines():
-        m = re.search(r"\[(\d+)\]\s+(.+)$", line)
-        if m and m.group(2).strip().lower() == needle:
-            return m.group(1)
-    return "0"
-
-
-def _setup_realtime(rt: dict, api_key: str, state: _BotState) -> None:
-    """Provision the virtual audio bridge; on any failure fall back to transcribe mode."""
-    if not api_key:
-        state.set(error="realtime mode requested but no API key in HERMES_MEET_REALTIME_KEY/OPENAI_API_KEY — falling back to transcribe")
-        rt["enabled"] = False
-        return
-    try:
-        from plugins.google_meet.audio_bridge import AudioBridge
-        rt["bridge"] = AudioBridge()
-        rt["bridge_info"] = rt["bridge"].setup()
-        state.set(realtime=True, realtime_device=rt["bridge_info"].get("device_name"))
-    except Exception as e:
-        state.set(error=f"audio bridge setup failed: {e} — falling back to transcribe")
-        rt["enabled"] = False
-
-
-def _teardown_realtime(rt: dict) -> None:
-    if rt.get("pcm_pump"):
-        _quiet(rt["pcm_pump"].terminate)
-        _quiet(rt["pcm_pump"].wait, timeout=3)
-    for key, method, kw in (("pcm_tail_thread", "join", {"timeout": 1.0}),
-                            ("speaker_thread", "join", {"timeout": 5.0}), ("session", "close", {}),
-                            ("bridge", "teardown", {})):
-        if rt.get(key) is not None:
-            _quiet(getattr(rt[key], method), **kw)
-
-
 _BotConfig = SimpleNamespace  # everything the bot reads from ``HERMES_MEET_*`` env vars
 
 
@@ -342,13 +205,7 @@ def _config_from_env() -> _BotConfig:
         auth_state=env("HERMES_MEET_AUTH_STATE", "").strip(),
         guest_name=env("HERMES_MEET_GUEST_NAME", "Hermes Agent"),
         duration_s=_parse_duration(env("HERMES_MEET_DURATION", "")),
-        realtime=env("HERMES_MEET_MODE", "transcribe").strip().lower() == "realtime",
-        # HERMES_MEET_REALTIME_KEY is resolved by process_manager.start() via the parent's
-        # profile secret scope; OPENAI_API_KEY only serves standalone `python -m` runs.
-        realtime_api_key=env("HERMES_MEET_REALTIME_KEY") or env("OPENAI_API_KEY", ""),
-        realtime_model=env("HERMES_MEET_REALTIME_MODEL", "gpt-realtime"),
-        realtime_voice=env("HERMES_MEET_REALTIME_VOICE", "alloy"),
-        realtime_instructions=env("HERMES_MEET_REALTIME_INSTRUCTIONS", ""),
+        mode=env("HERMES_MEET_MODE", "transcribe").strip().lower(),
         lobby_timeout=float(env("HERMES_MEET_LOBBY_TIMEOUT", "300")))
 
 
@@ -372,22 +229,9 @@ def _join(page, cfg: _BotConfig, state: _BotState, timeout: float = 30.0) -> Non
         time.sleep(0.5)
 
 
-def _ensure_mic_on(page) -> str:
-    """Unmute the bot once admitted — Meet may seat an authenticated bot muted, and a muted mic makes
-    realtime speech inaudible. The in-call toggle's aria-label is "Turn on microphone" while muted /
-    "Turn off microphone" while live; returns ``unmuted_clicked`` / ``unmuted`` / ``unknown``
-    (toggle not found: Meet variant changed or the label is localized)."""
-    muted = _visible(page.locator('button[aria-label*="Turn on microphone" i]'))
-    if muted is not None and _quiet(lambda: (muted.click(timeout=3_000), True)):
-        return "unmuted_clicked"
-    if _visible(page.locator('button[aria-label*="Turn off microphone" i]')) is not None:
-        return "unmuted"
-    return "unknown"
-
-
-def _drain_loop(page, cfg: _BotConfig, state: _BotState, rt: dict, stop_flag: dict) -> None:
+def _drain_loop(page, cfg: _BotConfig, state: _BotState, stop_flag: dict) -> None:
     """Admission + caption drain loop until SIGTERM, duration expiry, lobby timeout/denial or page loss.
-    Sets ``leave_reason`` for every exit but SIGTERM; triggers barge-in; mirrors realtime counters."""
+    Sets ``leave_reason`` for every exit but SIGTERM."""
     deadline = (time.time() + cfg.duration_s) if cfg.duration_s else None
     lobby_deadline = time.time() + cfg.lobby_timeout
     last_admission_check = 0.0
@@ -399,7 +243,7 @@ def _drain_loop(page, cfg: _BotConfig, state: _BotState, rt: dict, stop_flag: di
         if not state.in_call and (now - last_admission_check) > 3.0:
             last_admission_check = now
             if _probe(page, _ADMISSION_PROBE_JS):
-                state.set(in_call=True, lobby_waiting=False, joined_at=now, mic_state=_ensure_mic_on(page))
+                state.set(in_call=True, lobby_waiting=False, joined_at=now)
             elif now > lobby_deadline:
                 waited = int(lobby_deadline - state.join_attempted_at) if state.join_attempted_at else 0
                 state.set(error=f"lobby timeout — host never admitted the bot within {waited}s",
@@ -413,17 +257,12 @@ def _drain_loop(page, cfg: _BotConfig, state: _BotState, rt: dict, stop_flag: di
             for entry in (e for e in (queued if isinstance(queued, list) else ()) if isinstance(e, dict)):
                 speaker = str(entry.get("speaker", ""))
                 state.record_caption(speaker=speaker, text=str(entry.get("text", "")))
-                # Barge-in: a real human spoke while we may be generating audio.
-                if (rt["session"] is not None and _looks_like_human_speaker(speaker, cfg.guest_name)
-                        and _quiet(rt["session"].cancel_response)):
-                    state.set(last_barge_in_at=now)
+
         except Exception:
             if page.is_closed():  # Meet reloaded or we got booted — exit rather than spin
                 state.set(leave_reason="page_closed")
                 return
-        if rt["session"] is not None:
-            state.set(audio_bytes_out=rt["session"].audio_bytes_out,
-                      last_audio_out_at=rt["session"].last_audio_out_at)
+
         time.sleep(1.0)
 
 
@@ -436,6 +275,9 @@ _CONTEXT_ARGS = {
 
 def run_bot() -> int:
     cfg = _config_from_env()
+    if cfg.mode != "transcribe":
+        sys.stderr.write("google_meet bot: unsupported mode; only transcribe is available\n")
+        return 2
     if not _is_safe_meet_url(cfg.url):
         sys.stderr.write("google_meet bot: refusing to launch — HERMES_MEET_URL must be a "
                          f"meet.google.com URL. got: {cfg.url!r}\n")
@@ -449,25 +291,16 @@ def run_bot() -> int:
     stop_flag = {"stop": False}
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda _sig, _frame: stop_flag.__setitem__("stop", True))
-    # Realtime resources in one dict so teardown works however we exit.
-    rt = dict(enabled=cfg.realtime, bridge=None, bridge_info=None, session=None, speaker_thread=None)
-    if rt["enabled"]:
-        _setup_realtime(rt, cfg.realtime_api_key, state)
+
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as e:
         state.set(error=f"playwright not installed: {e}", exited=True)
         sys.stderr.write("google_meet bot: playwright is not installed. Run "
                          "`hermes meet install`\n")
-        if rt["bridge"]:
-            rt["bridge"].teardown()
         return 3
-    chrome_args = ["--use-fake-ui-for-media-stream", "--disable-blink-features=AutomationControlled"]
-    if not rt["enabled"]:
-        chrome_args.insert(1, "--use-fake-device-for-media-stream")  # silent fake mic
-    elif rt["bridge_info"] and rt["bridge_info"].get("platform") == "linux":
-        # Playwright's launch() takes no env: set PULSE_SOURCE on ourselves so Chrome inherits it.
-        os.environ["PULSE_SOURCE"] = rt["bridge_info"].get("device_name", "")
+    chrome_args = ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream",
+                   "--disable-blink-features=AutomationControlled"]
     context_args = dict(_CONTEXT_ARGS)
     if cfg.auth_state and Path(cfg.auth_state).is_file():
         context_args["storage_state"] = cfg.auth_state
@@ -493,25 +326,17 @@ def run_bot() -> int:
                 state.set(error=f"caption observer install failed: {e}")
             # in_call stays False until admission is confirmed by the drain loop.
             state.set(captioning=True, join_attempted_at=time.time())
-            if rt["enabled"]:
-                _start_realtime_speaker(rt, cfg, stop_flag, state)
-            _drain_loop(page, cfg, state, rt, stop_flag)
+            _drain_loop(page, cfg, state, stop_flag)
             _quiet(page.evaluate, _LEAVE_CALL_JS)
             context.close()
             browser.close()
-            _teardown_realtime(rt)
+
             state.set(in_call=False, captioning=False, exited=True)
             return 0
     except Exception as e:
         state.set(error=f"unhandled: {e}", exited=True)
         return 1
 
-
-def _looks_like_human_speaker(speaker: str, bot_guest_name: str) -> bool:
-    """Whether a caption's speaker is probably a human rather than our own echo (Meet attributes
-    our fake-mic audio to the bot's name; blank/unknown speakers are ambiguous — no barge-in)."""
-    return bool(speaker and speaker.strip()) and (
-        speaker.strip().lower() not in {"unknown", "you", bot_guest_name.strip().lower()})
 
 
 _DURATION_UNITS = {"h": 3600.0, "m": 60.0, "s": 1.0}

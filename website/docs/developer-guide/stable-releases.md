@@ -45,7 +45,7 @@ files on `main`.
    `main`'s tip, never the commit under test. Every lane that tests or builds the
    payload is passed the admitted commit, and the commit-threading lint in
    `tests/ci/test_stable_release_commit_threading.py` enforces that.
-4. Run the lanes the claim records: by default source CI, Docker, Nix, PM bundle acceptance, Windows live venv checks, and install/update acceptance.
+4. Run the lanes the claim records: by default source CI, Docker, Nix, PM bundle acceptance, and install/update acceptance.
    Add the Termux build lane explicitly when publishing an APT package.
 5. Push immutable versioned Docker and R2 artifacts from the tested bytes. The
    Docker image is pushed as soon as its own tests pass, tagged by the attempt
@@ -137,7 +137,7 @@ lists every lane.
 |---|---|---|
 | `docker` | on | build and publish the Docker image |
 | `termux` | off | Termux (Android aarch64) APT package |
-| `ci`, `nix`, `docker-tests`, `pm-bundle`, `windows-live`, `install-e2e` | on | the standalone suites |
+| `ci`, `nix`, `docker-tests`, `pm-bundle`, `install-e2e` | on | the standalone suites |
 | `termux-checks` | on | Termux verification; runs only with `termux` |
 
 Lanes are independent switches. A job runs only when every lane it needs is on

@@ -67,44 +67,25 @@ def native(path: str | os.PathLike[str]) -> str:
 
 
 def lock_fd(fd: int, *, wait: bool, timeout: float | None = None) -> bool:
-    """Take the byte lock; ``timeout`` bounds the retry loop (None waits forever, 0 tries once)."""
+    """Take the flock; ``timeout`` bounds the retry loop (None waits forever, 0 tries once)."""
+    import fcntl
     deadline = None if timeout is None else time.monotonic() + timeout
-    if os.name == "nt":
-        import msvcrt
-        while True:
-            try:
-                os.lseek(fd, 0, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-                return True
-            except OSError as exc:
-                if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
-                    raise
-            if not wait or (deadline is not None and time.monotonic() >= deadline):
-                return False
-            time.sleep(_LOCK_POLL_SECONDS)
-    else:
-        import fcntl
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                return True
-            except BlockingIOError:
-                pass
-            if not wait or (deadline is not None and time.monotonic() >= deadline):
-                return False
-            time.sleep(_LOCK_POLL_SECONDS)
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            pass
+        if not wait or (deadline is not None and time.monotonic() >= deadline):
+            return False
+        time.sleep(_LOCK_POLL_SECONDS)
 
 
 def unlock_fd(fd: int) -> None:
-    """Release :func:`lock_fd`'s byte lock; best effort, since closing the descriptor releases it too."""
+    """Release :func:`lock_fd`'s lock; closing the descriptor also releases it."""
+    import fcntl
     with suppress(OSError):
-        if os.name == "nt":
-            import msvcrt
-            os.lseek(fd, 0, os.SEEK_SET)
-            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(fd, fcntl.LOCK_UN)
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 def lock_path(path: Path, *, timeout: float | None, create_dir: bool = False) -> int | None:
@@ -137,7 +118,7 @@ def lock_path(path: Path, *, timeout: float | None, create_dir: bool = False) ->
             if not lock_fd(fd, wait=True, timeout=remaining):
                 os.close(fd)
                 return None
-            if os.name == "nt" or _same_file(fd, path):
+            if _same_file(fd, path):
                 return fd
         except BaseException:
             os.close(fd)

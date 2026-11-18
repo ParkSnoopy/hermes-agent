@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ACTION_DIR = ".github/actions/check-clean-worktree"
 ACTION = ROOT / ACTION_DIR / "action.yml"
 USES = f"./{ACTION_DIR}"
-WORKFLOWS = ("tests.yml", "tests-os.yml", "lint.yml", "js-tests.yml")
+WORKFLOWS = ("tests.yml", "lint.yml", "js-tests.yml")
 MODES = ("blocking", "warning", "off")
 
 
@@ -40,7 +40,7 @@ def _checkout_jobs():
 
 def test_every_checkout_job_ends_with_the_clean_worktree_step():
     jobs = list(_checkout_jobs())
-    assert len(jobs) >= 7, [label for label, *_ in jobs]  # tests 4, tests-os 2, lint 1, js 1
+    assert len(jobs) >= 5, [label for label, *_ in jobs]  # tests 4, lint and JS
     problems = []
     for label, job, steps in jobs:
         last = steps[-1]

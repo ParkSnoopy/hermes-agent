@@ -535,12 +535,6 @@ def _find_mutation(command: str, cwd: Path, root: Path, depth: int = 0) -> str |
     return None
 
 
-def guard_active() -> bool:
-    """Windows-only: NTFS locks loaded .py/.pyd files, so overwriting the live checkout can
-    corrupt the running process. On POSIX open handles keep the old inode alive; the mixed-module
-    hazard is limited to later lazy imports — not worth blocking every git workflow for."""
-    return os.name == "nt"
-
 
 def detect_self_repo_git_mutation(
     command: str, cwd: str | None, source_root: Path | None = None) -> tuple[bool, str | None]:

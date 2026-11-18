@@ -68,7 +68,7 @@ def test_current_installer_publishes_real_dependencies_and_warm_path(tmp_path, s
     source.mkdir()
     for name in ("pm", "hermes_cli", "hermes_platform"):
         shutil.copytree(ROOT / name, source / name, ignore=shutil.ignore_patterns("__pycache__"))
-    for name in ("utils.py", "hermes_constants.py", "hermes_dir_acl.py", "hermes_yaml.py", "hermes_bootstrap.py",
+    for name in ("utils.py", "hermes_constants.py", "hermes_user_dirs.py", "hermes_yaml.py", "hermes_bootstrap.py",
                  "setup-hermes.sh"):
         shutil.copy2(ROOT / name, source / name)
     # The config/env layer consults the stdlib-only safe-worker policy, and the update path's wait

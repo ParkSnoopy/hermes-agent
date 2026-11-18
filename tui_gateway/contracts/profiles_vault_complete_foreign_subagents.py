@@ -1,10 +1,9 @@
 """Contracts for ``methods_profiles``, ``methods_vault``, ``methods_complete``,
-``methods_session_foreign`` and ``methods_subagents``.
+and ``methods_subagents``.
 
 Profiles are the ws twin of the dashboard's ``/api/profiles``; the vault handlers are the
 Desktop's Settings → Credential Vault door (metadata only — a secret never appears in a result);
-completions feed the composer popovers; ``session.foreign.*`` browses Claude Code / Codex
-histories on the serving backend; ``subagent.*`` is the session-scoped roster of live children.
+completions feed the composer popovers; ``subagent.*`` is the session-scoped roster of live children.
 """
 
 from __future__ import annotations
@@ -209,7 +208,6 @@ class ProfileMirrored(Result):
     env: bool = False
     auth: bool | Literal["shared"] = False
     model_inherited: bool = False
-    voice: bool = False
 
 
 class ProfilesCreateResult(Result):
@@ -470,79 +468,6 @@ class VaultRemoveResult(Result):
 
 method("vault.remove", params=VaultRemoveParams, result=VaultRemoveResult,
        doc="Remove a local vault item by id.")
-
-
-# ── foreign histories (methods_session_foreign) ───────────────────────────────────────────────
-
-
-class ForeignSource(WireEnum):
-    claude = "claude"
-    codex = "codex"
-
-
-class ForeignSessionRow(Result):
-    """``hermes_cli/foreign_sessions_browser.py::list_foreign_sessions`` — ``id`` is an opaque
-    handle, never a path."""
-
-    id: str
-    source: ForeignSource
-    label: str
-    title: str = ""
-    cwd: str | None = None
-    mtime: float
-    turn_count: int = 0
-    excerpt: str = ""
-
-
-class SessionForeignListParams(ProfileParams):
-    source: ForeignSource | None = None
-    offset: int | None = None
-    limit: int | None = None
-
-
-class SessionForeignListResult(Result):
-    """``unreadable`` counts logs on this page that failed to parse."""
-
-    sessions: list[ForeignSessionRow] = Field(default_factory=list)
-    next_offset: int | None = None
-    host: str
-    unreadable: int = 0
-
-
-method("session.foreign.list", params=SessionForeignListParams, result=SessionForeignListResult,
-       doc="One page of Claude Code / Codex sessions found on the serving backend.")
-
-
-class ForeignTurn(Result):
-    role: str
-    content: str
-
-
-class SessionForeignIdParams(ProfileParams):
-    id: str | None = None
-
-
-class SessionForeignPreviewResult(Result):
-    """Bounded to the last 40 turns / 8000 chars each; ``already_imported`` is the local id."""
-
-    messages: list[ForeignTurn] = Field(default_factory=list)
-    total: int = 0
-    truncated: bool = False
-    already_imported: str | None = None
-    cwd: str | None = None
-
-
-method("session.foreign.preview", params=SessionForeignIdParams, result=SessionForeignPreviewResult,
-       doc="Preview a foreign session's tail before importing it.")
-
-
-class SessionForeignImportResult(Result):
-    session_id: str
-    already_imported: bool = False
-
-
-method("session.foreign.import", params=SessionForeignIdParams, result=SessionForeignImportResult,
-       doc="Import a foreign session into this profile's history (idempotent per origin).")
 
 
 # ── subagents (methods_subagents) ─────────────────────────────────────────────────────────────

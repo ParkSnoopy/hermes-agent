@@ -379,7 +379,7 @@ def _print_banner(*lines: str) -> None:
 def setup_model_provider(config: dict, *, quick: bool = False):
     """Configure the inference provider and default model via the ``hermes model`` flow (one code
     path — any provider added there is available here). *quick* is accepted for the first-time
-    quick setup caller; rotation, vision and TTS keep safe defaults either way."""
+    quick setup caller; rotation and vision keep safe defaults either way."""
     from hermes_cli.config import load_config, save_config
     print_header("Inference Provider")
     _info("Choose how to connect to your main chat model.",
@@ -398,8 +398,8 @@ def setup_model_provider(config: dict, *, quick: bool = False):
             print_info(line)
 
     # Re-sync from disk in place: cmd_model saved via its own load/save cycle and the wizard's
-    # final save_config(config) must not clobber it with stale values. Rotation, vision and TTS
-    # keep safe defaults (configure via `hermes auth add` / `hermes setup tts`).
+    # final save_config(config) must not clobber it with stale values. Rotation and vision
+    # keep safe defaults.
     config.clear()
     config.update(load_config())
     save_config(config)
@@ -512,12 +512,9 @@ def setup_tools(config: dict, first_install: bool = False):
 # Extracted sections, re-exported so callers and test patches keep resolving through
 # hermes_cli.setup. They import this module lazily inside bodies, so this is cycle-free.
 
-from hermes_cli.setup_tts import setup_tts
 from hermes_cli.setup_terminal import setup_terminal_backend
 
 from hermes_cli.setup_summary import _print_setup_summary
-from hermes_cli.setup_migration import _skip_configured_section
-from hermes_cli.setup_agent_import import offer_agent_import
 from hermes_cli.setup_quick import _run_portal_one_shot, _run_quick_setup
 
 
@@ -525,7 +522,6 @@ from hermes_cli.setup_quick import _run_portal_one_shot, _run_quick_setup
 
 SETUP_SECTIONS = [
     ("model", "Model & Provider", setup_model_provider),
-    ("tts", "Text-to-Speech", setup_tts),
     ("terminal", "Terminal Backend", setup_terminal_backend),
 
     ("tools", "Tools", setup_tools),
@@ -559,34 +555,20 @@ def _run_setup_section(config: dict, section: str) -> None:
     print_success(f"{label} configuration complete!")
 
 
-def _run_full_setup(config: dict, hermes_home, *, is_existing: bool, imported_from: str = "") -> None:
-    """Full Setup — run all sections; after an import (*imported_from* names the agents) each
-    already-configured section offers to skip."""
+def _run_full_setup(config: dict, hermes_home, *, is_existing: bool) -> None:
+    """Full Setup — run all sections."""
     print_header("Configuration Location")
     _info(f"Config file:  {get_config_path()}", f"Secrets file: {get_env_path()}",
           f"Data folder:  {hermes_home}", f"Install dir:  {PROJECT_ROOT}", None,
           "You can edit these files directly or use 'hermes config edit'")
-    if imported_from:
-        _info(None, f"Settings were imported from {imported_from}.",
-              "Each section below shows what is already set up — keep it,",
-              "or choose to reconfigure it.")
-
     # Agent Settings are not prompted: first installs get defaults, existing keep theirs.
     if not is_existing:
         _apply_default_agent_settings(config)
 
-    def _skip(key: str, label: str) -> bool:
-        return bool(imported_from) and _skip_configured_section(config, key, label)
-
-
-    def _step(key: str, label: str, run) -> tuple:
-        return label, lambda: None if _skip(key, label) else run()
-
     _run_setup_steps([
-        _step("model", "Model & Provider", lambda: setup_model_provider(config)),
-        _step("terminal", "Terminal Backend", lambda: setup_terminal_backend(config)),
-
-        _step("tools", "Tools", lambda: setup_tools(config, first_install=not is_existing))])
+        ("Model & Provider", lambda: setup_model_provider(config)),
+        ("Terminal Backend", lambda: setup_terminal_backend(config)),
+        ("Tools", lambda: setup_tools(config, first_install=not is_existing))])
 
 
 # First-time mode picker: (menu label, setup_quick runner name) — None falls through to Full Setup.
@@ -640,7 +622,6 @@ def _run_setup_wizard_impl(args):
                   "├─────────────────────────────────────────────────────────┤",
                   "│  Let's configure your Hermes Agent installation.       │",
                   "│  Press Ctrl+C at any time to exit.                     │")
-    imported_from = ""
     if is_existing:
         # Full reconfigure wizard is the default (Enter keeps each current value); `--quick`
         # narrows it to missing items (partial import, cleared key). --reconfigure is a
@@ -659,20 +640,14 @@ def _run_setup_wizard_impl(args):
         print()
         if reconfigure_requested or quick_requested:
             _info("No existing configuration found — running first-time setup.", None)
-        # Before configuration begins. The plugin install and the import write config.yaml from
-        # outside this dict (the import from another process), so reload it.
-        imported_from = offer_agent_import(hermes_home)
-        config = load_config()
         setup_mode = prompt_choice("How would you like to set up Hermes?", [label for label, _ in _FIRST_TIME_MODES], 0)
         label, runner = _FIRST_TIME_MODES[setup_mode]
         if runner is not None:
             from hermes_cli import setup_quick
-            # Quick Setup offers to keep a model the import brought (Full setup acknowledges it below).
-            run_args = (config, hermes_home, is_existing) + (
-                (imported_from,) if runner == "_run_first_time_quick_setup" else ())
+            run_args = (config, hermes_home, is_existing)
             _run_setup_steps([(label, lambda: getattr(setup_quick, runner)(*run_args))])
             return
-    _run_full_setup(config, hermes_home, is_existing=is_existing, imported_from=imported_from)
+    _run_full_setup(config, hermes_home, is_existing=is_existing)
 
     # Save and show summary
     save_config(config)

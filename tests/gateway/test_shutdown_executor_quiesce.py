@@ -74,8 +74,6 @@ class _FakeGateway:
     def _running_agent_count(self):
         return len(self._running_agents)
 
-    def _active_cron_job_count(self):
-        return 0
 
     # Real hook + counter: 0 while ``adapters`` is empty, the API-server count once a fake adapter is in.
     _api_server_hook = gw_mod.GatewayShutdownMixin._api_server_hook
@@ -212,8 +210,6 @@ async def test_stuck_worker_skips_the_session_db_close():
     future.result(timeout=5)
     assert "worker_write" in events, "worker never finished"
 
-def _arm_cron(gw):
-    gw._active_cron_job_count = lambda: 1
 
 def _arm_api(gw):
     # Through the real hook: the adapter map is cleared one phase before the close gate, so the
@@ -235,7 +231,7 @@ def _arm_deferred(gw):
     gw._deferred_agent_workers = {asyncio.get_event_loop().create_future(): object()}
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("arm", [_arm_cron, _arm_api, _arm_deferred], ids=["cron", "api", "deferred"])
+@pytest.mark.parametrize("arm", [_arm_api, _arm_deferred], ids=["api", "deferred"])
 async def test_live_writer_outside_the_executor_skips_the_session_db_close(monkeypatch, arm):
     """A cron job, API-server run or deferred worker that outlived the drain must not have state.db
     closed under it (#102198).

@@ -1,9 +1,8 @@
 """Cheap source-driver checks: real shells, disposable installs, no installer."""
 import hashlib
-import json
 import os
 from pathlib import Path
-import runpy
+
 import shutil
 import subprocess
 import sys
@@ -47,126 +46,16 @@ if source_hermes "$INSTALL_DIR"; then exit 92; fi
     assert result.stdout.splitlines() == ["published:literal argument", "legacy"]
 
 
-@pytest.mark.platforms("posix")
-def test_installer_marker_is_the_only_dirty_state_a_driver_accepts(tmp_path):
-    root = tmp_path / "installed source"
-    root.mkdir()
-    git = ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t"]
-    subprocess.run([*git, "init", "-q"], check=True)
-    (root / "tracked").write_text("v1\n", encoding="utf-8")
-    subprocess.run([*git, "add", "tracked"], check=True)
-    subprocess.run([*git, "commit", "-qm", "base"], check=True)
-    (root / ".install_method").write_text("git\n", encoding="utf-8")
-    env = dict(os.environ, INSTALL_DIR=str(root), ASSETS=str(ASSETS), HOME=str(tmp_path))
-
-    def accept():
-        return subprocess.run(["bash", "-euc", 'source "$ASSETS/source-driver.sh"; accept_installer_marker "$INSTALL_DIR"'],
-                              env=env, capture_output=True, text=True, timeout=30, check=False)
-
-    assert accept().returncode == 0
-    assert (root / ".install_method").read_text(encoding="utf-8") == "git\n"
-    assert subprocess.run([*git, "status", "--porcelain", "--untracked-files=all"],
-                          capture_output=True, text=True, check=True).stdout == ""
-    (root / "tracked").write_text("edited\n", encoding="utf-8")
-    refused = accept()
-    assert refused.returncode != 0 and "M tracked" in refused.stderr
-
-
-@pytest.mark.platforms("windows", "posix")
-def test_powershell_selects_exact_exe_or_cmd_and_legacy_fallback(tmp_path):
-    # These are file-selection rules, not Windows execution emulation. Run
-    # them in real PowerShell on any host that supplies it (native CI included).
-    path = os.pathsep.join(p for p in os.get_exec_path() if ".hermes" not in Path(p).parts)
-    pwsh = shutil.which("pwsh", path=path) or shutil.which("powershell", path=path)
-    if not pwsh:
-        if os.name == "nt":
-            pytest.fail("native Windows acceptance requires PowerShell")
-        pytest.skip("PowerShell is not available on this host")
-    root = tmp_path / "installed source"
-    root.mkdir()
-    harness = tmp_path / "probe.ps1"
-    harness.write_text('''$ErrorActionPreference = 'Stop'
-. (Join-Path $env:ASSETS 'source-driver.ps1')
-$root = $env:INSTALL_DIR
-$legacy = Join-Path $root 'venv/Scripts/hermes.exe'
-$exe = Join-Path $root '.hermes/bin/hermes.exe'
-$cmd = Join-Path $root '.hermes/bin/hermes.cmd'
-New-Item -ItemType Directory -Path (Split-Path $legacy), (Split-Path $exe) -Force | Out-Null
-Set-Content $legacy 'legacy'
-if ((Get-SourceHermes $root) -ne $legacy) { throw 'legacy fallback' }
-Set-Content $cmd 'cmd'
-if ((Get-SourceHermes $root) -ne $cmd) { throw 'published cmd' }
-Set-Content $exe 'exe'
-if ((Get-SourceHermes $root) -ne $exe) { throw 'exe precedence' }
-Remove-Item $legacy
-if ((Get-SourceHermes $root) -ne $exe) { throw 'requires legacy venv' }
-Remove-Item $exe, $cmd
-$refused = $false
-try { Get-SourceHermes $root } catch { $refused = $true }
-if (-not $refused) { throw 'missing command accepted' }
-Set-Content $legacy 'stale legacy'
-New-Item -ItemType Directory -Path (Join-Path $root 'pm') | Out-Null
-Set-Content (Join-Path $root 'pm/lock.json') '{}'
-$refused = $false
-try { Get-SourceHermes $root } catch { $refused = $true }
-if (-not $refused) { throw 'missing PM launcher accepted' }
-Write-Output 'selection verified'
-''', encoding="utf-8")
-    result = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(harness)],
-                            env=dict(os.environ, INSTALL_DIR=str(root), ASSETS=str(ASSETS), HOME=str(tmp_path)),
-                            cwd=tmp_path, capture_output=True, text=True, timeout=30, check=False)
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.strip() == "selection verified"
-
-
-def test_observer_preserves_no_desktop_and_refuses_incomplete_app(tmp_path):
-    verify = runpy.run_path(str(ASSETS / "source_driver.py"))["verify_products"]
-    root = tmp_path / "source"
-    root.mkdir()
-    verify(root, "absent")
-    assert list(root.iterdir()) == []
-    with pytest.raises(RuntimeError, match="desktop"):
-        verify(root, "present")
-    release = root / "apps/desktop/release/linux-unpacked"
-    release.mkdir(parents=True)
-    (release / "hermes").write_bytes(b"incomplete fixture")
-    with pytest.raises(RuntimeError, match="desktop"):
-        verify(root, "absent")
-    with pytest.raises(RuntimeError, match="desktop"):
-        verify(root, "present")
-    assert (release / "hermes").read_bytes() == b"incomplete fixture"
-
-
-def test_observer_judges_only_the_live_app_not_rollback_copies_beside_it(tmp_path):
-    # An update from a release whose raw Windows pack kept release/win-unpacked.bak
-    # (the stage-and-swap promotion never touches it) must be judged on the live
-    # win-unpacked the product launches; a rollback copy alone is no desktop at all.
-    driver = runpy.run_path(str(ASSETS / "source_driver.py"))
-    release = tmp_path / "source/apps/desktop/release"
-    for name in ("win-unpacked", "win-unpacked.bak", "win-unpacked.previous", "mac-arm64.previous"):
-        dist = release / name / "resources/app.asar.unpacked/dist"
-        dist.mkdir(parents=True)
-        (dist / "index.html").write_text("<html></html>", encoding="utf-8")
-        (release / name / "Hermes.exe").write_bytes(b"MZ fixture")
-    assert driver["desktop_outputs"](tmp_path / "source") == [
-        release / "win-unpacked/resources/app.asar.unpacked/dist"]
-    driver["verify_products"](tmp_path / "source", "present")
-    (release / "win-unpacked/Hermes.exe").unlink()
-    with pytest.raises(RuntimeError, match="desktop executable is missing or empty"):
-        driver["verify_products"](tmp_path / "source", "present")
-    shutil.rmtree(release / "win-unpacked")
-    with pytest.raises(RuntimeError, match="desktop"):
-        driver["verify_products"](tmp_path / "source", "present")
-
 
 @pytest.mark.platforms("posix")
 @pytest.mark.parametrize("fault,error", [
     ("uv-lock", "dependency generation is not current"),
-    ("no-desktop", "dependency generation is not current"),
+
     ("foreign-launcher", "belongs to another installation"),
     ("missing-launcher", ""),
-    ("incomplete", "incomplete"),
-    ("web-changed", "web output"), ("web-missing", "web output"),
+    (".update-incomplete", "incomplete"),
+    (".lazy-refresh-incomplete", "incomplete"),
+    ("tui-changed", "tui output"), ("tui-missing", "tui output"),
 ])
 def test_pm_observer_accepts_ready_fixture_and_leaves_failed_fixture_untouched(tmp_path, fault, error):
     # This exercises the complete observer process, not a whole install. The
@@ -221,18 +110,14 @@ ensure_install_launchers(root, root / '.hermes/bin')
     record = '''import { mkdirSync, writeFileSync } from 'node:fs';
 import { buildInputs, recordProduct } from './scripts/build/freshness.mjs';
 const source = process.cwd();
-for (const [product, out] of [['tui', 'ui-tui/dist'], ['web', 'hermes_cli/web_dist'], ['desktop', 'apps/desktop/release/linux-unpacked/resources/app.asar.unpacked/dist']]) {
+for (const [product, out] of [['tui', 'ui-tui/dist']]) {
   mkdirSync(out, { recursive: true }); writeFileSync(out + '/index.html', 'fixture product');
   recordProduct({source, product, out, inputs: buildInputs(source, product)});
 }
 '''
     subprocess.run([node, "--input-type=module", "-e", record], cwd=root, env=env, check=True, timeout=30)
-    (root / "apps/desktop/release/linux-unpacked/hermes").write_bytes(b"fixture executable")
     command = [sys.executable, "-B", str(ASSETS / "source_driver.py"), "--root", str(root),
-               "--launcher", str(root / ".hermes/bin/hermes"), "--desktop", "present"]
-    if fault == "no-desktop":
-        shutil.rmtree(root / "apps/desktop")
-        command[-1] = "absent"
+               "--launcher", str(root / ".hermes/bin/hermes")]
     # The passive query must not write even import caches: -I ignores the
     # environment's bytecode switch, so the published query enforces it.
     def snapshot():
@@ -242,7 +127,7 @@ for (const [product, out] of [['tui', 'ui-tui/dist'], ['web', 'hermes_cli/web_di
     result = subprocess.run(command, env=env, cwd=tmp_path, capture_output=True, text=True, timeout=60, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
     assert snapshot() == before
-    if fault in {"uv-lock", "no-desktop"}:
+    if fault == "uv-lock":
         (root / "uv.lock").write_text("changed graph without preparation", encoding="utf-8")
     elif fault == "foreign-launcher":
         foreign = tmp_path / "foreign"
@@ -252,11 +137,11 @@ for (const [product, out] of [['tui', 'ui-tui/dist'], ['web', 'hermes_cli/web_di
         assert launcher is not None
     elif fault == "missing-launcher":
         (root / ".hermes/bin/hermes").unlink()
-    elif fault == "incomplete":
-        (root / ".update-incomplete").write_text("incomplete", encoding="utf-8")
+    elif fault in {".update-incomplete", ".lazy-refresh-incomplete"}:
+        (root / fault).write_text("incomplete", encoding="utf-8")
     else:
-        damaged = root / "hermes_cli/web_dist/index.html"
-        if fault == "web-missing":
+        damaged = root / "ui-tui/dist/index.html"
+        if fault == "tui-missing":
             damaged.unlink()
         else:
             damaged.write_bytes(b"damaged")

@@ -13,13 +13,6 @@ from hermes_cli.cli_output import (
     print_warning as _print_warning)
 from hermes_cli.config import get_env_value
 from hermes_cli.tools_config_cua import _cua_driver_install_ready, install_cua_driver
-from tools.transcription_common import DEFAULT_LOCAL_MODEL, STT_MODEL_CATALOG
-
-_LOCAL_STT_MODEL_SUMMARY = ", ".join(
-    f"{model} (default)" if model == DEFAULT_LOCAL_MODEL else model for model in STT_MODEL_CATALOG["local"]
-)
-
-
 def _info_lines(*lines: str) -> None:
     """Print each line as a 4-space-indented info row."""
     for line in lines:
@@ -92,19 +85,6 @@ def _python_hook(module, extra, label, installing, on_install=(), always=()) -> 
 
 
 _PYTHON_POST_SETUP_HOOKS: dict = {
-    "faster_whisper": _python_hook(
-        "faster_whisper", "stt-whisper", "faster-whisper", "Installing faster-whisper (model ~150MB downloads on first use)...",
-        on_install=(f"Model sizes: {_LOCAL_STT_MODEL_SUMMARY}",
-                    "Change via stt.local.model in config.yaml")),
-    "kittentts": _python_hook(
-        "kittentts", "kittentts", "kittentts", "Installing kittentts (~25-80MB model, CPU-only)...",
-        on_install=("Voices: Jasper, Bella, Luna, Bruno, Rosie, Hugo, Kiki, Leo",
-                    "Models: KittenML/kitten-tts-nano-0.8-int8 (25MB), micro (41MB), mini (80MB)")),
-    "piper": _python_hook(
-        "piper", "piper", "piper-tts", "Installing piper-tts (~14MB wheel, voices downloaded on first use)...",
-        always=("Default voice: en_US-lessac-medium (downloaded on first TTS call)",
-                "Full voice list: https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/VOICES.md",
-                "Switch voices by setting tts.piper.voice in config.yaml")),
     "ddgs": _python_hook(
         "ddgs", "ddgs", "ddgs", "Installing ddgs (DuckDuckGo search package)...",
         always=("No API key required. DuckDuckGo enforces server-side rate limits.",
@@ -128,6 +108,32 @@ def _post_setup_python(spec: dict) -> None:
 
 
 
+def _run_xai_oauth_login_from_setup() -> bool:
+    """Run the xAI Grok OAuth device-code login from inside the setup wizard. Saves OAuth tokens
+    only — does **not** switch the active provider or rewrite ``model.provider`` (callers only need
+    credentials for side tools). False on any failure (caller falls back)."""
+    try:
+        from hermes_cli.auth import (
+            _is_remote_session, _save_xai_oauth_tokens, _xai_oauth_device_code_login,
+            unsuppress_credential_source)
+    except Exception as exc:
+        _print_warning(f"xAI Grok OAuth helpers unavailable: {exc}")
+        return False
+    _print_info("Signing in to xAI Grok OAuth (SuperGrok / Premium+)...")
+    try:
+        creds = _xai_oauth_device_code_login(open_browser=not _is_remote_session())
+        _save_xai_oauth_tokens(
+            creds["tokens"], discovery=creds.get("discovery"), redirect_uri=creds.get("redirect_uri", ""),
+            last_refresh=creds.get("last_refresh"), auth_mode="oauth_device_code", set_active=False)
+        # Mirror model/dashboard re-login: clear device_code suppression so the pool can seed
+        # from the singleton after a prior `auth remove`.
+        unsuppress_credential_source("xai-oauth", "device_code")
+        return True
+    except Exception as exc:
+        _print_warning(f"xAI Grok OAuth login failed: {exc}")
+        return False
+
+
 def _post_setup_xai_grok() -> None:
     """Shared xAI credential bootstrap for any picker row that talks to xAI (TTS, STT, Video Gen, x_search
     …). Accepts a SuperGrok-tier OAuth token (preferred — billed to the existing subscription) or a raw
@@ -147,7 +153,6 @@ def _post_setup_xai_grok() -> None:
     _print_info("    xAI needs credentials. Choose one:")
     try:
         from hermes_cli.setup import prompt_choice, prompt as _setup_prompt
-        from hermes_cli.setup_tts import _run_xai_oauth_login_from_setup
         from hermes_cli.config import save_env_value
     except Exception as exc:
         _print_warning(f"    Could not load setup helpers: {exc}")

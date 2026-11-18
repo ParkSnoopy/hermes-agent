@@ -17,7 +17,6 @@ import json
 import os
 import re
 import sqlite3
-import sys
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -78,7 +77,7 @@ class Places:
 
         return cls(
             markers=tuple(_expand_all(known_dirs.machine_marker_files())),
-            sources=(_active_root, _home_globs, _shared_auth_dir, _registry_home, _service_homes, _launcher_root),
+            sources=(_active_root, _home_globs, _shared_auth_dir, _service_homes, _launcher_root),
             protected=_protected_dirs(),
         )
 
@@ -205,7 +204,7 @@ def _protected_dirs() -> tuple[Path, ...]:
 
 
 def _expand_all(patterns: Iterable[str]) -> Iterator[Path]:
-    """Expand ``~`` and environment variables (``$X`` on POSIX, ``%X%`` on Windows), then globs. An
+    """Expand ``~`` and environment variables, then globs. An
     entry naming an unset variable is dropped."""
     for pattern in patterns:
         expanded = os.path.expanduser(os.path.expandvars(pattern))
@@ -234,43 +233,24 @@ def _shared_auth_dir() -> Iterable[Path]:
     return (Path(raw),) if raw else ()
 
 
-def _registry_home() -> Iterable[Path]:
-    """The ``HERMES_HOME`` older Windows installers saved for the user (the desktop honours it)."""
-    if sys.platform != "win32":
-        return ()
-    import winreg
-
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
-            value, _kind = winreg.QueryValueEx(key, "HERMES_HOME")
-    except OSError:
-        return ()
-    return (Path(os.path.expandvars(str(value))),) if str(value).strip() else ()
-
-
 def _service_homes() -> Iterable[Path]:
     """The ``HERMES_HOME`` of every gateway service this OS user runs: its own definitions, the
-    machine-wide units that run as it, and the launchers its Scheduled Tasks start. Another account's
-    gateway is that account's install."""
-    from hermes_cli import gateway_windows
+    machine-wide units that run as it. Another account's gateway is that account's install."""
     from hermes_platform.resolver import known_dirs
 
     for machine_wide, globs in ((False, known_dirs.gateway_service_definition_globs()),
                                 (True, known_dirs.system_gateway_service_definition_globs())):
         for definition in _expand_all(globs):
             yield from _definition_homes(definition, machine_wide=machine_wide)
-    for launcher in gateway_windows.registered_task_launchers():
-        yield from _definition_homes(Path(launcher), machine_wide=False, follow=False)
+
 
 
 def _definition_homes(definition: Path, *, machine_wide: bool, follow: bool = True) -> Iterator[Path]:
-    """The homes one definition names, and those named by the launchers it starts (the Windows
-    Startup-folder fallback names only its launcher). Unreadable: none."""
-    from hermes_cli.gateway_runtime_service_identity import launcher_text
+    """The homes one definition names, and those named by the launchers it starts. Unreadable: none."""
     from hermes_cli.gateway_service_owner import service_definition_homes, service_definition_launchers
 
     try:
-        text = launcher_text(_read_bytes(definition))
+        text = _read_text(definition)
     except (OSError, UnicodeError, ValueError):
         return
     account = _unit_account(text) or ("root" if machine_wide else None)
@@ -295,7 +275,7 @@ def _is_this_account(account: str) -> bool:
         uid = int(account) if account.isdigit() else pwd.getpwnam(account).pw_uid
     except KeyError:  # no such account: the unit cannot run as anyone here
         return False
-    return uid == os.getuid()  # windows-footgun: ok — only systemd units name a User=
+    return uid == os.getuid()
 
 
 def _launcher_root() -> Iterable[Path]:
@@ -311,7 +291,7 @@ def _launcher_root() -> Iterable[Path]:
     if not _inside(launcher, protected):
         launcher = launcher.resolve()
     if _inside(launcher, protected):
-        return (launcher.parent,)  # reading it would raise a macOS permission prompt; reported as unreadable
+        return (launcher.parent,)  # reported as unreadable without opening it
     python = _launcher_python(launcher)
     owners = [p.parent for p in (python.parents if python else ()) if p.name == "tools"]
     if not owners and launcher.parent.name == "bin" and launcher.parent.parent.name == ".hermes":
@@ -345,7 +325,7 @@ class _Root:
 
     def file(self, name: str) -> Path:
         """*name* in this root, resolved before anything opens it. A link into a protected folder
-        raises: following it would raise the macOS permission prompt, so it counts as unreadable."""
+        raises, so it counts as unreadable."""
         return _unprotected(self.path / name, self.protected)
 
     @cached_property

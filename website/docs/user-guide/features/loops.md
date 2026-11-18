@@ -17,7 +17,6 @@ It's Hermes' take on **Claude Code's `/loop`** (and its `/proactive` alias, whic
 - **Monitoring during a work session.** Keep an eye on error rates or a long job's progress while you do something else in the same conversation.
 - **Periodic housekeeping.** Re-run a lint pass or a status summary every N minutes during a long session.
 
-When the work should run **unattended** — overnight, on a real schedule, surviving restarts of your terminal — use a [cron job](./cron.md) instead. `/loop` lives inside a session; cron lives outside all of them. And when the task is a single objective with a definition of done, [`/goal`](./goals.md) is usually the better fit.
 
 ## Quick start
 
@@ -105,7 +104,7 @@ A real user message always wins over both — wakeups only fire while the sessio
 
 - **A wakeup is a normal user-role turn.** No system-prompt mutation, no toolset swap — prompt caching stays intact. In the messaging gateway a wakeup is not a reply to the message that set the loop, so its output is posted to the chat/topic without quoting that message.
 - **Survives `/resume` and compression.** Loop state persists per session and migrates across context-compression boundaries, same as `/goal`.
-- **One loop per session.** Setting a new `/loop` replaces the old one. Run several loops by running several sessions (or use cron for a fleet of schedules).
+- **One loop per session.** Setting a new `/loop` replaces the old one. Run several loops by running several sessions.
 - **Interrupting a wakeup turn (Ctrl+C) pauses the loop** — recoverable with `/loop resume`, so cancel actually means cancel.
 - **Token cost scales with cadence.** Every tick is a full agent turn. Match the interval to how often the state actually changes; prefer self-pacing for idle waits.
 
@@ -122,11 +121,11 @@ loops:
 
 The `--until` judge routes through the `goal_judge` auxiliary task, so `auxiliary.goal_judge.*` routing overrides (provider, model) apply to loop conditions too.
 
-## `/loop` vs `/goal` vs cron
+## `/loop` vs `/goal`
 
-| | `/loop` | `/goal` | cron |
-|---|---|---|---|
-| **Trigger** | Timer (or self-paced) | Judge verdict after each turn | Schedule, outside any session |
-| **Lives in** | Your current session | Your current session | Its own session per run |
-| **Ends when** | Stop condition / caps / you | Goal achieved / budget / you | You remove the job |
-| **Best for** | Polling, monitoring, periodic re-runs | One objective, iterate until done | Unattended, long-horizon schedules |
+| | `/loop` | `/goal` |
+|---|---|---|
+| **Trigger** | Timer (or self-paced) | Judge verdict after each turn |
+| **Lives in** | Your current session | Your current session |
+| **Ends when** | Stop condition / caps / you | Goal achieved / budget / you |
+| **Best for** | Polling, monitoring, periodic re-runs | One objective, iterate until done |

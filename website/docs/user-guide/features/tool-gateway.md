@@ -1,6 +1,6 @@
 ---
 title: "Nous Tool Gateway"
-description: "One subscription, every tool. Web search, image generation, TTS, and cloud browsers — all routed through Nous Portal with no extra API keys."
+description: "One subscription, every tool. Web search, image generation, and cloud browsers — all routed through Nous Portal with no extra API keys."
 sidebar_label: "Tool Gateway"
 sidebar_position: 2
 ---
@@ -9,7 +9,7 @@ sidebar_position: 2
 
 **One subscription. Every tool built in.**
 
-The Tool Gateway is included with every paid [Nous Portal](https://portal.nousresearch.com) subscription. It routes Hermes' tool calls — web search, image generation, text-to-speech, and cloud browser automation — through infrastructure Nous already runs, so you don't have to sign up with a web search vendor, FAL, OpenAI, Browser Use, or anyone else just to make your agent useful.
+The Tool Gateway is included with every paid [Nous Portal](https://portal.nousresearch.com) subscription. It routes Hermes' tool calls — web search, image generation, and cloud browser automation — through infrastructure Nous already runs, so you don't have to sign up with a web search vendor, FAL, OpenAI, Browser Use, or anyone else just to make your agent useful.
 
 <div style={{display: 'flex', gap: '1rem', flexWrap: 'wrap', margin: '1.5rem 0'}}>
   <a href="https://portal.nousresearch.com/manage-subscription" style={{background: 'var(--ifm-color-primary)', color: 'white', padding: '0.75rem 1.5rem', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold'}}>Start or manage subscription →</a>
@@ -21,10 +21,9 @@ The Tool Gateway is included with every paid [Nous Portal](https://portal.nousre
 |---|---|---|
 | 🔍 | **Web search & extract** | Agent-grade web search and full-page extraction, managed by Nous. No rate limits to worry about — the gateway handles scaling. |
 | 🎨 | **Image generation** | One **Nous Subscription** row spanning the FAL catalog, the native Krea models, and Nous Portal image models: **Krea 3**, **FLUX 2**, **GPT Image**, **Nano Banana**, **Seedream**, **Ideogram**, **Recraft**, **Qwen**, **Krea 2**, and more. Pick the model once in `hermes tools`, which shows the live list. |
-| 🔊 | **Text-to-speech** | OpenAI TTS voices wired into the `text_to_speech` tool. Drop voice notes into Telegram, generate audio for pipelines, narrate anything. |
 | 🌐 | **Cloud browser automation** | Headless cloud Chromium sessions via Browser Use, driven by `browser_exec` over CDP — no Browserbase account required. |
 
-All four are pay-as-you-use billed against your Nous subscription. Use any combination — run the gateway for web and images while keeping your own ElevenLabs key for TTS, or route everything through Nous.
+These tools are pay-as-you-use billed against your Nous subscription.
 
 ## Why it's here
 
@@ -55,7 +54,7 @@ hermes tools              # Enable the gateway per-tool — pick "Nous Subscript
 
 `hermes setup --portal` and `hermes model` are the all-at-once paths: log in once, optionally flip every tool to the gateway. `hermes tools` is the à la carte path — turn on just the tools you want, one at a time.
 
-**You don't have to log in first.** With `hermes tools`, the Nous-managed backends (Web search, Image, Video, TTS, Browser) are always listed, even if you've never signed into Nous Portal. Select one and Hermes runs the Portal login right there if you aren't already authenticated — no need to run `hermes model` beforehand. If your Nous OAuth is already active, selecting the backend enables it immediately with no extra prompt. This path only logs you in and turns on the one tool you picked — it does **not** switch your inference provider, and it does **not** prompt you to enable the gateway for every other tool.
+**You don't have to log in first.** With `hermes tools`, the Nous-managed backends (Web search, Image, Video, Browser) are always listed, even if you've never signed into Nous Portal. Select one and Hermes runs the Portal login right there if you aren't already authenticated — no need to run `hermes model` beforehand. If your Nous OAuth is already active, selecting the backend enables it immediately with no extra prompt. This path only logs you in and turns on the one tool you picked — it does **not** switch your inference provider, and it does **not** prompt you to enable the gateway for every other tool.
 
 Check what's active at any time:
 
@@ -72,7 +71,6 @@ hermes status --full      # Full system status (Tool Gateway is one section)
   Nous Portal     ✓ managed tools available
   Web tools       ✓ active via Nous subscription
   Image gen       ✓ active via Nous subscription
-  TTS             ✓ active via Nous subscription
   Browser         ○ active via Browser Use key
 ```
 
@@ -98,7 +96,6 @@ Picking a Nous model (`hermes model`) offers a per-tool checklist of gateway bac
 The gateway is per-tool. Turn it on for just what you want:
 
 - **All tools through Nous** — easiest; one subscription, done.
-- **Gateway for web + images, bring your own TTS** — keep your ElevenLabs voice, let Nous handle the rest.
 - **Gateway only for things you don't have keys for** — "I already pay for Browserbase, but I don't want a web search account" works fine.
 
 Switch any tool at any time via:
@@ -157,12 +154,6 @@ web:
 
 image_gen:
   provider: nous         # image generation via the Tool Gateway
-
-tts:
-  provider: nous         # TTS via the Tool Gateway
-
-stt:
-  provider: nous         # speech-to-text via the Tool Gateway
 
 browser:
   cloud_provider: nous   # cloud browser via the Tool Gateway

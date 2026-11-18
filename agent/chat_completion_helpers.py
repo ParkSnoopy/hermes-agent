@@ -814,8 +814,6 @@ def should_use_direct_api_call(agent) -> bool:
     api_mode = getattr(agent, "api_mode", None)
     if getattr(agent, "provider", None) == "moa":
         return False
-    if getattr(agent, "platform", None) == "cron":
-        return api_mode in {"chat_completions", "codex_responses"}
     if api_mode != "chat_completions":
         return False
     # Delegated child — via the execution ContextVar set by _run_single_child,

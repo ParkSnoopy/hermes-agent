@@ -75,22 +75,10 @@ def pip_config_candidates(env: Mapping[str, str]) -> list[Path]:
     if explicit == os.devnull:
         return []
     home = Path.home()
-    if sys.platform == "win32":
-        name = "pip.ini"
-        global_files = [Path(env.get("ProgramData") or r"C:\ProgramData") / "pip" / name]
-        user_files = [home / "pip" / name,
-                      Path(env.get("APPDATA") or home / "AppData" / "Roaming") / "pip" / name]
-    elif sys.platform == "darwin":
-        name = "pip.conf"
-        global_files = [Path("/Library/Application Support/pip") / name]
-        app_support = home / "Library" / "Application Support" / "pip"
-        user_files = [home / ".pip" / name,
-                      (app_support if app_support.is_dir() else home / ".config" / "pip") / name]
-    else:
-        name = "pip.conf"
-        xdg_dirs = (env.get("XDG_CONFIG_DIRS") or "/etc/xdg").split(os.pathsep)
-        global_files = [Path(d) / "pip" / name for d in xdg_dirs if d] + [Path("/etc") / name]
-        user_files = [home / ".pip" / name, Path(env.get("XDG_CONFIG_HOME") or home / ".config") / "pip" / name]
+    name = "pip.conf"
+    xdg_dirs = (env.get("XDG_CONFIG_DIRS") or "/etc/xdg").split(os.pathsep)
+    global_files = [Path(d) / "pip" / name for d in xdg_dirs if d] + [Path("/etc") / name]
+    user_files = [home / ".pip" / name, Path(env.get("XDG_CONFIG_HOME") or home / ".config") / "pip" / name]
     explicit_files = [Path(explicit)] if explicit else []
     if explicit_files and explicit_files[0].is_file():
         user_files = []

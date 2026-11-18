@@ -33,7 +33,7 @@ Lanes:
   the standalone npm projects' package-lock.json).
 * ``bootstrap``   — shell installer protocol and fresh-install checks.
 * ``catalog``     — the plugin-catalog tests (catalog-tests.yml). A diff made
-  only of catalog entry data (``plugin-catalog/*.yaml``, ``contributors/emails/``)
+  only of catalog entry data (``plugin-catalog/*.yaml``)
   runs this lane INSTEAD of the Python suite: those files are data that a known
   set of tests reads, so a one-entry PR need not run 23k tests on three OSes.
   ``plugin-catalog/README.md`` is not entry data (a docs page mirrors it), and
@@ -126,7 +126,7 @@ _PY_RELEVANT_CONTRACT_FILES = {
 
 # Catalog entry data: read by the catalog tests and the Plugin Catalog CI
 # admission gate, executed by nothing. Same set that gate allows in an entry PR.
-_CATALOG_DATA = ("plugin-catalog/", "contributors/emails/")
+_CATALOG_DATA = ("plugin-catalog/",)
 
 # Supply-chain scan: files that can execute code at install/import time.
 _SCAN_EXTS = (".py", ".pth")
@@ -134,7 +134,7 @@ _SCAN_FILES = {"setup.cfg", "pyproject.toml"}
 
 _BOOTSTRAP_PATHS = ("tests/scripts/install/", "pm/")
 _BOOTSTRAP_FILES = {
-    "scripts/install.sh", "scripts/install.ps1", "setup-hermes.sh", "setup-hermes.ps1",
+    "scripts/install.sh", "setup-hermes.sh",
     "scripts/gen-bootstrap-pins.py", "scripts/verify-bootstrap-version-stamp.py",
     "tests/scripts/test_fresh_source_install.py", "pyproject.toml", "uv.lock",
 }
@@ -184,17 +184,16 @@ _UPDATE_PIPELINE = (
     "hermes_cli/managed_uv.py",
     "hermes_cli/npm_engine.py",
     "hermes_cli/_scan_venv_blockers.py",
-    "hermes_cli/dashboard_procs.py",
+
     "hermes_cli/desktop_update",  # desktop_update_verify
     "hermes_cli/gateway.py",  # fleet restart / verify
-    "hermes_cli/gateway_windows",  # Windows pause / resume
-    "hermes_cli/gateway_launchd.py",
+
     "hermes_cli/gateway_migrate",
     "hermes_cli/gateway_supervised_restart.py",
     "hermes_cli/git_pack_tidy.py",  # partial-clone pack tidy: every update's pre-fetch runs it
     "hermes_bootstrap.py",  # every launch's prepare_launch
     "hermes_constants.py",  # root home = update marker location
-    "hermes_dir_acl.py",  # update restores the Windows user ACL on the home after elevation
+    "hermes_user_dirs.py",  # shared user directory creation
     "gateway/status.py",  # code_sha stamp the fleet verify reads
     "gateway/status_inline_source.py",  # the Windows pause identifies inline-bootstrapped gateways
     "gateway/status_lock_dir.py",  # gateway/status.py imports it at module level
@@ -248,18 +247,18 @@ _UPDATE_DEPENDENCIES = (
     "hermes_cli/web_build_limits.py",  # source_build caps the dashboard Node build
     "hermes_cli/desktop_console.py",
     "hermes_cli/bundled_app.py",
-    "hermes_cli/gui_uninstall.py",
+
     "hermes_cli/linux_desktop_entry.py",
     "hermes_cli/github_api.py",  # source_check's release lookup
     "hermes_cli/build_info.py",
     "hermes_cli/image_provenance.py",
     "hermes_cli/backup.py",  # pre-update backup
-    "hermes_cli/backup_cron_prompts.py",  # restore_cron_prompt_fields_if_degraded (update_cmd_config)
+
     "hermes_cli/backup_restore.py",
     "hermes_cli/config_backend.py",  # update_channel writes the channel key through the seam
     "hermes_cli/env_loader.py",  # update_proxy_env keeps proxy keys a .env load wrote
     "agent/proxy_bypass.py",  # update_proxy_env reads NO_PROXY entries with it
-    "hermes_cli/macos_tcc_anchor.py",
+
     "hermes_cli/model_catalog.py",
     "hermes_cli/sqlite_runtime.py",
     "hermes_cli/sqlite_safe_read.py",
@@ -288,9 +287,7 @@ _UPDATE_DEPENDENCIES = (
     # The compilers source_build / the Desktop build run (freshness, node-deps,
     # tui, web, desktop and their shared frontend-common).
     "scripts/build/",
-    "apps/desktop/scripts/build-webapp.mjs",  # source_build's Webapp renderer build
-    "hermes_cli/webapp.py",  # source_build rebuilds the Webapp bundle a home serves
-    "gateway/webapp_listener.py",  # source_build reads which homes serve the Webapp
+
 )
 # General-purpose modules an entry point imports but that half the product
 # imports too (>= HUB_MIN_IMPORTERS product modules, checked by the test). The
@@ -306,7 +303,7 @@ _SHARED_HUBS = frozenset({
     "utils.py",
     "hermes_state.py",
     "agent/__init__.py",
-    "cron/jobs.py",
+
     "tools/environments/local.py",
     # Desktop lane only (the upgrade lane owns these outright):
     "hermes_constants.py",
@@ -328,7 +325,7 @@ _E2E_LANES: dict[str, tuple[str, ...]] = {
         *_PY_TEST_HARNESS,
         *_DEP_MANIFESTS,
         "tests/e2e/core/upgrade/",
-        "tests/e2e/core/windows_update/",
+
         "tests/compat/",
         "pm/",
         "scripts/install.",
@@ -371,12 +368,10 @@ for _lane in ("e2e_upgrade",):
     _E2E_LANES[_lane] = _with_package_inits(_E2E_LANES[_lane])
 # The upgrade journeys are their own lane; editing one does not start ``e2e``.
 _E2E_LANE_EXCLUDES = {
-    "e2e": ("tests/e2e/core/upgrade/", "tests/e2e/core/windows_update/"),
+    "e2e": ("tests/e2e/core/upgrade/",),
 }
-# The image builds the Webapp (webapp_build stage), so its manifests and build
-# recipe route here; Desktop sources stay out, as web/ and ui-tui/ do.
+# Docker inputs and their build scripts route to the image lane.
 _DOCKER_PATHS = (*_DOCKER_META, *_DEP_MANIFESTS, *_NPM_MANIFESTS, "pm/", "tests/docker/",
-                 "apps/desktop/package.json", "apps/desktop/scripts/build-webapp.mjs",
                  "apps/shared/package.json", "scripts/build/")
 _NIX_LANE_PATHS = (*_NIX_PATHS, *_NIX_FILES, *_DEP_MANIFESTS, *_NPM_MANIFESTS)
 

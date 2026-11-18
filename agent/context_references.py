@@ -17,7 +17,7 @@ from typing import Awaitable, Callable
 
 from agent.file_safety import HOME_CREDENTIAL_DIRS
 from agent.model_metadata import CHARS_PER_TOKEN, estimate_tokens_rough
-from hermes_cli._subprocess_compat import IS_WINDOWS, harden_git_argv, noninteractive_git_env, windows_hide_flags
+from hermes_cli._subprocess_compat import harden_git_argv, noninteractive_git_env
 from hermes_cli.sqlite_safe_read import LiveConnectionError, offline_file_access
 from hermes_cli.sizefmt import format_bytes
 
@@ -411,7 +411,7 @@ def _format_file_reference(ref: ContextReference, path: Path, text: str, max_inl
 
 
 def _run_quiet(cmd: list[str], cwd: Path, timeout: int, env: dict | None = None) -> subprocess.CompletedProcess:
-    """Captured text output with bounded pipes, no stdin, and no console flash on Windows.
+    """Captured text output with bounded pipes and no stdin.
 
     ``capture_output=True`` buffers the child's entire stdout — an unbounded ``git diff``
     or ``rg --files`` would materialize a hostile-size stream in memory. Each pipe is
@@ -420,10 +420,9 @@ def _run_quiet(cmd: list[str], cwd: Path, timeout: int, env: dict | None = None)
     explicitly: a child that flushed everything and exited 0 before the drain thread crossed
     the cap is not killable and would otherwise report success with truncated output.
     """
-    popen_kwargs: dict = {"creationflags": windows_hide_flags()} if IS_WINDOWS else {}
     proc = subprocess.Popen(
         cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        **popen_kwargs, **({} if env is None else {"env": env}))
+        env=env)
 
     truncated = threading.Event()
 

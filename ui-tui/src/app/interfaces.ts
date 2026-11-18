@@ -15,7 +15,6 @@ import type { MutableRefObject, ReactNode, RefObject, SetStateAction } from 'rea
 import type { PasteEvent } from '../components/textInput.js'
 import type { GatewayClient } from '../gatewayClient.js'
 import type { QueueItem } from '../hooks/useQueue.js'
-import type { ParsedVoiceRecordKey } from '../lib/platform.js'
 import type { RpcResult } from '../lib/rpc.js'
 import type { ActiveWidget } from '../sdk/types.js'
 import type { Theme } from '../theme.js'
@@ -525,15 +524,6 @@ export interface InputHandlerContext {
     selection: SelectionApi
     stdout?: NodeJS.WriteStream
   }
-  voice: {
-    enabled: boolean
-    recordKey: ParsedVoiceRecordKey
-    recording: boolean
-    setProcessing: StateSetter<boolean>
-    setRecording: StateSetter<boolean>
-    setVoiceEnabled: StateSetter<boolean>
-    setVoiceTts: StateSetter<boolean>
-  }
   wheelStep: number
 }
 
@@ -542,10 +532,6 @@ export interface InputHandlerResult {
 }
 
 export interface GatewayEventHandlerContext {
-  composer: {
-    enqueue?: ComposerActions['enqueue']
-    setInput: StateSetter<string>
-  }
   gateway: GatewayServices
   session: {
     STARTUP_RESUME_ID: string
@@ -574,12 +560,6 @@ export interface GatewayEventHandlerContext {
     appendMessage: (msg: Msg) => void
     panel: (title: string, sections: PanelSection[]) => void
     setHistoryItems: StateSetter<Msg[]>
-  }
-  voice: {
-    setProcessing: StateSetter<boolean>
-    setRecording: StateSetter<boolean>
-    setVoiceEnabled: StateSetter<boolean>
-    setVoiceTts: StateSetter<boolean>
   }
 }
 
@@ -641,11 +621,6 @@ export interface SlashHandlerContext {
     sys: (text: string) => void
     trimLastExchange: (items: Msg[]) => Msg[]
   }
-  voice: {
-    setVoiceEnabled: StateSetter<boolean>
-    setVoiceRecordKey: (v: ParsedVoiceRecordKey) => void
-    setVoiceTts: StateSetter<boolean>
-  }
 }
 
 export interface AppLayoutActions {
@@ -683,7 +658,6 @@ export interface AppLayoutComposerProps {
   queuedDisplay: string[]
   submit: (value: string) => void
   updateInput: StateSetter<string>
-  voiceRecordKey: ParsedVoiceRecordKey
 }
 
 export interface AppLayoutProgressProps {
@@ -700,7 +674,6 @@ export interface AppLayoutStatusProps {
   statusColor: string
   stickyPrompt: string
   turnStartedAt: null | number
-  voiceLabel: string
 }
 
 export interface AppLayoutTranscriptProps {

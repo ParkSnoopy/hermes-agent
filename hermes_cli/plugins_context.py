@@ -207,10 +207,6 @@ class PluginContext(PluginCapabilityCtxMixin):
         except Exception:
             return "default"
 
-    def current_cron_execution(self) -> Any:
-        """The cron run executing now (``cron.execution_identity.CronExecution``), else ``None``."""
-        from cron.execution_identity import current_cron_execution
-        return current_cron_execution()
 
     def on_unload(self, callback: Callable[[], None]) -> PluginRegistration:
         """Register a cleanup callback for unload: runs in reverse acquisition order interleaved
@@ -732,7 +728,7 @@ class PluginContext(PluginCapabilityCtxMixin):
         self._manager._subscribe_event(self.plugin_id, event, callback)
         _facade().logger.debug("Plugin %s subscribed to event: %s", self.manifest.name, event)
 
-    from hermes_cli.plugins_content import register_automation_blueprint, register_skill
+    from hermes_cli.plugins_content import register_skill
     from hermes_cli.plugin_rpc import emit_to_session, register_rpc
 
     # -- scoped provider registrars ----------------------------------------------------------------
@@ -766,13 +762,7 @@ class PluginContext(PluginCapabilityCtxMixin):
     def register_secret_source(self, source):
         return register_scoped_provider(self, "register_secret_source", source)
 
-    @scoped_provider_registrar
-    def register_tts_provider(self, provider):
-        return register_scoped_provider(self, "register_tts_provider", provider)
 
-    @scoped_provider_registrar
-    def register_transcription_provider(self, provider):
-        return register_scoped_provider(self, "register_transcription_provider", provider)
 
     @scoped_provider_registrar
     def register_delegation_provider(self, provider):

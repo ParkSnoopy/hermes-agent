@@ -62,8 +62,7 @@ def _resolve_xai_bearer() -> tuple[str, str, str]:
     x_search is API-index access: when a subscription OAuth credential is configured alongside a paid
     ``XAI_API_KEY``, the OAuth path authorizes but answers ``/v1/responses`` in a degraded Grok explanatory
     mode with no citations, while the API key returns real posts (#88040). Pass ``prefer_api_key=True`` so
-    the shared resolver checks the explicit API key first — same root cause as the TTS fix for #87045
-    (#87081) — keeping OAuth as the fallback when no API key is configured.
+    the shared resolver checks the explicit API key first, keeping OAuth as the fallback when no key is configured.
     """
     creds = resolve_xai_http_credentials(prefer_api_key=True)
     api_key = str(creds.get("api_key") or "").strip()

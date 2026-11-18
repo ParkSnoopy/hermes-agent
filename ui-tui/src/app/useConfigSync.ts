@@ -5,7 +5,6 @@ import { useEffect, useRef } from 'react'
 import { chromeEn } from '../copy/chrome.js'
 import { resolveDetailsMode, resolveSections } from '../domain/details.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import { DEFAULT_VOICE_RECORD_KEY, type ParsedVoiceRecordKey, parseVoiceRecordKey } from '../lib/platform.js'
 import { asRpcResult } from '../lib/rpc.js'
 
 import { applyConfiguredTuiTheme } from './createGatewayEventHandler.js'
@@ -224,12 +223,6 @@ export const syncMcpReload = async (
   }
 }
 
-const _voiceRecordKeyFromConfig = (cfg: ConfigFullResponse | null): ParsedVoiceRecordKey => {
-  const raw = cfg?.config?.voice?.record_key
-
-  return raw ? parseVoiceRecordKey(raw) : DEFAULT_VOICE_RECORD_KEY
-}
-
 const _pasteCollapseLinesFromConfig = (cfg: ConfigFullResponse | null): number => {
   if (!cfg?.config) {
     return 5
@@ -284,7 +277,6 @@ const _pasteCollapseCharsFromConfig = (cfg: ConfigFullResponse | null): number =
 export async function hydrateFullConfig(
   gw: GatewayClient,
   setBell: (v: boolean) => void,
-  setVoiceRecordKey?: (v: ParsedVoiceRecordKey) => void,
   setBellOnPrompt?: (v: boolean) => void,
   scope?: { sid: string; isCurrent: () => boolean }
 ): Promise<ConfigFullResponse | null> {
@@ -299,7 +291,7 @@ export async function hydrateFullConfig(
     return null
   }
 
-  applyDisplay(cfg, setBell, setVoiceRecordKey, setBellOnPrompt, !gw.isCanonical)
+  applyDisplay(cfg, setBell, setBellOnPrompt, !gw.isCanonical)
 
   if (gw.isCanonical && BUSY_MODES.has(busy?.value)) {
     patchUiState({ busyInputMode: busy!.value })
@@ -311,7 +303,6 @@ export async function hydrateFullConfig(
 export const applyDisplay = (
   cfg: ConfigFullResponse | null,
   setBell: (v: boolean) => void,
-  setVoiceRecordKey?: (v: ParsedVoiceRecordKey) => void,
   setBellOnPrompt?: (v: boolean) => void,
   applyBusy = true
 ) => {
@@ -323,17 +314,6 @@ export const applyDisplay = (
   setBellOnPrompt?.(!!d.bell_on_prompt)
 
   applyConfiguredTuiTheme(d.tui_theme)
-
-  // Only push the voice record key when the RPC actually returned a
-  // config payload. ``quietRpc()`` collapses failures to ``null``; if we
-  // reset the cached shortcut on every null we would clobber a custom
-  // binding after one transient RPC error until the next config edit
-  // (Copilot round-8 review on #19835). The mtime-poll loop advances
-  // ``mtimeRef`` before this call, so staying silent on null preserves
-  // the last-good state and lets the next successful poll refresh it.
-  if (setVoiceRecordKey && cfg) {
-    setVoiceRecordKey(_voiceRecordKeyFromConfig(cfg))
-  }
 
   patchUiState({
     battery: !!d.battery,
@@ -363,30 +343,10 @@ export const applyDisplay = (
   })
 }
 
-/** T9: on the shared owner the voice bit is the session's gateway `/voice` mode (`config.get
- *  key=voice`), not the owner process's HERMES_VOICE env, which Ink's own env never reflected. */
-export const hydrateVoiceMode = async (
-  gw: GatewayClient,
-  setVoiceEnabled: (v: boolean) => void,
-  scope: { isCurrent: () => boolean; sid: string }
-) => {
-  if (!gw.isCanonical) {
-    return
-  }
-
-  const r = await quietRpc<{ value?: string }>(gw, 'config.get', { key: 'voice', session_id: scope.sid })
-
-  if (r && scope.isCurrent()) {
-    setVoiceEnabled(r.value === 'voice_only' || r.value === 'all')
-  }
-}
-
 export function useConfigSync({
   gw,
   setBellOnComplete,
   setBellOnPrompt,
-  setVoiceEnabled,
-  setVoiceRecordKey,
   sid
 }: UseConfigSyncOptions) {
   const mtimeRef = useRef(0)
@@ -400,12 +360,6 @@ export function useConfigSync({
     let active = true
     const scope = { sid, isCurrent: () => active && getUiState().sid === sid }
 
-    // Keep startup cheap: voice.toggle status probes optional audio/STT deps and
-    // can run long enough to delay prompt.submit on the single stdio RPC pipe.
-    // Environment flags are enough to initialize the UI bit; the heavier status
-    // check still runs when the user opens /voice.
-    setVoiceEnabled(process.env.HERMES_VOICE === '1')
-    void hydrateVoiceMode(gw, setVoiceEnabled, scope)
     quietRpc<ConfigMtimeResponse>(gw, 'config.get', { key: 'mtime', session_id: sid }).then(r => {
       if (!scope.isCurrent()) {return}
       mtimeRef.current = Number(r?.mtime ?? 0)
@@ -415,12 +369,12 @@ export function useConfigSync({
       // mcp_rev) look like an MCP change and fire a needless reload.mcp.
       mcpRevRef.current.accepted = String(r?.mcp_rev ?? '')
     })
-    void hydrateFullConfig(gw, setBellOnComplete, setVoiceRecordKey, setBellOnPrompt, scope)
+    void hydrateFullConfig(gw, setBellOnComplete, setBellOnPrompt, scope)
 
     return () => {
       active = false
     }
-  }, [gw, setBellOnComplete, setBellOnPrompt, setVoiceEnabled, setVoiceRecordKey, sid])
+  }, [gw, setBellOnComplete, setBellOnPrompt, sid])
 
   useEffect(() => {
     if (!sid) {
@@ -471,7 +425,7 @@ export function useConfigSync({
           )
         }
 
-        void hydrateFullConfig(gw, setBellOnComplete, setVoiceRecordKey, setBellOnPrompt, scope)
+        void hydrateFullConfig(gw, setBellOnComplete, setBellOnPrompt, scope)
       })
     }, MTIME_POLL_MS)
 
@@ -479,14 +433,12 @@ export function useConfigSync({
       active = false
       clearInterval(id)
     }
-  }, [gw, setBellOnComplete, setBellOnPrompt, setVoiceRecordKey, sid])
+  }, [gw, setBellOnComplete, setBellOnPrompt, sid])
 }
 
 export interface UseConfigSyncOptions {
   gw: GatewayClient
   setBellOnComplete: (v: boolean) => void
   setBellOnPrompt?: (v: boolean) => void
-  setVoiceEnabled: (v: boolean) => void
-  setVoiceRecordKey?: (v: ParsedVoiceRecordKey) => void
   sid: null | string
 }

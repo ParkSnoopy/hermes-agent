@@ -116,7 +116,6 @@ tools:
       - image_generate
       - todo_list
       - process_manage
-      - cronjob_manage
       - manage_catalog
 ```
 

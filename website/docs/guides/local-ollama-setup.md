@@ -253,7 +253,7 @@ ollama serve
 
 ### Slow first response (prefill)
 
-Hermes sends a fixed payload on every API call — the system prompt plus the tool schemas for all enabled tools — before any of your conversation content. On CPU-only or low-VRAM setups, processing that prompt (the *prefill* phase) dominates the first turn: the model can sit silent for minutes while it works through the prompt, then generate at its normal pace. This is expected behaviour, not a hang. The [Mac local-LLM guide](./local-llm-on-mac.md#timeouts) documents the same effect — during prefill on large contexts, local models may produce no output for minutes while processing the prompt — and Hermes automatically raises its stream read timeout from 120s to 1800s for local endpoints (`HERMES_STREAM_READ_TIMEOUT`).
+Hermes sends a fixed payload on every API call — the system prompt plus the tool schemas for all enabled tools — before any of your conversation content. On CPU-only or low-VRAM setups, processing that prompt (the *prefill* phase) dominates the first turn: the model can sit silent for minutes while it works through the prompt, then generate at its normal pace. This is expected behaviour, not a hang. During prefill on large contexts, local models may produce no output for minutes while processing the prompt. Hermes automatically raises its stream read timeout from 120s to 1800s for local endpoints (`HERMES_STREAM_READ_TIMEOUT`).
 
 What helps:
 
@@ -293,7 +293,7 @@ Your only cost is electricity — roughly $0.01–0.05 per session depending on 
 - **File editing and code generation** — models 9B+ handle this well
 - **Terminal commands** — Hermes wraps the command, runs it, reads output regardless of model
 - **Web browsing** — the browser tool does the fetching; the model just interprets results
-- **Cron jobs and scheduled tasks** — work identically to cloud setups
+
 
 
 ## What's Better with Cloud Models

@@ -13,12 +13,10 @@ _HERMES_CORE_TOOLS = [
     "browser_exec",  # THE browser: Python over CDP (browser-harness)
     "browser_cdp", "browser_dialog",
     "browser_vault",  # rides with the browser; deferred by default (tools.tool_search.defer)
-    "text_to_speech",
     "todo_list", "memory",
     "session_search",
     "clarify",
     "execute_code", "delegate_task",
-    "cronjob_manage",
 
     "computer_use",
     # Service-gated connector account status and authorization links.
@@ -42,8 +40,8 @@ def _core_without(*excluded):
 
 
 # Coding posture: everything you reach for while pairing on code; drops
-# tts, image_gen, cron and computer-use.
-_CODING_TOOLS = _core_without("image_generate", "text_to_speech", "cronjob_manage", "computer_use")
+# image_gen and computer-use.
+_CODING_TOOLS = _core_without("image_generate", "computer_use")
 
 
 # Core toolset definitions: individual tools or references to other toolsets.
@@ -90,17 +88,11 @@ TOOLSETS = {
         "click, type, extract, screenshots), raw CDP, dialogs and vault logins",
         [t for t in _HERMES_CORE_TOOLS if t.startswith("browser_")],
     ),
-    "cronjob": _ts(
-        "Cronjob management tool - create, list, update, pause, resume, remove, and "
-        "trigger scheduled tasks",
-        ["cronjob_manage"],
-    ),
     "file": _ts(
         "File manipulation tools: read, write, patch (with fuzzy matching), and "
         "search (content + files)",
         ["read_file", "write_file", "patch", "search_files"],
     ),
-    "tts": _ts("Text-to-speech: convert text to audio with Edge TTS (free), ElevenLabs, OpenAI, or xAI", ["text_to_speech"]),
     "todo": _ts("Task planning and tracking for multi-step work", ["todo_list"]),
     "memory": _ts("Persistent memory across sessions (personal notes + user profile)", ["memory"]),
     "context_engine": _ts("Runtime tools exposed by the active context engine"),
@@ -138,11 +130,7 @@ TOOLSETS = {
         [t for t in _CODING_TOOLS if t != "clarify"],
     ),
 
-    "hermes-cli": _bundle("Full interactive CLI toolset - all default tools plus cronjob management"),
-
-    # Mirrors hermes-cli; `hermes tools` platform config filters it down and
-    # _get_platform_tools() drops _DEFAULT_OFF_TOOLSETS unless user-enabled.
-    "hermes-cron": _bundle("Default cron toolset - same core tools as hermes-cli; gated by `hermes tools`"),
+    "hermes-cli": _bundle("Full interactive CLI toolset - all default tools"),
 
     "hermes-gateway": _ts(
         "Shared session runtime toolset",

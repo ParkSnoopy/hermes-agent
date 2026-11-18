@@ -14,8 +14,12 @@ def test_fresh_local_session_owns_execution_across_viewers(tmp_path, kind):
     home, state = tmp_path / 'home', tmp_path / 'state'
     home.mkdir()
     state.mkdir()
+    runtime = tmp_path / 'runtime'
+    runtime.mkdir()
     env = {k: os.environ[k] for k in ('PATH', 'SYSTEMROOT', 'LANG', 'TZ') if k in os.environ}
-    env.update(HOME=str(home), USERPROFILE=str(home), HERMES_HOME=str(state), PYTHONPATH=str(repo))
+    env.update(HOME=str(home), USERPROFILE=str(home), HERMES_HOME=str(state), HERMES_RUNTIME_DIR=str(runtime),
+               TMPDIR=str(tmp_path), TEMP=str(tmp_path), TMP=str(tmp_path),
+               XDG_CACHE_HOME=str(tmp_path / 'cache'), PYTHONPATH=str(repo))
     result = subprocess.run(
         [sys.executable, str(Path(__file__).parent / 'fixtures' / 'local_session_peer.py'), kind],
         cwd=repo, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=100, check=False)

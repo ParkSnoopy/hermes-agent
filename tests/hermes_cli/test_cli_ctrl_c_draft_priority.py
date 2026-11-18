@@ -22,11 +22,9 @@ class _Cli(mixin_mod.CLITuiMixin):
         self._last_ctrl_c_time = 0.0
         self._should_exit = False
 
-    # Voice / modal / overlay layers sit above the draft check and are covered elsewhere.
+    # Modal / overlay layers sit above the draft check and are covered elsewhere.
     _close_model_picker = _close_command_palette = _submit_slash_confirm_response = None
 
-    def _tui_cancel_voice_recording(self, event):
-        return False
 
     def _tui_cancel_foreground_ui(self, event, closers):
         return False

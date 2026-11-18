@@ -102,9 +102,9 @@ Hermes reads environment variables from the process environment and, for user-ma
 | `STEPFUN_BASE_URL` | Override StepFun base URL (default: `https://api.stepfun.com/v1`) |
 | `OLLAMA_API_KEY` | Ollama Cloud API key — managed Ollama catalog without local GPU ([ollama.com/settings/keys](https://ollama.com/settings/keys)) |
 | `OLLAMA_BASE_URL` | Override Ollama Cloud base URL (default: `https://ollama.com/v1`) |
-| `XAI_API_KEY` | xAI (Grok) API key for chat + TTS + web search ([console.x.ai](https://console.x.ai/)) |
+| `XAI_API_KEY` | xAI (Grok) API key for chat + web search ([console.x.ai](https://console.x.ai/)) |
 | `XAI_BASE_URL` | Override xAI base URL (default: `https://api.x.ai/v1`) |
-| `MISTRAL_API_KEY` | Mistral API key for Voxtral TTS and Voxtral STT ([console.mistral.ai](https://console.mistral.ai)) |
+| `MISTRAL_API_KEY` | Mistral API key for model access ([console.mistral.ai](https://console.mistral.ai)) |
 | `AWS_REGION` | AWS region for Bedrock inference (e.g. `us-east-1`, `eu-central-1`). Read by boto3. |
 | `AWS_PROFILE` | AWS named profile for Bedrock authentication (reads `~/.aws/credentials`). Leave unset to use default boto3 credential chain. |
 | `BEDROCK_BASE_URL` | Override Bedrock runtime base URL (default: `https://bedrock-runtime.us-east-1.amazonaws.com`; usually leave unset and use `AWS_REGION` instead) |
@@ -114,15 +114,11 @@ Hermes reads environment variables from the process environment and, for user-ma
 | `OPENCODE_GO_API_KEY` | OpenCode Go API key — $10/month subscription for open models ([opencode.ai](https://opencode.ai/auth)) |
 | `OPENCODE_GO_BASE_URL` | Override OpenCode Go base URL |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Explicit Claude Code token override if you export one manually |
-| `HERMES_MODEL` | Override model name at process level (used by cron scheduler; prefer `config.yaml` for normal use) |
-| `VOICE_TOOLS_OPENAI_KEY` | Preferred OpenAI key for OpenAI speech-to-text and text-to-speech providers |
-| `HERMES_LOCAL_STT_COMMAND` | Optional local speech-to-text command template. Supports `{input_path}`, `{output_dir}`, `{language}`, and `{model}` placeholders |
-| `HERMES_LOCAL_STT_LANGUAGE` | Fallback STT language hint, used only when both the provider's own `language` and the global `stt.language` are empty. Command backends (`HERMES_LOCAL_STT_COMMAND`, the local `whisper` CLI) may apply their own default (`en`) when no hint resolves. |
+| `HERMES_MODEL` | Override model name at process level (prefer `config.yaml` for normal use) |
 | `HERMES_HOME` | Select the configuration and user-data home. A literal `~` or `$VAR` in the value is expanded (fish does not expand `~` inside `VAR=~/…`), so it never resolves relative to the current directory. Defaults to `~/.hermes` on POSIX and `%LOCALAPPDATA%\hermes` on Windows; the official Docker image uses `/opt/data`. Profile/runtime context can select a more specific home. |
 | `HERMES_CONFIG_BACKEND` | Select where the profile's `config.yaml` user layer is read and written. `file` (the default) is the local `config.yaml`; `remote` is [Remote Config](../user-guide/remote-config.md). Any other value, or a remote backend that cannot serve config, stops Hermes at startup with an error instead of falling back to defaults. An explicitly empty value in a `.env` resets a stale shell value to `file`. Read from the launch environment, the launch home's `.env` and the managed `.env`, never from `config.yaml`. See [Config backend](../developer-guide/config-backend.md). |
 | `HERMES_CONFIG_REMOTE_URL` | Base URL of the [Remote Config](../user-guide/remote-config.md) plane (default `https://config-config.nousresearch.com`; `https://` only, plain `http://` only to loopback, no user info). An env var because it is needed before any config can be read: it says where config comes from. |
 | `HERMES_CONFIG_INSTANCE_ID` | This agent's id in the [Remote Config](../user-guide/remote-config.md) plane; required with `HERMES_CONFIG_BACKEND=remote`. An env var because the plane needs it to serve the first config read. |
-| `HERMES_DISABLE_WINDOWS_UTF8` | **Windows only.** Set to `1` to disable the UTF-8 stdio shim (`configure_windows_stdio()`) and fall back to the console's locale code page. Useful for bisecting encoding bugs; rarely the right setting in normal operation |
 
 
 ## Provider Auth (OAuth)
@@ -163,13 +159,6 @@ For native Anthropic auth, Hermes prefers Claude Code's own credential files whe
 | `AGENT_BROWSER_*` | No longer read. On update, values in the profile's `.env` are copied into config when the key is unset (`browser.engine: auto` and `browser.headed: false` count as unset; a relative `AGENT_BROWSER_PROFILE` becomes an absolute path): `AGENT_BROWSER_EXECUTABLE_PATH` → `browser.executable_path`, `AGENT_BROWSER_PROFILE` → `browser.user_data_dir`, `AGENT_BROWSER_ARGS` → `browser.chromium_args`, `AGENT_BROWSER_HEADED` → `browser.headed`, `AGENT_BROWSER_ENGINE` → `browser.engine`. |
 | `FAL_KEY` | Image generation ([fal.ai](https://fal.ai/)) |
 | `KREA_API_KEY` | Krea API key for Krea 3 and Krea 2 image generation ([krea.ai](https://krea.ai/)) |
-| `GROQ_API_KEY` | Groq Whisper STT API key ([groq.com](https://groq.com/)) |
-| `ELEVENLABS_API_KEY` | ElevenLabs premium TTS voices ([elevenlabs.io](https://elevenlabs.io/)) |
-| `PORCUPINE_ACCESS_KEY` | Picovoice Porcupine wake-word engine ([console.picovoice.ai](https://console.picovoice.ai/)) — required when Porcupine is selected; openWakeWord and sherpa need no key |
-| `STT_GROQ_MODEL` | Override the Groq STT model (default: `whisper-large-v3-turbo`) |
-| `GROQ_BASE_URL` | Override the Groq OpenAI-compatible STT endpoint |
-| `STT_OPENAI_MODEL` | Override the OpenAI STT model (default: `whisper-1`) |
-| `STT_OPENAI_BASE_URL` | Override the OpenAI-compatible STT endpoint |
 | `GITHUB_TOKEN` | GitHub token for Skills Hub (higher API rate limits, skill publish) and the desktop app's update check (`GH_TOKEN` also honoured; without either, the desktop falls back to the `gh` CLI login, then anonymous) |
 | `HONCHO_API_KEY` | Cross-session user modeling ([honcho.dev](https://honcho.dev/)) |
 | `HONCHO_BASE_URL` | Base URL for self-hosted Honcho instances (default: Honcho cloud). No API key required for local instances |
@@ -226,7 +215,7 @@ Terminal commands run locally as the Hermes process user, with that user’s fil
 | `TERMINAL_ENV` | Only `local` is supported; nonlocal values are refused. |
 | `TERMINAL_TIMEOUT` | Command timeout in seconds |
 | `TERMINAL_LIFETIME_SECONDS` | Idle session cleanup time in seconds |
-| `TERMINAL_CWD` | Deprecated gateway/cron override; prefer `terminal.cwd`. |
+| `TERMINAL_CWD` | Deprecated gateway override; prefer `terminal.cwd`. |
 | `SUDO_PASSWORD` | Enable sudo without interactive prompt; stored in plaintext. |
 
 ## Persistent Shell
@@ -251,36 +240,6 @@ Exported env vars carry from one command to the next while on; the working direc
 | `API_SERVER_HOST` | Host/bind address for the API server (default: `127.0.0.1`). `API_SERVER_KEY` is still required on loopback; use a narrow `API_SERVER_CORS_ORIGINS` allowlist for browser access. |
 | `API_SERVER_MODEL_NAME` | Model name advertised on `/v1/models`. Defaults to the profile name (or `hermes-agent` for the default profile). Useful for multi-user setups where frontends like Open WebUI need distinct model names per connection. |
 
-### Web Dashboard & Hermes Desktop
-
-Auth for the [web dashboard](../user-guide/features/web-dashboard.md) and for connecting [Hermes Desktop to a remote backend](../user-guide/features/web-dashboard.md#connecting-hermes-desktop-to-a-remote-backend). Per the secrets-only convention, credentials belong in `~/.hermes/.env`; the OAuth `client_id` is better set under `dashboard.oauth` in `config.yaml` (env wins when set).
-
-Three dashboard-auth providers ship in the box. For a remote Hermes Desktop connection or any internet-facing dashboard, the recommended provider is **OAuth (Nous Portal)** — set `HERMES_DASHBOARD_OAUTH_CLIENT_ID` (provision it with `hermes dashboard register`). The bundled **username/password** provider (`HERMES_DASHBOARD_BASIC_AUTH_*`) is the quickest option for a backend on a trusted LAN or behind a VPN, but is not suitable for direct public-internet exposure. To authenticate against your own identity provider, use the **self-hosted OIDC** provider (`HERMES_DASHBOARD_OIDC_*`). Either way, a non-loopback bind (`hermes dashboard --host 0.0.0.0`) engages the auth gate. See [Web Dashboard → Authentication](../user-guide/features/web-dashboard.md#authentication-gated-mode) for the full picture.
-
-| Variable | Description |
-|----------|-------------|
-| `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` | Username for the bundled username/password dashboard-auth provider (`plugins/dashboard_auth/basic`). Activates the provider when set together with a password. Overrides `dashboard.basic_auth.username`. |
-| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` | Plaintext password for the basic provider (hashed in-memory at load). Wins over a config `password_hash` so you can rotate via env. Overrides `dashboard.basic_auth.password`. |
-| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH` | scrypt password hash for the basic provider (preferred — no plaintext at rest). Compute with `python -c "from plugins.dashboard_auth.basic import hash_password; print(hash_password('PW'))"`. Overrides `dashboard.basic_auth.password_hash`. |
-| `HERMES_DASHBOARD_BASIC_AUTH_SECRET` | HMAC key (32+ bytes, base64/hex/raw) signing the basic provider's stateless session tokens. Set explicitly so sessions survive restarts / span multiple workers; blank → random per-process (you'll be logged out on every restart). A value that still holds unexpanded shell text such as `$(openssl rand -base64 32)` is ignored with an error and a random per-process key is used instead. Overrides `dashboard.basic_auth.secret`. |
-| `HERMES_DASHBOARD_BASIC_AUTH_TTL_SECONDS` | Access-token lifetime for the basic provider (default 12h). Overrides `dashboard.basic_auth.session_ttl_seconds`. |
-| `HERMES_DASHBOARD_OAUTH_CLIENT_ID` | OAuth client id (`agent:{instance_id}`) for the gated/public dashboard, activating the Nous (`plugins/dashboard_auth/nous`) provider. Overrides `dashboard.oauth.client_id`. Provision it with `hermes dashboard register`. |
-| `HERMES_DASHBOARD_SESSION_TOKEN` | Per-process session token for the dashboard's sensitive `/api` routes, minted by the launcher that spawns `hermes dashboard` (Desktop shell, link-style integrations). A value injected by the parent process is kept as-is: a `HERMES_DASHBOARD_SESSION_TOKEN` line in `~/.hermes/.env` does not replace it. Unset, the server mints a fresh token per start. |
-| `HERMES_DASHBOARD_PUBLIC_URL` | Complete public URL the dashboard is reached at behind a reverse proxy. It controls OAuth callback construction, adds its exact hostname to the HTTP Host/WebSocket Origin guard, and requires the auth gate for non-loopback public hosts even when the backend binds to loopback. Overrides `dashboard.public_url`. |
-| `HERMES_DASHBOARD_OIDC_ISSUER` | OIDC issuer URL for the bundled self-hosted OIDC provider (`plugins/dashboard_auth/self_hosted`). Required to activate it. Overrides `dashboard.oauth.self_hosted.issuer`. |
-| `HERMES_DASHBOARD_OIDC_CLIENT_ID` | Public OIDC client id (authorization-code + PKCE) for the self-hosted OIDC provider. Required to activate it. Overrides `dashboard.oauth.self_hosted.client_id`. |
-| `HERMES_DASHBOARD_OIDC_SCOPES` | Requested OIDC scopes for the self-hosted OIDC provider (default `openid profile email`). Overrides `dashboard.oauth.self_hosted.scopes`. |
-| `HERMES_DESKTOP_REMOTE_URL` | (Desktop side) Base URL of the remote backend, e.g. `http://host:9119`. When set, overrides the in-app Gateway URL; you still sign in from the Gateway settings panel (OAuth redirect or username/password, whichever the backend advertises). |
-| `HERMES_DESKTOP_HERMES` | Desktop backend command override. Used by packagers/Nix or troubleshooting to point Electron at a specific `hermes` executable before checking the mutable managed install. |
-| `HERMES_DESKTOP_HERMES_ROOT` | Desktop source-checkout override used by `hermes desktop --hermes-root`; checked before the packaged first-launch install or an existing `hermes` on `PATH`. |
-| `HERMES_DESKTOP_IGNORE_EXISTING` | Set to `1` to make Desktop skip the installed runtime (`~/.hermes/hermes-agent`, or `%LOCALAPPDATA%\hermes\hermes-agent` on Windows) during backend resolution, so no local backend starts and Desktop shows the connect-or-install choice. The bundled runtime, `HERMES_DESKTOP_HERMES_ROOT`, an unpackaged source checkout, and `HERMES_DESKTOP_HERMES` still win. A runtime installed during this launch is used. Equivalent to `hermes desktop --ignore-existing`. |
-| `HERMES_DESKTOP_CWD` | Initial project directory for Desktop chat sessions. Set by `hermes desktop --cwd`. |
-| `HERMES_DESKTOP_PYTHON` | Absolute path to a Python interpreter for the backend, checked before Electron auto-resolves one for the source checkout. Used by worktree dev helpers (see [TUI & Desktop from Worktrees](../developer-guide/worktree-ui-dev.md)) to reuse a shared venv. |
-| `HERMES_DESKTOP_DEV_SERVER` | Vite dev-server URL the Electron shell loads instead of the packaged bundle (e.g. `http://127.0.0.1:5174`). Set automatically by `pnpm run dev`; only relevant when hacking on the app. A backend that inherits it also trusts that renderer's origin for CORS and WebSocket upgrades. |
-| `HERMES_DESKTOP_CDP_PORT` | Overrides the Chrome DevTools Protocol port the renderer exposes on `127.0.0.1` for DOM/CSS inspection tooling (default `9222`). Dev-server runs (`pnpm run dev`, `hgui`) open it automatically; a packaged app never does, and no value here changes that. Set to `off` to disable it on a dev run. Anything that can reach the port can execute code in the renderer. |
-| `HERMES_DESKTOP_NVIDIA_SWIFTSHADER` | (Desktop on Linux, NVIDIA only) Override for the EGL fallback that routes rendering through SwiftShader on driver series with a broken EGL probe (`580.x`, #40077): `1` forces the fallback on — the recovery hatch if a future series reintroduces the crash but is not yet in the closed list; `0` opts out and uses the native GPU path at your own risk. Force-on does not apply where another gate already disabled the GPU (remote display, WSLg, `HERMES_DESKTOP_DISABLE_GPU=0`). |
-| `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | (Desktop side) The in-app update check (`Help → Check for Updates…` and the passive update banner) reaches `api.github.com` through the proxy these standard variables name, with `NO_PROXY` exemptions honoured — the same convention `curl`, `npm` and `git` follow. Unset, the check connects directly. |
-
 ### Microsoft Graph (Teams Meetings)
 
 App-only credentials for the Microsoft Graph REST client used by the upcoming Teams meeting summary pipeline. See [Register a Microsoft Graph application](../guides/microsoft-graph-app-registration.md) for the Azure portal walkthrough and the exact API permissions required.
@@ -295,7 +254,7 @@ App-only credentials for the Microsoft Graph REST client used by the upcoming Te
 
 ### Microsoft Graph Webhook Listener
 
-Inbound change-notification listener for Graph events (Teams meetings, calendar, chat, etc.). See [Microsoft Graph Webhook Listener](../user-guide/messaging/msgraph-webhook.md) for setup and security hardening.
+Inbound change-notification listener for Graph events (Teams meetings, calendar, chat, etc.).
 
 | Variable | Description |
 |----------|-------------|
@@ -307,7 +266,7 @@ Inbound change-notification listener for Graph events (Teams meetings, calendar,
 
 ### Teams Meeting Summary Delivery
 
-Only used when the [`teams_pipeline` plugin](../user-guide/messaging/teams-meetings.md) is enabled.
+Only used when the `teams_pipeline` plugin is enabled.
 Set `platforms.msgraph_webhook.extra.meeting_pipeline.teams_delivery.enabled: true` to enable delivery.
 The `TEAMS_*` variables below are fallbacks; values configured in `platforms.msgraph_webhook.extra.meeting_pipeline.teams_delivery` take precedence.
 
@@ -384,7 +343,7 @@ When this variable is set, `write_file` and `patch` may only target paths inside
 
 The official Docker image sets `HERMES_WRITE_SAFE_ROOT=/opt/data` alongside `HERMES_HOME=/opt/data` so the agent cannot escape the mounted data volume.
 
-**Do not add this to `~/.hermes/.env` unless you intend to sandbox writes.** A common mistake is pointing it at a project directory while expecting the agent to edit `~/.hermes/cron/jobs.json`, `~/.hermes/skills/`, or scripts under a profile — those paths are outside the sandbox and every `write_file`/`patch` to them fails with an `outside HERMES_WRITE_SAFE_ROOT` error.
+**Do not add this to `~/.hermes/.env` unless you intend to sandbox writes.** A common mistake is pointing it at a project directory while expecting the agent to edit `~/.hermes/skills/` or scripts under a profile — those paths are outside the sandbox and every `write_file`/`patch` to them fails with an `outside HERMES_WRITE_SAFE_ROOT` error.
 
 To allow both a workspace and Hermes state, list both prefixes (order does not matter):
 
@@ -401,9 +360,8 @@ Hermes sets these itself to carry state across a boundary where no `config.yaml`
 | Variable | Description |
 |----------|-------------|
 | `HERMES_DATA_DIR_SUFFIX` | Baked into a desktop bundle's environment (`--bundle-env`, `HERMES_BUNDLE_ENV_JSON`, or channel builds with channel-specific data dirs, which use `-channel-build-<channel>`) so a test or channel build keeps its own data. It is appended literally to the default Hermes home and the default Electron `userData` directory, with no separator: `-channel-build-canary` selects `~/.hermes-channel-build-canary` on POSIX. Explicit `HERMES_HOME` and `HERMES_DESKTOP_USER_DATA_DIR` win and are not suffixed. It must be in the launch environment before startup, because it chooses the home that holds `.env` and `config.yaml`. |
-| `HERMES_REPO_URL` | Git remote the installers (`scripts/install.sh`, `scripts/install.ps1`) clone from, and re-point `origin` to on a rerun. It is an environment variable because the installer runs before any Hermes config exists. Used by CI and rehearsal scripts to install from a fork or mirror; unset, the installers use the official repository. |
+| `HERMES_REPO_URL` | Git remote the installers (`scripts/install.sh`) clone from, and re-point `origin` to on a rerun. It is an environment variable because the installer runs before any Hermes config exists. Used by CI and rehearsal scripts to install from a fork or mirror; unset, the installers use the official repository. |
 | `HERMES_UPDATE_STATUS_FILE` | Exported by the desktop update shim (`scripts/desktop-update/posix.sh`) with the path of the status JSON its progress window renders. The `hermes update` takeover children publish their long-running stages into that file so the window keeps moving. Absent (an older shim), they fall back to the status file named by the shim's pid in the update marker, and publish nothing when no UI is watching. |
-| `HERMES_UPDATE_UI_ACTIVE` | Set to `1` by an update child after it opens the native macOS status panel for an old shim that has no window of its own. Children inherit it, so the panel is opened at most once per update chain. |
 
 ## Interface
 

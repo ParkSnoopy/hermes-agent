@@ -60,7 +60,7 @@ def test_xai_credentials_do_not_fall_back_to_environ_when_scope_has_no_key(
 
 
 # ---------------------------------------------------------------------------
-# prefer_api_key opt-in (#88040 x_search / #87045 TTS): explicit API key wins
+# prefer_api_key opt-in for x_search: explicit API key wins
 # over subscription OAuth, via the shared resolver — not per-caller inlining.
 # ---------------------------------------------------------------------------
 
@@ -230,7 +230,7 @@ def test_suppression_is_scoped_to_its_provider(tmp_path, monkeypatch):
     from tools.tool_backend_helpers import resolve_provider_secret
 
     _write_auth_store(tmp_path, monkeypatch, {"xai": ["env:XAI_API_KEY"]})
-    monkeypatch.setenv("ELEVENLABS_API_KEY", "el-key")
+    monkeypatch.setenv("FAL_KEY", "fal-test-key")
     monkeypatch.setenv("XAI_API_KEY", "dead-key")
-    assert resolve_provider_secret("ELEVENLABS_API_KEY", "elevenlabs") == "el-key"
+    assert resolve_provider_secret("FAL_KEY", "fal") == "fal-test-key"
     assert resolve_provider_secret("XAI_API_KEY", "xai") == ""

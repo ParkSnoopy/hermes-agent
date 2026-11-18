@@ -236,37 +236,6 @@ def _pending_reaction_notes(session: dict) -> str:
 
 # ── prompt.submit pieces ────────────────────────────────────────────────────
 
-def _consume_typed_stop_phrase(text, sid=None, *, emit: bool = True) -> bool:
-    """End *sid*'s voice chat when *text* is a bare stop phrase TYPED while its voice mode is on
-    (typed twin of the spoken stop phrase) -> True; False for a normal message. *emit* sends the
-    ``voice.transcript`` stop event to the voice client; the canonical ``prompt.submit`` path
-    (``gateway/session_controls.py``) answers its submitter in the reply instead (TUI-26)."""
-    if not (isinstance(text, str) and _session_voice_enabled(sid)):
-        return False
-    try:
-        # Typed bare stop phrase while backend voice mode is active ends the voice chat instead of sending
-        # "stop" to the agent — the typed twin of the spoken stop phrase (PR #73106), applied at the
-        # server-side choke point every TUI submit passes through: this sidecar handler and the shared
-        # owner's canonical prompt.submit. (The desktop's voice conversation is renderer-owned and never
-        # flips the backend flag, so it handles its own typed stop client-side.)
-        from tools.voice_mode_transcript import is_voice_stop_phrase
-        if not is_voice_stop_phrase(text):
-            return False
-    except Exception:  # an unreadable voice config never swallows the message: it reaches the agent
-        logger.debug("typed stop-phrase check failed; submitting the text", exc_info=True)
-        return False
-    _end_session_voice_chat(sid, stop_loop=True, stop_tts=True)
-    if emit:
-        _voice_emit("voice.transcript", {"stop_phrase": True, "typed": True})
-    logger.info("prompt.submit: typed stop phrase — voice chat ended")
-    return True
-
-
-def _typed_stop_phrase_response(rid, text, sid=None):
-    """RPC reply ending the voice chat when a bare stop phrase is TYPED while the session's voice
-    mode is on (typed twin of the spoken stop phrase), or None for a normal message."""
-    return _ok(rid, {"voice_stopped": True}) if _consume_typed_stop_phrase(text, sid) else None
-
 
 _HOSTED_TASK_FIELDS = {"room_id", "task_id", "thread_id", "turn_id", "execution_generation", "member_id"}
 
@@ -757,8 +726,7 @@ def _submit_to_ledger_owner(rid, sid, session, text, params, refusal) -> dict:
                         session.get("session_key") or sid, exc, exc_info=True)
             why = str(exc) if isinstance(exc, owner_forward.OwnerUnavailable) else "the gateway refused it"
         else:
-            if receipt.get("voice_stopped") is True:
-                return _ok(rid, {"voice_stopped": True})  # the owner ended its voice chat; nothing queued
+
             return _ok(rid, {"status": "queued", "admission_id": receipt.get("admission_id"),
                              "forwarded": True})
     return _err(rid, 4090, "The gateway is running a turn in this chat and " + why
@@ -832,12 +800,7 @@ def _(rid, params: dict) -> dict:
         if isinstance(title_preview, str) and title_preview.strip()
         else None
     )
-    if (stopped := _typed_stop_phrase_response(rid, text, sid)) is not None:
-        return stopped
-    if params.get("interrupted"):
-        # Client-side barge-in: latch so this turn's model message carries the note.
-        from tools.tts_streaming import mark_speech_interrupted
-        mark_speech_interrupted()
+
     session, err = _sess_nowait(params, rid)
     if err:
         return err
@@ -862,14 +825,8 @@ def _(rid, params: dict) -> dict:
         # Refused HERE — before the busy queue, db row and agent build — so a refusal
         # leaves the session untouched.  The reason travels as machine-readable data.
         return _slot_refusal(rid, sid, session, text, params, limit_message, internal_hosted_submit)
-    # Rewritten every submit: a session alternates app window / HUD / live voice; a stale value misinforms.
+    # Rewritten every submit so a stale surface does not affect later turns.
     session["client_surface"] = params.get("surface") if params.get("surface") in _CLIENT_SURFACES else ""
-    # Live-voice delegations carry the recent spoken transcript for the MODEL INPUT only (the persisted
-    # user row stays the words the user said); anything else clears it.
-    voice_context = params.get("voice_context")
-    session["voice_live_context"] = (
-        voice_context[:6000] if session["client_surface"] == "voice-live" and isinstance(voice_context, str) else "")
-    session["voice_turn"] = params.get("voice_turn") is True
     has_truncation = any(params.get(k) is not None for k in _TRUNCATION_PARAMS)
     if has_truncation and isinstance(text, str):
         # A rewind replays what the transcript shows: re-expand a skill invocation or
@@ -1083,13 +1040,13 @@ def _(rid, params: dict) -> dict:
         argv = [
             "pdftoppm", "-png", "-r", "150", "-f", str(first_page), "-l", str(last_page),
             str(pdf_path), str(td_path / "page")]
-        from hermes_cli._subprocess_compat import windows_hide_flags
+
         try:
             # UTF-8 + lossy decode: non-UTF-8 child output must not crash the gateway
             # thread on locale-mismatched Windows.
             res = subprocess.run(
                 argv, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
-                encoding="utf-8", errors="replace", creationflags=windows_hide_flags(), check=False)
+                encoding="utf-8", errors="replace", check=False)
         except subprocess.TimeoutExpired:
             return _err(rid, 5028, "pdftoppm timed out (>120s)")
         if res.returncode != 0:

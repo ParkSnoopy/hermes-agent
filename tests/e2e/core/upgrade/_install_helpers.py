@@ -318,14 +318,5 @@ def db_state(db: Path) -> dict:
             "messages": hashlib.sha256(repr(msgs).encode()).hexdigest(), "n_messages": len(msgs)}
 
 
-def cron_jobs(profile_home: Path) -> list[dict]:
-    f = profile_home / "cron" / "jobs.json"
-    if not f.exists():
-        return []
-    data = json.loads(f.read_text(encoding="utf-8"))
-    items = data.get("jobs", data) if isinstance(data, dict) else data
-    return [j for j in items if isinstance(j, dict)]
-
-
 def describe(cp: subprocess.CompletedProcess) -> str:
     return H.describe(cp)

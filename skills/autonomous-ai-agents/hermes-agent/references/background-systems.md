@@ -18,31 +18,10 @@ Spawn a subagent with an isolated context + terminal session.
   (can spawn its own workers, bounded by `delegation.max_spawn_depth`).
 - **Not durable.** A backgrounded child is still process-local — if the
   parent process exits, the child is lost. For work that must outlive
-  the process, use `cronjob` or
+  the process, use
   `terminal(background=True, notify_on_complete=True)`.
 
 Config: `delegation.*` in `config.yaml`.
-
-### Cron (scheduled jobs)
-
-Durable scheduler — `cron/jobs.py` + `cron/scheduler.py`. Drive it via
-the `cronjob` tool, the `hermes cron` CLI (`list`, `add`, `edit`,
-`pause`, `resume`, `run`, `remove`), or the `/cron` slash command.
-
-- **Schedules:** duration (`"30m"`, `"2h"`), "every" phrase
-  (`"every monday 9am"`), 5-field cron (`"0 9 * * *"`), or ISO timestamp.
-- **Per-job knobs:** `skills`, `model`/`provider` override, `script`
-  (pre-run data collection; `no_agent=True` makes the script the whole
-  job), `context_from` (chain job A's output into job B), `workdir`
-  (run in a specific dir with its `AGENTS.md` / `CLAUDE.md` loaded),
-  multi-platform delivery.
-- **Invariants:** 3-minute hard interrupt per run, `.tick.lock` file
-  prevents duplicate ticks across processes, cron sessions pass
-  `skip_memory=True` by default, and cron deliveries are framed with a
-  header/footer instead of being mirrored into the target gateway
-  session (keeps role alternation intact).
-
-User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/cron
 
 ### Curator (skill lifecycle)
 

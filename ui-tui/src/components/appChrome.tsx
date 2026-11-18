@@ -336,7 +336,7 @@ export function statusRuleWidths(cols: number, cwdLabel: string, minLeftContent 
 
 // Progressive disclosure for the status rule's lower-priority tail segments.
 // As the terminal narrows we shed the least important pieces first (cost →
-// bg → voice → compressions → duration → context bar), and below the bar
+// bg → compressions → duration → context bar), and below the bar
 // breakpoint the context read-out collapses to a bare token count. Status and
 // model are never gated here — they're guaranteed room by `statusRuleWidths`.
 export interface StatusBarSegments {
@@ -349,7 +349,6 @@ export interface StatusBarSegments {
   latency: boolean
   subagents: boolean
   tps: boolean
-  voice: boolean
 }
 
 export function statusBarSegments(cols: number): StatusBarSegments {
@@ -360,7 +359,6 @@ export function statusBarSegments(cols: number): StatusBarSegments {
     bar: w >= 72,
     duration: w >= 76,
     compressions: w >= 80,
-    voice: w >= 84,
     bg: w >= 88,
     subagents: w >= 92,
     cacheHit: w >= 96,
@@ -554,7 +552,6 @@ export function StatusRule({
   sessionTitle,
   sessionStartedAt,
   turnStartedAt,
-  voiceLabel,
   onSessionCountClick,
   t
 }: StatusRuleProps) {
@@ -627,7 +624,7 @@ export function StatusRule({
 
   // Whole-segment progressive disclosure for the tail: a segment renders only
   // if it fits in the space left after the pinned essentials, evaluated in
-  // descending priority order — bar, duration, compressions, voice, session
+  // descending priority order — bar, duration, compressions, session
   // count, bg, cost. Lower-priority segments drop first and nothing truncates
   // mid-segment, so status/model/context are never crushed.
   const SEP = stringWidth(' │ ')
@@ -680,7 +677,6 @@ export function StatusRule({
   const tpsText = typeof usage.avg_tps === 'number' ? `↑ ${Math.round(usage.avg_tps)} t/s` : ''
   const showTps = segs.tps && ok('tps') && !!tpsText && fits(SEP + stringWidth(tpsText))
 
-  const showVoice = segs.voice && ok('voice') && !!voiceLabel && fits(SEP + stringWidth(voiceLabel))
   const showSessionCount = !!sessionCountText && fits(SEP + stringWidth(sessionCountText))
   const showBg = segs.bg && ok('bg_tasks') && bgCount > 0 && fits(SEP + stringWidth(T.status.bgTasks(bgCount)))
   const subagentCount = typeof usage.active_subagents === 'number' ? usage.active_subagents : 0
@@ -835,17 +831,6 @@ export function StatusRule({
           <Text color={t.color.muted} wrap="truncate-end">
             {' │ '}
             {tpsText}
-          </Text>
-        ) : null}
-        {showVoice ? (
-          <Text
-            color={
-              voiceLabel!.startsWith('●') ? t.color.error : voiceLabel!.startsWith('◉') ? t.color.warn : t.color.muted
-            }
-            wrap="truncate-end"
-          >
-            {' │ '}
-            {voiceLabel}
           </Text>
         ) : null}
         {showSessionCount ? sessionCountNode : null}
@@ -1014,7 +999,6 @@ interface StatusRuleProps {
   t: Theme
   turnStartedAt?: null | number
   usage: Usage
-  voiceLabel?: string
   onSessionCountClick?: () => void
 }
 

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 import hermes_cli.gateway as gateway_cli
-from hermes_cli import gateway_windows, source_build, update_cmd, update_completion
+from hermes_cli import source_build, update_cmd, update_completion
 
 STALE_UNIT = "[Service]\nEnvironment=\"PATH=/usr/bin:/bin\"\nRestartSec=30\n"
 
@@ -124,30 +124,3 @@ def test_one_failed_launch_file_is_a_followup_and_the_other_profiles_are_still_r
     assert seen == ["default", "work", "lab"]
     out = capsys.readouterr().out
     assert "Update follow-up 'launch_files' did not finish: systemd user unit for profile work" in out
-
-
-def test_windows_launcher_scripts_are_rewritten_when_their_contents_drift(tmp_path, monkeypatch):
-    """The task XML can match the template while the .cmd/.vbs it runs still name an older command."""
-    from hermes_cli import update_launch_files
-
-    script = tmp_path / "gateway-service" / "Hermes_Gateway.cmd"
-    script.parent.mkdir()
-    monkeypatch.setattr(gateway_windows, "_assert_windows", lambda: None)
-    monkeypatch.setattr(gateway_windows, "get_task_script_path", lambda: script)
-    monkeypatch.setattr(gateway_windows, "is_installed", lambda: True)
-    monkeypatch.setattr(gateway_windows, "_launcher_settings",
-                        lambda: ("C:\\hermes\\venv\\Scripts\\python.exe", "C:\\hermes", "C:\\hermes", ""))
-    monkeypatch.setattr(gateway_windows, "_resolve_detached_python",
-                        lambda python: (python, Path("C:\\hermes\\venv"), []))
-
-    gateway_windows._write_task_script()
-    generated = {path.name: path.read_bytes() for path in script.parent.iterdir()}
-    assert gateway_windows.launcher_script_drift() == []
-
-    stale = script.with_suffix(".vbs")
-    stale.write_text("sh.Run \"python -m hermes_cli.main gateway run\", 0, False\r\n", encoding="utf-16")
-    assert gateway_windows.launcher_script_drift() == [stale.name]
-
-    update_launch_files._refresh_windows_launcher_scripts()
-
-    assert {path.name: path.read_bytes() for path in script.parent.iterdir()} == generated

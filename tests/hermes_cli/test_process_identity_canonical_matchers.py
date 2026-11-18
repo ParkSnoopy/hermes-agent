@@ -1,50 +1,37 @@
-"""Process-identity contract: the two kill/relaunch predicates and the profile liveness probe
+"""Process-identity contract: the kill predicate and the profile liveness probe
 defer to the canonical matchers instead of argv substrings (root AGENTS.md process-identity rule).
 """
 
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 
-from hermes_cli.dashboard_procs import _is_desktop_local_serve_cmdline
-from hermes_cli.update_cmd_windows import _hermes_holder_subcommand, _is_backend_argv
+from hermes_cli.process_identity import _hermes_holder_subcommand
+
 
 LOOPBACK = "--host 127.0.0.1 --port 0"
 
-# (cmdline, holder subcommand, desktop-local reap?, Windows updater "Desktop backend"?). Substring
-# scanners get every "trap" row wrong: "serve" appears inside --preserve-cache / observer.py / a flag
-# value. The updater's kill set additionally requires the Desktop's `-m hermes_cli.main` spawn shape —
-# a user-launched `hermes serve` / `hermes dashboard` is refused on, never tree-killed.
+# Substring scanners get the trap rows wrong: "serve" appears inside a flag or script name.
 CMDLINES = [
-    ("python -m hermes_cli.main serve " + LOOPBACK, "serve", True, True),
-    ("python -m hermes_cli.main dashboard", "dashboard", False, True),
-    ("/venv/bin/hermes serve --isolated --host=127.0.0.1 --port=0 --ssh-owner-nonce abc", "serve", True, False),
-    (r"C:\hermes\.venv\Scripts\hermes.exe serve --host 100.106.105.2 --port 9119", "serve", False, False),
-    ("hermes.exe dashboard", "dashboard", False, False),
-    ("hermes --profile ops serve " + LOOPBACK, "serve", True, False),
-    ("hermes -m serve kanban --preserve-cache " + LOOPBACK, "kanban", False, False),
-    ("python -m hermes_cli.main kanban --preserve-cache " + LOOPBACK, "kanban", False, False),
-    ("hermes --reasoning high dashboard " + LOOPBACK, "dashboard", False, False),
-    ("hermes gateway run --replace", "gateway", False, False),
-    ("hermes chat --model serve", "chat", False, False),
-    ("python observer.py serve " + LOOPBACK, None, False, False),
+    ("python -m hermes_cli.main serve " + LOOPBACK, "serve"),
+    ("python -m hermes_cli.main dashboard", "dashboard"),
+    ("/venv/bin/hermes serve --host=127.0.0.1 --port=0", "serve"),
+    ("/venv/bin/hermes serve --host 100.106.105.2 --port 9119", "serve"),
+    ("hermes dashboard", "dashboard"),
+    ("hermes --profile ops serve " + LOOPBACK, "serve"),
+    ("hermes -m serve kanban --preserve-cache " + LOOPBACK, "kanban"),
+    ("python -m hermes_cli.main kanban --preserve-cache " + LOOPBACK, "kanban"),
+    ("hermes --reasoning high dashboard " + LOOPBACK, "dashboard"),
+    ("hermes gateway run --replace", "gateway"),
+    ("hermes chat --model serve", "chat"),
+    ("python observer.py serve " + LOOPBACK, None),
 ]
 
 
-@pytest.mark.parametrize("cmdline,subcommand,reapable,desktop_backend", CMDLINES)
-def test_kill_and_relaunch_predicates_agree_with_the_canonical_holder_matcher(
-        cmdline, subcommand, reapable, desktop_backend):
+@pytest.mark.parametrize("cmdline,subcommand", CMDLINES)
+def test_canonical_holder_matcher_requires_entrypoint_and_subcommand(cmdline, subcommand):
     assert _hermes_holder_subcommand(cmdline) == subcommand
-    # Desktop-local reap (a KILL path): serve + loopback + ephemeral port, decided by tokens.
-    assert _is_desktop_local_serve_cmdline(cmdline) is reapable
-    # Windows updater backend classifier (taskkill /T on orphans): canonical subcommand AND Desktop spawn shape.
-    assert _is_backend_argv(cmdline.lower()) is desktop_backend
-
-
-def test_desktop_local_serve_spares_fixed_port_and_remote_hosts():
-    assert not _is_desktop_local_serve_cmdline("hermes serve --host 100.106.105.2 --port 9119 --skip-build")
-    assert not _is_desktop_local_serve_cmdline("hermes serve --host 127.0.0.1 --port 9119")
-    assert _is_desktop_local_serve_cmdline("hermes serve --host localhost --port 0")
 
 
 def test_profile_liveness_is_the_shared_ladder(tmp_path, monkeypatch):
@@ -82,8 +69,9 @@ def test_dashboard_scan_selects_entrypoint_plus_subcommand_tokens_never_substrin
     from hermes_cli import dashboard_procs
     from hermes_cli import process_identity
 
-    monkeypatch.setattr(dashboard_procs, "_iter_process_table",
-                        lambda: [(4242, DECOY), *((5000 + i, cmd) for i, cmd in enumerate(BACKENDS))])
+    output = "\n".join([f"4242 {DECOY}", *(f"{5000 + i} {cmd}" for i, cmd in enumerate(BACKENDS))])
+    monkeypatch.setattr(dashboard_procs.subprocess, "run",
+                        lambda *a, **kw: SimpleNamespace(returncode=0, stdout=output))
     monkeypatch.setattr(process_identity, "ledger_entries", list)
     assert dashboard_procs._scan_dashboard_processes() == [(5000, BACKENDS[0]), (5001, BACKENDS[1])]
 
@@ -93,5 +81,4 @@ def test_dashboard_runtime_parse_refuses_the_decoy_and_reads_a_real_backend():
 
     assert _parse_dashboard_runtime(DECOY) is None
     assert _parse_dashboard_runtime(BACKENDS[0]) == ("serve", "127.0.0.1", 0)
-    # launchd ProgramArguments arrive ``shlex.join``ed: a quoted path with spaces is still the entry.
-    assert _parse_dashboard_runtime("'/Users/a b/venv/bin/hermes' dashboard --port 9200") == ("dashboard", "127.0.0.1", 9200)
+    assert _parse_dashboard_runtime("'/opt/a b/venv/bin/hermes' dashboard --port 9200") == ("dashboard", "127.0.0.1", 9200)

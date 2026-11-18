@@ -20,7 +20,7 @@ from pathlib import Path
 from hermes_constants import get_process_hermes_home
 from tools.environments.base import BaseEnvironment
 from tools.environments.base_output import _pipe_stdin
-from hermes_cli._subprocess_compat import windows_hide_flags
+
 from hermes_cli.process_identity import own_process_groups, release_process_groups
 from tools.environments.local_env_policy import (
     _ALWAYS_STRIP_FOLDED, _ALWAYS_STRIP_KEYS, _HERMES_PROVIDER_ENV_BLOCKLIST, _HERMES_PROVIDER_ENV_FORCE_PREFIX,
@@ -1166,8 +1166,7 @@ class LocalEnvironment(BaseEnvironment):
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             stdin=subprocess.PIPE if stdin_data is not None else subprocess.DEVNULL,
             # detached-spawn: ok — owned via own_process_groups right below
-            start_new_session=True, cwd=self.cwd,
-            **({"creationflags": windows_hide_flags()} if _IS_WINDOWS else {}))
+            start_new_session=True, cwd=self.cwd)
         if not _IS_WINDOWS:
             # The command dies with this process however it dies: a SIGKILLed / OOM-killed host left a
             # running `npm run dev` or `sleep` on init. Released once the wait returns (see below).

@@ -3,7 +3,7 @@ repo: https://github.com/Adolanium/hermes-ledgerline
 sha: a89efceab1ff5eb0cc3f58c0482c0f1d368a6d1b
 version: "0.1.9"
 image: https://raw.githubusercontent.com/Adolanium/hermes-ledgerline/a89efceab1ff5eb0cc3f58c0482c0f1d368a6d1b/assets/catalog-banner.png
-description: "Inspect session costs and usage in Hermes Desktop. Disclosure — reads session lists, session detail, search, usage analytics and cron targets from the gateway's core REST API through the raw window.hermesDesktop.api bridge (the plugin SDK has no route to those endpoints), and runs hermes version, hermes insights and hermes send --list through the gateway's cli.exec. Only when you start them: explain and audit send the selected session's digest (tool arguments only if you tick that box) to your configured model, as a new Hermes session or a background prompt on the focused one; alerts and test messages are sent with hermes send to a messaging target you pick; scheduled reports create a Hermes cron job (one agent turn per run on the default model, delivered to the target you pick) and are paused, resumed or removed through cron.manage. Budgets, dismissed tips, scans and saved answers are kept in Hermes plugin storage on the desktop. Nothing is sent elsewhere and it exposes no tools to the model."
+description: "Desktop session-cost and usage inspection. Disclosure — reads session lists, detail, search and usage analytics through the raw window.hermesDesktop.api bridge, and runs hermes version, hermes insights and hermes send --list through cli.exec. Explain/audit actions, only when requested, send a selected session digest and optionally tool arguments to the configured model as a new session or background prompt. User-selected test messages and alerts use hermes send. Budgets, dismissed tips, scans and saved answers stay in Desktop plugin storage. No other destination and no model tools."
 maintainer: Adolanium
 tier: community
 category: desktop
@@ -14,3 +14,4 @@ capabilities:
   provides_middleware: []
   requires_env: []
 subdir: catalog
+known_issues: ["The pinned upstream report scheduler and scheduled-target views call removed APIs and are unavailable. Other REST/bridge compatibility has not been runtime-tested against this fork."]

@@ -39,7 +39,6 @@ const MUTATING_COMMANDS = [
   'tools',
   'undo',
   'verbose',
-  'voice',
   'yolo'
 ] as const
 

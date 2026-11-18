@@ -255,6 +255,8 @@ class WebhookAdapter(BasePlatformAdapter):
 
     def _validate_route(self, name: str, route: dict) -> None:
         """Startup validation: secret required; INSECURE_NO_AUTH only on loopback (crash early on a public footgun)."""
+        if route.get("cron_job"):
+            raise ValueError(f"[webhook] Route '{name}' uses unsupported cron_job mode.")
         secret = route.get("secret", self._global_secret)
         if not _is_usable_secret(secret):
             raise ValueError(f"[webhook] Route '{name}' HMAC secret is missing, blank, or not a string. Set 'secret' "
@@ -269,10 +271,7 @@ class WebhookAdapter(BasePlatformAdapter):
             if not deliver or deliver == "log":
                 raise ValueError(f"[webhook] Route '{name}' has deliver_only=true but deliver is '{deliver}'. Direct "
                                  f"delivery requires a real target (telegram, discord, slack, github_comment, etc.).")
-            if route.get("cron_job"):
-                raise ValueError(f"[webhook] Route '{name}' sets both deliver_only and cron_job. They are mutually "
-                                 f"exclusive: deliver_only pushes the rendered template as a message, cron_job fires "
-                                 f"an existing cron job (which handles its own delivery).")
+
         validate_coalesce_config(name, route)
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
@@ -417,6 +416,9 @@ class WebhookAdapter(BasePlatformAdapter):
     def _dynamic_route_allowed(self, name: str, route: dict) -> bool:
         """Reject dynamic routes whose effective secret is missing, blank, or not a string
         (_is_usable_secret); INSECURE_NO_AUTH is loopback-only."""
+        if route.get("cron_job"):
+            logger.warning("[webhook] Dynamic route '%s' uses unsupported cron_job mode", name)
+            return False
         effective_secret = route.get("secret", self._global_secret)
         if not _is_usable_secret(effective_secret):
             logger.warning("[webhook] Dynamic route '%s' skipped: 'secret' is missing, blank, or not a string. "
@@ -593,43 +595,14 @@ class WebhookAdapter(BasePlatformAdapter):
                        delivery["deliver"], result.error)
         return web.json_response(failed, status=502)
 
-    def _handle_cron_trigger(self, prompt: str, route_config: dict, route_name: str, event_type: str,
-                             delivery_id: str, profile: Optional[str] = None) -> web.Response:
-        """cron_job: fire an EXISTING cron job on this event instead of starting a webhook agent session.
-        The rendered prompt is transient per-run context (same rail as ``cronjob(action='run', prompt=...)``);
-        the job's own prompt, skills, model and delivery apply. Same auth/rate-limit/filter/script/idempotency
-        pipeline as agent routes; 202 immediately, the run happens on a worker thread."""
-        job_ref = str(route_config["cron_job"])
-        event_context = (f"This run was triggered by webhook event '{event_type}' on route '{route_name}' "
-                         f"(not the schedule).\n\n{prompt}")
-        logger.info("[webhook] cron-trigger event=%s route=%s job=%s delivery=%s", event_type, route_name, job_ref,
-                    delivery_id)
-
-        async def _fire_cron_job() -> None:
-            try:
-                from tools.cronjob_tools import execute_job_for_event
-                # The job store (cron/jobs.json) and the run belong to the ROUTED profile, not the gateway's
-                # default home; to_thread copies contextvars so the scope follows. A cron job is a full agent
-                # run (minutes) — keep it off the gateway event loop.
-                with self._profile_scope(profile):
-                    result = await asyncio.to_thread(execute_job_for_event, job_ref, event_context)
-                if not result.get("success"):
-                    logger.warning("[webhook] cron-trigger job=%s route=%s did not complete cleanly: %s", job_ref,
-                                   route_name, result.get("error"))
-            except Exception:
-                logger.exception("[webhook] cron-trigger failed job=%s route=%s", job_ref, route_name)
-
-        task = asyncio.create_task(_fire_cron_job())
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
-        return web.json_response({"status": "accepted", "route": route_name, "cron_job": job_ref, "event": event_type,
-                                  "delivery_id": delivery_id}, status=202)
 
     def _resolve_route(self, request: web.Request) -> tuple[str, Optional[dict], Any, Optional[web.Response]]:
         """Route + profile lookup for a POST; ``(route_name, route_config, profile, error_response)``."""
         self._reload_dynamic_routes()  # hot-reload dynamic subscriptions (stat-gated, lock-free)
         route_name = request.match_info.get("route_name", "")
         route_config = self._routes.get(route_name)
+        if route_config and route_config.get("cron_job"):
+            return route_name, None, None, _json_error("Unsupported cron_job route", 410)
         profile = self._resolve_request_profile(request)
         if profile is _PROFILE_REJECTED:
             return route_name, None, profile, _json_error("Unknown or unconfigured profile", 404)
@@ -717,22 +690,19 @@ class WebhookAdapter(BasePlatformAdapter):
                 payload = transformed_payload or payload
             prompt = (render_mcp_event_prompt(self, route_config, payload, event_type, route_name)
                       or self._render_prompt(route_config.get("prompt", ""), payload, event_type, route_name))
-            # cron_job routes: the job's own skills apply; the rendered prompt is only per-run context.
-            if (skills := route_config.get("skills", [])) and not route_config.get("cron_job"):
+            if skills := route_config.get("skills", []):
                 prompt = self._apply_skills(prompt, skills)
         now = time.time()  # idempotency: skip duplicate deliveries (webhook retries)
         delivery_identity = _WebhookDeliveryIdentity.from_parts(profile, route_name, delivery_id)
         coalesce = route_config.get("coalesce")
-        # deliver_only, cron_job and coalesced events act before (or without) a durable admission, so
+        # deliver_only and coalesced events act before (or without) a durable admission, so
         # the ledger cannot dedupe a provider retry or a replayed signed delivery; the route-scoped
         # in-memory guard is their only replay defence (main dedupes every route here).
-        non_durable = bool(route_config.get("deliver_only") or route_config.get("cron_job")
-                           or isinstance(coalesce, dict))
+        non_durable = bool(route_config.get("deliver_only") or isinstance(coalesce, dict))
         if non_durable and not self._record_delivery_id(delivery_identity, now):
             logger.info("[webhook] Skipping duplicate delivery %s on route %s", delivery_id, route_name)
             return web.json_response({"status": "duplicate", "delivery_id": delivery_id}, status=200)
-        if route_config.get("cron_job"):
-            return self._handle_cron_trigger(prompt, route_config, route_name, event_type, delivery_id, profile)
+
         if route_config.get("deliver_only"):
             return await self._handle_deliver_only(prompt, payload, route_config, route_name, event_type, delivery_id,
                                                    profile)
@@ -1052,10 +1022,9 @@ class WebhookAdapter(BasePlatformAdapter):
         """Best-effort mirror of a delivered response into the TARGET chat's session transcript, so a
         follow-up there ("so he's out?") sees what the webhook run just told the user. Without this the
         text only lives in the ephemeral opaque per-delivery webhook session and the target chat's
-        agent has no idea it sent anything. Same path and USER-role convention as cron briefs
-        (``cron.scheduler_delivery._maybe_mirror_cron_delivery``, #2221): the text is not the target
-        session's agent speaking, and a labelled user turn merges safely on strict-alternation providers.
-        Opt-in per route (``mirror_to_session: true``), default off like cron's ``mirror_delivery``: the text
+        agent has no idea it sent anything. The text is not the target session's agent speaking,
+        and a labelled user turn merges safely on strict-alternation providers.
+        Opt-in per route (``mirror_to_session: true``), default off: the text
         lands with user authority in a chat the route author may not own, and on ``deliver_only`` routes it is
         the raw rendered payload. Called inside the routed profile's scope so the lookup hits THAT profile's
         state.db — a DM chat_id is the user's id on every bot, so an unscoped mirror lands in another

@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 # Flag names (stable — used as config.yaml keys under onboarding.seen)
 BUSY_INPUT_FLAG = "busy_input_prompt"
 TOOL_PROGRESS_FLAG = "tool_progress_prompt"
-OPENCLAW_RESIDUE_FLAG = "openclaw_residue_cleanup"
 PROFILE_BUILD_FLAG = "profile_build_offered"
 
 
@@ -83,26 +82,6 @@ def tool_progress_hint_gateway() -> str:
 def tool_progress_hint_cli() -> str:
     return ("(tip) That tool ran for a while. Use /verbose to cycle tool-progress "
             "display modes (all -> new -> off -> verbose). This tip only shows once.")
-
-
-def openclaw_residue_hint_cli() -> str:
-    """Banner shown the first time Hermes finds ``~/.openclaw/``: migrate first, cleanup (which breaks OpenClaw) after."""
-    return (
-        "A legacy OpenClaw directory was detected at ~/.openclaw/.\n"
-        "To port your config, memory, and skills over to Hermes, run `hermes import-agent openclaw` "
-        "(from the agent-importers plugin: `hermes plugins install agent-importers`).\n"
-        "If you've already migrated and want to archive the old directory, run `hermes claw cleanup` "
-        "(renames it to ~/.openclaw.pre-migration — OpenClaw will stop working after this).\n"
-        "This tip only shows once."
-    )
-
-
-def detect_openclaw_residue(home: Optional[Path] = None) -> bool:
-    """True if ``$HOME/.openclaw`` is a directory (``home`` override for tests)."""
-    try:
-        return ((home or Path.home()) / ".openclaw").is_dir()
-    except OSError:
-        return False
 
 
 def _onboarding_section(config: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -226,17 +205,14 @@ def mark_seen(config_path: Path, flag: str) -> bool:
 
 __all__ = [
     "BUSY_INPUT_FLAG",
-    "OPENCLAW_RESIDUE_FLAG",
     "PLAIN_INTRO_NOTE",
     "PROFILE_BUILD_FLAG",
     "TOOL_PROGRESS_FLAG",
     "busy_input_hint_cli",
     "busy_input_hint_gateway",
-    "detect_openclaw_residue",
     "first_contact_turn_note",
     "is_seen",
     "mark_seen",
-    "openclaw_residue_hint_cli",
     "profile_build_directive",
     "profile_build_mode",
     "tool_progress_hint_cli",

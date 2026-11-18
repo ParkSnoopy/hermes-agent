@@ -129,9 +129,9 @@ fields; callers may initialize a provider without an agent or a session database
 | `gateway_session_key` | Stable messaging-chat identity for per-chat session isolation. |
 | `user_id`, `user_id_alt`, `user_name`, `chat_id` | Gateway identity fields, included when present. |
 | `agent_identity` | Active profile name, when available. |
-| `resumed` | `True` when an earlier turn of this session id ran (the agent continues a stored transcript: `--resume`, a gateway chat after a restart, a reopened Desktop/TUI session). `False` for a new session id: a subagent, a cron run, a fresh chat. A `/branch` child seeded with copied history is `True`. A mid-process `/resume` arrives through `on_session_switch()` instead. |
+| `resumed` | `True` when an earlier turn of this session id ran (the agent continues a stored transcript: `--resume`, a gateway chat after a restart, a reopened Desktop/TUI session). `False` for a new session id: a subagent, a fresh chat. A `/branch` child seeded with copied history is `True`. A mid-process `/resume` arrives through `on_session_switch()` instead. |
 | `message_count` | Messages already stored for this session id. On TUI/Desktop it can include the prompt being submitted, so a fresh chat may report `1` with `resumed` `False`. |
-| `agent_workspace`, `agent_context` | Runtime agent scope. `agent_workspace` is `hermes`; `agent_context` is `cron` for scheduler runs, `subagent` for `delegate_task` children, else `primary` — skip automatic writes for the non-primary values. |
+| `agent_workspace`, `agent_context` | Runtime agent scope. `agent_workspace` is `hermes`; `agent_context` is `subagent` for `delegate_task` children, else `primary` — skip automatic writes for the non-primary values. |
 
 Read optional keys with `kwargs.get(...)`; older Hermes versions omit the newer ones (`resumed`,
 `message_count`).
@@ -150,7 +150,7 @@ On a turn with an image, Hermes appends recalled memory and plugin or gateway no
 text; `previous_message` is the turn's own text, without them. It
 is best-effort: an image turn stored by an older Hermes, or one that repair or compaction later merged
 with another turn, still carries its plugin and gateway notes, and
-other runtime notices a gateway replays after a restart (a cron delivery, a process
+other runtime notices a gateway replays after a restart (a process
 heartbeat, a watch-disabled or batched-completion notice) can still come through. A process
 that resumed a session (`hermes chat --resume`, a gateway after a restart) never ran the previous
 turn's end, so a provider that prepares recall in `queue_prefetch()` can redo that work from it, even

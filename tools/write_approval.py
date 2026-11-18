@@ -176,12 +176,6 @@ def _slash_review_surface() -> bool:
         except Exception:  # standalone/tests: process env is the fallback
             return os.environ.get(name, "") or ""
 
-    try:
-        from utils import is_truthy_value
-        if is_truthy_value(_env("HERMES_CRON_SESSION")):
-            return False
-    except Exception:
-        pass
     platform = (_env("HERMES_SESSION_PLATFORM") or os.environ.get("HERMES_PLATFORM", "")).strip().lower()
     return platform not in {"webhook", "msgraph_webhook", "api_server"}
 

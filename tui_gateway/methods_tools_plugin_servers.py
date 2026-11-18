@@ -93,8 +93,7 @@ def _plugin_tool_ownership() -> dict[str, list[str]]:
 
     Desktop lets a plugin's desktop half render media only from these, so the answer comes
     from the loader's and the MCP client's records, never from a manifest claim or a name prefix.
-    Native: names the plugin registered, minus built-in tool names (an approved override of
-    ``text_to_speech`` is still the core voice reply to the user). Portable: the tools each MCP
+    Native: names the plugin registered, minus built-in tool names. Portable: the tools each MCP
     server the loader attributed to the package registered (``_portable_server_tools``; a server
     that never connected or cached its tools owns nothing yet). A name two packages list belongs
     to neither."""

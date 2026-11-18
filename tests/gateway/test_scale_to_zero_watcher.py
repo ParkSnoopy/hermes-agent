@@ -120,7 +120,7 @@ async def test_heartbeat_poll_task_does_not_block_idle():
 
 
 
-def _work_count_runner(monkeypatch, *, agents=0, cron_ids=(), api_runs=0):
+def _work_count_runner(monkeypatch, *, agents=0, api_runs=0):
     from types import SimpleNamespace
 
     r = GatewayRunner.__new__(GatewayRunner)
@@ -132,9 +132,7 @@ def _work_count_runner(monkeypatch, *, agents=0, cron_ids=(), api_runs=0):
     monkeypatch.setattr(
         r, "_scale_to_zero_idle_timeout_seconds", lambda: 300.0, raising=False
     )
-    monkeypatch.setattr(
-        "cron.scheduler.get_running_job_ids", lambda: set(cron_ids)
-    )
+
     api_adapter = SimpleNamespace(active_agent_work_count=lambda: api_runs)
     from gateway.platforms.base import Platform
 
@@ -153,10 +151,6 @@ def _is_idle(runner):
 
 
 
-def test_running_cron_job_blocks_idle(monkeypatch):
-    r = _work_count_runner(monkeypatch, cron_ids={"job1"})
-    assert _is_idle(r) is False
-
 
 
 def test_active_api_run_blocks_idle(monkeypatch):
@@ -170,18 +164,6 @@ def test_idle_true_when_all_work_sources_quiet(monkeypatch):
     assert _is_idle(r) is True
 
 
-
-def test_unreadable_cron_source_fails_awake(monkeypatch):
-    """A transient failure reading the cron work source must count as WORK
-    (stay awake), not as idle — fail-open accounting would reopen the
-    mid-job-freeze hole exactly when bookkeeping is broken."""
-    r = _work_count_runner(monkeypatch)
-
-    def _boom():
-        raise RuntimeError("registry unavailable")
-
-    monkeypatch.setattr("cron.scheduler.get_running_job_ids", _boom)
-    assert _is_idle(r) is False
 
 
 

@@ -59,7 +59,6 @@
           "bedrock"
 
 
-          "edge-tts"
           "exa"
           "fal"
 
@@ -67,8 +66,6 @@
 
 
           "parallel-web"
-          "tts-premium"
-          "voice"
         ];
       };
     in

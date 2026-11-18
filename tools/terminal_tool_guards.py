@@ -12,9 +12,7 @@ keeps resolving.
 import json
 import logging
 import re
-import shlex
-import stat
-from pathlib import Path
+
 from typing import Any, Optional
 
 from tools.shell_heredoc import strip_inert_heredoc_bodies
@@ -218,39 +216,6 @@ def trailing_amp_background_command(command: str) -> str | None:
     return stripped
 
 
-def _read_script_for_guard(env: Any, guard_cwd: str, script_path: str, max_bytes: int) -> Optional[str]:
-    """Best-effort script read: host filesystem first, then a bounded
-    ``env.execute('head -c ... < path')`` for remote backends. Binary content
-    (NUL byte) is not a script: feeding it to the guard tokenizes machine code
-    into bogus paths and crashes the scanner, so it yields None."""
-    if env is None:
-        return None
-    try:
-        local_path = Path(script_path).expanduser()
-        if not local_path.is_absolute():
-            local_path = Path(guard_cwd) / local_path
-        if local_path.is_file():
-            metadata = local_path.stat()
-            if stat.S_ISREG(metadata.st_mode) and metadata.st_size <= max_bytes:
-                data = local_path.read_bytes()
-                if len(data) <= max_bytes:
-                    return None if b"\x00" in data else data.decode("utf-8", errors="replace")
-    except Exception:
-        pass
-    # Remote backend: bound the read at the source with `head -c` so an
-    # oversized binary never crosses the wire (an unbounded `cat` once
-    # pinned the gateway's tool thread for 30+ min on a shlex scan). One
-    # byte over budget is enough for lifecycle_guard to fail closed. The
-    # `< path` redirect keeps leading-dash paths out of argv.
-    try:
-        result = env.execute(f"head -c {max_bytes + 1} < {shlex.quote(script_path)}")
-        if result.get("returncode", -1) == 0:
-            output = result.get("output", "")
-            return None if output and "\x00" in output else output
-    except Exception:
-        pass
-    return None
-
 
 def gateway_lifecycle_block(
     *,
@@ -279,8 +244,7 @@ def gateway_lifecycle_block(
 
     if not _is_supervised_gateway_process():
         return None
-    from cron.lifecycle_guard import (
-        _MAX_REFERENCED_SCRIPT_BYTES,
+    from tools.gateway_lifecycle_guard import (
         HOST_INTERPRETER_KILL_REJECTION,
         contains_host_interpreter_kill,
         contains_launchctl_submit_command,
@@ -309,7 +273,7 @@ def gateway_lifecycle_block(
     unsafe, refusal = scan_gateway_lifecycle(
         command,
         cwd=guard_cwd,
-        read_remote_script=lambda p: _read_script_for_guard(env, guard_cwd, p, _MAX_REFERENCED_SCRIPT_BYTES),
+
     )
     if unsafe and refusal:
         # Not a lifecycle command: a script the command EXECUTES could not be scanned (budget,
@@ -337,33 +301,6 @@ def gateway_lifecycle_block(
         )
     return None
 
-
-def self_repo_block(
-    *,
-    command: str,
-    cwd: str,
-    workdir: Optional[str],
-    session_key: str,
-) -> Optional[str]:
-    """Windows-only guard against git-mutating the checkout backing this interpreter.
-
-    NTFS locks loaded module files, so rewriting the live checkout can corrupt
-    the running process; POSIX keeps old inodes alive for open handles, so the
-    guard is off there (``guard_active``). Local backend only — remote
-    backends cannot reach that checkout. Returns the JSON error string when
-    blocked, else None.
-    """
-    from tools.self_repo_guard import detect_self_repo_git_mutation, guard_active
-    from tools.terminal_tool import _resolve_command_cwd
-
-    if not guard_active():
-        return None
-    guard_cwd = _resolve_command_cwd(workdir=workdir, default_cwd=cwd, session_key=session_key)
-    hit, msg = detect_self_repo_git_mutation(command, guard_cwd)
-    if not hit:
-        return None
-    logger.warning("Blocked self-repo git mutation (command: %s)", _safe_command_preview(command))
-    return _blocked_json(msg, "blocked")
 
 
 def locked_skill_block(*, command: str, cwd: str, workdir: Optional[str], session_key: str) -> Optional[str]:

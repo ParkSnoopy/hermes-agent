@@ -1,20 +1,19 @@
 """Public channel resolution is strict, pinned, and independent of name registries."""
 from copy import deepcopy
 import hashlib
-import json
 from pathlib import Path
 import importlib.util
 
 import pytest
 
 # The HTTP fixture is shared without making tests/ an importable package.
-_spec = importlib.util.spec_from_file_location("channel_http_fixture", Path(__file__).parents[1] / "scripts/test_release_channels.py")
+_spec = importlib.util.spec_from_file_location("channel_http_fixture", Path(__file__).parents[1] / "scripts/channel_helpers.py")
 _fixture = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_fixture)
-object_server, publisher = _fixture.object_server, _fixture.publisher
+object_server = _fixture.object_server
 
 
-def seed_manifest(pub, request, objects):
+def seed_manifest(request, objects):
     from hermes_cli.release_channels import build_prefix, canonical_json
     key = build_prefix(request["buildId"]) + "build.json"
     manifest = {"schema": 1, "receiverProtocol": 1, "request": request, "packages": [{"platform": "darwin", "arch": "arm64", "variant": "bundled",
@@ -25,8 +24,9 @@ def seed_manifest(pub, request, objects):
     objects[key] = body
     head = {"buildId": request["buildId"], "sequence": request["sequence"], "manifestKey": key, "sha256": hashlib.sha256(body).hexdigest()}
     record_key = f"releases/channels/{request['channel']}.json"
-    record = json.loads(objects[record_key])
-    record["head"] = head
+    record = {"schema": 1, "name": request["channel"], "repository": request["repository"],
+              "policy": "stable-release", "state": "active", "revision": 1,
+              "nextSequence": request["sequence"] + 1, "identity": request["identity"], "head": head}
     objects[record_key] = canonical_json(record)
     return manifest, record
 
@@ -34,17 +34,11 @@ def seed_manifest(pub, request, objects):
 def test_resolve_verifies_exact_manifest_and_preserves_retirement_constraints():
     from hermes_cli.release_channels import ChannelReader, ChannelError, canonical_json
     with object_server() as (url, objects, _headers, _requests, _faults):
-        pub = publisher(url)
-        for name in ("old-preview", "next-preview"):
-            pub.create(name)
-        request = pub.allocate("next-preview", "a" * 40, "1.2.3")
-        request.update(version="1.2.3", windowsVersion="1.2.3.0", releaseTag="v1.2.3")
-        manifest, record = seed_manifest(pub, request, objects)
-        record["policy"] = "stable-release"
-        objects["releases/channels/next-preview.json"] = canonical_json(record)
+        request = dict(stable_request(), channel="next-preview", publicBase=url + "/bucket")
+        manifest, record = seed_manifest(request, objects)
         reader = ChannelReader(url + "/bucket", repository="example/hermes-agent")
         assert reader.resolve("next-preview").manifest == manifest
-        old = pub._read("old-preview")[0]
+        old = dict(record, name="old-preview", policy="preview", nextSequence=1, head=None)
         old.update(state="retired", destination="next-preview", minimumVersion="1.0.0",
                    destinationHead=record["head"], receiverProtocol=1,
                    receiver={"kind": "discontinued"}, lastHead=None)
@@ -56,7 +50,7 @@ def test_resolve_verifies_exact_manifest_and_preserves_retirement_constraints():
         newer = dict(request, buildId="f" * 32, sequence=2, sourceVersion="1.3.0", version="1.3.0", windowsVersion="1.3.0.0", releaseTag="v1.3.0")
         record["nextSequence"] = 3
         objects["releases/channels/next-preview.json"] = canonical_json(record)
-        seed_manifest(pub, newer, objects)
+        seed_manifest(newer, objects)
         after_advance = reader.resolve("old-preview")
         assert after_advance.manifest == manifest
         assert after_advance.terminal["head"]["buildId"] == newer["buildId"]
@@ -168,10 +162,8 @@ def test_cdn_firewall_403_names_the_network_not_the_install(base, headers, block
 def test_reader_rejects_cycles_identity_substitution_and_cross_authority():
     from hermes_cli.release_channels import ChannelReader, ChannelError, canonical_json
     with object_server() as (url, objects, _headers, _requests, _faults):
-        pub = publisher(url)
-        pub.create("alpha")
-        request = pub.allocate("alpha", "a" * 40, "1.2.3")
-        manifest, record = seed_manifest(pub, request, objects)
+        request = dict(stable_request(), channel="alpha", publicBase=url + "/bucket")
+        manifest, record = seed_manifest(request, objects)
         reader = ChannelReader(url + "/bucket", repository="example/hermes-agent")
         substituted = deepcopy(manifest)
         substituted["request"]["identity"]["appId"] = "ai.other.identity"
@@ -194,38 +186,31 @@ def test_reader_rejects_cycles_identity_substitution_and_cross_authority():
             reader.resolve("alpha")
 
 
-def test_legacy_bootstrap_uses_real_archive_keys_and_source_main_has_no_bundle():
-    from hermes_cli.release_channels import canonical_json, ChannelError
+@pytest.mark.parametrize("policy,tag", [
+    ("stable-release", "v2.0.0"), ("canary-release", "v2.1.0+canary.20260913T000100Z"),
+])
+def test_source_reader_accepts_archived_metadata_and_rejects_invalid_versions(policy, tag):
+    from hermes_cli.release_channels import ChannelError, ChannelReader, canonical_json, validate_request
     with object_server() as (url, objects, _headers, _requests, _faults):
-        pub = publisher(url, verify_build=lambda request, manifest: True)
-        preview = pub.create("temporary")
-        request = pub.allocate("temporary", "a" * 40, "2.0.0")
-        manifest, _ = seed_manifest(pub, request, objects)
-        for name, policy, tag in [("stable", "stable-release", "v2.0.0"), ("canary", "canary-release", "v2.1.0+canary.20260913T000100Z")]:
-            legacy = deepcopy(manifest)
-            legacy["request"].update(channel=name, buildId=("a" if name == "stable" else "b") * 32,
-                                     releaseTag=tag, version=tag[1:], windowsVersion="2.0.0.0" if name == "stable" else "2.1.0.10")
-            legacy["packages"][0].update(version=tag[1:])
-            legacy["packages"][0]["artifact"]["key"] = f"releases/tag/{tag}/actual.zip"
-            legacy["packages"][0]["feed"]["key"] = f"releases/tag/{tag}/stable-mac.yml"
-            record = dict(preview, name=name, policy=policy, nextSequence=2,
-                          head={"buildId": legacy["request"]["buildId"], "sequence": 1,
-                                "manifestKey": "releases/channel-builds/" + legacy["request"]["buildId"] + "/build.json",
-                                "sha256": hashlib.sha256(canonical_json(legacy)).hexdigest()})
-            pub.bootstrap(record, legacy, publish=True)
-            assert pub.reader.resolve(name).manifest == legacy
-            assert pub.request(legacy["request"]["buildId"]) == legacy["request"]
-            from hermes_cli.release_channels import validate_request
-            invalid_versions = ["2.1.0.65536", "65536.1.0.0", "2.1.0.-1", "2.1.0.1.0", "2.1.0.x"]
-            if policy == "stable-release":
-                invalid_versions.append("2.0.0.10")
-            for windows_version in invalid_versions:
-                with pytest.raises(ChannelError, match="Windows version"):
-                    validate_request(dict(legacy["request"], windowsVersion=windows_version), policy=policy)
-            with pytest.raises(ChannelError, match="Protected"):
-                pub.promote(legacy["request"]["buildId"])
-            with pytest.raises(ChannelError, match="Protected"):
-                pub.allocate(name, "a" * 40, "2.0.0")
+        request = dict(stable_request(), channel="archived", publicBase=url + "/bucket",
+                       sourceVersion="2.0.0", releaseTag=tag, version=tag[1:],
+                       windowsVersion="2.0.0.0" if policy == "stable-release" else "2.1.0.10")
+        manifest, record = seed_manifest(request, objects)
+        record["policy"] = policy
+        manifest["packages"][0]["artifact"]["key"] = f"releases/tag/{tag}/actual.zip"
+        manifest["packages"][0]["feed"]["key"] = f"releases/tag/{tag}/stable-mac.yml"
+        body = canonical_json(manifest)
+        objects[record["head"]["manifestKey"]] = body
+        record["head"]["sha256"] = hashlib.sha256(body).hexdigest()
+        objects["releases/channels/archived.json"] = canonical_json(record)
+        reader = ChannelReader(url + "/bucket", repository="example/hermes-agent")
+        assert reader.resolve("archived").manifest == manifest
+        invalid_versions = ["2.1.0.65536", "65536.1.0.0", "2.1.0.-1", "2.1.0.1.0", "2.1.0.x"]
+        if policy == "stable-release":
+            invalid_versions.append("2.0.0.10")
+        for version in invalid_versions:
+            with pytest.raises(ChannelError, match="Windows version"):
+                validate_request(dict(request, windowsVersion=version), policy=policy)
 
 
 @pytest.mark.parametrize("sequence", [1, 65535, 65536, 2**32 - 1])
@@ -247,49 +232,44 @@ def test_sequence_exhaustion_never_wraps(sequence):
 
 
 def test_malformed_record_and_unqualified_retirement_never_resolve():
-    from hermes_cli.release_channels import ChannelError, canonical_json
+    from hermes_cli.release_channels import ChannelError, ChannelReader, canonical_json
     with object_server() as (url, objects, _headers, _requests, _faults):
-        pub = publisher(url)
-        pub.create("preview")
-        record = pub._read("preview")[0]
+        request = dict(stable_request(), channel="destination", publicBase=url + "/bucket",
+                       sourceVersion="1.0.0", version="1.0.0", windowsVersion="1.0.0.0", releaseTag="v1.0.0")
+        _, target = seed_manifest(request, objects)
+        record = dict(target, name="preview", policy="preview", head=None, nextSequence=1)
+        reader = ChannelReader(url + "/bucket", repository="example/hermes-agent")
         malformed = dict(record)
         del malformed["head"]
         objects["releases/channels/preview.json"] = canonical_json(malformed)
         with pytest.raises(ChannelError):
-            pub.reader.resolve("preview")
+            reader.resolve("preview")
         objects["releases/channels/preview.json"] = canonical_json(record)
-        pub.create("destination")
-        request = pub.allocate("destination", "a" * 40, "1.0.0")
-        request.update(version="1.0.0", windowsVersion="1.0.0.0", releaseTag="v1.0.0")
-        _, target = seed_manifest(pub, request, objects)
-        target["policy"] = "stable-release"
-        objects["releases/channels/destination.json"] = canonical_json(target)
         record.update(state="retired", destination="destination", minimumVersion="2.0.0", lastHead=None,
                       destinationHead=target["head"], receiverProtocol=1,
                       receiver={"kind": "discontinued"})
         objects["releases/channels/preview.json"] = canonical_json(record)
         with pytest.raises(ChannelError, match="minimum version"):
-            pub.reader.resolve("preview")
+            reader.resolve("preview")
 
 
 @pytest.mark.parametrize("field,value", [("policy", []), ("state", {}), ("revision", True), ("head", []), ("identity", None)])
 def test_malformed_wire_types_are_channel_errors(field, value):
     from hermes_cli.release_channels import validate_record, ChannelError
-    from scripts.releases.channels import preview_identity
     record = {"schema": 1, "name": "arbitrary", "repository": "example/hermes-agent", "policy": "preview",
               "state": "active", "revision": 1, "nextSequence": 1, "head": None,
-              "identity": preview_identity("arbitrary", "a" * 16)}
+              "identity": stable_request()["identity"]}
     record[field] = value
     with pytest.raises(ChannelError):
         validate_record(record)
 
 
 def stable_request(version="1.2.3", archive_ref=None):
-    from scripts.releases.channels import preview_identity
+    identity = dict(_fixture.ARCHIVED_IDENTITY)
     request = {"schema": 1, "buildId": "a" * 32, "channel": "stable", "sequence": 1,
                "repository": "example/hermes-agent", "commit": "b" * 40,
                "sourceVersion": version, "version": version, "windowsVersion": version + ".0",
-               "releaseTag": "v" + version, "identity": preview_identity("stable", "a" * 16),
+               "releaseTag": "v" + version, "identity": identity,
                "bundleEnv": {}, "publicBase": "https://releases.example"}
     if archive_ref is not None:
         request["archiveRef"] = archive_ref

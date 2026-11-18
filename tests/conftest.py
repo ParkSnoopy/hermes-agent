@@ -20,7 +20,7 @@ test runner at ``scripts/run_tests.sh``.
 
 import asyncio
 import atexit
-import importlib
+
 import ipaddress
 import os
 import shutil
@@ -309,7 +309,7 @@ def _isolate_hermes_home(tmp_path, tmp_path_factory, monkeypatch):
     fake_hermes_home = tmp_path / "hermes_test"
     fake_hermes_home.mkdir()
     (fake_hermes_home / "sessions").mkdir()
-    (fake_hermes_home / "cron").mkdir()
+
     (fake_hermes_home / "memories").mkdir()
     (fake_hermes_home / "skills").mkdir()
     monkeypatch.setenv("HERMES_HOME", str(fake_hermes_home))
@@ -412,8 +412,7 @@ def _isolate_hermes_home(tmp_path, tmp_path_factory, monkeypatch):
     # On-demand extras (pm.sync_venv) install mid-test-run by design —
     # _allow_lazy_installs() fails open for users. Unit tests must never reach
     # pip/the network: with the SDK absent, any agent init whose tool checks
-    # touch a lazy feature (e.g. check_tts_requirements →
-    # ensure("tts.elevenlabs")) spawns a real pip install — which hangs to the
+    # touch an optional provider spawns a real dependency install — which hangs to the
     # suite timeout under tests that set fake proxy env vars. The kill-switch
     # makes ensure() raise FeatureUnavailable immediately instead.
     # extras tests override this var in both directions.
@@ -560,31 +559,7 @@ def _neutralize_webbrowser(monkeypatch):
     return opened
 
 
-@pytest.fixture(autouse=True)
-def _neutralize_macos_keychain_creds(request, monkeypatch):
-    """Default Anthropic credential resolution away from the real macOS Keychain."""
-    if request.node.get_closest_marker(_ALLOW_MACOS_KEYCHAIN_MARK):
-        return
 
-    try:
-        _mod = importlib.import_module("agent.anthropic_credentials")
-    except Exception:
-        return
-    monkeypatch.setattr(
-        _mod,
-        "_read_claude_code_credentials_from_keychain",
-        lambda *_args, **_kwargs: None,
-        raising=False,
-    )
-    # The #98334 refresh write also mirrors into the Keychain; keep that out of
-    # the real store in any test that hasn't explicitly opted in.
-    monkeypatch.setattr(
-        _mod,
-        "_mirror_claude_code_credentials_to_keychain",
-        lambda *_args, **_kwargs: None,
-        raising=False,
-    )
-    return
 
 
 
@@ -874,53 +849,6 @@ def _wal_is_usable() -> bool:
     return False
 
 
-# ── Audio-playback guard ───────────────────────────────────────────────────
-#
-# Same class of incident as the live-system guard (``tests/_fixtures/live_system_guard.py``),
-# different primitive:
-# a test run spoke the string "partial answer complete" out of the developer's
-# speakers. That string is a test fixture
-# (``tests/tui_gateway/test_tui_gateway_server.py``'s fake ``final_response``), and the
-# route it took is fully in-process — no leaked shell variable required:
-#
-#   1. ``test_voice_toggle_tts_branch_also_carries_record_key`` drives the
-#      ``voice.toggle`` RPC with ``action="tts"``. The handler
-#      (``tui_gateway/server.py``) flips the flag by writing the *real*
-#      process environment: ``os.environ["HERMES_VOICE_TTS"] = "1"``. The
-#      test's ``monkeypatch.delenv(..., raising=False)`` records no undo entry
-#      (pytest only records an undo when the key was present), so the "1"
-#      survives teardown and persists for the rest of the pytest process.
-#   2. Any later test in that process that drives a turn to completion hits
-#      the TTS dispatch in ``prompt.submit``, which checks
-#      ``_voice_tts_enabled()`` — now true — and fires
-#      ``hermes_cli.voice.speak_text(final_response)`` on a daemon thread.
-#   3. ``speak_text`` needs no API key to be audible: ``tools/tts_tool.py``
-#      defaults to the ``edge`` provider, which is keyless.
-#
-# Because the flag is set from *inside* the process, ``scripts/run_tests.sh``'s
-# ``env -i`` does not help, and neither does env-blanking on its own — the
-# hermetic fixture blanks at test setup, and step 1 re-sets it mid-test. So we
-# also intercept the primitive that does the damage, exactly as the
-# live-system guard intercepts ``os.kill`` rather than trusting every caller
-# to mock it:
-#
-#  • ``hermes_cli.voice.speak_text`` — the synth+playback entry point both
-#    gateway call sites late-import, so patching the module attribute catches
-#    them wherever they import it from.
-#  • ``hermes_cli.voice.play_audio_file`` — the module-level binding
-#    ``speak_text`` actually plays through. Patching the binding inside
-#    ``hermes_cli.voice`` (not ``tools.voice_mode``) keeps the real function
-#    available to the tests that legitimately exercise it with a mocked
-#    audio backend (``tests/tools/test_voice_mode.py``).
-#
-# Config cannot re-open this hole: the ``tts:`` section of ``config.yaml``
-# only selects *which* provider speaks, never *whether* to speak — that gate
-# is the env var alone.
-
-_AUDIO_GUARD_BYPASS_MARK = "real_audio_playback"
-_ALLOW_MACOS_KEYCHAIN_MARK = "allow_macos_keychain"
-
-
 def _relocate_basetemp_outside_operator_home(config) -> None:
     """Move pytest's basetemp out of the operator's platform-native Hermes home.
 
@@ -1107,12 +1035,6 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
-        f"{_AUDIO_GUARD_BYPASS_MARK}: bypass the audio-playback guard (only "
-        "for tests that genuinely need real TTS synthesis and speaker "
-        "playback — there are none in the default suite).",
-    )
-    config.addinivalue_line(
-        "markers",
         "platforms(*specs, arch=None, arch_negate=False): run only on hosts "
         "matching at least one spec — linux/macos/windows/posix/any, "
         "'not X' negation, optional arch filter (e.g. arch='arm64')",
@@ -1123,11 +1045,7 @@ def pytest_configure(config):
         "matching at least one spec — linux/macos/windows/posix/any, "
         "'not X' negation, optional arch filter (e.g. arch='arm64')",
     )
-    config.addinivalue_line(
-        "markers",
-        f"{_ALLOW_MACOS_KEYCHAIN_MARK}: allow a test to exercise the macOS "
-        "Keychain credential reader with its own subprocess/platform mocks.",
-    )
+
     config.addinivalue_line(
         "markers",
         "require_symlinks: skip the test if symbolic links cannot be "
@@ -1239,47 +1157,6 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_marker)
 
 
-@pytest.fixture(autouse=True)
-def _audio_playback_guard(request, monkeypatch):
-    """Stub TTS synthesis + speaker playback for every test.
-
-    See the block comment above for the incident this closes. Defence in
-    depth behind ``_HERMES_BEHAVIORAL_VARS``: the env blanking stops the flag
-    leaking *between* tests, this stops the speakers ever opening even when a
-    test sets the flag *itself* (which the ``voice.toggle`` RPC handler does,
-    by writing ``os.environ`` directly).
-
-    Deliberately silent rather than raising: unlike a stray ``os.kill``, a
-    stray ``speak_text`` is dispatched on a daemon thread whose exception
-    nobody would ever see, so a hard failure would neither stop the test nor
-    surface. Silence is the whole point. Tests that genuinely want real audio
-    can opt out with ``@pytest.mark.real_audio_playback``.
-    """
-    if request.node.get_closest_marker(_AUDIO_GUARD_BYPASS_MARK):
-        yield
-        return
-
-    try:
-        import hermes_cli.voice as _voice
-    except Exception:
-        # Optional audio deps missing — nothing importable to speak with.
-        yield
-        return
-
-    def _blocked_speak_text(text, *args, **kwargs):
-        return None
-
-    def _blocked_play_audio_file(path, *args, **kwargs):
-        return False
-
-    if hasattr(_voice, "speak_text"):
-        monkeypatch.setattr(_voice, "speak_text", _blocked_speak_text)
-    if hasattr(_voice, "play_audio_file"):
-        monkeypatch.setattr(_voice, "play_audio_file", _blocked_play_audio_file)
-
-    yield
-
-
 # ── External network fence ───────────────────────────────────────────────────
 # Unit tests run against fixtures, never a live service. A lookup of any host off this
 # machine is refused the way an offline host refuses it, which is the path production
@@ -1377,12 +1254,9 @@ def _isolate_computer_use_approval_state():
     their own callback keep it for their own duration.
     """
     yield
-    try:
-        from tools.computer_use import tool as _cu_tool
-
+    _cu_tool = sys.modules.get("tools.computer_use.tool")
+    if _cu_tool is not None:
         _cu_tool.set_approval_callback(None)
-    except Exception:
-        pass
 
 
 @pytest.fixture(autouse=True)
@@ -1424,13 +1298,15 @@ def _moa_caches_isolated():
     monkeypatch resolvers and config paths, so a cache entry leaked from one
     test would poison the next. Clear both around every test.
     """
-    import agent.moa_loop as moa
-
-    moa._preset_cache.clear()
-    moa._runtime_cache.clear()
+    moa = sys.modules.get("agent.moa_loop")
+    if moa is not None:
+        moa._preset_cache.clear()
+        moa._runtime_cache.clear()
     yield
-    moa._preset_cache.clear()
-    moa._runtime_cache.clear()
+    moa = sys.modules.get("agent.moa_loop")
+    if moa is not None:
+        moa._preset_cache.clear()
+        moa._runtime_cache.clear()
 
 
 # ── Real-home tripwire (universal read/write guard) ──────────────────────────

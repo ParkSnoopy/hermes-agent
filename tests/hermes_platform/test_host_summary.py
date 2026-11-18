@@ -6,9 +6,6 @@ import pytest
 
 from hermes_platform.host import facts, summary
 
-# The display name NVIDIA ships for the RTX Spark SoC (tests/hermes_cli/test_local_n1x_pci_identity.py).
-_N1X = "NVIDIA RTX Spark N1X"
-
 
 @pytest.fixture
 def machine(monkeypatch):
@@ -39,16 +36,15 @@ def test_shape(machine):
 
 
 
-def test_n1x_cpu_string_is_an_rtx_spark(machine):
-    result = machine(os_family="win32", native_arch="arm64", cpu_model=_N1X, cpu_vendor="NVIDIA")
+def test_dgx_spark_cpu_string_is_a_spark(machine):
+    result = machine(native_arch="arm64", cpu_model="NVIDIA DGX Spark", cpu_vendor="NVIDIA")
 
-    assert result["nvidia_platform"] == "rtx_spark"
+    assert result["nvidia_platform"] == "dgx_spark"
     assert result["machine_kind"] == "Spark"
 
 
 @pytest.mark.parametrize(("os_family", "arch", "gpu", "kind", "nvidia"), [
-    ("win32", "amd64", "nvidia", "PC", True),
-    ("darwin", "arm64", "unknown", "Mac", False),
+    ("linux", "amd64", "nvidia", "computer", True),
     ("linux", "amd64", "amd", "computer", False),
 ])
 def test_ordinary_machines_are_not_sparks(machine, os_family, arch, gpu, kind, nvidia):
@@ -66,20 +62,14 @@ def test_a_login_handle_is_never_offered_as_the_name(machine, monkeypatch, full)
     assert machine()["full_name"] is None
 
 
-@pytest.mark.parametrize(("os_family", "mac_ver", "release"), [
-    ("darwin", "26.0.1", "26.0.1"),
-    ("darwin", "", "25.0.0"),  # no macOS version reported: fall back to the kernel release
-    ("linux", "26.0.1", "25.0.0"),
-])
-def test_os_release_is_the_macos_version_on_a_mac(machine, monkeypatch, os_family, mac_ver, release):
-    monkeypatch.setattr(summary.platform, "mac_ver", lambda: (mac_ver, ("", "", ""), ""))
+def test_os_release_is_the_kernel_release(machine, monkeypatch):
     monkeypatch.setattr(summary.platform, "release", lambda: "25.0.0")
 
-    assert machine(os_family=os_family)["machine"]["os_release"] == release
+    assert machine()["machine"]["os_release"] == "25.0.0"
 
 
 def test_cached_per_process(machine, monkeypatch):
     first = machine()
-    monkeypatch.setattr(facts, "os_family", lambda: "darwin")
+    monkeypatch.setattr(facts, "cpu_model", lambda: "changed")
 
     assert summary.summary() is first

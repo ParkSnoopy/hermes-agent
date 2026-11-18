@@ -29,17 +29,11 @@ async def _owner(tmp_path, monkeypatch):
 
 
 async def _finished_cron_run(authority, db, tmp_path):
-    """A cron fire through the owner's own path, then settled the way a finished run books it."""
-    from cron import jobs
-    from gateway import session_cron
-    from hermes_state_runtime import cancel_session_input
-    with jobs.use_cron_store(tmp_path / 'cron'):
-        job = jobs.create_job(prompt='report', schedule='every 1h', deliver='local', model='m')
-        receipt = await session_cron.operation(authority, 'submit', {'job_id': job['id'], 'request_id': 'fire',
-                                                                     'extra_prompt': None})
-    cancel_session_input(db, epoch=authority.epoch, admission_id=receipt['admission_id'])
-    db.end_session(receipt['session_id'], 'cron_complete')
-    return receipt['session_id']
+    """Historical scheduler sessions remain accessible after scheduler retirement."""
+    db.create_session('historic-cron', source='cron', model='m')
+    db.append_message('historic-cron', 'user', 'historical prompt')
+    db.end_session('historic-cron', 'cron_complete')
+    return 'historic-cron'
 
 
 def _messaging_row(db, sid, chat_id, *, profile_name=None, platform='telegram'):

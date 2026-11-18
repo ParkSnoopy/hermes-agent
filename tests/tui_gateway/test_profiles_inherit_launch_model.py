@@ -54,7 +54,7 @@ def test_inherit_launch_model_carries_a_custom_provider_gateway(
     atomic_config_write(
         profile / "config.yaml",
         {
-            "tts": {"provider": "edge"},
+            "display": {"compact": True},
             "providers": retained_catalog,
             "_config_version": DEFAULT_CONFIG["_config_version"],
         },
@@ -94,10 +94,10 @@ def test_inherit_launch_model_pins_a_bare_custom_endpoint(monkeypatch, tmp_path,
     )
     profile = home / "profiles" / "scout"
     profile.mkdir(parents=True)
-    # Voice mirroring writes config.yaml before inheritance runs (#85755).
+    # Existing unrelated configuration must not prevent model inheritance.
     atomic_config_write(
         profile / "config.yaml",
-        {"tts": {"provider": "edge"}, "_config_version": DEFAULT_CONFIG["_config_version"]},
+        {"display": {"compact": True}, "_config_version": DEFAULT_CONFIG["_config_version"]},
     )
 
     assert srv._inherit_launch_model(profile) is True

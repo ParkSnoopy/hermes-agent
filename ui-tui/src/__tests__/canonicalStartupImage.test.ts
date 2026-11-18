@@ -35,7 +35,6 @@ it('startup image bytes travel with the literal prompt and attachment failure pr
         submission: { submitLiteralRef: { current: submit }, submitRef: { current: vi.fn() } },
         system: { sys, bellOnComplete: false, bellOnPrompt: false },
         transcript: { appendMessage: vi.fn(), panel: vi.fn(), setHistoryItems: vi.fn() },
-        voice: { setProcessing: vi.fn(), setRecording: vi.fn(), setVoiceEnabled: vi.fn() }
       } as any)
 
       handler({ type: 'gateway.ready', payload: {} } as any)

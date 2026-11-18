@@ -8,12 +8,10 @@ from __future__ import annotations
 
 import json
 import os
-import plistlib
 import signal
 import subprocess
 import sys
 import threading
-import time
 
 import pytest
 
@@ -79,8 +77,7 @@ _KILLED_AFTER_RECORDING = """
         entry["argv"] = ["hermes", "gateway", "run"]
     # Discovery is the seam (no real unit or install here); recording is the code under test.
     m._discover_systemd = lambda: [entry] if kind == "systemd" else []
-    m._discover_launchd = lambda: []
-    m._left_running = lambda units, jobs: (units, jobs, [])
+    m._left_running = lambda units: (units, [])
     m._discover_bare = lambda service_pids: ([] if kind == "systemd" else [entry], [])
     def killed(token, entries):  # the update dies mid-stop, after (or before) asking this gateway
         if asked:
@@ -140,7 +137,6 @@ def test_a_record_that_cannot_be_written_leaves_the_update_unpaused_and_ungated(
     monkeypatch.setenv("HERMES_HOME", str(home))
     entry = {"pid": gateway.pid, "argv": ["hermes", "gateway", "run"], "home": str(home)}
     monkeypatch.setattr(m, "_discover_systemd", list)
-    monkeypatch.setattr(m, "_discover_launchd", list)
     monkeypatch.setattr(m, "_discover_bare", lambda service_pids: ([dict(entry)], []))
     monkeypatch.setattr(m, "_stop_gateways", lambda *a: pytest.fail("a gateway was stopped without a record"))
     token = {**m._empty_token(), **prior}
@@ -184,36 +180,45 @@ def test_unknown_cgroup_membership_never_authorizes_stopping_the_unit():
     assert _escape_cgroup({"unit": "hermes-gateway-p2probe.service", "pid": 4242, "cgroup": None}) is False
 
 
-@pytest.mark.platforms("macos")
-@pytest.mark.live_system_guard_bypass
-def test_a_launchd_job_is_paused_through_launchd_and_restarted_through_it(tmp_path):
-    """A KeepAlive job merely killed is respawned by launchd on the old code mid-update; the pause
-    boots it out (no respawn) and the restart bootstraps the same plist (a fresh PID)."""
-    from hermes_cli.gateway import _launchd_print_service_pid
-    from hermes_cli.update_cmd_posix_pause import _alive, _start_job, _stop_job
-    label = f"ai.hermes.p2probe-{os.getpid()}"
-    plist = tmp_path / f"{label}.plist"
-    plist.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": ["/bin/sleep", "600"],
-                                      "RunAtLoad": True, "KeepAlive": True}))
-    domain = f"gui/{os.getuid()}"  # windows-footgun: ok — macOS-only test (platforms("macos"))
-    if subprocess.run(["launchctl", "print", domain], capture_output=True, check=False).returncode:
-        domain = f"user/{os.getuid()}"  # windows-footgun: ok — macOS-only test (platforms("macos"))
+@pytest.mark.parametrize("kind", ["launchd", "windows-service", "unknown"])
+def test_unsupported_supervisor_is_refused_before_any_drain_or_stop(monkeypatch, kind):
+    from hermes_cli import update_cmd_posix_pause as m
 
-    def pid() -> int | None:
-        return _launchd_print_service_pid(domain, label)[1]
+    for name in ("_ask_to_drain", "_stop_unit", "_drain_budget"):
+        monkeypatch.setattr(m, name, lambda *a, **kw: pytest.fail("unsupported supervisor caused a side effect"))
+    entries = [dict(_UNIT), {"kind": kind, "pid": 4243}]
+    with pytest.raises(m.PauseRefused, match="Unsupported gateway supervisor"):
+        m._stop_gateways({}, entries)
 
-    subprocess.run(["launchctl", "bootstrap", domain, str(plist)], check=True, timeout=30)
-    try:
-        deadline = time.monotonic() + 15
-        while not pid() and time.monotonic() < deadline:
-            time.sleep(0.2)
-        first = pid()
-        assert first, "premise: launchd never started the probe job"
-        job = {"kind": "launchd", "label": label, "domain": domain, "plist": str(plist), "pid": first}
-        _stop_job(job)
-        time.sleep(3.0)  # KeepAlive would have respawned a merely-killed job by now
-        assert not _alive(first, None) and not pid(), "the paused job is running again under launchd"
-        _start_job(job)
-        assert pid() and pid() != first, "the restart did not bring the job back under launchd"
-    finally:
-        subprocess.run(["launchctl", "bootout", f"{domain}/{label}"], capture_output=True, check=False)
+
+@pytest.mark.parametrize("kind", ["launchd", "windows-service", "unknown"])
+def test_unsupported_resume_preserves_the_obligation_without_starting_anything(monkeypatch, kind):
+    from hermes_cli import update_cmd_posix_pause as m
+
+    monkeypatch.setattr(m, "_start_unit", lambda *a: pytest.fail("unsupported supervisor was started as systemd"))
+    monkeypatch.setattr(m, "_relaunch_bare", lambda *a: pytest.fail("unsupported supervisor was replayed"))
+    entry = {"kind": kind, "pid": 4243}
+    token = {"posix_units": [entry], "resume_needed": True, "posix_stopped": True}
+    with pytest.raises(RuntimeError, match="Unsupported gateway supervisor"):
+        m.resume_paused_set(token)
+    assert token["posix_units"] == [entry]
+    assert token["resume_needed"] is True
+    assert token["posix_stopped"] is True
+
+
+def test_systemd_resume_clears_only_verified_obligations(monkeypatch):
+    from hermes_cli import update_cmd_posix_pause as m
+
+    calls = []
+    monkeypatch.setattr(m, "_RESTARTED", {"units": set(), "labels": set(), "pids": set()})
+    monkeypatch.setattr(m, "_start_unit", lambda unit: calls.append(unit) or 4244)
+    monkeypatch.setattr(m, "_relaunch_bare", lambda *a: pytest.fail("systemd gateway was replayed as a bare process"))
+    token = {"posix_units": [dict(_UNIT)], "resume_needed": True, "posix_stopped": True}
+    m.resume_paused_set(token)
+    assert calls == [_UNIT]
+    assert m.already_restarted()["units"] == {f"user/{_UNIT['unit']}"}
+    assert m.already_restarted()["pids"] == {4244}
+    assert token["posix_units"] == []
+    assert token["restarted_services"] == [_UNIT["unit"]]
+    assert token["resume_needed"] is False
+    assert token["posix_stopped"] is False

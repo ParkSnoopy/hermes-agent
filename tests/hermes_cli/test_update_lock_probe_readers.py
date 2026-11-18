@@ -35,29 +35,15 @@ def pause():
         print("probing", flush=True)
         sys.stdin.readline()
 
-if sys.platform == "win32":
-    # The Windows probe gives its shared lock straight back: stop between LockFileEx and UnlockFileEx.
-    kernel32, overlapped = update_lock._windows_lockfile_api()
+# Linux keeps the shared flock until checkout_lock_held closes the descriptor.
+shared_probe = update_lock._try_shared_lock
 
-    class PauseBeforeUnlock:
-        def __getattr__(self, name):
-            return getattr(kernel32, name)
+def probe(fd):
+    taken = shared_probe(fd)
+    pause()
+    return taken
 
-        def UnlockFileEx(self, *args):
-            pause()
-            return kernel32.UnlockFileEx(*args)
-
-    update_lock._windows_lockfile_api = lambda: (PauseBeforeUnlock(), overlapped)
-else:
-    # POSIX keeps the shared flock until checkout_lock_held closes the descriptor.
-    shared_probe = update_lock._try_shared_lock
-
-    def probe(fd):
-        taken = shared_probe(fd)
-        pause()
-        return taken
-
-    update_lock._try_shared_lock = probe
+update_lock._try_shared_lock = probe
 held = update_lock.checkout_lock_held(sys.argv[2])
 if not paused:  # never reached the shared probe: fail the handshake instead of faking it
     print("unprobed", flush=True)
@@ -131,24 +117,3 @@ def _assert_readers_never_fence(root: Path, home: Path) -> None:
 @pytest.mark.platforms("posix")
 def test_concurrent_lock_probes_never_fence_a_launch_posix(install) -> None:
     _assert_readers_never_fence(*install)
-
-
-@pytest.mark.platforms("windows")
-def test_concurrent_lock_probes_never_fence_a_launch_windows(install) -> None:
-    _assert_readers_never_fence(*install)
-
-
-@pytest.mark.platforms("windows")
-def test_repeated_windows_probes_build_no_new_ctypes_pointer_types(install, monkeypatch) -> None:
-    """A long-lived gateway probes every 30 s. Before Python 3.14 ctypes caches every pointer type
-    forever, so once the first probe has built its types, later probes must not build any."""
-    import ctypes
-
-    root, _home = install
-    assert update_lock.checkout_lock_held(root) is False  # the first probe may build its types once
-    real_pointer = ctypes.POINTER
-    built = []
-    monkeypatch.setattr(ctypes, "POINTER", lambda cls: built.append(cls) or real_pointer(cls))
-    for _ in range(50):
-        assert update_lock.checkout_lock_held(root) is False
-    assert built == []

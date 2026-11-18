@@ -15,8 +15,6 @@ Hermes has several distinct pluggable interfaces — some use Python `register_*
 | If you want to add… | Read |
 |---|---|
 | Custom tools, hooks, slash commands, skills, or CLI subcommands | **This guide** (the general plugin surface) |
-| A **native desktop app** extension (panes, pages, status bar, palette, themes) | [Desktop Plugin SDK](../desktop-plugin-sdk.md) |
-| A **web dashboard** extension (tabs, shell slots, themes) | [Extending the Dashboard](../../user-guide/features/extending-the-dashboard.md) |
 | An **LLM / inference backend** (new provider) | [Model Provider Plugins](../model-provider-plugin.md) |
 | A **memory backend** (Honcho/Mem0/Supermemory/etc.) | [Memory Provider Plugins](../memory-provider-plugin.md) |
 | A **context-compression engine** | [Context Engine Plugins](../context-engine-plugin.md) |
@@ -27,16 +25,13 @@ Hermes has several distinct pluggable interfaces — some use Python `register_*
 | A **delegation strategy** (pick a profile or a named model per subagent) | [Delegation Provider Plugins](../delegation-provider-plugin.md) — `ctx.register_delegation_provider()` |
 | A **computer-use driver** (desktop control behind the `computer_use` tool) | [Computer-use backend plugins](#computer-use-backend-plugins) — `ctx.register_computer_use_provider()` |
 | A **secret-manager backend** (vault / password manager / OS keystore) | [Secret Source Plugins](../secret-source-plugin.md) |
-| A **dashboard OIDC/auth provider** | [Web Dashboard — custom providers](../../user-guide/features/web-dashboard.md#custom-providers) — `ctx.register_dashboard_auth_provider()` |
-| A **TTS backend** (any CLI — Piper, VoxCPM, Kokoro, voice cloning, …) | [TTS custom command providers](../../user-guide/features/tts.md#custom-command-providers) — config-driven, no Python needed |
-| An **STT backend** (custom whisper / ASR CLI) | [Voice Message Transcription](../../user-guide/features/tts.md#voice-message-transcription-stt) — set `HERMES_LOCAL_STT_COMMAND` to an argv-tokenized template |
 | **External tools via MCP** (filesystem, GitHub, Linear, any MCP server) | [MCP](../../user-guide/features/mcp.md) — declare `mcp_servers.<name>` in `config.yaml` |
 | **Gateway event hooks** (fire on startup, session events, commands) | [Event Hooks](../../user-guide/features/hooks.md#gateway-event-hooks) — drop `HOOK.yaml` + `handler.py` into `~/.hermes/hooks/<name>/` |
 | **Shell hooks** (run a shell command on events) | [Shell Hooks](../../user-guide/features/hooks.md#shell-hooks) — declare under `hooks:` in `config.yaml` |
 | **Additional skill sources** (custom GitHub repos, private skill indexes) | [Skills](../../user-guide/features/skills.md) — `hermes skills tap add <repo>` · [Publishing a tap](../../user-guide/features/skills.md#publishing-a-custom-skill-tap) |
 | A first-class **core** inference provider (not a plugin) | [Adding Providers](../adding-providers.md) |
 
-See the full [Pluggable interfaces table](../../user-guide/features/plugins.md#pluggable-interfaces--where-to-go-for-each) for a consolidated view of every extension surface including config-driven (TTS, STT, MCP, shell hooks) and drop-in directory (gateway hooks) styles.
+See the full [Pluggable interfaces table](../../user-guide/features/plugins.md#pluggable-interfaces--where-to-go-for-each) for a consolidated view of every extension surface including config-driven (MCP, shell hooks) and drop-in directory (gateway hooks) styles.
 :::
 
 :::caution Third-party-product plugins ship standalone — not into the core tree
@@ -143,7 +138,7 @@ write-capable call instead of relying on the skill's instructions alone:
 
 The server name must match an `mcp.json` entry. With `untrusted`, every tool
 call to that server that is not annotated `readOnlyHint: true` asks the user
-first (Once, Session or Always, per tool), and fails closed where nobody can answer (cron, unattended runs). The
+first (Once, Session or Always, per tool), and fails closed where nobody can answer (unattended runs). The
 only other accepted value is `full`, the default, so a package can narrow
 access but never widen it. A `config.yaml` server with the same name replaces
 the package's entry, including its trust, but keeps the package's declared costs
@@ -334,9 +329,7 @@ cd ~/.hermes/plugins/calculator
 manifest parser, namespaced import, `register(ctx)`, hook registry, and tool
 registry used by Hermes itself. It reports invalid hook names, callbacks that do
 not accept `**kwargs`, registration failures, and drift between declared and
-registered tools/hooks. For a package with a `desktop/plugin.js`, it also warns
-when the Desktop app is running a stale copy of it (see
-[Developing a unified package](../desktop-plugin-sdk.md#developing-a-unified-package)).
+registered tools/hooks.
 Pass `--ci` to exit non-zero on an error:
 
 ```bash
@@ -543,7 +536,7 @@ tunnel hint when Hermes runs on a remote host. If the IdP grants fewer scopes
 than declared, nothing is saved. `hermes auth status|refresh|logout
 gemini-voice:google` show, refresh and remove the grant. It lives in the active
 profile's `auth.json`; Hermes refreshes it on use once less than two minutes
-remain and never starts a sign-in under the gateway or cron.
+remain and never starts a sign-in under the gateway.
 
 The plugin calls the API through the same helper, with the entry's `id` as the
 provider:
@@ -594,7 +587,7 @@ The Codex rules above apply, plus:
   client secret.
 - **Sign-in and removal.** `hermes auth add` prints which hosts get the code,
   the client secret and the token before opening the browser, and refuses to
-  run from the gateway, cron or an agent session. `hermes plugins remove` drops
+  run from the gateway or an agent session. `hermes plugins remove` drops
   the plugin's grants, and `hermes auth logout <plugin>:<id>` still works after
   the plugin is gone.
 
@@ -1817,7 +1810,7 @@ A sync slash-command handler can ask the user who ran it to pick one option with
 |---|---|
 | Classic CLI, Ink TUI, Desktop | The clarify picker |
 
-A choice is a string (the label and the value) or a dict `{"value", "label", "description"}`; the description is shown after the label. A typed value or label, in any case, also picks that choice. `ask_choice` returns `None` when the user cancels, types something that is not a choice, or lets the clarify timeout (`agent.clarify_timeout`) pass. It also returns `None` when nothing can ask: a hook, a cron job, an async handler (blocking would stall the event loop that delivers the answer). The handler then falls back to its text usage:
+A choice is a string (the label and the value) or a dict `{"value", "label", "description"}`; the description is shown after the label. A typed value or label, in any case, also picks that choice. `ask_choice` returns `None` when the user cancels, types something that is not a choice, or lets the clarify timeout (`agent.clarify_timeout`) pass. It also returns `None` when nothing can ask: a hook or an async handler (blocking would stall the event loop that delivers the answer). The handler then falls back to its text usage:
 
 ```python
 _MODES = [
@@ -1936,7 +1929,7 @@ listens for the event frame of type `plugin.<plugin_id>.pane.changed`:
   `plugin_id` as given.
 - **Where it works:** on a gateway that owns sessions (its session authority, as on the shared
   `hermes gateway run` gateway that attached frontends use). A backend without one answers the method
-  with `-32601`. In a process without one (`hermes chat`, cron, a
+  with `-32601`. In a process without one (`hermes chat`, a
   `dashboard.turn_isolation` compute child) `emit_to_session` returns `False`.
 - **Detect it first.** An owner that serves plugin methods lists `plugin-rpc-v1` in
   `runtime.describe`'s `capabilities`. With it, `-32601` means that plugin method is not loaded (the
@@ -1964,63 +1957,6 @@ newer one. Use it instead of reading or writing `CDPSupervisor` private
 attributes, which the catalog rejects. It is trusted in-process transport only:
 it performs no origin, consent or ownership checks for you. Full contract:
 [Browser CDP Supervisor](../browser-supervisor.md#trusted-plugin-cdp-access).
-
-### Know which cron run you are in
-
-`ctx.current_cron_execution()` returns the scheduled run the current code executes inside, or `None` outside cron. It works from any hook that fires during the run (`pre_tool_call`, `post_tool_call`, `pre_llm_call`, ...) and from tool handlers. The value is a frozen `CronExecution`:
-
-| Field | Meaning |
-|---|---|
-| `job_id`, `job_name` | The cron job. |
-| `execution_id` | This run's row in the executions ledger (`hermes cron runs`). |
-| `source` | Which path fired the run: `"builtin"` (the built-in scheduler), `"direct"` (a run fired outside it, e.g. `hermes cron run`), or an external scheduler's name. |
-| `scheduled_instant` | The schedule occurrence this run fires. `None` for a manual or other off-schedule run, so check this field to tell a scheduled run from a manual one. |
-| `started_at` | When the run started. |
-| `profile` | The profile that owns the job. |
-
-The scheduler sets it only after the run has won its execution claim, and clears it when the run ends. It is per-run, so two jobs or profiles firing at the same time never see each other's value. The model cannot forge it: hook arguments come from Hermes, and tool subprocesses (terminal, `execute_code`) run in a separate interpreter. Subagents spawned with `delegate_task` get `None` because they are not the scheduled run itself.
-
-```python
-def register(ctx):
-    def guard(*, tool_name, args, **kw):
-        run = ctx.current_cron_execution()
-        if tool_name == "deploy" and (run is None or run.scheduled_instant is None):
-            return {"action": "block", "message": "deploy only runs from its scheduled cron job"}
-    ctx.register_hook("pre_tool_call", guard)
-```
-
-### Add Automation Blueprints
-
-`ctx.register_automation_blueprint(key, *, title, description, schedule_template, prompt_template, category="general", slots=(), deliver_default="origin", skills=(), tags=())` adds a fill-in-the-blanks automation to the [Automation Blueprints catalog](../../reference/automation-blueprints-catalog.mdx). It appears next to the built-ins in `/blueprint` (CLI, TUI, messengers), the dashboard's Blueprints tab, and the Desktop Cron page, labelled with your plugin's name. The arguments are the fields of the built-in `AutomationBlueprint` (`cron/blueprint_catalog.py`); each slot is a dict of `BlueprintSlot` fields.
-
-```python
-def register(ctx):
-    ctx.register_automation_blueprint(
-        "standup",
-        title="Team standup digest",
-        description="Every weekday, summarize what changed in a repo since yesterday.",
-        category="work",
-        schedule_template="{minute} {hour} * * 1-5",
-        prompt_template="Summarize yesterday's commits and open PRs for {repo} as a short standup digest.",
-        slots=[
-            {"name": "repo", "type": "text", "label": "Which repo?", "default": "acme/app"},
-            {"name": "time", "type": "time", "label": "What time?", "default": "09:15"},
-            {"name": "deliver", "type": "enum", "label": "Where to deliver?", "default": "origin",
-             "options": ["origin", "local"], "strict": False},
-        ],
-        tags=["work", "daily"],
-    )
-```
-
-Users then run `/blueprint teamtools:standup` (or just `/blueprint standup`) or pick it in the Desktop/dashboard form.
-
-- **Keys are namespaced.** The catalog key is `<plugin>:<key>` (`teamtools:standup`), so a plugin can never replace a built-in or another plugin's blueprint. Pass the bare key; a key containing `:` is rejected.
-- **Slots and templates.** Slot `type` is `time` (`HH:MM`), `enum`, `weekdays`, or `text`. `prompt_template` may use any slot as `{name}`. `schedule_template` may use slot names plus `{minute}`/`{hour}` (from a slot named `time`) and `{dow}` (from a `recurrence`/`day` slot, else `*`). A slot named `deliver` gets the profile's real delivery targets in the Desktop and dashboard forms.
-- **Validated at registration.** An unknown placeholder, bad slot type, duplicate key, or schedule that does not parse logs a warning and skips that blueprint; the rest of your plugin still loads. When every slot has a default, Hermes fills the blueprint once at load, so a broken template fails then instead of on the user's first *Schedule it*.
-- **Per profile.** Plugins load per profile, so the blueprint is listed only in profiles where your plugin is enabled.
-- **Jobs outlive the plugin.** Scheduling a blueprint creates an ordinary cron job with the prompt and schedule already filled in. Disabling or uninstalling the plugin removes the blueprint from the catalog but leaves those jobs running. If a job's `skills` name a skill your plugin bundles, the job skips that skill (and logs it) while the plugin is disabled.
-
-This needs no manifest capability. It also works under plugin host isolation, because slots are plain dicts.
 
 ### Session messages and adapter hooks
 
@@ -2271,7 +2207,7 @@ Rules:
   swap. Report gaps per action with `ActionResult(ok=False, code="unsupported_action", ...)`.
 - Approval gating, the Bot Desktop lease, screenshot dedup, element caps and vision routing all run
   in the tool, above the backend. The backend only drives the screen.
-- `hermes computer-use status`/`doctor`/`permissions` run cua-driver checks only when `cua` is
+- `hermes computer-use status`/`doctor` run cua-driver checks only when `cua` is
   selected. For any other provider they report its `is_available()` and run its `doctor()` if it has one.
 - Providers return live driver sessions, so they load in-process only. Under
   `plugins.isolation: host`, a user provider is refused and the call reports that it could not be loaded.
@@ -2352,25 +2288,6 @@ hermes skills install myorg/skills-repo/my-workflow
 Publishing your own tap is just a GitHub repo with `skills/<skill-name>/SKILL.md` directories — no server or registry signup needed.
 
 **Full guides:** [Skills Hub](../../user-guide/features/skills.md#skills-hub) · [Publishing a custom tap](../../user-guide/features/skills.md#publishing-a-custom-skill-tap) (repo layout, minimal example, non-default paths, trust levels).
-
-### TTS / STT via command templates
-
-Any CLI that reads/writes audio or text can be plugged in through `config.yaml` — no Python code:
-
-```yaml
-tts:
-  provider: voxcpm
-  providers:
-    voxcpm:
-      type: command
-      command: "voxcpm --ref ~/voice.wav --text-file {input_path} --out {output_path}"
-      output_format: mp3
-      voice_compatible: true
-```
-
-For STT, point `HERMES_LOCAL_STT_COMMAND` at an argv-tokenized template. It runs without implicit shell interpretation; wrap it in `sh -c`, `cmd /c`, or PowerShell explicitly if the trusted local command requires shell syntax. Supported placeholders: `{input_path}`, `{output_path}`, `{format}`, `{voice}`, `{model}`, `{speed}` (TTS); `{input_path}`, `{output_dir}`, `{language}`, `{model}` (STT). Any path-interacting CLI is automatically a plugin.
-
-**Full guides:** [TTS custom command providers](../../user-guide/features/tts.md#custom-command-providers) · [STT](../../user-guide/features/tts.md#voice-message-transcription-stt).
 
 ## Distribute via pip
 

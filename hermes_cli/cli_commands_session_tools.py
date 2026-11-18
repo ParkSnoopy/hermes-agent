@@ -83,7 +83,7 @@ def _rollback_kept(result: dict) -> None:
 
 def _probe(module: str, name: str, default, *args):
     """``<module>.<name>(*args)`` or ``default`` when the import or the call fails (optional
-    subsystems: browser backends, async delegations, wake word, ...)."""
+    subsystems: browser backends, async delegations, ...)."""
     try:
         return getattr(importlib.import_module(module), name)(*args)
     except Exception:

@@ -39,7 +39,7 @@ import { useGitBranch } from '../hooks/useGitBranch.js'
 import { pruneVirtualHeightCache, useVirtualHistory } from '../hooks/useVirtualHistory.js'
 import { composerPromptWidth } from '../lib/inputMetrics.js'
 import { appendTranscriptMessage, capTranscriptHistory } from '../lib/messages.js'
-import { DEFAULT_VOICE_RECORD_KEY, isMac, type ParsedVoiceRecordKey } from '../lib/platform.js'
+import { isMac } from '../lib/platform.js'
 import { createResizeCoalescer } from '../lib/resizeCoalescer.js'
 import { asRpcResult, rpcErrorMessage } from '../lib/rpc.js'
 import { terminalParityHints } from '../lib/terminalParity.js'
@@ -337,11 +337,6 @@ export function useMainApp(gw: GatewayClient) {
 
   const [lastUserMsg, setLastUserMsg] = useState('')
   const [stickyPrompt, setStickyPrompt] = useState('')
-  const [voiceEnabled, setVoiceEnabled] = useState(false)
-  const [voiceTts, setVoiceTts] = useState(false)
-  const [voiceRecording, setVoiceRecording] = useState(false)
-  const [voiceProcessing, setVoiceProcessing] = useState(false)
-  const [voiceRecordKey, setVoiceRecordKey] = useState<ParsedVoiceRecordKey>(DEFAULT_VOICE_RECORD_KEY)
   const [sessionStartedAt, setSessionStartedAt] = useState(() => Date.now())
   const [dashboardFreshSessionId, setDashboardFreshSessionId] = useState<null | string>(null)
   const [turnStartedAt, setTurnStartedAt] = useState<null | number>(null)
@@ -677,8 +672,6 @@ export function useMainApp(gw: GatewayClient) {
     setLastUserMsg,
     setSessionStartedAt,
     setStickyPrompt,
-    setVoiceProcessing,
-    setVoiceRecording,
     sys
   })
 
@@ -702,7 +695,7 @@ export function useMainApp(gw: GatewayClient) {
     }
   }, [ui.busy, turnStartedAt])
 
-  useConfigSync({ gw, setBellOnComplete, setBellOnPrompt, setVoiceEnabled, setVoiceRecordKey, sid: ui.sid })
+  useConfigSync({ gw, setBellOnComplete, setBellOnPrompt, sid: ui.sid })
   useBatteryPoll(gw)
 
   useEffect(() => {
@@ -1019,22 +1012,12 @@ export function useMainApp(gw: GatewayClient) {
     composer: { actions: composerActions, refs: composerRefs, state: composerState },
     gateway,
     terminal: { hasSelection, scrollRef, scrollWithSelection, selection, stdout },
-    voice: {
-      enabled: voiceEnabled,
-      recordKey: voiceRecordKey,
-      recording: voiceRecording,
-      setProcessing: setVoiceProcessing,
-      setRecording: setVoiceRecording,
-      setVoiceEnabled,
-      setVoiceTts
-    },
     wheelStep: WHEEL_SCROLL_STEP
   })
 
   const onEvent = useMemo(
     () =>
       createGatewayEventHandler({
-        composer: { setInput: composerActions.setInput, enqueue: composerActions.enqueue },
         gateway,
         session: {
           STARTUP_RESUME_ID,
@@ -1047,29 +1030,18 @@ export function useMainApp(gw: GatewayClient) {
         },
         submission: { submitLiteralRef, submitRef },
         system: { bellOnComplete, bellOnPrompt, stdout, sys },
-        transcript: { appendMessage, panel, setHistoryItems },
-        voice: {
-          setProcessing: setVoiceProcessing,
-          setRecording: setVoiceRecording,
-          setVoiceEnabled,
-          setVoiceTts
-        }
+        transcript: { appendMessage, panel, setHistoryItems }
       }),
     [
       appendMessage,
       bellOnComplete,
       bellOnPrompt,
-      composerActions.enqueue,
-      composerActions.setInput,
       gateway,
       panel,
       session.newSession,
       session.resetSession,
       session.resumeById,
       setHistoryItems,
-      setVoiceEnabled,
-      setVoiceProcessing,
-      setVoiceRecording,
       stdout,
       submitLiteralRef,
       submitRef,
@@ -1224,8 +1196,7 @@ export function useMainApp(gw: GatewayClient) {
           setSessionStartedAt
         },
         slashFlightRef,
-        transcript: { page, panel, send, setHistoryItems, sys, trimLastExchange: session.trimLastExchange },
-        voice: { setVoiceEnabled, setVoiceRecordKey, setVoiceTts }
+        transcript: { page, panel, send, setHistoryItems, sys, trimLastExchange: session.trimLastExchange }
       }),
     [
       catalog,
@@ -1573,10 +1544,9 @@ export function useMainApp(gw: GatewayClient) {
       queueEditIdx: composerState.queueEditIdx,
       queuedDisplay: composerState.queuedDisplay,
       submit,
-      updateInput,
-      voiceRecordKey
+      updateInput
     }),
-    [cols, composerActions, composerState, empty, pagerPageSize, submit, updateInput, voiceRecordKey]
+    [cols, composerActions, composerState, empty, pagerPageSize, submit, updateInput]
   )
 
   // Pass current progress through unfrozen — streaming update throttling
@@ -1601,13 +1571,6 @@ export function useMainApp(gw: GatewayClient) {
       statusColor: statusColorOf(ui.status, ui.theme.color),
       stickyPrompt,
       turnStartedAt: ui.sid ? turnStartedAt : null,
-      // CLI parity: the classic prompt_toolkit status bar shows a red dot
-      // on REC (cli.py:_get_voice_status_fragments line 2344).
-      voiceLabel: voiceRecording
-        ? sessionEn.session.main.voiceRec
-        : voiceProcessing
-          ? sessionEn.session.main.voiceStt
-          : `${voiceEnabled ? sessionEn.session.main.voiceOn : sessionEn.session.main.voiceOff}${voiceTts ? sessionEn.session.main.voiceTtsSuffix : ''}`
     }),
     [
       cwd,
@@ -1618,11 +1581,7 @@ export function useMainApp(gw: GatewayClient) {
       sessionStartedAt,
       stickyPrompt,
       turnStartedAt,
-      ui,
-      voiceEnabled,
-      voiceProcessing,
-      voiceRecording,
-      voiceTts
+      ui
     ]
   )
 

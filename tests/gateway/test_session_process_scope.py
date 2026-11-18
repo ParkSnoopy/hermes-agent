@@ -1,4 +1,4 @@
-"""Process-global sidecar verbs never reach the shared owner's other sessions (dokterdok N2)."""
+"""Process-scoped authority verbs never reach the owner's other sessions (dokterdok N2)."""
 import json
 from pathlib import Path
 import subprocess

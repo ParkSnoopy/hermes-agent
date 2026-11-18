@@ -15,6 +15,27 @@ def reset_probe_cache():
     env_probe._reset_cache_for_tests()
 
 
+def test_mocked_probe_keeps_file_capture_and_disconnected_stdin(monkeypatch):
+    import subprocess
+    from types import SimpleNamespace
+
+    captured = []
+
+    def fake_run(cmd, **kwargs):
+        captured.append((cmd, kwargs))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(env_probe.subprocess, "run", fake_run)
+    rc, _out, _err = env_probe._run(["python3", "--version"], timeout=1.0)
+    assert rc == 0
+    assert len(captured) == 1
+    command, kwargs = captured[0]
+    assert command == ["python3", "--version"]
+    assert kwargs["stdout"] is not None and kwargs["stdout"] != subprocess.PIPE
+    assert kwargs["stderr"] is not None and kwargs["stderr"] != subprocess.PIPE
+    assert kwargs["stdin"] == subprocess.DEVNULL
+
+
 class TestSilentWhenHealthy:
     """The probe must emit nothing when the environment is clean — otherwise
     every prompt for every user pays an unnecessary token tax."""

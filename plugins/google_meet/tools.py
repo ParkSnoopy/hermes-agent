@@ -4,7 +4,7 @@
   meet_status      — bot liveness + transcript progress
   meet_transcript  — read the transcript (optional last-N)
   meet_leave       — signal the bot to leave cleanly
-  meet_say         — speak text through the realtime bridge (mode='realtime' only)
+
 """
 
 from __future__ import annotations
@@ -57,10 +57,8 @@ MEET_JOIN_SCHEMA = _schema(
     "with meet_status and read captions with meet_transcript. Reminder to the agent: you "
     "should announce yourself in the meeting (there is no automatic consent announcement).",
     {"url": _str("Full https://meet.google.com/... URL. Required."),
-     "mode": {"type": "string", "enum": ["transcribe", "realtime"],
-              "description": ("transcribe (default): listen-only, scrape captions. "
-                              "realtime: also enable agent speech via meet_say "
-                              "(requires OpenAI Realtime key + platform audio bridge).")},
+     "mode": {"type": "string", "enum": ["transcribe"],
+              "description": "Scrape Google-provided captions (default: transcribe)."},
      "guest_name": _str("Display name to use when joining as guest. Defaults to 'Hermes Agent'."),
      "duration": _str("Optional max duration before auto-leave (e.g. '30m', "
                       "'2h', '90s'). Omit to stay until meet_leave is called."),
@@ -94,16 +92,6 @@ MEET_LEAVE_SCHEMA = _schema(
     "file. Safe to call when no meeting is active — returns ok=false with a reason.",
     {"node": _NODE_PROP})
 
-MEET_SAY_SCHEMA = _schema(
-    "meet_say",
-    "Speak text into the active Meet call. Requires the active meeting to have been joined "
-    "with mode='realtime'. The text is queued to the bot's OpenAI Realtime session; the "
-    "generated audio is streamed into Chrome's fake microphone via a virtual audio device "
-    "(PulseAudio null-sink on Linux, BlackHole on macOS). Returns immediately — the actual "
-    "speech lags by a couple of seconds.",
-    {"text": _str("Text to speak."), "node": _NODE_PROP},
-    required=["text"])
-
 
 def _json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False)
@@ -133,9 +121,10 @@ def handle_meet_join(args: dict[str, Any], **_kw) -> str:
     url = (args.get("url") or "").strip()
     if not url:
         return _err("url is required")
-    mode = (args.get("mode") or "transcribe").strip().lower()
-    if mode not in {"transcribe", "realtime"}:
-        return _err(f"mode must be 'transcribe' or 'realtime' (got {mode!r})")
+    mode = args.get("mode", "transcribe")
+    if not isinstance(mode, str) or mode.strip().lower() != "transcribe":
+        return _err("mode must be 'transcribe'; other modes are unsupported")
+    mode = "transcribe"
     common: dict[str, Any] = dict(
         url=url, guest_name=str(args.get("guest_name") or "Hermes Agent"),
         duration=str(args.get("duration")) if args.get("duration") else None,
@@ -169,10 +158,3 @@ def handle_meet_transcript(args: dict[str, Any], **_kw) -> str:
 def handle_meet_leave(args: dict[str, Any], **_kw) -> str:
     return _dispatch(args.get("node"), "stop", lambda c: c.stop(),
                      lambda: pm.stop(reason="agent called meet_leave"))
-
-
-def handle_meet_say(args: dict[str, Any], **_kw) -> str:
-    text = (args.get("text") or "").strip()
-    if not text:
-        return _err("text is required")
-    return _dispatch(args.get("node"), "say", lambda c: c.say(text), lambda: pm.enqueue_say(text))

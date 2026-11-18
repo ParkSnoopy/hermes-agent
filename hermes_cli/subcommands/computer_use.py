@@ -32,6 +32,13 @@ def _cu_install(args) -> int:
 
 
 def _cu_status(args) -> int:
+    if getattr(args, "json", False):
+        import json
+        from tools.computer_use.readiness import computer_use_status
+
+        status = computer_use_status()
+        print(json.dumps(status, indent=2, sort_keys=True))
+        return 0 if status["ready"] else 1
     _exit_if_plugin_backend()
     import os as _os
     from hermes_cli.tools_config_cua import _cua_driver_contract_status, _cua_version_summary
@@ -82,53 +89,12 @@ def _cu_doctor(args) -> None:
         json_output=bool(getattr(args, "json", False))))
 
 
-def _cu_perms_status(args) -> None:
-    if not getattr(args, "json", False):  # --json: computer_use_status() reports the selected backend itself
-        _exit_if_plugin_backend()
-    import json as _json
-    from tools.computer_use.permissions import TCC_FIELDS, computer_use_status, stale_tcc_grant_hint
-    st = computer_use_status()
-    if bool(getattr(args, "json", False)):
-        print(_json.dumps(st, indent=2, sort_keys=True))
-        sys.exit(0 if st["ready"] else 1)
-    if not st["platform_supported"]:
-        print(f"Computer Use is not supported on {st['platform']}.")
-        sys.exit(1)
-    if not st["installed"]:
-        print("cua-driver: not installed. Run: hermes computer-use install")
-        sys.exit(1)
-    glyph = lambda v: "✅" if v is True else ("❌" if v is False else "•")
-    print(f"cua-driver: {st['version'] or 'installed'} ({st['platform']})")
-    if st["can_grant"]:  # macOS TCC permissions
-        print(f"  {glyph(st['accessibility'])} Accessibility")
-        print(f"  {glyph(st['screen_recording'])} Screen Recording")
-        if not st["ready"]:
-            print("  Grant: hermes computer-use permissions grant")
-            if hint := stale_tcc_grant_hint(*(f for f in TCC_FIELDS if st[f] is False)):
-                print(f"  {hint}")
-    else:  # no TCC model — readiness is driver health
-        print(f"  {glyph(st['ready'])} driver health (no permission toggles on {st['platform']})")
-    for c in st["checks"]:
-        if c["status"] != "ok":
-            print(f"  ⚠ {c['label']}: {c['message']}")
-    if st["error"]:
-        print(f"  ⚠ {st['error']}")
-    sys.exit(0 if st["ready"] else 1)
-
-
-def _cu_perms_grant(args) -> None:
-    _exit_if_plugin_backend()
-    from tools.computer_use.permissions import request_permissions_grant
-    sys.exit(request_permissions_grant())
-
-
 def build_computer_use_parser(subparsers) -> None:
     """Attach the ``computer-use`` subcommand to ``subparsers``."""
     computer_use_parser = subparsers.add_parser(
-        "computer-use", help="Manage the Computer Use (cua-driver) backend (macOS/Windows/Linux)",
+        "computer-use", help="Manage the Computer Use (cua-driver) backend on Linux",
         description="Install or check the cua-driver binary used by the\n"
-            "`computer_use` toolset. Supported on macOS, Windows, and\n"
-            "Linux.\n\n"
+            "`computer_use` toolset on Linux.\n\n"
             "Use `hermes computer-use install` to prepare the pinned\n"
             "cua-driver package and host integration. This is equivalent to the\n"
             "post-setup hook that `hermes tools` runs when you first\n"
@@ -137,20 +103,22 @@ def build_computer_use_parser(subparsers) -> None:
             "toggling the toolset on a returning-user setup).\n\n"
             "Use `hermes computer-use doctor` to run cua-driver's\n"
             "`health_report` MCP tool and surface its check matrix\n"
-            "(TCC, bundle identity, version, platform support, ...)\n"
+            "(version, platform support, capture, ...)\n"
             "in human-readable form.")
     computer_use_sub = computer_use_parser.add_subparsers(dest="computer_use_action")
 
     computer_use_install = computer_use_sub.add_parser(
-        "install", help="Install or repair the cua-driver binary (macOS/Windows/Linux)")
+        "install", help="Install or repair the cua-driver binary on Linux")
     computer_use_install.add_argument(
         "--upgrade", action="store_true",
         help="Reconcile cua-driver with Hermes' pinned PM package and repair host setup.")
-    computer_use_sub.add_parser("status", help="Check the selected cua-driver and its runtime contract")
+    computer_use_status = computer_use_sub.add_parser(
+        "status", help="Check the selected cua-driver and its runtime contract")
+    add_json_flag(computer_use_status, "Emit normalized driver readiness as JSON.")
     computer_use_doctor = computer_use_sub.add_parser(
         "doctor", help="Run cua-driver `health_report` and surface the check matrix",
         description="Drive cua-driver's stable `health_report` MCP tool and render\n"
-            "its check matrix (TCC permissions, bundle identity, version,\n"
+            "its check matrix (driver health, version,\n"
             "platform support, screenshot probe, …) as human-readable\n"
             "output. cua-driver owns the health model; this command stays\n"
             "thin so new checks added upstream surface here without code\n"
@@ -159,27 +127,13 @@ def build_computer_use_parser(subparsers) -> None:
     computer_use_doctor.add_argument(
         "--include", action="append", default=[], metavar="CHECK",
         help="Run only the listed checks. Repeat for multiple "
-            "(e.g. --include tcc_accessibility --include bundle_identity). "
+            "(e.g. --include binary_version --include screen_capture_capability). "
             "Unknown names are reported by cua-driver.")
     computer_use_doctor.add_argument(
         "--skip", action="append", default=[], metavar="CHECK",
         help="Skip the listed checks. Repeat for multiple. Wins over --include.")
     add_json_flag(computer_use_doctor,
                   "Emit the raw structured payload as JSON (same shape as `tools/call`).")
-    computer_use_perms = computer_use_sub.add_parser(
-        "permissions", help="Check or grant macOS Accessibility + Screen Recording (macOS)",
-        description="Computer Use drives the Mac through cua-driver, whose TCC grants\n"
-            "attach to cua-driver's own identity (com.trycua.driver) — not the\n"
-            "terminal or the Hermes app. `status` reports the driver's grant\n"
-            "state; `grant` launches CuaDriver via LaunchServices so the macOS\n"
-            "permission dialog is attributed to the process that does the work.")
-    computer_use_perms_sub = computer_use_perms.add_subparsers(dest="computer_use_perms_action")
-    computer_use_perms_status = computer_use_perms_sub.add_parser(
-        "status", help="Report Accessibility + Screen Recording grant state (read-only)")
-    add_json_flag(computer_use_perms_status, "Emit the normalized permission payload as JSON.")
-    computer_use_perms_sub.add_parser(
-        "grant", help="Request the grants (opens the dialog attributed to CuaDriver)")
-    _perms_actions = {"grant": _cu_perms_grant, "status": _cu_perms_status}
 
     from hermes_cli.subcommands.computer_use_screen import build_screen_parser
     build_screen_parser(computer_use_sub, add_json_flag)
@@ -187,14 +141,8 @@ def build_computer_use_parser(subparsers) -> None:
     def _cu_screen(args):
         return args.screen_func(args)
 
-    def _cu_permissions(args):
-        handler = _perms_actions.get(getattr(args, "computer_use_perms_action", None))
-        if handler is not None:
-            return handler(args)
-        computer_use_perms.print_help()
-
     _actions = {"install": _cu_install, "status": _cu_status, "doctor": _cu_doctor,
-                "permissions": _cu_permissions, "screen": _cu_screen}
+                "screen": _cu_screen}
 
     def cmd_computer_use(args):
         handler = _actions.get(getattr(args, "computer_use_action", None))
