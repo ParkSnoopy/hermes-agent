@@ -21,7 +21,7 @@ Hermes keeps its working-set core tools (`terminal`, `read_file`, `write_file`,
 `web_extract`, `clarify`, `execute_code`, `delegate_task`, and the rest of
 `_HERMES_CORE_TOOLS`) loaded directly by default. Cold, event-triggered built-ins
 may be deferred when they are named in `tools.tool_search.defer`; the shipped
-curated list covers tools such as `computer_use`, `session_search`, and selected
+curated list covers tools such as `image_generate`, `session_search`, and selected
 desktop helpers. MCP and non-core plugin tools remain eligible automatically.
 An explicit `defer` list replaces the curated list, and `defer: []` keeps every
 tool eager.
@@ -111,7 +111,7 @@ tools:
     listing: auto       # embed a grouped name+description catalog manifest
     listing_max_tokens: 4000
     defer:              # replace the curated default; [] keeps every tool eager
-      - computer_use
+
       - session_search
       - image_generate
       - todo_list

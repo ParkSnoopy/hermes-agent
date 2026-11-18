@@ -233,24 +233,12 @@ def runtime_python(*, bootstrap: bool = True, cache: Path | None = None) -> Path
         if not bootstrap:
             raise InstallError("pm-runtime", "not installed and lazy installs are disabled",
                                "run `hermes pm install` to prepare the independent PM runtime")
-        from pm.lock import Lockfile
-        from pm.paths import lockfile_path, store_root
-        from pm.registry import get_package
-        from pm.store import current_target
-
-        # Setup has already verified/extracted uv, but there are no PM facts
-        # yet. Use it to acquire PM's TLS support BEFORE downloading Python.
-        package = get_package("uv")
-        version = Lockfile(lockfile_path()).version("uv")
-        target = current_target()
-        staged = package.binary(store_root() / package.store_entry(version, target), target) if version else None
-        if staged is not None and staged.is_file():
-            tools = staged, Path(sys.executable)
-        else:
-            # Non-shell bootstrap callers (CI) already have a host interpreter.
-            tools = _toolchain(explicit=True)
-    if tools is None:
-        raise InstallError("pm-runtime", "pinned uv and Python are unavailable")
+        # Bootstrap the private PM runtime with the caller's interpreter; it
+        # will acquire the pinned managed Python after TLS support is ready.
+        uv = shutil.which("uv")
+        if uv is None:
+            raise InstallError("uv", "uv was not found on PATH", "install uv with your system package manager")
+        tools = Path(uv), Path(sys.executable)
     uv, python = tools
     return prepare_runtime(uv, python, install_state_dir(project) / "pm-runtime",
                            bootstrap=bootstrap, cache=cache)

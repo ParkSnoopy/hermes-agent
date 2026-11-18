@@ -16,12 +16,9 @@ from hermes_cli.toolset_scope import (
     _TOOLSET_PLATFORM_RESTRICTIONS, toolset_allowed_for_platform as _toolset_allowed_for_platform)
 from hermes_cli.toolset_validation import parse_platform_toolsets_value
 # Re-exports: keep ``hermes_cli.tools_config.X`` callers and test patch targets resolving.
-from hermes_cli.tools_config_cua import (
-    _cua_driver_cmd, _cua_version_summary, _resolved_cua_driver_cmd, _cua_driver_env,
-    _cua_driver_contract_status, _cua_driver_install_ready)
 from hermes_cli.tools_config_post_setup import (
-    _ensure_browser_use_cli, _run_post_setup, valid_post_setup_keys, run_post_setup_command, _POST_SETUP_INSTALLED,
-    _post_setup_already_installed, _module_installed, _POST_SETUP_READY)
+    _ensure_browser_use_cli, _run_post_setup, valid_post_setup_keys, run_post_setup_command,
+    _module_installed, _POST_SETUP_READY)
 from hermes_cli.tools_config_providers import (
     _plugin_image_gen_providers, _plugin_video_gen_providers, _plugin_web_search_providers, _plugin_browser_providers,
     web_provider_capabilities, _visible_providers, provider_readiness_status,
@@ -76,7 +73,6 @@ CONFIGURABLE_TOOLSETS = [
     ("video",           "🎬 Video Analysis",            "video_analyze (requires video-capable model)"),
     ("image_gen",       "🎨 Image Generation",          "image_generate"),
     ("video_gen",       "🎬 Video Generation",          "video_generate (text/image/reference)"),
-    ("x_search",        "🐦 X (Twitter) Search",        "x_search (requires xAI OAuth or XAI_API_KEY)"),
     ("skills",          "📚 Skills",                    "list, view, manage"),
     ("todo",            "📋 Task Planning",             "todo_list"),
 
@@ -86,8 +82,6 @@ CONFIGURABLE_TOOLSETS = [
     ("connections",     "🔌 Connections",               "remote connector tools and account authorization"),
     ("clarify",         "❓ Clarifying Questions",      "clarify"),
     ("delegation",      "👥 Task Delegation",           "delegate_task"),
-
-    ("computer_use",     "🖱️  Computer Use (Linux)", "background desktop control via cua-driver"),
 ]
 
 
@@ -101,10 +95,8 @@ def gui_toolset_label(label: str) -> str:
     return text
 
 
-# OFF by default for new installs (still in _HERMES_CORE_TOOLS; the checklist won't pre-select them). x_search
-# auto-enables when xAI creds exist; its check_fn still gates the schema. ``spotify`` and ``a2a`` are plugin
-# toolsets (catalog / bundled plugin) that stay opt-in once installed.
-_DEFAULT_OFF_TOOLSETS = {"spotify", "video", "video_gen", "x_search", "a2a"}
+# The initial checklist leaves these capabilities off unless explicitly selected.
+_DEFAULT_OFF_TOOLSETS = {"spotify", "video", "video_gen"}
 
 
 
@@ -268,22 +260,7 @@ TOOL_CATEGORIES = {
                  managed_nous_feature="video_gen", override_env_vars=["FAL_KEY"], video_gen_plugin_name="fal"),
         ],
     },
-    "x_search": {
-        "name": "X (Twitter) Search", "setup_title": "Select xAI Credential Source",
-        "setup_note": (
-            "Hermes routes X searches through xAI's built-in x_search Responses tool for read-only public X "
-            "discovery. Use the xurl skill for authenticated X API reads and account actions. Both credential "
-            "sources hit the same https://api.x.ai/v1/responses endpoint — pick whichever you already have. "
-            "SuperGrok OAuth is preferred when both are set (uses your subscription quota instead of API spend)."
-        ),
-        "icon": "🐦",
-        "providers": [
-            _row("xAI Grok OAuth (SuperGrok / Premium+)", "subscription", "Browser login at accounts.x.ai — no API key required",
-                 post_setup="xai_grok"),
-            _row("xAI API key", "paid", "Direct xAI API billing via XAI_API_KEY",
-                 [_key("XAI_API_KEY", "xAI API key", "https://console.x.ai/")]),
-        ],
-    },
+
     "browser": {
         "name": "Browser Automation", "icon": "🌐",
         # Cloud provider rows (Browserbase, Browser Use, Firecrawl) come from plugins.browser.<vendor> via
@@ -303,17 +280,7 @@ TOOL_CATEGORIES = {
                  override_env_vars=["BROWSER_USE_API_KEY"], post_setup="browserbase"),
         ],
     },
-    "computer_use": {
-        "name": "Computer Use (Linux)", "icon": "🖱️",
-        "platform_gate": ["linux"],
-        # cua-driver reads HOME/TMPDIR from the process env; HERMES_CUA_DRIVER_CMD selects a specific
-        # binary (e.g. a local build). There is no version-pin env var.
-        "providers": [
-            _row("cua-driver (background)", "★ recommended · free · local",
-                 "Background computer-use via cua-driver — does NOT steal your cursor or focus. Works with any model.",
-                 computer_use_backend="cua", post_setup="cua_driver"),
-        ],
-    },
+
 }
 
 # Env-var fallback for toolsets NOT in TOOL_CATEGORIES. `vision` is only a presence marker (reconfigure menu +
@@ -450,17 +417,12 @@ def _explicit_toolsets(
 
 
 def _composite_toolsets(toolset_names: list[str], platform: str, explicitly_configured: bool) -> set[str]:
-    """Enabled set inferred from composite names by reverse-mapping tool names (only while no explicit list is
-    saved). ``x_search`` is not in any composite, so inject it when xAI creds exist and exempt it from default-off."""
+    """Infer configurable toolsets from the tool names in platform bundles."""
     from toolsets import resolve_toolset
 
     all_tool_names = {t for ts_name in toolset_names for t in resolve_toolset(ts_name)}
     enabled = _configurable_subset_of(all_tool_names, platform)
-    default_off = _default_off_toolsets(platform, explicitly_configured)
-    if _toolset_allowed_for_platform("x_search", platform) and _xai_credentials_present():
-        enabled.add("x_search")
-        default_off.discard("x_search")
-    return enabled - default_off
+    return enabled - _default_off_toolsets(platform, explicitly_configured)
 
 
 def _enabled_plugin_toolsets(config: dict, platform: str, toolset_names: list[str], plugin_ts_keys: set[str]) -> set[str]:
@@ -550,10 +512,7 @@ def _get_platform_tools(config: dict, platform: str, *, include_default_mcp_serv
     configurable_keys = _configurable_keys()
     plugin_ts_keys = _get_plugin_toolset_keys()
     platform_default_keys = _platform_default_keys()
-    # Plugin toolsets are first-class on a saved list: ``[hermes-cli, a2a]`` must survive filtering.
-    # Plugin-provided toolsets are first-class on a platform-toolsets list — explicit config like
-    # ``[hermes-cli, a2a]`` must survive filtering just like a built-in configurable toolset would. See
-    # issue #81163.
+    # Explicit plugin toolsets survive filtering just like built-in configurable toolsets (#81163).
     explicit_known_keys = configurable_keys | plugin_ts_keys
 
     if any(ts in explicit_known_keys for ts in toolset_names):

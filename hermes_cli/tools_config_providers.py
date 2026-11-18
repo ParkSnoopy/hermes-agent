@@ -125,17 +125,7 @@ _PLUGIN_ROW_BUILDERS = {
     "Video Generation": _plugin_video_gen_providers,
     "Web Search & Extract": _plugin_web_search_providers,
     "Browser Automation": _plugin_browser_providers,
-
-    "Computer Use (macOS/Windows/Linux)": lambda: _computer_use_provider_rows()}
-
-
-def _computer_use_provider_rows() -> list[dict]:
-    """Rows for installed computer-use providers other than the built-in ``cua`` (hand-written row with its
-    install post-setup). Read from plugin.yaml without importing: an unselected provider stays dormant."""
-    from plugins.computer_use import DEFAULT_BACKEND, discover_computer_use_providers
-
-    return [{"name": name, "badge": "", "tag": desc, "env_vars": [], "computer_use_backend": name}
-            for name, desc in discover_computer_use_providers() if name != DEFAULT_BACKEND]
+}
 
 
 def _visible_providers(
@@ -230,18 +220,12 @@ def _web_registry_readiness(provider: dict) -> str:
 
 def _toolset_needs_configuration_prompt(ts_key: str, config: dict, *, force_fresh: bool = False) -> bool:
     """Return True when enabling this toolset should open provider setup."""
-    from hermes_cli.tools_config import TOOL_CATEGORIES, _post_setup_already_installed, _toolset_has_keys
+    from hermes_cli.tools_config import TOOL_CATEGORIES, _toolset_has_keys
 
     cat = TOOL_CATEGORIES.get(ts_key)
     if not cat:
         return not _toolset_has_keys(ts_key, config, force_fresh=force_fresh)
 
-    # An unsatisfied post_setup install-state check (e.g. cua-driver not on PATH yet) forces the
-    # configuration flow so `_configure_provider` runs the hook and the install actually happens.
-    for provider in _visible_providers(cat, config, force_fresh=force_fresh):
-        post_setup = provider.get("post_setup")
-        if post_setup and not _post_setup_already_installed(post_setup):
-            return True
 
     # Categories whose "configured" signal is a selected provider key.
     selection_key = {"web": "backend", "browser": "cloud_provider"}.get(ts_key)
@@ -453,12 +437,11 @@ def _imagegen_backend_active(provider: dict, config: dict) -> bool:
 
 # Non-managed active checks, evaluated in order; the first marker the row carries decides (see ``_has_marker``).
 
-_ACTIVE_CHECKS: tuple[tuple[str, Callable[[dict, dict], bool]], ...] = (
-
-    ("browser_provider", _browser_provider_active),
-    ("web_backend", _web_backend_active),
-    ("computer_use_backend", lambda p, c: cfg_get(c, "computer_use", "backend") == p["computer_use_backend"]),
-    ("imagegen_backend", _imagegen_backend_active))
+_ACTIVE_CHECKS: dict[str, Callable[[dict, dict], bool]] = {
+    "browser_provider": _browser_provider_active,
+    "web_backend": _web_backend_active,
+    "imagegen_backend": _imagegen_backend_active,
+}
 
 
 def _is_provider_active(provider: dict, config: dict, *, force_fresh: bool = False) -> bool:
@@ -478,7 +461,7 @@ def _is_provider_active(provider: dict, config: dict, *, force_fresh: bool = Fal
     if managed_feature:
         return _managed_provider_active(provider, config, managed_feature, force_fresh)
 
-    for marker, check in _ACTIVE_CHECKS:
+    for marker, check in _ACTIVE_CHECKS.items():
         if _has_marker(provider, marker):
             return check(provider, config)
     return False
@@ -695,8 +678,6 @@ def _write_provider_config(provider: dict, config: dict, *, managed_feature) -> 
             else:
                 tiers.pop(provider["web_backend"], None)
 
-    if provider.get("computer_use_backend"):
-        config.setdefault("computer_use", {})["backend"] = provider["computer_use_backend"]
 
     if managed_feature and managed_feature not in {"web", "browser"}:
         # Managed rows without a marker above (image_gen/video_gen "Nous Subscription" rows carry only
@@ -809,8 +790,7 @@ def _print_provider_selection(provider: dict, managed_feature, *, reconfigure: b
         tier = f" ({provider['web_tier']} tier)" if reconfigure and provider.get("web_tier") else ""
         backend = NOUS_MANAGED_PROVIDER if managed_feature else provider["web_backend"]
         _print_success(f"  Web backend set to: {backend}{tier}")
-    if reconfigure and provider.get("computer_use_backend"):
-        _print_success(f"  Computer Use backend set to: {provider['computer_use_backend']}")
+
 
 
 def _show_portal_hint(provider: dict, config: dict, managed_feature, force_fresh: bool) -> bool:

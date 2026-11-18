@@ -17,11 +17,10 @@ def prepare_tools(source: Path, root: Path) -> None:
 
     store = root / "tools"
     store.mkdir(parents=True, exist_ok=True)
-    for name in ("python", "uv"):
-        entry = store / name
-        if entry.absolute() != (source / name).absolute():
-            entry.symlink_to((source / name).resolve(), target_is_directory=True)
-    record_tools(root, lockfile_path(), "linux-arm64-bionic", {name: name for name in ("python", "uv")})
+    entry = store / "python"
+    if entry.absolute() != (source / "python").absolute():
+        entry.symlink_to((source / "python").resolve(), target_is_directory=True)
+    record_tools(root, lockfile_path(), "linux-arm64-bionic", {"python": "python"})
 
 
 def application(root: Path, requirements: Path, python: Path) -> None:

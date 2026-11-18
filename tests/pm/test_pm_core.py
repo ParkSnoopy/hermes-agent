@@ -690,23 +690,19 @@ def test_machine_matches_binary_elf(tmp_path):
     assert machine_matches_binary(b, "linux-x64") is False
 
 
-def test_bundle_closure_uv_stays_internal_node_npm_ship(monkeypatch, tmp_path):
-    """Locks the semantics split: uv is pm's install machinery and never
-    ships by closure, node/npm are runtime tools and always do."""
+def test_bundle_closure_node_npm_ship(monkeypatch, tmp_path):
+    """Node and npm are runtime tools and ship by closure."""
     from scripts.bundles.native import _bundle_package_names
     from pm.lock import Lockfile
     from pm.registry import get_package
 
     lock = Lockfile(tmp_path / "lock.json")
-    for name in ("uv", "node", "npm"):
+    for name in ("node", "npm"):
         lock.set_pin(name, "1", {"any": {"url": "x", "sha256": "0" * 64}})
     lock.save()
     monkeypatch.setattr("scripts.bundles.native._lockfile", lambda: lock)
     names = _bundle_package_names()
-    # uv stays internal (off PATH, off the default install) but ships in
-    # the bundle via the explicit whitelist — install machinery rides along.
-    assert get_package("uv").internal is True
-    assert "uv" in names  # whitelisted cargo, not closure by right
+    assert "uv" not in names
     assert get_package("node").internal is False
     assert get_package("npm").internal is False
     assert "node" in names and "npm" in names
@@ -910,11 +906,3 @@ def test_store_path_dirs_include_node_npm_when_installed(tmp_path, monkeypatch):
     # npm extends node, and node's dir also holds node's bundled npm: npm's dir must win.
     npm_dir = next(i for i, d in enumerate(dirs) if d.endswith("npm-1"))
     assert npm_dir < next(i for i, d in enumerate(dirs) if d.endswith("node-1")), dirs
-
-    # And the split holds: uv, still internal, contributes nothing even
-    # if a (fabricated) fact exists for it.
-    uv_entry = "uv-1"
-    (store / uv_entry).mkdir(parents=True, exist_ok=True)
-    facts.record("uv", "1", uv_entry, {"PATH": ["{store}/" + uv_entry]}, store_root=store)
-    dirs = _store_path_dirs()
-    assert not any(d.endswith("uv-1") for d in dirs), dirs

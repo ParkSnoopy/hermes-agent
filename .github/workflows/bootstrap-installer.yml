@@ -1,7 +1,7 @@
 name: Bootstrap installer
 
 # Exercises the bootstrap-installer path on PRs that can affect it: the
-# POSIX shell installer (scripts/install.sh), its generated pin fragments,
+# POSIX shell installer (scripts/install.sh),
 # and the version stamp the `complete` stage ships. This lane runs the
 # protocol/stamp cross-checks plus a whole current installer against a tiny
 # application graph. The latter runs real PM/uv and generated launchers, not
@@ -53,9 +53,6 @@ jobs:
           print("stage manifest ok:", " -> ".join(names))
           '
 
-      - name: Generated bootstrap pins match pm/lock.json
-        shell: bash
-        run: python3 scripts/gen-bootstrap-pins.py --check
 
       - name: Publish the PR checkout as the install source
         id: source

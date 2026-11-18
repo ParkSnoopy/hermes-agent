@@ -87,7 +87,7 @@ SURFACES = {'cli': 'cli', 'tui': 'tui', 'acp': 'acp', 'tool': 'cli', 'oneshot': 
 # ``tool`` and ``oneshot`` stay stored under their own labels so pickers can hide them.
 # Creation labels of the owner's own chats: the only LOCAL routes that carry OpenAI Daybreak (agent.daybreak),
 # the approved account's own access (no third-party or downstream use). Not ``tool`` (third-party
-# integrations), ``acp`` (editor clients), or the ``bot_room`` / ``a2a`` policies hosted rooms and peers stage.
+# integrations), ``acp`` (editor clients), or the ``bot_room`` policies hosted rooms stage.
 DAYBREAK_LABELS = frozenset({'cli', 'tui', 'oneshot'})
 # Every other creation label is rewritten to ``source='local'`` on peer refresh.
 _KEEP_STORED_LABEL = frozenset({'tool', 'oneshot'})
@@ -424,9 +424,6 @@ def build_policy(params, config, *, private_secrets=None, profile_terminal=True,
     from hermes_constants import get_hermes_home
 
     source = params.get('source', 'cli')
-    if source == 'a2a':
-        from gateway.session_a2a import build_forward_policy
-        return build_forward_policy(params, config, private_secrets=private_secrets)
     unknown = sorted(set(params) - CREATE_FIELDS)
     if unknown or not isinstance(source, str) or source not in SURFACES:
         _refuse(f'params.{unknown[0]}' if unknown else 'source',
@@ -978,10 +975,8 @@ def restore_policy(data):
     """Reject incomplete private policy rather than rebuilding from current defaults."""
     try:
         policy = LocalSessionPolicy(**data)
-        from gateway.session_a2a import is_forward_policy
         surfaces = {**SURFACES, 'cron': 'cron', 'bot_room': 'bot_room'}
-        if ((not is_forward_policy(policy) and
-             (policy.source not in surfaces or policy.platform != surfaces[policy.source]))
+        if ((policy.source not in surfaces or policy.platform != surfaces[policy.source])
                 or not isinstance(policy.cwd, str) or not Path(policy.cwd).is_absolute()
                 or not isinstance(policy.model, str) or not policy.model.strip()
                 or not isinstance(policy.toolsets, (list, tuple))

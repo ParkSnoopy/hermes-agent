@@ -1,11 +1,11 @@
-"""`hermes computer-use screen install` shares the Desktop pane's installer (one lock, list-form spawn)."""
+"""`hermes screen install` shares the Desktop pane's installer (one lock, list-form spawn)."""
 
 from __future__ import annotations
 
 import argparse
 import subprocess
 
-from hermes_cli.subcommands.computer_use_screen import build_screen_parser
+from hermes_cli.subcommands.screen import build_screen_parser
 from tools.bot_desktop import install, runtime
 
 
@@ -25,5 +25,5 @@ def test_cli_install_goes_through_the_shared_installer(monkeypatch):
     parser = argparse.ArgumentParser()
     build_screen_parser(parser.add_subparsers(), lambda sub, help_text: sub.add_argument("--json", action="store_true"))
     args = parser.parse_args(["screen", "install", "-y"])
-    assert args.screen_func(args) == 0
+    assert args.func(args) == 0
     assert calls == [(True, True)]

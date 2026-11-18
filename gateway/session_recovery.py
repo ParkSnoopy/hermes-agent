@@ -30,6 +30,23 @@ def _origin_json(source) -> Optional[str]:
         return None
 
 
+def storage_source(db, source, session_id, fallback):
+    """Retain the owner's creation label when its local transport refreshes peer metadata."""
+    from hermes_state_runtime import RuntimeStoreError
+    if source.platform != Platform.LOCAL or not str(source.chat_id).startswith('local-'):
+        return fallback
+    from hermes_state_local import local_receipt
+    receipt = local_receipt(db, source.chat_id)
+    if session_id not in receipt.get('lineage', [receipt['session_id']]):
+        raise RuntimeStoreError('admission_conflict')
+    label = receipt['policy']['source']
+    if 'legacy_session_id' in receipt:
+        root = db.get_session(receipt['legacy_session_id'])
+        return (root or {}).get('source') or label
+    from gateway.session_policy import STORED_AS_LOCAL
+    return fallback if label in STORED_AS_LOCAL else label
+
+
 class SessionRecoveryMixin:
     """SessionStore durable-row recovery and the SQLite side of routing transitions."""
 
@@ -334,7 +351,6 @@ class SessionRecoveryMixin:
         if not callable(recorder):
             return
         from gateway.session_api import api_storage_source
-        from gateway.session_a2a import storage_source
         from gateway.session_identity import transport_profile_of
         peer = dict(
             source=storage_source(db, source, session_id, api_storage_source(db, session_id, source.platform.value)), user_id=source.user_id, session_key=session_key,

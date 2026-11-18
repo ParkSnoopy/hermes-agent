@@ -1,11 +1,11 @@
 name: Set up the locked PM toolchain
-description: Install Python/uv and Node/npm/pnpm from pm/lock.json; cache tools and dependency downloads.
+description: Use uv from PATH; install Python and Node/npm/pnpm from pm/lock.json and cache downloads.
 inputs:
   toolchain:
-    description: python (Python and uv), node (Node, npm and pnpm), or all.
+    description: python (managed Python and runner uv), node (Node, npm and pnpm), or all.
     default: python
   packages:
-    description: Comma-separated extra PM tools to install beyond the toolchain roots (e.g. ffmpeg). Rides the tools cache like npm/uv.
+    description: Comma-separated extra PM tools to install beyond the toolchain roots (e.g. ffmpeg).
     default: ''
   archive-inputs:
     description: Use protected R2 credentials to preserve and retrieve the selected toolchain before installation.
@@ -61,7 +61,7 @@ outputs:
     description: Locked CPython version, without the PBS build suffix.
     value: ${{ steps.prepare.outputs.python-version }}
   uv-version:
-    description: Locked uv version.
+    description: Version of uv on the runner's PATH.
     value: ${{ steps.prepare.outputs.uv-version }}
   node-version:
     description: Locked Node version.
@@ -99,6 +99,13 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 - Install Runner uv
+      if: inputs.toolchain == 'python' || inputs.toolchain == 'all'
+      uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # 8.2.0
+      with:
+        version: "0.13.5"
+        enable-cache: false
+
     - name: Read PM pins with the runner bootstrap Python
       id: prepare
       shell: bash

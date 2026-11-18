@@ -94,7 +94,7 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str | None]]]] = [
         ("user-guide/features/image-generation", "Image Generation", None),
     ]),
     ("API and integrations", [
-        ("user-guide/messaging/a2a", "Agent-to-Agent", None),
+
         ("user-guide/messaging/teams-meetings", "Teams Meetings", None),
         ("user-guide/messaging/msgraph-webhook", "Microsoft Graph Webhook", None),
         ("user-guide/messaging/webhooks", "Webhooks", None),

@@ -118,7 +118,7 @@ hermes moa                  Mixture-of-Agents slots
 hermes hooks / security / backup / import / checkpoints / console
 hermes logs [-f] [errors]   View agent/error logs
 
-hermes plugins / insights / journey / computer-use
+hermes plugins / insights / journey / screen
 hermes acp                  ACP server (IDE integration)
 hermes completion bash|zsh|fish
 hermes update / uninstall

@@ -13,7 +13,8 @@
 #
 # No opt-out flags: the .deb is ALWAYS installed into a fresh run of the
 # pinned termux-docker image (digest pinned in pm/lock.json) and smoke-tested.
-# docker must be available. The channel is derived from the tag by
+# docker and TERMUX_BUILDER_IMAGE (with system uv) must be available.
+# The channel is derived from the tag by
 # deb_version.py (--channel), not passed in.
 #
 # Staged payload layout: python/ and node/ are pm-staged termux .deb
@@ -64,7 +65,8 @@ done
 
 DIGEST="$(cd "$REPO_ROOT" && python3 -c 'from pm.lock import termux_docker_digest; print(termux_docker_digest())')"
 [ -n "$DIGEST" ] || fail "termux-docker digest missing from pm/lock.json"
-IMAGE="${TERMUX_BUILDER_IMAGE:-termux/termux-docker@$DIGEST}"
+IMAGE="${TERMUX_BUILDER_IMAGE:-}"
+[ -n "$IMAGE" ] || fail "TERMUX_BUILDER_IMAGE must name a Termux builder image with system uv"
 
 REPO_ABS="$(cd "$REPO" && pwd)"
 PAYLOAD_ABS="$(cd "$PAYLOAD" && pwd)"
@@ -102,7 +104,7 @@ fi
 [ -n "$TUI_PRODUCT" ] || fail "--tui-product is required (run scripts/termux/build.py)"
 TUI_PRODUCT="$(cd "$TUI_PRODUCT" && pwd)"
 [ -f "$TUI_PRODUCT/dist/entry.js" ] && [ -f "$TUI_PRODUCT/package.json" ] || fail "incomplete TUI product"
-for d in python node uv npm ffmpeg ripgrep runtime-libs app wheelhouse; do
+for d in python node npm ffmpeg ripgrep runtime-libs app wheelhouse; do
     [ -d "$PAYLOAD_ABS/$d" ] || fail "payload missing $d/ -- run termux_build.sh + build_cpython.sh + build_node.sh first"
 done
 PYBIN_REL="data/data/com.termux/files/usr/bin/python3.14"
@@ -156,7 +158,6 @@ docker run --rm --platform linux/arm64 \
     -v "$ASSEMBLY:/data/data/com.termux/files/usr/lib/hermes-agent" \
     -v "$PAYLOAD_ABS/python:/data/data/com.termux/files/usr/lib/hermes-agent/tools/python" \
     -v "$PAYLOAD_ABS/node:/data/data/com.termux/files/usr/lib/hermes-agent/tools/node" \
-    -v "$PAYLOAD_ABS/uv:/data/data/com.termux/files/usr/lib/hermes-agent/tools/uv" \
     -v "$PAYLOAD_ABS/runtime-libs:/data/data/com.termux/files/usr/lib/hermes-agent/runtime-libs" \
     -v "$PAYLOAD_ABS/wheelhouse:/data/data/com.termux/files/usr/lib/hermes-agent/wheelhouse" \
     -v "$PAYLOAD_ABS/.work:/data/data/com.termux/files/usr/lib/hermes-agent/.work" \
@@ -165,6 +166,7 @@ docker run --rm --platform linux/arm64 \
         set -euo pipefail
         export PREFIX=/data/data/com.termux/files/usr
         export PATH="$PREFIX/bin:${PATH:-/usr/bin:/bin}"
+        command -v uv >/dev/null || { printf "builder image lacks system uv\n" >&2; exit 1; }
         # The staged binary is dynamically linked against its OWN tree lib;
         # the container linker needs to be told where it lives (same fix as
         # the wheelhouse container half).
@@ -221,7 +223,7 @@ rm -rf "$STAGE"
 ROOT_IN_DEB=data/data/com.termux/files/usr
 DEST="$STAGE/$ROOT_IN_DEB/lib/hermes-agent"
 mkdir -p "$STAGE/DEBIAN" "$DEST/tools"
-for tool in python node uv npm ffmpeg ripgrep; do
+for tool in python node npm ffmpeg ripgrep; do
     cp -a "$PAYLOAD_ABS/$tool" "$DEST/tools/"
 done
 cp -a "$PAYLOAD_ABS/runtime-libs" "$PAYLOAD_ABS/app" "$PAYLOAD_ABS/venv" "$PAYLOAD_ABS/pm-runtime" "$DEST/"
@@ -237,7 +239,7 @@ Maintainer: Nous Research
 Description: Hermes Agent CLI for Termux (self-contained bundled python/node/venv)
 Installed-Size: $(du -sk "$STAGE/$ROOT_IN_DEB" | cut -f1)
 EOF
-# Self-contained: no Depends line at all. Our python, node and venv ship inside.
+# Python, node and the venv ship inside; PM operations require system uv on PATH.
 
 # [7] Validation hook: install into a FRESH container of the pinned image and
 # smoke-test the exact binaries the phone will run. No opt-out.

@@ -191,41 +191,10 @@ class _BionicDebArm:
 
 
 @register
-class Uv(_BionicDebArm, BinaryPackage, DebPackage):
-    """astral's prebuilt tarballs for glibc/musl/mac/win; the Termux main-repo
-    uv .deb for bionic (termux builds uv from source -- no astral bionic
-    artifact exists). The bionic arm is a runtime tool on the phone (lazy
-    plugin installs) and the wheelhouse's resolver in the build container."""
-
-    name = "uv"
-    deps = ("python",)
-    internal = True
-    on_path = False
-    binary_rel = {"win32": "uv.exe", "posix": "uv"}
-    # The staged .deb's main binary: DebPackage.verify checks it.
-    main_bin_rel = "bin/uv"
-
-    def main_rel(self, target: str) -> str:
-        return self.main_bin_rel
-
-    deb_package = "uv"
-
-    def fetch_url(self, version: str, target: str) -> str:
-        if target == "linux-arm64-bionic":
-            return f"https://packages.termux.dev/apt/termux-main/pool/main/u/uv/uv_{version}_aarch64.deb"
-        triple = _RUST_TRIPLE[target]
-        ext = "zip" if target.startswith("win32") else "tar.gz"
-        return f"https://github.com/astral-sh/uv/releases/download/{version}/uv-{triple}.{ext}"
-
-    def latest_versions(self, target: str, locked=None) -> list[str]:
-        return github_release_tags("astral-sh/uv")
-
-
-@register
 class Python(_BionicDebArm, BinaryPackage, DebPackage):
     """The pinned interpreter for launchers and every PM-managed uv command.
 
-    Optional when provisioning unrelated tools; required by uv's closure.
+    Optional when provisioning unrelated tools; required by Python environments.
     """
 
     name = "python"
@@ -442,10 +411,10 @@ def uv_cache_dir() -> Path:
 @register
 class Venv(StatePackage):
     """The project venv: pyproject.toml + setup.py + uv.lock + enabled extras.
-    Made true by `uv sync --frozen`; uv is its internal dependency."""
+    Made true by `uv sync --frozen` using system uv."""
 
     name = "venv"
-    deps = ("uv",)
+    deps = ("python",)
 
     def __init__(self, project_root: Path | None = None):
         self._project_root = project_root
@@ -1045,59 +1014,6 @@ class Just(BinaryPackage):
 
     def latest_versions(self, target: str, locked=None) -> list[str]:
         return github_release_tags("casey/just")
-
-
-@register
-class CuaDriver(BinaryPackage):
-    name = "cua-driver"
-    optional = True
-    # Computer use's only OS path, so the default install carries it.
-    default = True
-    gaps = {**{target: "cua-driver does not publish a musl build" for target in MUSL_TARGETS},
-            "linux-arm64-bionic": "cua-driver does not publish an Android build"}
-    binary_rel = {
-        "darwin-arm64": "CuaDriver.app/Contents/MacOS/cua-driver",
-        "darwin-x64": "CuaDriver.app/Contents/MacOS/cua-driver",
-        "win32": "cua-driver.exe",
-        "posix": "cua-driver",
-    }
-
-    def fetch_url(self, version: str, target: str) -> str:
-        arch = {
-            "darwin-x64": "darwin-universal",
-            "darwin-arm64": "darwin-universal",
-            "linux-x64": "linux-x86_64",
-            "linux-arm64": "linux-arm64",
-            "win32-x64": "windows-x86_64",
-            "win32-arm64": "windows-arm64",
-        }[target]
-        ext = "zip" if target.startswith("win32") else "tar.gz"
-        # Only the directory archive contains the signed macOS app identity
-        # needed by TCC and private sessions. Other targets' binary archives
-        # already carry their runtime helpers (including Windows UIAccess).
-        variant = "" if target.startswith("darwin") else "-binary"
-        return (
-            f"https://github.com/trycua/cua/releases/download/cua-driver-rs-v{version}/"
-            f"cua-driver-rs-{version}-{arch}{variant}.{ext}"
-        )
-
-    def latest_versions(self, target: str, locked=None) -> list[str]:
-        return github_release_tags("trycua/cua", strip_prefix="cua-driver-rs-v")
-
-    def stage(self, store: Store, staged: Path, version: str, target: str) -> None:
-        flatten_single_dir(staged)
-        sdk = staged / "sdk"
-        if sdk.is_dir():
-            shutil.rmtree(sdk, ignore_errors=True)
-
-    def _probe_env(self) -> dict:
-        """The probe IS a first run: it must not mint telemetry state."""
-        try:
-            from tools.computer_use.cua_backend import cua_driver_child_env
-
-            return cua_driver_child_env()
-        except Exception:
-            return dict(os.environ, CUA_DRIVER_RS_TELEMETRY_ENABLED="0")
 
 
 @register

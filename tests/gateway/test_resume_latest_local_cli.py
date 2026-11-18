@@ -56,7 +56,7 @@ async def test_resume_latest_matches_the_owners_local_rows_by_creating_surface(t
             created[surface] = sid = result['session_id']
             # The first turn's two writers: the agent's lazy create stamps ``created_source`` with
             # the agent surface (run_agent; gui runs as ``desktop``), then the peer refresh relabels
-            # the row ``local`` (session_a2a.storage_source).
+            # the row ``local`` (session_recovery.storage_source).
             authority.db.create_session(sid, source=SURFACES[surface])
             live = authority.sessions[sid]
             store._record_gateway_session_peer(sid, live.route, live.source)

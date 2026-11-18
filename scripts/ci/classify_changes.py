@@ -135,7 +135,7 @@ _SCAN_FILES = {"setup.cfg", "pyproject.toml"}
 _BOOTSTRAP_PATHS = ("tests/scripts/install/", "pm/")
 _BOOTSTRAP_FILES = {
     "scripts/install.sh", "setup-hermes.sh",
-    "scripts/gen-bootstrap-pins.py", "scripts/verify-bootstrap-version-stamp.py",
+    "scripts/verify-bootstrap-version-stamp.py",
     "tests/scripts/test_fresh_source_install.py", "pyproject.toml", "uv.lock",
 }
 

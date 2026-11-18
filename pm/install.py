@@ -139,20 +139,11 @@ def installed_package(name: str, *, allow_outdated: bool = False) -> InstalledPa
 
 
 def uv_launcher(name: str) -> Path | None:
-    """PM's installed ``uv``/``uvx`` for a user-declared MCP stdio ``command:``, so a bare
-    ``uvx`` server runs the packaged uv, never the user's. Read-only; Hermes's own Python
-    work still goes through PM operations, not this executable."""
+    """Resolve a user-declared MCP uv/uvx command from PATH."""
     if name not in ("uv", "uvx"):
         raise ValueError(f"{name!r} is not a uv launcher")
-    package = get_package("uv")
-    target = current_target()
-    location = _installed_location(package, _lockfile(), target)
-    if location is None:
-        return None
-    facts, store = location
-    binary = package.binary(store.entry(facts.get("uv")["entry"]), target)
-    launcher = binary.with_name(name + binary.suffix) if binary is not None else None
-    return Path(native(launcher)) if launcher is not None and launcher.is_file() else None
+    launcher = shutil.which(name)
+    return Path(launcher) if launcher is not None else None
 
 
 def _identity(lockfile: Lockfile, name: str, target: str):

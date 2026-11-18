@@ -24,7 +24,7 @@ def _bundle_package_names() -> list[str]:
         n
         for n in _lockfile().names()
         # Developer tools (just) are never part of a user install.
-        if (not get_package(n).internal or n == "uv") and n not in DEVELOPER_TOOLS
+        if not get_package(n).internal and n not in DEVELOPER_TOOLS
     ]
     if "python" not in names:
         names.append("python")

@@ -53,7 +53,7 @@
         "providers.base",
         "tools.browser_supervisor",
         "tools.browser_supervisor_capture",
-        "tools.computer_use.backend",
+
         "tools.registry"
       ]
     },

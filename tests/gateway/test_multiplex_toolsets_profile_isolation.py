@@ -43,7 +43,7 @@ def hermes_root(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     (lokaj / "config.yaml").write_text(
-        "platform_toolsets:\n  api_server: [web, file, computer_use]\n",
+        "platform_toolsets:\n  api_server: [web, file, vision]\n",
         encoding="utf-8",
     )
     (lokaj / ".env").write_text(f"API_SERVER_KEY={LOKAJ_KEY}\n", encoding="utf-8")
@@ -91,7 +91,7 @@ class TestMultiplexOnToolsetIsolation:
             for path in ("/v1/toolsets", "/p/default/v1/toolsets"):
                 status, enabled = await _enabled_toolsets(cli, path, OWNER_KEY)
                 assert status == 200, path
-                assert "computer_use" not in enabled, path
+                assert "vision" not in enabled, path
                 assert {"web", "file"} <= enabled, path
 
             # Secondary profile: its own config, its own key.
@@ -99,9 +99,9 @@ class TestMultiplexOnToolsetIsolation:
                 cli, "/p/lokaj/v1/toolsets", LOKAJ_KEY
             )
             assert status == 200
-            # The exact repro from #91583 defect 2: computer_use enabled in
+            # The exact repro from #91583 defect 2: vision enabled in
             # lokaj's config must be reported enabled under /p/lokaj/…
-            assert "computer_use" in enabled
+            assert "vision" in enabled
 
     @pytest.mark.asyncio
     async def test_owner_key_does_not_open_secondary_profile(self, hermes_root):
@@ -163,7 +163,7 @@ class TestMultiplexOffPrefixFailsClosed:
                 cli, "/v1/toolsets", OWNER_KEY
             )
             assert status == 200
-            assert "computer_use" not in enabled
+            assert "vision" not in enabled
 
 
 class TestWebhookMultiplexOffPrefixFailsClosed:

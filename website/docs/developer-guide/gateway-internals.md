@@ -6,7 +6,7 @@ description: "How the gateway coordinates sessions and ingress"
 
 # Gateway Internals
 
-The gateway owns shared sessions, local client coordination, and configured API, A2A, webhook and Microsoft Graph ingress.
+The gateway owns shared sessions, local client coordination, and configured API, webhook and Microsoft Graph ingress.
 
 ## Canonical group metadata and profile discovery
 

@@ -56,7 +56,7 @@ if [ "${1:-}" = "--in-container" ]; then
     fi
     # BUILD tools come from termux's own apt (the image is a bare
     # bootstrap). The USER machine never does any of this.
-    if ! command -v clang >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
+    if ! command -v clang >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1 || ! command -v uv >/dev/null 2>&1; then
         log "Provisioning the container build toolchain (termux apt)"
         export DEBIAN_FRONTEND=noninteractive
         # Pin the OFFICIAL mirror and use apt DIRECTLY: pkg (the wrapper)
@@ -70,7 +70,7 @@ if [ "${1:-}" = "--in-container" ]; then
             || fail "apt update failed in the container"
         # libc++ is named so apt upgrades it: cmake needs a newer one than the base image ships
         # (see termux-builder.Dockerfile).
-        apt install -y libc++ clang rust make git patchelf binutils pkg-config protobuf cmake ninja autoconf automake libtool \
+        apt install -y libc++ clang rust make git uv patchelf binutils pkg-config protobuf cmake ninja autoconf automake libtool \
             libandroid-posix-semaphore libandroid-support libbz2 libffi \
             libjpeg-turbo libpng freetype libtiff libwebp openjpeg littlecms \
             libheif \
@@ -84,7 +84,7 @@ if [ "${1:-}" = "--in-container" ]; then
         || fail "container cmake cannot start (payload libc++ older than apt's? run: hermes pm update --termux)"
     # BINARIES, not package names: the rust package provides rustc/cargo
     # (there is no `rust` binary).
-    for tool in clang rustc cargo make git; do
+    for tool in clang rustc cargo make git uv; do
         command -v "$tool" >/dev/null 2>&1 \
             || fail "container lacks $tool after provisioning"
     done

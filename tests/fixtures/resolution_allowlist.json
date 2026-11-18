@@ -293,11 +293,6 @@
     "kind": "bare_which"
   },
   {
-    "path": "hermes_cli/tools_config_cua.py",
-    "symbol": "_repair_cua_driver_autostart_windows",
-    "kind": "bare_which"
-  },
-  {
     "path": "hermes_cli/tools_config_post_setup.py",
     "symbol": "_post_setup_chromium",
     "kind": "bare_which"
@@ -406,16 +401,6 @@
   {
     "path": "tools/checkpoint_manager_profile_rename.py",
     "symbol": "migrate_profile_checkpoint_projects",
-    "kind": "bare_which"
-  },
-  {
-    "path": "tools/computer_use/cua_backend_daemon.py",
-    "symbol": "_validate_cua_driver_app_signature",
-    "kind": "bare_which"
-  },
-  {
-    "path": "tools/computer_use/cua_backend_driver.py",
-    "symbol": "resolve_cua_driver_cmd",
     "kind": "bare_which"
   },
   {

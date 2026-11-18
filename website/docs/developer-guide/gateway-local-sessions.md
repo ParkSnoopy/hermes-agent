@@ -73,7 +73,7 @@ The gateway listener remains local, and this does not implement OpenAI API-to-lo
   `toolsets`, the gateway applies the coding posture (`agent.coding_context: focus` in a
   code workspace, `agent/coding_context.py`) from the `cwd` a `session.create` names,
   decided once at creation; clients never send it as a pick. Only `session.create` applies
-  it, never for `source: tool`: Kanban workers, A2A, hosted rooms and migrated
+  it, never for `source: tool`: Kanban workers, hosted rooms and migrated
   legacy rows keep the profile's toolsets.
 - Optional flat creation fields: `cwd` (existing absolute gateway-local directory),
   `model` (nonempty model identifier on the daemon's configured provider), and `toolsets`

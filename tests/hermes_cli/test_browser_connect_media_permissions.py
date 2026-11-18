@@ -15,7 +15,7 @@ import stat
 import pytest
 
 import hermes_cli.browser_connect as bc
-import tools.computer_use.tool as cu
+
 import tools.vision_tools as vt
 
 
@@ -117,24 +117,6 @@ def test_vision_media_cache_files_owner_only(tmp_path, monkeypatch):
     assert path.read_bytes() == b"screen contents"
     assert _mode(path) == 0o600
 
-
-def test_computer_use_cache_files_owner_only(tmp_path, monkeypatch):
-    """computer_use's capture caches (screenshots, vision temps) are created 0700 and
-    the capture bytes land 0600 — a capture is as sensitive as the screen it came
-    from."""
-    import hermes_constants
-
-    home = tmp_path / "hh"
-    _no_managed(monkeypatch, home)
-    # computer_use resolves the cache dir through the lazily-imported
-    # hermes_constants.get_hermes_dir (see _cache_file), so patch it there —
-    # the module attribute the import binds to, not the consumer module.
-    monkeypatch.setattr(hermes_constants, "get_hermes_dir", lambda new, old: home / new)
-    path = cu._cache_file("cache/vision", "temp_vision_images", "capture.png")
-    cu._write_private_bytes(path, b"frame")
-    assert path.read_bytes() == b"frame"
-    assert _mode(path.parent) == 0o700
-    assert _mode(path) == 0o600
 
 
 @pytest.mark.parametrize("getter_name", ["get_image_cache_dir", "get_video_cache_dir",

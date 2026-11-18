@@ -259,7 +259,7 @@ class Platform(Enum):
             alias = _Platform__bundled_plugin_aliases.get(value)
             if alias is not None:
                 # A bundled platform whose plugin.yaml ``name:`` differs from its directory (e.g. dir
-                # "a2a", name "a2a-platform") is configured under the manifest name — ``plugins
+                # "example", name "example-platform") is configured under the manifest name — ``plugins
                 # enable`` writes that key — so resolve it to the directory-name member that the
                 # registry and every value-based consumer key on.
                 return cls._value2member_map_.get(alias) or cls._add_pseudo_member(alias)

@@ -127,7 +127,7 @@ def _pin_tool(args) -> int:
     lockfile.set_pin(args.name, args.version, artifacts)
     lockfile.save()
     print(f"pinned {args.name} {args.version} ({len(artifacts)} targets)")
-    return _regenerate_bootstrap_pins(lockfile)
+    return 0
 
 
 def _fmt_bytes(n: int) -> str:
@@ -273,7 +273,7 @@ def _split_without(names) -> tuple[list[str], list[str], list[str]]:
 def _install_defaults(names: list[str], *, verify: bool) -> None:
     """Install the optional defaults; a failure warns and never fails the install.
 
-    They are the browser and computer-use tools, not what Hermes needs to run:
+    These are optional tools, not what Hermes needs to run:
     a Chromium download that fails behind a proxy must not abort an install
     whose required closure and venv are fine.
     """
@@ -384,7 +384,7 @@ def cmd_install(args) -> int:
         return 0
     failed = _install_python_environments(extras, sync=bool(extras or not args.names),
                                           test_environment=test_environment)
-    # Defaults are optional and large (Chromium, cua-driver): fetch them
+    # Defaults are optional and large (Chromium): fetch them
     # only once the venv, and on Windows ARM64 its build tools, succeeded.
     if not failed:
         _install_defaults(defaults, verify=not trust_recorded)
@@ -613,25 +613,10 @@ def _sync_venv_step() -> bool:
     return True
 
 
-def _regenerate_bootstrap_pins(lockfile) -> int:
-    """Splice the new uv and Windows git pins into this checkout's installers.
-
-    curl|sh and irm|iex bootstrap those tools before any checkout exists to read
-    the lock, so they carry the pins as generated fragments. A lock outside a
-    checkout (a test fixture) feeds no installer.
-    """
-    script = lockfile.path.parent.parent / "scripts" / "gen-bootstrap-pins.py"
-    if not script.is_file():
-        return 0
-    return subprocess.run([sys.executable, str(script)], timeout=60, check=False).returncode
-
-
 def _apply_pins(changed: list, lockfile) -> int:
     if not changed:
         print("pm update: nothing to update")
-        # A run that saved the lock but failed to write the fragments leaves the
-        # pins current, so the retry lands here: it must still repair them.
-        return _regenerate_bootstrap_pins(lockfile)
+        return 0
     pinned: list[str] = []
     failed: dict[str, str] = {}
     for d in changed:
@@ -654,8 +639,7 @@ def _apply_pins(changed: list, lockfile) -> int:
         print(f"✓ {d.name} pinned {d.locked or '—'} → {d.version}")
     if pinned:
         lockfile.save()
-        fragments = _regenerate_bootstrap_pins(lockfile)
-        rc = 1 if _install_names(pinned) or not _sync_venv_step() or fragments else 0
+        rc = 1 if _install_names(pinned) or not _sync_venv_step() else 0
     else:
         print("pm update: every pin failed; lockfile untouched")
         rc = 1
@@ -732,7 +716,7 @@ def cmd_update(args) -> int:
             print(f"::warning::--termux repairs the termux pool pins only; ignoring {', '.join(ignored)}")
         return _termux_pass(check=args.check)
     lockfile = _lockfile()
-    names = args.names or [n for n in lockfile.names() if not get_package(n).internal or n == "uv"]
+    names = args.names or [n for n in lockfile.names() if not get_package(n).internal]
     if args.target and not args.check:
         print("::warning::--target is a CHECK-only cross-resolution flag; ignoring it for apply (the lockfile pins every target)")
         args.target = None
@@ -949,7 +933,7 @@ def main(argv=None) -> int:
     p.add_argument("--extra", action="append", default=[], metavar="NAME",
                    help="enable a declared dependency extra in the venv (repeatable)")
     p.add_argument("--without", action="append", default=[], metavar="NAME",
-                   help="leave an optional default package (chromium, cua-driver) or a recorded extra outside "
+                   help="leave an optional default package (chromium) or a recorded extra outside "
                         "[all] (matrix, ...) out of this and every later default install and update; "
                         "`hermes pm install NAME` / `--extra NAME` opts back in (repeatable)")
     p.add_argument("--tools-only", action="store_true",

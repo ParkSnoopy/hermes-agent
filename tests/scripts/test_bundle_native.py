@@ -65,7 +65,7 @@ def test_bundle_stages_git_tree_and_runs_native_children_before_manifest(tmp_pat
         '[project]\nname="fixture"\nversion="1.0.0"\nrequires-python=">=3.11"\n'
         '[project.scripts]\nprobe="entry:main"\n[project.optional-dependencies]\npayloadtest=["bundle-probe==1.0"]\n'
         '[tool.uv]\npackage=false\nno-index=true\nfind-links=["wheels"]\n', encoding="utf-8")
-    selected = {"chromium", "uv", "python"}
+    selected = {"chromium", "python"}
     # agent-browser: a retired package a pre-upgrade store still records.
     stale = {"agent-browser", "chromium-headless-shell", "retired-tool"}
     user_store = tmp_path / "user-tools"
@@ -88,10 +88,7 @@ def test_bundle_stages_git_tree_and_runs_native_children_before_manifest(tmp_pat
     (repo / "entry.py").write_text("import bundle_probe\ndef main(): print(bundle_probe.__version__); return 7\n", encoding="utf-8")
     uv = shutil.which("uv")
     assert uv, "native bundle test requires uv"
-    uv_package = get_package("uv")
-    uv_entry = canonical / uv_package.store_entry(lock.version("uv"), target)
-    uv_entry.mkdir(parents=True)
-    shutil.copy2(uv, uv_package.binary(uv_entry, target))
+
     # Browser payloads are inert: this test exercises their real dependency
     # closure, admission and pruning, not browser execution or downloads.
     chromium = get_package("chromium")
@@ -118,7 +115,7 @@ def test_bundle_stages_git_tree_and_runs_native_children_before_manifest(tmp_pat
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "fixture"], cwd=repo, check=True, capture_output=True)
     monkeypatch.setattr("pm.paths.repo_root", lambda: repo)
     (repo / "untracked").write_text("must not ship", encoding="utf-8")
-    monkeypatch.setattr(native, "_bundle_package_names", lambda: ["chromium", "uv"])
+    monkeypatch.setattr(native, "_bundle_package_names", lambda: ["chromium"])
     monkeypatch.setattr(importlib.import_module("pm.install"), "_prepare_artifacts",
                         lambda *args, **kwargs: pytest.fail("prepared tools reached acquisition"))
     monkeypatch.setattr("pm.client.is_runtime", lambda: True)

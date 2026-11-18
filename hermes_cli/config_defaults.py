@@ -1376,7 +1376,7 @@ DEFAULT_CONFIG = {
             # event-triggered built-ins; an explicit list replaces it wholesale and [] keeps every
             # tool eager. The runtime fallback in tools/tool_search.py derives from this value.
             "defer": [
-                "computer_use", "session_search", "image_generate",
+                "session_search", "image_generate",
                 "todo_list", "process_manage", "browser_vault",
                 # Desktop GUI surface (desktop_ui, project and catalog toolsets)
                 "drive_preview", "gui_tour", "desktop_preview", "annotate_preview", "manage_catalog",
@@ -1670,9 +1670,7 @@ DEFAULT_CONFIG = {
         # merge origin/<target> INTO it after leaving a pre-update-<stamp> tag; a conflict stops the
         # update cleanly. `hermes update --switch-branch` overrides to switch for one run.
         "parked_branch_strategy": "switch",
-        # Refresh an installed cua-driver during `hermes update` (best-effort, macOS only). Turn off
-        # e.g. on non-admin accounts where /Applications isn't writable.
-        "refresh_cua_driver": True,
+
     },
     # LSP diagnostics (pyright, gopls, rust-analyzer...) in the post-write lint check of
     # write_file/patch. Runs only when the cwd or edited file is inside a git worktree; otherwise
@@ -1724,18 +1722,7 @@ DEFAULT_CONFIG = {
         # language_id: "..." (didOpen languageId), description: "...". Manual install only.
         "servers": {},
     },
-    # X (Twitter) Search via xAI's x_search Responses tool. Registers when xAI creds exist
-    # (SuperGrok OAuth or XAI_API_KEY) AND the toolset is enabled in `hermes tools`.
-    "x_search": {
-        # xAI model for the Responses call; any Grok model with x_search access works.
-        "model": "grok-4.5",
-        # Reasoning effort for models that support it; null keeps the model default.
-        "reasoning_effort": None,
-        # Request timeout in seconds (minimum 30); complex queries can take 60-120s.
-        "timeout_seconds": 180,
-        # Retries on 5xx / ReadTimeout / ConnectionError (backoff 1.5x attempt s, cap 5s).
-        "retries": 2,
-    },
+
     # External secret sources — pull credentials from secret managers at startup instead of storing
     # them in ~/.hermes/.env.
     # Browser credential vault: which login sources browser_vault may draw from. The local
@@ -1806,10 +1793,10 @@ DEFAULT_CONFIG = {
     "paste_collapse_char_threshold": 2000,
 
     # Bot Desktop: a headless Xfce screen per profile on the gateway host (Linux), streamed to Hermes
-    # Desktop where a human can watch, take over (logins, 2FA, CAPTCHAs) and hand back. `hermes computer-use screen`.
+    # Desktop where a human can watch, take over (logins, 2FA, CAPTCHAs) and hand back. `hermes screen`.
     "bot_desktop": {
         "geometry": "1440x900",
-        # Opt-in: start the screen automatically the first time computer_use needs a display on a headless
+        # Opt-in: start the screen automatically when a headed browser needs a display on a headless
         # host. Off by default so installing TigerVNC for other reasons never yields a screen nobody asked
         # for; Hermes Desktop's Screen pane offers Start and this toggle.
         "auto_start": False,
@@ -1819,46 +1806,12 @@ DEFAULT_CONFIG = {
         # small instance the loser is the dashboard or the gateway rather than the desktop. 0 disables the
         # check.
         "min_free_memory_mb": 1536,
-        # Stop a screen nobody has used (no computer_use action, browser spawn, viewer or takeover) for this
+        # Stop a screen nobody has used (no browser spawn, viewer or takeover) for this
         # long; it restarts on the next use. Idle Xvnc + Xfce hold ~220 MB, an abandoned browser far more.
         # 0 keeps screens up until stopped.
         "idle_stop_minutes": 30,
     },
-    "computer_use": {
 
-        "native_wayland": False,
-        # Cap driver screenshot longest edge (pixels) via set_config at session start; shrinks SOM
-        # multimodal payloads. 0 disables.
-        "max_image_dimension": 1456,
-        # capture_after mode: som = screenshot + overlays; ax = elements only, no PNG (faster);
-        # vision = pixels only.
-        "capture_after_mode": "som",
-        # Bound cua-driver's accessibility-tree WALK on every capture (get_window_state max_elements).
-        # _DEFAULT_MAX_ELEMENTS in tools/computer_use/tool.py caps the SURFACED element list at 100 and
-        # spills the rest to a cache file, so an unbounded walk pays for nodes the model never sees:
-        # measured on macOS (cua-driver 0.28.2, M-series) a 1,444-node Chrome window went 540 ms -> 83 ms
-        # and a 456-node Finder window 6.9 s -> 0.6 s at 200, with the returned elements a prefix of the
-        # unbounded walk. 0 = driver default (2,000 elements / depth 25) — the pre-fix behaviour.
-        # ~400 keeps the full first 100 visible elements on a pathological tree, at ~1.4 s on Finder;
-        # the walk's cost grows with the bound, so keep it in the low hundreds. This caps the nodes
-        # COLLECTED, not the walk's wall clock: a target whose AX surface exceeds the driver's own 20 s
-        # walk timeout still fails at every bound (measured; a depth bound does not help there either).
-        "ax_max_elements": 200,
-        # Disable cua-driver's cursor overlay, which can peg a core when idle (macOS redraw loop;
-        # Linux/WSL2 idle spin). None = auto (off on macOS + headless/ WSL2 Linux, on elsewhere);
-        # True = always disable; False = always enable.
-        # The overlay shows where agent actions land but can peg a core when idle (macOS vImage redraw loop
-        # #47032; Linux/WSL2 idle spin #28152). cua-driver ≥ 0.6.x supports --no-overlay; Hermes also calls
-        # set_agent_cursor_enabled(false) after start_session when this is on.
-        "no_overlay": None,
-        # standard = cua-driver's own approval boundary; bounded = no runtime prompts, anything
-        # outside capability_manifest fails closed. `unrestricted` is NOT accepted here: it stays on
-        # the per-session YOLO toggle so config can't bypass approvals.
-        "permission_mode": "standard",
-        # Path (~ ok) to the reviewed manifest for permission_mode bounded; passed as
-        # --capability-manifest. See cua.ai/docs/reference/cua-driver/permission-modes
-        "capability_manifest": "",
-    },
     # Egress credential-injection proxy (iron-proxy) for remote terminal sandboxes (Docker today):
     # the sandbox sees opaque tokens and iron-proxy swaps in real credentials at egress, so a
     # compromised sandbox leaks only tokens that work behind the trusted proxy. Configure with

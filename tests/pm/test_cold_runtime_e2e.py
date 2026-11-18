@@ -1,9 +1,9 @@
 """Cold CLI provisioning and repair, with real tools and no mocked child code.
 
-Only uv/Python are offered by the fixture's loopback archive server. The copied
+Only Python is offered by the fixture's loopback archive server. The copied
 PM recipe is unchanged; its small locked runtime is fetched from PyPI. The app
 recipe is deliberately tiny so this cannot install the production dependency
-set. Run through scripts/run_tests.sh with uv/uvx available on PATH.
+set. Run through scripts/run_tests.sh with uv available on PATH.
 """
 from __future__ import annotations
 
@@ -75,15 +75,14 @@ def _foreign_link(stdlib: Path) -> Path | None:
 @pytest.mark.platforms("linux")
 @pytest.mark.parametrize("bootstrap_name", [None, "python3.11"])
 def test_cold_cli_builds_own_runtime_discovers_plugins_and_repairs_app(tmp_path, bootstrap_name):
-    from pm.packages import Python, Uv
+    from pm.packages import Python
     from pm.store import current_target, tree_digest
 
     uv = shutil.which("uv")
     if uv is None:
-        pytest.skip("real uv and uvx must be on PATH")
-    uv = Path(uv).resolve()
-    uvx = uv.with_name("uvx")
-    assert uvx.is_file(), "the real uv distribution must include uvx"
+        pytest.skip("real uv must be on PATH")
+    uv = Path(uv).absolute()
+
     python = Path(sys._base_executable).resolve()
     if sys.version_info[:2] != (3, 14):
         pytest.skip("the checked-in PM runtime currently requires Python 3.14")
@@ -130,7 +129,7 @@ def test_cold_cli_builds_own_runtime_discovers_plugins_and_repairs_app(tmp_path,
     scratch.mkdir()
     env = {
         "HOME": str(home), "HERMES_HOME": str(hermes_home),
-        "HERMES_RUNTIME_DIR": str(store), "PATH": os.defpath,
+        "HERMES_RUNTIME_DIR": str(store), "PATH": str(uv.parent) + os.pathsep + os.defpath,
         "TMPDIR": str(scratch), "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
         "UV_PYTHON_DOWNLOADS": "never", "UV_NO_CONFIG": "1",
         "UV_CACHE_DIR": str(tmp_path / "seed-cache"),
@@ -148,7 +147,6 @@ def test_cold_cli_builds_own_runtime_discovers_plugins_and_repairs_app(tmp_path,
     rows = {}
     for package, files in (
         (Python(), [(python, "python/bin/python3")]),
-        (Uv(), [(uv, "uv-dist/uv"), (uvx, "uv-dist/uvx")]),
     ):
         archive = archives / f"{package.name}.tar.gz"
         with tarfile.open(archive, "w:gz", compresslevel=1) as tar:
@@ -238,7 +236,7 @@ print(json.dumps({'state': str(state), 'app': str(selected_venv(root)),
     pm_python = runtime / "bin/python"
     assert runtime != app
     facts = json.loads((store / "facts.json").read_text())["packages"]
-    assert set(facts) == {"python", "uv"}
+    assert set(facts) == {"python"}
     for name, fact in facts.items():
         assert fact["version"] == rows[name]["version"]
         assert fact["artifacts"] == [rows[name]["artifacts"][target]["sha256"]]

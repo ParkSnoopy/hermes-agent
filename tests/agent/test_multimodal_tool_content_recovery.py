@@ -140,7 +140,7 @@ class TestToolResultContentShortCircuit:
         agent._no_list_tool_content_models = set()  # explicit empty
         monkeypatch.setattr(agent, "_model_supports_vision", lambda: True)
         out = agent._tool_result_content_for_active_model(
-            "computer_use", self._multimodal_result()
+            "browser_exec", self._multimodal_result()
         )
         # Proactive downgrade: text summary instead of list with images.
         assert isinstance(out, str)

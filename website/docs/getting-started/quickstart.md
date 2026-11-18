@@ -239,10 +239,6 @@ If the agent is taking too long, type a new message and press Enter — it inter
 
 Only after the base chat works. Pick what you need:
 
-### Programmatic access
-
-For agent-to-agent access, see [A2A](../user-guide/messaging/a2a.md).
-
 ### Automation and tools
 
 - `hermes tools` — tune tool access per platform
@@ -352,7 +348,6 @@ That sequence gets you from "broken vibes" back to a known state fast.
 - **[User Stories](../user-stories.mdx)**: real setups from the community, a good place to start if you're not sure what to hand Hermes first
 - **[CLI Guide](../user-guide/cli.md)** — Master the terminal interface
 - **[Configuration](../user-guide/configuration.md)** — Customize your setup
-- **[A2A](../user-guide/messaging/a2a.md)** — Connect agents across processes and frameworks
 - **[Tools & Toolsets](../user-guide/features/tools.md)** — Explore available capabilities
 - **[AI Providers](../integrations/providers.md)** — Full provider list and setup details
 - **[Skills System](../user-guide/features/skills.md)** — Reusable workflows and knowledge

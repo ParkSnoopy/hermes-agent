@@ -86,8 +86,7 @@ def test_agent_close_owned_loop_skips_persisted_sessions(registry, monkeypatch):
     import run_agent as ra
     monkeypatch.setattr(ra, "cleanup_vm", lambda *a, **k: None)
     monkeypatch.setattr(ra, "cleanup_browser", lambda *a, **k: None)
-    import tools.computer_use.tool as cu
-    monkeypatch.setattr(cu, "release_computer_use_session", lambda *a, **k: None)
+
 
     ClientLifecycleMixin._close_task_resources(agent, "turn-1")
 

@@ -2,13 +2,9 @@
 
 When an image is downscaled (or region-cropped) before reaching a vision
 model, the model's reported coordinates are in the *shrunk* (or crop-local)
-coordinate space. These tests verify that both vision paths now disclose the
-scale factor / crop offset so coordinates can be mapped back deterministically:
-
-* ``tools.computer_use.tool._shrink_capture_for_vision`` returns
-  ``(bytes, scale_note)``;
-* ``tools.vision_tools.vision_analyze_tool`` emits a ``scale_note`` field and
-  prefixes the analysis text when its downscale/region paths fire.
+coordinate space. ``tools.vision_tools.vision_analyze_tool`` emits a
+``scale_note`` field and prefixes the analysis text when its downscale/region
+paths fire, so coordinates can be mapped back deterministically.
 
 The scale math is verified deterministically with Pillow — no LLM needed.
 """
@@ -24,7 +20,7 @@ import pytest
 PIL = pytest.importorskip("PIL")
 from PIL import Image
 
-from tools.computer_use.tool import _shrink_capture_for_vision
+
 from tools.vision_tools import _build_scale_note, vision_analyze_tool
 
 
@@ -63,51 +59,6 @@ def _red_square_center(img: Image.Image) -> tuple[float, float]:
     assert xs, "red marker square not found in image"
     return (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
 
-
-class TestShrinkCaptureForVision:
-    def test_downscale_note_recovers_original_position(self):
-        raw = _make_marker_png_bytes()
-        shrunk_bytes, note = _shrink_capture_for_vision(raw, ".png")
-
-        assert note is not None
-        assert "downscaled" in note
-        assert f"{ORIG_W}x{ORIG_H}" in note
-        # Stated rounded factor: 3024/1456 = 2.0769... -> 2.08
-        assert "2.08" in note
-
-        m = re.search(r"downscaled from (\d+)x(\d+) to (\d+)x(\d+)", note)
-        assert m, f"note missing dimensions: {note}"
-        ow, oh, nw, nh = (int(v) for v in m.groups())
-        assert (ow, oh) == (ORIG_W, ORIG_H)
-
-        shrunk = Image.open(io.BytesIO(shrunk_bytes))
-        assert shrunk.size == (nw, nh)
-        assert max(shrunk.size) <= 1456
-
-        # Recompute the marker position in the shrunk image via PIL and map
-        # it back with the factors stated in the note.
-        cx, cy = _red_square_center(shrunk)
-        fx, fy = ow / nw, oh / nh
-        recovered_x, recovered_y = cx * fx, cy * fy
-        orig_cx = SQUARE_X + (SQUARE_SIZE - 1) / 2.0
-        orig_cy = SQUARE_Y + (SQUARE_SIZE - 1) / 2.0
-        assert abs(recovered_x - orig_cx) <= 2.0, (recovered_x, orig_cx)
-        assert abs(recovered_y - orig_cy) <= 2.0, (recovered_y, orig_cy)
-
-    def test_no_note_when_under_cap(self):
-        img = Image.new("RGB", (800, 600), (10, 20, 30))
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        raw = buf.getvalue()
-        out, note = _shrink_capture_for_vision(raw, ".png")
-        assert note is None
-        assert out == raw  # returned unchanged
-
-    def test_no_note_on_undecodable_bytes(self):
-        raw = b"not an image at all"
-        out, note = _shrink_capture_for_vision(raw, ".png")
-        assert out == raw
-        assert note is None
 
 
 class TestBuildScaleNote:

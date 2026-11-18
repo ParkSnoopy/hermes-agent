@@ -43,7 +43,7 @@ def test_starlette_server_pins_and_lock_exclude_cve_2026_48710():
             assert len(pins) == 1 and pins[0].operator == "==", (extra, requirement)
             assert Version(pins[0].version) >= floor, (extra, requirement)
             found.add(extra)
-    assert {"web", "mcp", "computer-use"} <= found
+    assert {"web", "mcp"} <= found
     dev = [req for req in map(Requirement, metadata["dependency-groups"]["dev"])
            if req.name == "starlette"]
     assert len(dev) == 1
@@ -92,7 +92,7 @@ def test_httpx2_pins_and_lock_exclude_ghsa_7mj9_2mp8_4m2p_family():
             assert len(pins) == 1 and pins[0].operator == "==", (where, requirement)
             assert Version(pins[0].version) >= floor, (where, requirement)
             found.add(where)
-    assert {"mcp", "computer-use", "group:dev"} <= found
+    assert {"mcp", "group:dev"} <= found
     for name in ("httpx2", "httpcore2"):
         versions = [Version(row["version"]) for row in lock["package"] if row["name"] == name]
         assert versions and all(version >= floor for version in versions), (name, versions)

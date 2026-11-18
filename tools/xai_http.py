@@ -161,8 +161,7 @@ def maybe_mark_xai_storage_notice_seen(section_name: str) -> Optional[str]:
 def _resolve_explicit_xai_api_key() -> str:
     """Read ``XAI_API_KEY`` via ``resolve_provider_secret`` (config → profile scope → env/.env → pool).
 
-    Both the preferred-key and the no-OAuth fallback paths go through here so scope policy
-    (incl. failing closed in a multiplexed gateway turn) is never re-implemented per caller.
+    Scope policy fails closed in a multiplexed gateway turn.
     """
     from tools.tool_backend_helpers import resolve_provider_secret
     return resolve_provider_secret("XAI_API_KEY", "xai")
@@ -175,15 +174,11 @@ def _xai_base_url_override() -> str:
 
 
 def resolve_xai_http_credentials(
-    *, force_refresh: bool = False, api_key_hint: Optional[str] = None, prefer_api_key: bool = False,
+    *, force_refresh: bool = False, api_key_hint: Optional[str] = None,
 ) -> dict[str, str]:
     """Resolve bearer credentials for direct xAI HTTP endpoints.
 
-    Default order: Hermes-managed xAI OAuth, then ``XAI_API_KEY`` (via ``get_env_value`` so
-    ``~/.hermes/.env`` keys count). ``prefer_api_key=True`` inverts that for API-metered
-    endpoints where the subscription OAuth bearer authorizes but misbehaves (x_search answers
-    without citations). Both branches honor ``HERMES_XAI_BASE_URL``/``XAI_BASE_URL``
-    behind the same origin-pinning validation. ``force_refresh=True`` forces an OAuth refresh;
+    ``force_refresh=True`` forces an OAuth refresh;
     pass the rejected bearer as ``api_key_hint`` so a multi-account pool refreshes the issuing
     entry, not whichever its strategy selects first.
 
@@ -192,16 +187,9 @@ def resolve_xai_http_credentials(
     location) are honored — not just ones already exported into ``os.environ``. This keeps direct xAI
     endpoints aligned with the main runtime auth model and preserves the regression
     contract from PR #17140 / #17163.
-    The key is read through :func:`tools.tool_backend_helpers.resolve_provider_secret` so profile secret
-    scoping is identical to the fallback branch, and the base URL honors ``HERMES_XAI_BASE_URL`` /
-    ``XAI_BASE_URL`` behind the same origin-pinning validation as the OAuth branch. See #87045, #88040.
+    The key is read through :func:`tools.tool_backend_helpers.resolve_provider_secret` for profile scoping.
     """
     import hermes_cli.auth as auth_mod
-    if prefer_api_key and (explicit_key := str(_resolve_explicit_xai_api_key() or "").strip()):
-        # Origin-pinned so a tampered env override can't exfiltrate the bearer; rejection -> default URL.
-        override = _xai_base_url_override()
-        base_url = auth_mod._xai_validate_inference_base_url(override, fallback=DEFAULT_XAI_BASE_URL)
-        return {"provider": "xai", "api_key": explicit_key, "base_url": base_url}
 
     try:
         from agent.credential_pool import load_pool

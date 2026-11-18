@@ -25,7 +25,8 @@ The steps below use `stable`. To follow prereleases, replace `stable` with
 `canary` and `hermes-stable` with `hermes-canary` in steps 2 and 4. Both
 channels are signed with the same key.
 
-The package includes Python, Node.js, npm, uv, ripgrep, ffmpeg, and their runtime libraries.
+The package includes Python, Node.js, npm, ripgrep, ffmpeg, and their runtime libraries.
+Package-management operations use the Termux `uv` on `PATH`.
 The first `hermes dashboard` downloads pnpm and installs the web UI's JavaScript dependencies.
 CI builds the native Python wheels and the TUI before it creates the package.
 The device does not compile core dependencies or assemble its base Python
@@ -82,7 +83,7 @@ Do not use the desktop/server `install.sh` or a glibc Linux archive on this targ
 
    ```bash
    pkg update
-   pkg install hermes-agent
+   pkg install hermes-agent uv
    ```
 
 6. Configure a provider, then start the TUI:
@@ -143,8 +144,8 @@ Battery optimization exemptions and `termux-wake-lock` can help, but do not guar
 The package does not include the `nemo-relay` exporter. Its vendored build
 toolchain does not support this target.
 
-The package does not include Electron, a bundled Chromium, or desktop
-computer-use tools. The browser tool launches a system `chromium` when one is on
+The package does not include Electron or a bundled Chromium.
+The browser tool launches a system `chromium` when one is on
 `PATH` (`pkg install chromium`, where your repository provides it); without one,
 browsing is unavailable and the browser tool says so. A local Docker daemon is not part of the Termux environment. Remote
 services have their own requirements and connectivity limits.

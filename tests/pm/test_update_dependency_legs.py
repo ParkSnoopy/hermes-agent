@@ -20,7 +20,7 @@ import pytest
 from pm import cli, paths, registry
 from pm.lock import Facts, Lockfile
 from pm.package import Package
-from pm.packages import Nodejs, Pnpm, Python, Uv
+from pm.packages import Nodejs, Pnpm, Python
 from pm.store import current_target, tree_digest
 
 
@@ -85,9 +85,10 @@ def test_uv_refresh_uses_real_installed_tool_and_only_the_owned_project(tmp_path
     repo, caller, lock = project(tmp_path, monkeypatch)
     uv = Path(shutil.which('uv') or pytest.fail('canonical test environment requires uv'))
     runtime = tmp_path / 'store'
-    managed = runtime / 'uv-fixture' / uv.name
+    managed = tmp_path / 'path-tools' / uv.name
     managed.parent.mkdir(parents=True)
     shutil.copy2(uv, managed)
+    monkeypatch.setenv('PATH', str(managed.parent) + os.pathsep + os.environ.get('PATH', ''))
     python = Path(sys._base_executable).resolve()
     python_root = python.parent if os.name == 'nt' else python.parents[1]
     shared = _shared_prefix(python_root)
@@ -95,7 +96,7 @@ def test_uv_refresh_uses_real_installed_tool_and_only_the_owned_project(tmp_path
         pytest.skip(f"host Python prefix {python_root} is not self-contained: {shared}")
     target = current_target()
     facts = Facts(runtime / 'facts.json')
-    for name, package, entry in [('uv', Uv(), managed.parent), ('python', Python(), python_root)]:
+    for name, package, entry in [('python', Python(), python_root)]:
         monkeypatch.setitem(registry._packages, name, package)
         lock.set_pin(name, 'fixture', {target: {'url': f'https://example.invalid/{name}', 'sha256': '1' * 64}})
         facts.record(name, 'fixture', str(entry), package.env(entry, target), runtime,
@@ -127,7 +128,10 @@ def test_uv_refresh_uses_real_installed_tool_and_only_the_owned_project(tmp_path
     assert (repo / 'uv.lock').read_bytes() == original and not syncs
     assert 'Python lock refresh failed' in capsys.readouterr().out
 
-    managed.unlink()
+    (repo / 'pyproject.toml').write_text(
+        '[project]\nname="update-proof"\nversion="1"\nrequires-python=">=3.14"\n'
+        '[tool.uv]\npackage=false\n', encoding='utf-8')
+    monkeypatch.setenv('PATH', str(tmp_path / 'empty-path'))
     assert cli.cmd_update(args) == 1
     assert (repo / 'uv.lock').read_bytes() == original and not syncs
     assert 'Python lock refresh failed' in capsys.readouterr().out

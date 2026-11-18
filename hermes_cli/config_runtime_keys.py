@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # Core-owned keys read at runtime but deliberately absent from DEFAULT_CONFIG -> their reader.
 CORE_RUNTIME_KEYS: dict[str, str] = {
-    "computer_use.backend": "plugins/computer_use/__init__.py configured_backend_name() (unset = cua)",
+
 
 }
 

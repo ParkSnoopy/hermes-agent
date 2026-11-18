@@ -61,7 +61,21 @@ def _described(name: str) -> dict:
     return {t["name"]: t["enabled"] for t in resp["result"]["toolsets"]}
 
 
-def test_describe_reports_each_profiles_own_enabled_toolsets_under_multiplex(hosted):
+def test_describe_reports_each_profiles_own_enabled_toolsets_under_multiplex(hosted, monkeypatch):
+    from agent.secret_scope import get_secret
+    from hermes_cli import tools_config
+
+    resolve_tools = tools_config._get_platform_tools
+
+    def credential_sensitive_tools(*args, **kwargs):
+        enabled = set(resolve_tools(*args, **kwargs))
+        if get_secret("XAI_API_KEY", ""):
+            enabled.add("video_gen")
+        else:
+            enabled.discard("video_gen")
+        return enabled
+
+    monkeypatch.setattr(tools_config, "_get_platform_tools", credential_sensitive_tools)
     launch, bot = hosted
     environ_before = dict(os.environ)
 
@@ -71,7 +85,6 @@ def test_describe_reports_each_profiles_own_enabled_toolsets_under_multiplex(hos
         assert expected, "the platform default must enable something for the comparison to mean anything"
         assert {ts for ts, on in described.items() if on} == expected & set(described)
 
-    # The secondary's own key resolves (x_search auto-enables on xAI creds); the launch profile's does not.
-    assert _described("bot").get("x_search") is True
-    assert _described("default").get("x_search") is not True
+    assert _described("bot").get("video_gen") is True
+    assert _described("default").get("video_gen") is not True
     assert dict(os.environ) == environ_before

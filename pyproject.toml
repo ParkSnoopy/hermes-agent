@@ -255,13 +255,6 @@ mcp = [
 ] # starlette: CVE-2026-48710
 
 
-# Computer use talks to PM's pinned cua-driver over MCP stdio. This extra
-# provides the MCP client, independently of the native driver package.
-computer-use = [
-  "mcp==2.3.0",
-  "httpx2==2.15.1",
-  "starlette==1.9.0",
-] # starlette: CVE-2026-48710
 acp = ["agent-client-protocol==0.9.0"]
 
 bedrock = ["boto3==1.43.115"]

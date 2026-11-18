@@ -224,15 +224,15 @@ def test_fingerprint_changes_on_each_capability_axis(tmp_path):
 
     # toolset pin changed (the key `hermes tools enable/disable` writes, #124211)
     (home / "config.yaml").write_text(
-        "platform_toolsets:\n  desktop: [hermes-desktop, computer_use]\n", encoding="utf-8"
+        "platform_toolsets:\n  desktop: [hermes-desktop, vision]\n", encoding="utf-8"
     )
     after_tools = bot_mode_probe.capability_fingerprint(home)
     assert after_tools != after_skill
 
     # global suppression changed
     (home / "config.yaml").write_text(
-        "platform_toolsets:\n  desktop: [hermes-desktop, computer_use]\n"
-        "agent:\n  disabled_toolsets: [computer_use]\n",
+        "platform_toolsets:\n  desktop: [hermes-desktop, vision]\n"
+        "agent:\n  disabled_toolsets: [vision]\n",
         encoding="utf-8",
     )
     after_disabled = bot_mode_probe.capability_fingerprint(home)
@@ -240,8 +240,8 @@ def test_fingerprint_changes_on_each_capability_axis(tmp_path):
 
     # MCP server added
     (home / "config.yaml").write_text(
-        "platform_toolsets:\n  desktop: [hermes-desktop, computer_use]\n"
-        "agent:\n  disabled_toolsets: [computer_use]\n"
+        "platform_toolsets:\n  desktop: [hermes-desktop, vision]\n"
+        "agent:\n  disabled_toolsets: [vision]\n"
         "mcp_servers:\n  github:\n    preset: github\n",
         encoding="utf-8",
     )

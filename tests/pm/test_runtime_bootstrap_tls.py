@@ -1,4 +1,4 @@
-"""The shell-staged uv can prepare TLS support before PM downloads Python."""
+"""PATH uv can prepare TLS support before PM downloads Python."""
 from __future__ import annotations
 
 import json
@@ -13,8 +13,7 @@ from datetime import UTC
 
 
 @pytest.mark.platforms("posix")
-def test_staged_uv_prepares_pm_before_any_tool_download(tmp_path):
-    from pm.packages import Uv
+def test_path_uv_prepares_pm_before_any_tool_download(tmp_path):
     from pm.store import current_target
 
     uv = shutil.which("uv")
@@ -27,16 +26,11 @@ def test_staged_uv_prepares_pm_before_any_tool_download(tmp_path):
     home = tmp_path / "home"
     store = home / "tools"
     target = current_target()
-    # As in setup: uv has been verified/extracted, but PM has no installed facts.
-    entry = store / Uv().store_entry("bootstrap-fixture", target)
-    binary = Uv().binary(entry, target)
-    assert binary is not None
-    binary.parent.mkdir(parents=True)
-    shutil.copy2(uv, binary)
+
     (stage / "pm" / "lock.json").write_text(json.dumps({"schema": 1, "packages": {
         name: {"version": "bootstrap-fixture", "artifacts": {target: {
             "url": f"https://must-not-fetch.invalid/{name}.tar.gz", "sha256": "a" * 64,
-        }}} for name in ("uv", "python")
+        }}} for name in ("python",)
     }}))
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(("PYTHON", "UV_"))}

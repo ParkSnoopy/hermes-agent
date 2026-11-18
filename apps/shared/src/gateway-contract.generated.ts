@@ -4460,25 +4460,6 @@ export interface PromptResponseResult {
   status: 'resolved' | 'already_resolved'
   prompt_id: string
 }
-export interface A2aForwardParams {
-  agent: string
-  tenant: string
-  peer: string
-  context_id: string
-  input_id: string
-  text: string
-}
-export interface A2aForwardResult {
-  admission_id: string
-  ref: CanonicalSessionRef
-  sequence: number
-  status: 'queued' | 'started' | 'unknown' | 'terminal'
-  outcome: string | null
-  authority_epoch: number
-  execution_generation: number | null
-  session_id: string
-  result: unknown | null
-}
 export interface WorkerRegisterParams {
   profile_id: string
   session_id: string
@@ -6200,8 +6181,6 @@ export const RPC_METHODS = [
 
 // ── Canonical (hermes-gateway-v1) methods only the session authority serves ──
 export interface CanonicalRpcMethods {
-  /** Forward one A2A input into the conversation its identity tuple names. */
-  'a2a.forward': { params: A2aForwardParams; result: A2aForwardResult }
   'approval.respond': { params: CanonicalApprovalParams; result: PromptResponseResult }
   'bot_relay.cancel': { params: CanonicalBotCancelParams; result: CanonicalBotCancelResult }
   'bot_relay.deliver': { params: CanonicalBotDeliverParams; result: CanonicalBotDeliverResult }
@@ -6280,7 +6259,6 @@ export interface CanonicalRpcMethods {
 }
 export type CanonicalRpcMethod = keyof CanonicalRpcMethods
 export const CANONICAL_RPC_METHODS = [
-  'a2a.forward',
   'approval.respond',
   'bot_relay.cancel',
   'bot_relay.deliver',

@@ -1,7 +1,7 @@
 """``on_session_open``: a local session was created or opened by a client (#89385).
 
 Fired by the canonical authority (``AuthorityConnection.resume``, which ``session.create`` and the
-kanban/A2A/onboarding openers end in) when a connection attaches to a local session it was not
+kanban/onboarding openers end in) when a connection attaches to a local session it was not
 attached to: once per open, never for a snapshot poll on an attachment it already holds or a
 reconnect. The open is registered before the attach yields and delivered on a thread of its own under
 the owning profile's scope (that profile's plugin manager), so the reply never waits on a plugin; the

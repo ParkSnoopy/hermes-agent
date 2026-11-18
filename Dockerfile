@@ -2,8 +2,7 @@
 # corruption bug. Build a pinned shared library for the runtime image instead
 # of relying on a distro backport that trixie does not currently provide.
 # See #70480 and https://sqlite.org/wal.html#walresetbug.
-# Pinned by the multi-arch index digest: uv and node already come from pm's
-# sha-verified lock, and a tag alone would let the base drift under them.
+# Pin the base by its multi-arch index digest to prevent tag drift.
 
 FROM debian:trixie-20261020@sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308 AS sqlite_build
 ARG SQLITE_AUTOCONF_VERSION=3530400
@@ -180,18 +179,9 @@ RUN useradd -u 10000 -m -d /opt/data hermes
 
 WORKDIR /opt/hermes
 
-# ---------- Pinned toolchain from pm/lock.json (single authority) ----------
-# The image used to assemble uv from a second authority — an astral image
-# tag (ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie) that had already
-# drifted to 0.11.6 while pm/lock.json pinned uv 0.12.3. That is exactly
-# the two-authorities failure the pm design exists to end. The image is now
-# a pin consumer: the stdlib-only pm provisioner reads pm/lock.json and
-# stages the pinned uv + full Chromium (sha256-verified at
-# download — the same code path pm.sh/pm.ps1 and the desktop payload use)
-# into the image's own runtime dir, a self-contained store baked under
-# /opt/hermes, outside the /opt/data volume so it survives the overlay.
-# PM alone resolves the pinned uv for dependency preparation; build consumers
-# receive Python environments, never an installer executable.
+# ---------- Image-provided uv; PM-managed Python and tools ----------
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /uvx /usr/local/bin/
+# PM stages its verified tools outside the /opt/data volume.
 #
 # Full Chromium supports both headed and headless sessions. It is staged
 # here rather than by `npx playwright install`,
@@ -213,7 +203,7 @@ COPY hermes_constants.py hermes_user_dirs.py ./
 COPY hermes_cli/__init__.py hermes_cli/runtime_state.py hermes_cli/
 COPY scripts/bundles/payload.py scripts/bundles/payload.py
 RUN set -eu; \
-    python3 -c 'from pm import ensure; [ensure(name, explicit=True) for name in ("uv", "chromium", "npm", "ffmpeg", "ripgrep")]'; \
+    python3 -c 'from pm import ensure; [ensure(name, explicit=True) for name in ("python", "chromium", "npm", "ffmpeg", "ripgrep")]'; \
     python3 -c 'from pathlib import Path; from pm import installed_package; [Path("/usr/local/bin", command).symlink_to(installed_package(package).binary) for command, package in (("python3", "python"), ("node", "node"), ("npm", "npm"), ("ffmpeg", "ffmpeg"), ("rg", "ripgrep"))]; Path("/usr/local/bin/ffprobe").symlink_to(installed_package("ffmpeg").binary.with_name("ffprobe"))'; \
     ffmpeg -version >/dev/null; ffprobe -version >/dev/null; rg --version >/dev/null; \
     python3 -c 'import shutil; from pathlib import Path; from pm import env_for; Path("/usr/local/bin/npx").symlink_to(shutil.which("npx", path=env_for("npm", base_env={})["PATH"]))'; \

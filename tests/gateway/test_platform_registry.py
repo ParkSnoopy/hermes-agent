@@ -44,42 +44,32 @@ class TestPlatformEnumDynamic:
         finally:
             _reg.unregister("my-platform")
 
-    def test_bundled_manifest_name_alias_resolves_to_directory_member(self):
-        """A bundled platform whose plugin.yaml ``name:`` differs from its directory (a2a vs
-        a2a-platform) resolves under the manifest name to the directory-name member (#116180)."""
+    def test_bundled_manifest_name_alias_resolves_to_directory_member(self, monkeypatch):
+        """A manifest name differing from its directory resolves to the same member."""
         import gateway.config as gc
 
-        gc._Platform__bundled_plugin_names = None  # force a rescan of plugins/platforms/
-        gc._Platform__bundled_plugin_aliases = None
-        try:
-            by_dir = Platform("a2a")
-            by_manifest = Platform("a2a-platform")
-            assert by_manifest is by_dir
-            assert by_manifest.value == "a2a"
-        finally:
-            gc._Platform__bundled_plugin_names = None
-            gc._Platform__bundled_plugin_aliases = None
+        monkeypatch.setattr(gc, '_Platform__bundled_plugin_names', {'fixture-directory'})
+        monkeypatch.setattr(gc, '_Platform__bundled_plugin_aliases', {'fixture-manifest': 'fixture-directory'})
+        by_dir = Platform("fixture-directory")
+        by_manifest = Platform("fixture-manifest")
+        assert by_manifest is by_dir
+        assert by_manifest.value == "fixture-directory"
 
-    def test_config_keeps_platform_written_under_manifest_name(self):
+    def test_config_keeps_platform_written_under_manifest_name(self, monkeypatch):
         """``platforms.<manifest name>:`` in config.yaml is no longer silently dropped (#116180)."""
         import gateway.config as gc
 
-        gc._Platform__bundled_plugin_names = None
-        gc._Platform__bundled_plugin_aliases = None
-        try:
-            config = GatewayConfig.from_dict({"platforms": {"a2a-platform": {"enabled": True}}})
-            assert Platform("a2a") in config.platforms
-            assert config.platforms[Platform("a2a")].enabled is True
-        finally:
-            gc._Platform__bundled_plugin_names = None
-            gc._Platform__bundled_plugin_aliases = None
+        monkeypatch.setattr(gc, '_Platform__bundled_plugin_names', {'fixture-directory'})
+        monkeypatch.setattr(gc, '_Platform__bundled_plugin_aliases', {'fixture-manifest': 'fixture-directory'})
+        config = GatewayConfig.from_dict({"platforms": {"fixture-manifest": {"enabled": True}}})
+        assert Platform("fixture-directory") in config.platforms
+        assert config.platforms[Platform("fixture-directory")].enabled is True
 
     def test_alias_never_shadows_a_directory_name(self):
         """An alias equal to another directory's name is dropped; directory names stay canonical."""
         import gateway.config as gc
 
         names, aliases = gc.Platform._scan_bundled_plugin_platforms()
-        assert "a2a" in names
         assert set(aliases.values()) <= names
         assert not (set(aliases) & names)
 

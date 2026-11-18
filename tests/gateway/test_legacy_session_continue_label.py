@@ -1,7 +1,7 @@
 """Continuing an adopted pre-authority session keeps the label main wrote on its row (T20).
 
 Every turn of a local session refreshes its routing peer (``SessionStore._record_gateway_session_peer``),
-which rewrites ``sessions.source`` through ``session_a2a.storage_source``. For an adopted legacy row that
+which rewrites ``sessions.source`` through ``session_recovery.storage_source``. For an adopted legacy row that
 must stay main's own label: ``hermes sessions list --source``, ``-c`` and the stale-open sweeps key on it.
 """
 from types import SimpleNamespace

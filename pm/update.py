@@ -328,9 +328,8 @@ def github_release_tags(repo: str, *, strip_prefix: str = "") -> list[str]:
     """Newest-first release tag names for a GitHub repo (releases, not all
     tags — no drafts/prereleases, and a rolling 'latest' pseudo-release is
     skipped). ``strip_prefix`` removes a tag prefix (e.g. 'v', 'b'). Only
-    version-shaped tags survive the strip — cua-driver's repo also tags
-    sandbox/experimental builds (cua-driver-rs-vsandbox-v0.4.3) that must
-    never appear as update candidates."""
+    version-shaped tags survive the strip, so experimental tags do not
+    appear as update candidates."""
     tags = []
     for page in range(1, 4):  # up to 90 releases — far beyond any cadence
         data = _get_json(f"https://api.github.com/repos/{repo}/releases?per_page=30&page={page}")

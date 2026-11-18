@@ -11,20 +11,14 @@ So share only when every tool `pm install` would provision here (cmd_install's
 roots, developer tools, defaults and the venv's deps) passes PM's own installed-at-the-pin lookup
 without an exec-bit heal, and records the env this checkout's package code
 would record: a stale env makes `pm install` re-record the shared facts.json,
-and a missing or non-executable binary (setup-hermes.sh's uv copy included)
+and a missing or non-executable binary
 sends setup or `pm install` into a re-stage whose unlocked remove + publish
 races other runs on the shared store. Read-only: no lock, no install, no
 bytecode; any unreadable record or error means "do not share".
 """
-import os
+import shutil
 import sys
 from pathlib import Path
-
-
-def _setup_uv(store: Path, target: str, version: str) -> Path:
-    """setup-hermes.sh's exact uv path: $store/uv-$uv_version-$os-$arch/uv[.exe]."""
-    os_arch = "-".join(target.split("-")[:2])
-    return store / f"uv-{version}-{os_arch}" / ("uv.exe" if os_arch.startswith("win32") else "uv")
 
 
 def main(repo: str, store: Path) -> int:
@@ -51,8 +45,7 @@ def main(repo: str, store: Path) -> int:
         entry = found.entry(facts.get(package.name)["entry"])
         if facts.env_for(package.name, found.root) != package.env(entry, target):
             return 1
-    uv = _setup_uv(store, target, lock.version("uv"))
-    if not uv.is_file() or not (os.name == "nt" or os.access(uv, os.X_OK)):
+    if shutil.which("uv") is None:
         return 1
     # The runner reuses uv's interpreter cache only when it already holds this minor.
     print(".".join(lock.version("python").split("+")[0].split(".")[:2]))

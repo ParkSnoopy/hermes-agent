@@ -44,7 +44,7 @@
     {
       "id": "P06",
       "class": "C5",
-      "pattern_regex": "os\\.getenv\\(\\s*[\"'](DISCORD|TELEGRAM|SLACK|MATRIX|WHATSAPP|FEISHU|SIGNAL|TEAMS|LINE|WECOM|YUANBAO|HINDSIGHT|BRV|A2A|WEIXIN)_|os\\.environ\\.get\\(\\s*[\"'](DISCORD|TELEGRAM|SLACK|MATRIX|WHATSAPP|FEISHU|SIGNAL|TEAMS|LINE|WECOM|YUANBAO|HINDSIGHT|BRV|A2A|WEIXIN)_",
+      "pattern_regex": "os\\.getenv\\(\\s*[\"'](DISCORD|TELEGRAM|SLACK|MATRIX|WHATSAPP|FEISHU|SIGNAL|TEAMS|LINE|WECOM|YUANBAO|HINDSIGHT|BRV|WEIXIN)_|os\\.environ\\.get\\(\\s*[\"'](DISCORD|TELEGRAM|SLACK|MATRIX|WHATSAPP|FEISHU|SIGNAL|TEAMS|LINE|WECOM|YUANBAO|HINDSIGHT|BRV|WEIXIN)_",
       "scope_hint": "plugins/platforms/*, plugins/memory/*, gateway/run_config_loaders.py, gateway/platforms/*. Replace with gateway.platforms._shared.extra_or_secret(extra, key, ENV, default) or get_scoped_secret.",
       "why": "Raw env is the launch profile's. A secondary that omits a key must get the adapter default, not the launch profile's value (Matrix notices/session_scope, Discord everyone-mentions, Slack ignored channels all inherited). MindDragon probe still lists TELEGRAM_WEBHOOK_HOST and run_config_loaders.py:64,93 as open."
     },
@@ -67,7 +67,7 @@
       "class": "C4",
       "pattern_regex": "^(_active_sessions|_DB_CACHE|_servers|_backends|_session_owner_homes|_trust[a-z_]*|_parallel[a-z_]*|_cooldown[a-z_]*)\\s*[:=]\\s*(\\{\\}|dict\\(|\\{\\s*$)|\\.setdefault\\((task_id|session_id|server_name|name)\\b",
       "scope_hint": "Module-level dicts keyed by session_id / task_id / server_name / display alone. Key must include hermes_home_key() or (scope, name) when a profile override is active; release must use the same key.",
-      "why": "Two profiles legitimately share session names, DISPLAY numbers and MCP server names; the first profile's entry wins and B's release stops A's driver. #108935 keyed 36 caches and still missed browser_exec/computer_use."
+      "why": "Two profiles can share session and MCP server names; the first profile's entry must not win and one profile's release must not stop another's browser."
     },
     {
       "id": "P13",
@@ -158,7 +158,7 @@
       "class": "C6",
       "pattern_regex": "f\"agent:\\{|[\"']agent:[\"']\\s*\\+|session_key\\s*=\\s*f\"[a-z]+:",
       "scope_hint": "Every adapter-built session key carries the agent:<profile>: namespace (profile 'main' is 'agent:main~'); adapters derive keys through _source_session_key / _event_session_key (P32), never a hand-built prefix.",
-      "why": "Rows for a served profile land in the root store; browser/computer_use caches never saw the namespace because turns pass the bare session id."
+      "why": "Rows for a served profile land in the root store; browser caches need the profile namespace in addition to the bare session id."
     },
     {
       "id": "P32",

@@ -5,7 +5,7 @@ import pytest
 
 from tools import browser_session, terminal_tool
 from tools.bot_desktop import runtime
-from tools.computer_use.cua_backend import CuaDriverBackend
+
 
 
 @pytest.fixture(autouse=True)
@@ -27,8 +27,7 @@ def test_retired_terminal_never_spawns_local_desktop_browser_or_driver(monkeypat
     monkeypatch.setattr(browser_launcher, "launch_chromium", lambda *a, **kw: calls.append("browser"))
     monkeypatch.setattr(runtime, "_should_auto_start", lambda env: calls.append("desktop"))
     for action in (runtime.start, runtime.ensure_started_for_tool,
-                   lambda: browser_session._create_local_session("test"),
-                   lambda: CuaDriverBackend.start(object.__new__(CuaDriverBackend))):
+                   lambda: browser_session._create_local_session("test")):
         with pytest.raises(ValueError, match="Only 'local'"):
             action()
     assert calls == []

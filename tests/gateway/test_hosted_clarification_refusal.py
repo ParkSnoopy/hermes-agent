@@ -65,16 +65,14 @@ def test_local_choice_prompt_still_accepts_a_typed_answer(ask):
 
 
 def test_clarify_without_an_answering_viewer_is_declined(ask, owner):
-    """N8: the decline keys on who can answer, not on one source string. A forwarded A2A peer
-    never can; a producer turn (Bot Chat DM) can only while a viewer holding session:respond is
+    """N8: the decline keys on who can answer, not on one source string. A producer turn
+    (Bot Chat DM) can only while a viewer holding session:respond is
     attached. A viewer's own turn keeps waiting for its author (the local test above)."""
     from gateway.run_turn_runner_clarify_delivery import UNDELIVERED_DECLINED
     from gateway.session_authority import LiveSession
     from gateway.session_contract import SessionActor
     from hermes_state_runtime import admit_session_input, claim_session_input
-    forwarded = {'source': 'a2a', 'a2a_identity': ['dev', '', 'peer', 'ctx']}
-    (response, answered), elapsed = ask('a2a', request=forwarded)
-    assert (response, answered) == (UNDELIVERED_DECLINED, False) and elapsed < 5
+
     owner.db.create_session('chat', 'local')
     owner.sessions['chat'] = live = LiveSession(object(), 'route-chat')
     admit_session_input(owner.db, epoch=owner.epoch, principal_id='automation:route-chat', session_id='chat',

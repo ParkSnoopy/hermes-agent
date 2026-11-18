@@ -13,7 +13,7 @@ import pytest
 from pm._uv import _toolchain
 from pm.lock import Facts, Lockfile
 from pm.package import InstallError
-from pm.packages import Python, Uv
+from pm.packages import Python
 from pm.store import current_target
 
 
@@ -22,41 +22,22 @@ from pm.store import current_target
 @pytest.fixture
 def installed_uv(tmp_path, monkeypatch):
     from pm import paths
-    from pm import registry
-
     uv = shutil.which("uv")
     assert uv, "the interpreter selection contract requires real uv"
     store = tmp_path / "store"
+    store.mkdir()
     lock = Lockfile(tmp_path / "lock.json")
     target = current_target()
     digest = "1" * 64
-    entry = store / "uv"
-    entry.mkdir(parents=True)
-    binary = entry / ("uv.exe" if os.name == "nt" else "uv")
-    shutil.copy2(uv, binary)
-    lock.set_pin("uv", "test", {target: {"url": "https://test.invalid/uv", "sha256": digest}})
+    binary = Path(uv)
     lock.set_pin("python", "test", {target: {"url": "https://test.invalid/python", "sha256": digest}})
     lock.save()
     facts = Facts(store / "facts.json")
-    facts.record("uv", "test", entry.name, {}, store, target=target, artifacts=[digest])
+
     monkeypatch.setattr(paths, "lockfile_path", lambda: lock.path)
     monkeypatch.setattr(paths, "store_root", lambda: store)
     monkeypatch.setattr(paths, "writable_store_root", lambda: store)
-    monkeypatch.setitem(registry._packages, "uv", Uv())
     return tmp_path, binary, facts, target, digest
-
-
-def test_internal_tooling_cannot_escape_package_queries(installed_uv):
-    from pm import env_for, installed_package
-
-    _, binary, facts, target, digest = installed_uv
-    assert "PATH" not in Uv().env(binary.parent, target)
-    # Legacy facts can contain PATH even after the package stops exporting it.
-    facts.record("uv", "test", binary.parent.name, {"PATH": [str(binary.parent)]},
-                 binary.parent.parent, target=target, artifacts=[digest])
-    assert str(binary.parent) not in env_for("uv", "venv", base_env={"PATH": "external"})["PATH"]
-    with pytest.raises(ValueError, match="internal"):
-        installed_package("uv")
 
 
 def test_all_uv_commands_keep_the_pm_interpreter(installed_uv, monkeypatch):
@@ -112,8 +93,6 @@ def test_project_environment_replaces_generation_when_pinned_python_moves(instal
     root, uv, facts, target, digest = installed_uv
     store = root / "store"
     from pm.store import tree_digest
-    facts.record("uv", "test", uv.parent.name, {}, store, target=target,
-                 artifacts=[digest], digest=tree_digest(uv.parent))
 
     class FixturePython(Python):
         binary_rel = {"win32": "Scripts/python.exe", "posix": "bin/python"}
@@ -181,14 +160,14 @@ def test_uv_refuses_discovery_when_pm_python_is_missing(installed_uv, monkeypatc
 
 
 @pytest.mark.platforms("windows")
-def test_bundled_uv_uses_a_verified_writable_python_without_changing_runtime(installed_uv, monkeypatch):
+def test_path_uv_uses_a_verified_writable_python_without_changing_runtime(installed_uv, monkeypatch):
     from pm import paths
     from pm import registry
     from pm.store import Store, tree_digest
 
     root, uv_binary, facts, target, digest = installed_uv
     ensure = importlib.import_module("pm.install")
-    shipped = uv_binary.parent.parent
+    shipped = facts.path.parent
     writable = root / "writable-tools"
     monkeypatch.setattr(paths, "writable_store_root", lambda: writable)
     (shipped.parent / "manifest.json").write_text("{}", encoding="utf-8")
@@ -197,12 +176,6 @@ def test_bundled_uv_uses_a_verified_writable_python_without_changing_runtime(ins
         def verify(self, entry, target):
             return "" if self.binary(entry, target).read_bytes() == b"pinned interpreter" else "damaged Python"
 
-    class FixtureUv(Uv):
-        emulated_arch_targets = {target}
-
-    monkeypatch.setitem(registry._packages, "uv", FixtureUv())
-    facts.record("uv", "test", uv_binary.parent.name, {}, shipped,
-                 target=target, artifacts=[digest], digest=tree_digest(uv_binary.parent))
     python = FixturePython()
     monkeypatch.setitem(registry._packages, "python", python)
     entry = shipped / python.store_entry("test", target)
@@ -220,16 +193,15 @@ def test_bundled_uv_uses_a_verified_writable_python_without_changing_runtime(ins
         raise AssertionError("the verified Python must be copied without downloading")
 
     monkeypatch.setattr(Store, "fetch_many", no_download)
-    assert _toolchain(realize=False) is None
+    assert _toolchain(realize=False) == (uv_binary, binary)
     assert not writable.exists()
-    with pytest.raises(InstallError, match="lazy installs are disabled"):
-        _toolchain()
+    assert _toolchain() == (uv_binary, binary)
     assert not writable.exists()
 
-    resolved_uv, python = _toolchain(explicit=True)
+    copied_facts = Facts(writable / "facts.json")
+    ensure._install(python, ensure._lockfile(), copied_facts, Store(writable), target,
+                    copy_from=(facts, Store(shipped)))
     copied = writable / entry.name
-    assert resolved_uv == uv_binary
-    assert python == copied / "python.exe"
     assert tree_digest(copied) == shipped_digest
     copied_fact = Facts(writable / "facts.json").get("python")
     assert copied_fact["digest"] == shipped_digest
@@ -243,8 +215,10 @@ def test_bundled_uv_uses_a_verified_writable_python_without_changing_runtime(ins
 
     with monkeypatch.context() as reuse:
         reuse.setattr(shutil, "copytree", no_copy)
-        assert _toolchain(realize=False)[1] == python
-        assert _toolchain()[1] == python
+        assert ensure._install(python, ensure._lockfile(), copied_facts, Store(writable), target,
+                               copy_from=(facts, Store(shipped))) == copied
+        assert _toolchain(realize=False) == (uv_binary, binary)
+        assert _toolchain() == (uv_binary, binary)
 
     assert facts.path.read_bytes() == before
     assert tree_digest(entry) == shipped_digest

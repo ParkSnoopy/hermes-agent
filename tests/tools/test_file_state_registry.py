@@ -200,8 +200,7 @@ class FileStateRegistryUnitTests(unittest.TestCase):
             agent._active_children = []
             agent._active_children_lock = threading.Lock()
             agent.client = None
-            with patch("run_agent.cleanup_vm"), patch("run_agent.cleanup_browser"), \
-                 patch("tools.computer_use.tool.release_computer_use_session"):
+            with patch("run_agent.cleanup_vm"), patch("run_agent.cleanup_browser"):
                 agent.close()
 
         self.assertEqual(file_state.known_reads("cron:JOB:run1"), [])

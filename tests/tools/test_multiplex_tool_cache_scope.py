@@ -68,7 +68,7 @@ def test_home_keyed_caches_serve_each_profile_its_own_config(tmp_path, monkeypat
     import agent.auxiliary_client as ac
     import agent.image_token_cost as itc
     from agent import models_dev
-    import tools.computer_use.tool as cu
+
     from tools import mcp_tool_loop
 
     ac._reset_aux_semaphores()
@@ -77,7 +77,7 @@ def test_home_keyed_caches_serve_each_profile_its_own_config(tmp_path, monkeypat
     monkeypatch.setattr(models_dev, "_models_dev_cache_time", 0)
 
     with _scoped(a):
-        assert cu._should_route_through_aux_vision() is False  # no explicit aux vision: native path
+
         assert itc.learned_image_token_cost("m", "http://gw.example/v1") == 1000
         sem_a = ac._acquire_sync_aux_semaphore("summary")
         sem_a.acquire()
@@ -85,7 +85,7 @@ def test_home_keyed_caches_serve_each_profile_its_own_config(tmp_path, monkeypat
         lock_a = cookie._fh.name
         cookie.release()
     with _scoped(b):
-        assert cu._should_route_through_aux_vision() is True  # B named a dedicated vision model
+
         assert itc.learned_image_token_cost("m", "http://gw.example/v1") == 3000
         sem_b = ac._acquire_sync_aux_semaphore("summary")
         cookie = mcp_tool_loop._try_acquire_mcp_discovery_lock()

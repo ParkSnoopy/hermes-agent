@@ -13,7 +13,8 @@ from __future__ import annotations
 import argparse
 
 
-from hermes_cli.subcommands.computer_use import build_computer_use_parser
+from hermes_cli.subcommands.screen import build_screen_parser
+from hermes_cli.subcommands._shared import add_json_flag
 from hermes_cli.subcommands.worktree import build_worktree_parser
 
 
@@ -42,9 +43,9 @@ def test_worktree_aliases_normalize_to_list(monkeypatch):
 
 
 
-def test_computer_use_no_action_prints_help(capsys):
+def test_screen_no_action_prints_help(capsys):
     parser, sub = _tree()
-    build_computer_use_parser(sub)
-    ns = parser.parse_args(["computer-use"])
+    build_screen_parser(sub, add_json_flag)
+    ns = parser.parse_args(["screen"])
     ns.func(ns)
     assert "install" in capsys.readouterr().out

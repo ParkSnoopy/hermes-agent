@@ -66,8 +66,7 @@ optional_env:
 `kind: platform` plugins are **deferred**: the adapter module (and its SDK
 imports) only load when a gateway or `send_message` path first asks the
 platform registry for the platform. If your plugin also ships outbound *client
-tools* the agent should be able to call from any session (the bundled `a2a`
-plugin's `a2a_call` / `a2a_discover` etc.), put them in a dedicated `tools.py`
+tools* the agent should be able to call from any session, put them in a dedicated `tools.py`
 with a `register_tools(ctx)` function and declare them in the manifest:
 
 ```yaml

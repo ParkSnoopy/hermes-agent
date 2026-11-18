@@ -3,7 +3,7 @@
 from typing import Dict, List, Any, Set, Optional, Tuple
 
 
-# Shared tools for CLI/TUI sessions. Computer-use tools also require their check_fns.
+# Shared tools for CLI/TUI sessions.
 _HERMES_CORE_TOOLS = [
     "web_search", "web_extract",
     "terminal", "process_manage",
@@ -18,7 +18,7 @@ _HERMES_CORE_TOOLS = [
     "clarify",
     "execute_code", "delegate_task",
 
-    "computer_use",
+
     # Service-gated connector account status and authorization links.
     "manage_connections",
 ]
@@ -40,8 +40,8 @@ def _core_without(*excluded):
 
 
 # Coding posture: everything you reach for while pairing on code; drops
-# image_gen and computer-use.
-_CODING_TOOLS = _core_without("image_generate", "computer_use")
+# image generation.
+_CODING_TOOLS = _core_without("image_generate")
 
 
 # Core toolset definitions: individual tools or references to other toolsets.
@@ -49,14 +49,7 @@ TOOLSETS = {
     # Basic toolsets - individual tool categories
     "web": _ts("Web research and content extraction tools", ["web_search", "web_extract"]),
     "search": _ts("Web search only (no content extraction/scraping)", ["web_search"]),
-    "x_search": _ts(
-        "Search X (Twitter) posts and threads via xAI's built-in x_search Responses "
-        "tool. Read-only public X discovery; use the xurl skill for authenticated X "
-        "API reads and account actions. Available when xAI credentials are configured "
-        "(SuperGrok OAuth or XAI_API_KEY). Off by default; enable in `hermes tools` → "
-        "X (Twitter) Search.",
-        ["x_search"],
-    ),
+
     "vision": _ts("Image analysis and vision tools", ["vision_analyze"]),
     "video": _ts("Video analysis and understanding tools (opt-in, not in default toolset)", ["video_analyze"]),
     "image_gen": _ts("Creative generation tools (images)", ["image_generate"]),
@@ -67,12 +60,7 @@ TOOLSETS = {
         "separate tools. Configure via ``hermes tools`` → Video Generation.",
         ["video_generate", "xai_video_edit", "xai_video_extend"],
     ),
-    "computer_use": _ts(
-        "Background desktop control via cua-driver (macOS/Windows/Linux) — "
-        "screenshots, mouse, keyboard, scroll, drag. Does NOT steal the user's cursor "
-        "or keyboard focus. Works with any tool-capable model.",
-        ["computer_use"],
-    ),
+
     "terminal": _ts("Terminal/command execution and process management tools", ["terminal", "process_manage"]),
     "skills": _ts(
         "Access, create, edit, and manage skill documents with specialized "

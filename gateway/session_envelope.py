@@ -155,8 +155,8 @@ def _validate_native(runner, event, provenance=None, fresh_roles=False):
         restore_provenance(runner, source, provenance)
     delegated = fresh_roles or bool(provenance and 'relay' in provenance)
     if not delegated:
-        # An adapter declaring ``authorization_is_upstream`` (A2A peers: bearer-token
-        # authenticated in do_POST) owns the whole authorization, so its fresh native inputs
+        # An adapter declaring ``authorization_is_upstream`` owns the whole authorization,
+        # so its fresh native inputs
         # carry no relay seal to derive delegation from. Without this they fell to the
         # principal allowlist and — with no {PLATFORM}_ALLOWED_USERS — the admission
         # re-check denied what the inbound filter had just accepted (#139199).

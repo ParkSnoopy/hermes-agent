@@ -14,7 +14,7 @@ from hermes_cli.logs import _line_matches_component
 from hermes_logging import COMPONENT_PREFIXES, _ComponentFilter
 
 SAMPLES = {
-    "gateway": ("gateway.run", "plugins.platforms.a2a.adapter", "agent.memory_caller_scope"),
+    "gateway": ("gateway.run", "gateway.session_recovery", "agent.memory_caller_scope"),
     "agent": ("agent.conversation_loop", "run_agent"),
     "tools": ("tools.file_tools",),
     "cli": ("hermes_cli.update_cmd", "cli"),

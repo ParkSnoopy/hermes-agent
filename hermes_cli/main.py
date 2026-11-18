@@ -299,7 +299,8 @@ from hermes_cli.subcommands.curator import build_curator_parser
 from hermes_cli.subcommands.pets import build_pets_parser
 from hermes_cli.subcommands.clipboard import build_clipboard_parser
 from hermes_cli.subcommands.journey import build_journey_parser
-from hermes_cli.subcommands.computer_use import build_computer_use_parser
+from hermes_cli.subcommands.screen import build_screen_parser
+from hermes_cli.subcommands._shared import add_json_flag
 from hermes_cli.subcommands.sessions import build_sessions_parser, cmd_sessions_lazy
 from hermes_cli.subcommands.completion import build_completion_parser
 
@@ -2306,7 +2307,7 @@ def cmd_console(args):
 _BUILTIN_SUBCOMMANDS = frozenset(
     {
         "acp", "approvals", "auth", "backup", "bundles", "checkpoints", "codex-runtime", "completion",
-        "clipboard", "computer-use", "connectors",
+        "clipboard", "screen", "connectors",
         "config", "console", "curator", "debug", "doctor",
         "dump", "egress", "fallback", "gateway", "hooks", "import", "insights",
         "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
@@ -2870,7 +2871,7 @@ def _build_cli_parser():
     build_journey_parser(subparsers)
     build_memory_parser(subparsers, cmd_memory=cmd_memory)
     build_tools_parser(subparsers, cmd_tools=cmd_tools)
-    build_computer_use_parser(subparsers)
+    build_screen_parser(subparsers, add_json_flag)
     build_mcp_parser(subparsers, cmd_mcp=cmd_mcp)
     build_connectors_parser(subparsers)
     build_sessions_parser(subparsers, cmd_sessions=cmd_sessions_lazy)

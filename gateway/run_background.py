@@ -6,7 +6,7 @@ import os
 from typing import Optional
 
 
-from gateway.media_repair import repair_explicit_computer_use_media_paths
+
 from gateway.platforms.base import BasePlatformAdapter
 from gateway.session import SessionSource
 
@@ -123,9 +123,6 @@ class GatewayBackgroundMixin:
             response = result.get("final_response", "") if result else ""
             if not response and result and result.get("error"):
                 response = ('Error: {error}').format(error=result["error"])
-            # Fresh conversation, so history_offset=0: every message in the run belongs to this turn.
-            if response:
-                response = repair_explicit_computer_use_media_paths(response, result.get("messages", []))
 
             preview = prompt[:60] + ("..." if len(prompt) > 60 else "")
             header = (f'✅ Background task complete\nPrompt: "{preview}"\n\n')

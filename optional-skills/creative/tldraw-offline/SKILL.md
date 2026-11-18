@@ -19,8 +19,8 @@ canvas, make edits, and write **document scripts** — JavaScript embedded in a
 `.tldraw` file that runs on load and gives the file durable behavior. The app
 runs a **local HTTP API** (default `localhost:7236`) that a coding agent drives
 with plain `curl` from its terminal — this is exactly how the app's own homepage
-demo (Codex editing a canvas live) works. The agent does NOT use computer-use /
-GUI clicking, and does NOT hand-edit the `.tldraw` file directly. Keep tldraw
+demo (Codex editing a canvas live) works. The agent does NOT click the GUI
+or hand-edit the `.tldraw` file directly. Keep tldraw
 offline open while you work.
 
 ## When to Use
@@ -137,16 +137,7 @@ that standard the counter is verified: dispatched clicks stepped it
   logs `inotify_add_watch ... No space left on device`, `script-status` shows
   `state: "not-watching"` / `hasEntry: false`, and the script never executes.
   This is a host limit, not a script bug — a normal desktop is unaffected.
-- **Driving the canvas with computer-use needs FOREGROUND delivery, not
-  background.** cua-driver's default `background` delivery returns
-  `background_unavailable` against Electron's occluded renderer — but that is the
-  first rung, not a wall. cua-driver returns an `escalation: "foreground"` hint;
-  set `delivery_mode: "foreground"` (pair with `bring_to_front`) and its X11 XTest
-  path (`x11_xtest_fg`) clicks land — this dismisses the "Run Script" consent
-  dialog and clicks the canvas. Verified by the Cua team on this exact v1.11.0
-  AppImage (Linux/X11). Do NOT conclude "Electron rejects synthetic clicks" and
-  give up in background mode — climb to foreground. (The real product path is
-  still `/exec`, not clicks; this note is for computer-use-driven testing.)
+
 
 The pattern:
 

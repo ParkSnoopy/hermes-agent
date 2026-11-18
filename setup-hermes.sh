@@ -3,10 +3,8 @@
 # Hermes Agent Setup Script — THE dev-environment entry point.
 # ============================================================================
 # Sets up the pm-managed development environment from a fresh clone:
-#   1. Stage the pinned uv from pm/lock.json (sha256-verified, into the pm
-#      store slot) — pm needs uv to bootstrap, so it cannot stage uv itself.
-#   2. Use uv to install and locate bootstrap Python, then let uv exit.
-#      Run `python -m pm.cli install` directly so PM can safely replace uv.
+#   1. Locate system uv on PATH.
+#   2. Use uv to install and locate bootstrap Python.
 #      PM owns the final interpreter, tool store, and dependency generation.
 #   3. Point you at `source ./activate` — the venv-style way to put the pm
 #      env (PATH + tool vars) into your current shell.
@@ -45,8 +43,7 @@ echo -e "${CYAN}☤ Hermes Agent Setup${NC}"
 echo ""
 
 # ============================================================================
-# Install / locate uv — staged from pm/lock.json (the lockfile is the only
-# authority; no astral-latest, no curl|sh).
+# Locate system uv.
 # ============================================================================
 
 echo -e "${CYAN}→${NC} Checking for uv..."
@@ -54,14 +51,6 @@ echo -e "${CYAN}→${NC} Checking for uv..."
 lock="$SCRIPT_DIR/pm/lock.json"
 [ -f "$lock" ] || { echo -e "${RED}✗${NC} pm/lock.json not found" >&2; exit 1; }
 
-# Read the shared mirror location before Python is available. Match object
-# keys, not indentation — same rule as pin() below.
-mirror_origin="$(awk -F '"' '$2 == "origin" { print $4; exit }' "$SCRIPT_DIR/pm/artifact-mirror.json")"
-mirror_prefix="$(awk -F '"' '$2 == "prefix" { print $4; exit }' "$SCRIPT_DIR/pm/artifact-mirror.json")"
-mirror_url_for() { # $1 = lowercase sha256
-  [ -n "$mirror_origin" ] && [ -n "$mirror_prefix" ] || return 1
-  printf '%s/%s%s' "$mirror_origin" "$mirror_prefix" "$1"
-}
 
 case "$(uname -s)" in
   Linux) os=linux ;;
@@ -76,8 +65,8 @@ target="$os-$arch"
 
 # The machine-written lock has one member per line. Follow object names and
 # braces, not indentation, to read pins before Python is available.
-pin() { # $1 = field (url | sha256 | version), $2 = package (default: uv)
-  awk -F '"' -v package="${2:-uv}" -v target="$target" -v field="$1" '
+pin() { # $1 = field, $2 = package
+  awk -F '"' -v package="$2" -v target="$target" -v field="$1" '
     /^[[:space:]]*("[^"]+"[[:space:]]*:[[:space:]]*)?\{[[:space:]]*$/ {
       path[++depth] = $2; next
     }
@@ -90,60 +79,10 @@ pin() { # $1 = field (url | sha256 | version), $2 = package (default: uv)
       print $4; exit
     }' "$lock"
 }
-uv_version="$(pin version)"
 py_version="$(pin version python | cut -d+ -f1 | cut -d. -f1,2)"
-[ -n "$uv_version" ] || { echo -e "${RED}✗${NC} no uv pin in pm/lock.json" >&2; exit 1; }
-
-store="${HERMES_RUNTIME_DIR:-$HOME/.hermes/tools}"
-entry="$store/uv-$uv_version-$target"
-uv="$entry/uv"; [ "$os" = win32 ] && uv="$entry/uv.exe"
-
-if [ -x "$uv" ]; then
-  echo -e "${GREEN}✓${NC} pinned uv found ($("$uv" --version 2>/dev/null))"
-else
-  url="$(pin url)"; sha="$(pin sha256)"
-  [ -n "$url" ] && [ -n "$sha" ] || { echo -e "${RED}✗${NC} no uv artifact for $target" >&2; exit 1; }
-  echo -e "${CYAN}→${NC} Staging pinned uv $uv_version ($target) into the pm store..."
-  mkdir -p "$store"
-  tmp="$(mktemp -d "$store/.bootstrap-XXXXXX")"; trap 'rm -rf "$tmp"' EXIT
-  archive="$tmp/${url##*/}"
-  fetch_pinned() {
-    if curl -fsSL -o "$2" "$1"; then return 0; else _curl_status=$?; fi
-    case "$_curl_status" in 5|6|7|18|22|28|52|55|56) ;; *) return "$_curl_status" ;; esac
-    local mirror; mirror="$(mirror_url_for "$sha")" || return 1
-    curl -fsSL -o "$2" "$mirror" || return 1
-  }
-  if ! fetch_pinned "$url" "$archive"; then
-    _tried="$url"
-    if _m="$(mirror_url_for "$sha")"; then _tried="$_tried or $_m"; fi
-    echo -e "${RED}✗${NC} failed to download pinned uv from $_tried" >&2
-    exit 1
-  fi
-  got="$( (sha256sum "$archive" 2>/dev/null || shasum -a 256 "$archive") | cut -d' ' -f1 | tr -d '\\')"
-  [ "$got" = "$sha" ] || { echo -e "${RED}✗${NC} sha256 mismatch for uv (got $got, pinned $sha)" >&2; exit 1; }
-  mkdir -p "$tmp/tree"
-  case "$archive" in
-    *.zip) unzip -q "$archive" -d "$tmp/tree" ;;
-    *) tar -xzf "$archive" -C "$tmp/tree" ;;
-  esac
-  # flatten a single wrapping dir (uv tarballs ship uv-<triple>/uv).
-  # BSD find lacks GNU's -mindepth/-maxdepth flags, so enumerate children in
-  # the shell; the two dot globs include hidden entries without matching . or ..
-  inner= inner_count=0
-  for child in "$tmp/tree"/* "$tmp/tree"/.[!.]* "$tmp/tree"/..?*; do
-    [ -e "$child" ] || [ -L "$child" ] || continue
-    inner="$child"
-    inner_count=$((inner_count + 1))
-  done
-  if [ "$inner_count" = 1 ] && [ -d "$inner" ]; then
-    mv "$inner" "$tmp/entry"
-  else
-    mv "$tmp/tree" "$tmp/entry"
-  fi
-  rm -rf "$entry"
-  mv "$tmp/entry" "$entry"
-  echo -e "${GREEN}✓${NC} uv installed ($("$uv" --version 2>/dev/null))"
-fi
+uv="$(command -v uv)" || { echo -e "${RED}✗${NC} uv is required on PATH; install it with your system package manager" >&2; exit 1; }
+"$uv" --version >/dev/null || { echo -e "${RED}✗${NC} uv on PATH cannot run" >&2; exit 1; }
+echo -e "${GREEN}✓${NC} system uv found ($("$uv" --version))"
 
 # ============================================================================
 # Delegate to pm: python + venv + tool store + hash-verified venv sync
@@ -151,7 +90,7 @@ fi
 
 echo -e "${CYAN}→${NC} Installing python + tools + dependencies via pm (hash-verified via uv.lock)..."
 echo -e "${CYAN}→${NC} (first run on a fresh checkout can take 1-5 minutes)"
-# PM can replace its uv entry only after the bootstrap uv has exited.
+
 py_request="$py_version"
 "$uv" python install --no-bin --no-registry "$py_request"
 boot_py="$("$uv" python find --managed-python "$py_request")"

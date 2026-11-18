@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hermes Agent bootstrap: clone, acquire uv/Python, then hand the checkout to
+# Hermes Agent bootstrap: clone, find system uv, acquire Python, then hand the checkout to
 # the same completion an update runs -- command publication, product builds and
 # post-build maintenance -- so a fresh install and a finished update land in one
 # state. Heavy dependencies (tool binaries, browsers, node) are pm's job:
@@ -35,7 +35,7 @@ NON_INTERACTIVE=false
 INCLUDE_DESKTOP=false
 VERBOSE=false
 SKIP_BROWSER=false
-SKIP_COMPUTER_USE=false
+
 INSTALL_LADDER=false
 INSTALL_SIGNAL=""
 INSTALL_IN_STAGE=false
@@ -62,7 +62,7 @@ while [ $# -gt 0 ]; do
         --non-interactive|-NonInteractive) NON_INTERACTIVE=true; shift ;;
         --skip-setup) NON_INTERACTIVE=true; shift ;;
         --skip-browser|--no-playwright|-SkipBrowser) SKIP_BROWSER=true; shift ;;
-        --skip-computer-use|-SkipComputerUse) SKIP_COMPUTER_USE=true; shift ;;
+
         --include-desktop|-IncludeDesktop) INCLUDE_DESKTOP=true; shift ;;
         --verbose|-Verbose) VERBOSE=true; shift ;;
         -h|--help)
@@ -70,7 +70,7 @@ while [ $# -gt 0 ]; do
             echo "                  [--dir PATH] [--hermes-home PATH]"
             echo "                  [--manifest] [--stage NAME] [--json]"
             echo "                  [--non-interactive] [--include-desktop] [--verbose]"
-            echo "                  [--skip-browser] [--skip-computer-use]"
+            echo "                  [--skip-browser]"
             echo
             echo "  --channel       stable (default): the latest published release, then release"
             echo "                  to release. main: every commit. Also HERMES_INSTALL_CHANNEL;"
@@ -78,9 +78,8 @@ while [ $# -gt 0 ]; do
             echo "  --skip-browser  Do not install the browser (Chromium). Alias: --no-playwright."
             echo "                  Remembered by later installs and 'hermes update';"
             echo "                  undo with 'hermes pm install chromium'."
-            echo "  --skip-computer-use"
-            echo "                  Do not install the computer-use driver (cua-driver). Remembered"
-            echo "                  the same way; undo with 'hermes pm install cua-driver'."
+
+
             exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 1 ;;
     esac
@@ -243,43 +242,6 @@ run_logged() {
     return "$rc"
 }
 
-# --- BEGIN GENERATED: bootstrap pins (scripts/gen-bootstrap-pins.py) ---
-# Derived from pm/lock.json. DO NOT EDIT BY HAND:
-# run scripts/gen-bootstrap-pins.py after a pin bump.
-UV_PIN_VERSION="0.13.5"
-
-# Sets UV_PIN_URL + UV_PIN_SHA256 for a <os>-<arch> target key.
-uv_bootstrap_pin() {
-    case "$1" in
-        linux-x64)
-            UV_PIN_URL="https://github.com/astral-sh/uv/releases/download/0.13.5/uv-x86_64-unknown-linux-gnu.tar.gz"
-            UV_PIN_MIRROR="https://hermes-assets.nousresearch.com/upstream/sha256/f68d291c75783122dad58ab77def0e13f3233f358731db5d6d7e8715603b928f"
-            UV_PIN_SHA256="f68d291c75783122dad58ab77def0e13f3233f358731db5d6d7e8715603b928f"
-            ;;
-        linux-arm64)
-            UV_PIN_URL="https://github.com/astral-sh/uv/releases/download/0.13.5/uv-aarch64-unknown-linux-gnu.tar.gz"
-            UV_PIN_MIRROR="https://hermes-assets.nousresearch.com/upstream/sha256/4bb69cf95ed13f23713bb7bc09f241896ea0c75b7c557e615a20604b82f9c403"
-            UV_PIN_SHA256="4bb69cf95ed13f23713bb7bc09f241896ea0c75b7c557e615a20604b82f9c403"
-            ;;
-        linux-x64-musl)
-            UV_PIN_URL="https://github.com/astral-sh/uv/releases/download/0.13.5/uv-x86_64-unknown-linux-musl.tar.gz"
-            UV_PIN_MIRROR="https://hermes-assets.nousresearch.com/upstream/sha256/57ef9d9ccb01fb1bd998df995b0dd221b52f7d7841fbea93f2d4463bf61fb7a9"
-            UV_PIN_SHA256="57ef9d9ccb01fb1bd998df995b0dd221b52f7d7841fbea93f2d4463bf61fb7a9"
-            ;;
-        linux-arm64-musl)
-            UV_PIN_URL="https://github.com/astral-sh/uv/releases/download/0.13.5/uv-aarch64-unknown-linux-musl.tar.gz"
-            UV_PIN_MIRROR="https://hermes-assets.nousresearch.com/upstream/sha256/7906c79adb21c81abd559841ba76bb1d9af9d791acac7a041b2972e03ae16538"
-            UV_PIN_SHA256="7906c79adb21c81abd559841ba76bb1d9af9d791acac7a041b2972e03ae16538"
-            ;;
-        *)
-            UV_PIN_URL=""
-            UV_PIN_SHA256=""
-            return 1
-            ;;
-    esac
-}
-# --- END GENERATED: bootstrap pins ---
-
 uv_bootstrap_target() {
     # Map this host to a pm/lock.json target key (<os>-<arch>).
     local _arch
@@ -321,79 +283,12 @@ uv_bootstrap_target() {
     esac
 }
 
-# Provision uv for this host from the pinned pm/lock.json artifact. Stages
-# the EXACT artifact pm itself uses into the same store slot
-# (<store>/uv-<version>-<target>/, the store pm's store_root() resolves),
-# sha256-verified, so the byte authority is pm/lock.json - no astral-latest,
-# no curl|sh.
 UV_CMD=""
 ensure_uv() {
     [ "$UV_CMD" != "" ] && return 0
-    # Always the pinned artifact, never a uv already on PATH: Hermes runs only
-    # its own packaged toolchain.
-    local _target
-    if ! _target="$(uv_bootstrap_target)"; then
-        fail "no pinned uv build for this platform ($(uname -s) $(uname -m)); Hermes does not support this host" unsupported_platform
-    fi
-    if ! uv_bootstrap_pin "$_target"; then
-        fail "no pinned uv artifact for $_target; Hermes does not support this host" unsupported_platform
-    fi
-    local _store="${HERMES_RUNTIME_DIR:-$HERMES_HOME/tools}"
-    local _entry="$_store/uv-$UV_PIN_VERSION-$_target"
-    UV_CMD="$_entry/uv"
-    if [ ! -x "$UV_CMD" ]; then
-        log "Downloading uv $UV_PIN_VERSION ($_target)"
-        local _tmp
-        # no-tmp: ok — last-resort fallback when mktemp itself is missing
-        _tmp="$(mktemp -d 2>/dev/null || echo "/tmp/hermes-uv-bootstrap.$$")"
-        mkdir -p "$_tmp"
-        local _fetched_from="$UV_PIN_URL"
-        # Only network availability failures permit trying identical mirrored bytes.
-        if curl -LsSf "$UV_PIN_URL" -o "$_tmp/uv.tar.gz"; then
-            :
-        else
-            local _curl_status=$?
-            case "$_curl_status" in
-                5|6|7|18|22|28|52|55|56) ;;
-                *) rm -rf "$_tmp"; fail "failed to download pinned uv from $UV_PIN_URL (curl $_curl_status)" download_failed ;;
-            esac
-            if [ "${UV_PIN_MIRROR:-}" != "" ] && curl -LsSf "$UV_PIN_MIRROR" -o "$_tmp/uv.tar.gz"; then
-                _fetched_from="$UV_PIN_MIRROR"
-            else
-                rm -rf "$_tmp"
-                fail "failed to download pinned uv from $UV_PIN_URL or ${UV_PIN_MIRROR:-no mirror}" download_failed
-            fi
-        fi
-        local _digest
-        if command -v sha256sum >/dev/null 2>&1; then
-            _digest="$(sha256sum "$_tmp/uv.tar.gz" | cut -d' ' -f1)"
-        else
-            _digest="$(shasum -a 256 "$_tmp/uv.tar.gz" | cut -d' ' -f1)"
-        fi
-        if [ "$_digest" != "$UV_PIN_SHA256" ]; then
-            rm -rf "$_tmp"
-            fail "uv download digest mismatch from $_fetched_from (expected $UV_PIN_SHA256, got $_digest)" download_digest_mismatch
-        fi
-        if ! tar -xzf "$_tmp/uv.tar.gz" -C "$_tmp"; then
-            rm -rf "$_tmp"
-            fail "failed to extract pinned uv archive" uv_unusable
-        fi
-        local _unpacked
-        _unpacked="$(find "$_tmp" -mindepth 1 -maxdepth 2 -name uv -type f | head -n1)"
-        if [ "$_unpacked" = "" ]; then
-            rm -rf "$_tmp"
-            fail "uv binary not found in the downloaded archive" uv_unusable
-        fi
-        mkdir -p "$_entry"
-        mv "$_unpacked" "$UV_CMD"
-        [ -f "$(dirname "$_unpacked")/uvx" ] && mv "$(dirname "$_unpacked")/uvx" "$_entry/uvx"
-        chmod +x "$UV_CMD"
-        chmod +x "$_entry/uvx" 2>/dev/null || true
-        rm -rf "$_tmp"
-    fi
-    # Bootstrap keeps the installer private; only UV_CMD invokes it.
+    UV_CMD="$(command -v uv)" || fail "uv is required on PATH. Install uv with your system package manager." uv_missing
     if ! "$UV_CMD" --version >/dev/null 2>&1; then
-        fail "pinned uv staged but does not run on this host" uv_unusable
+        fail "uv on PATH does not run on this host" uv_unusable
     fi
     log_success "uv ready ($("$UV_CMD" --version 2>/dev/null))"
 }
@@ -900,7 +795,7 @@ stage_venv() {
     log_success "bootstrap Python ready; PM prepares the dependency environment"
 }
 
-# Tool-only bootstrap: acquire uv and Python before PM's own dependencies exist.
+# Tool-only bootstrap: locate uv and acquire Python before PM's dependencies exist.
 # The application dependency graph is never installed in this interpreter.
 bootstrap_python() {
     ensure_uv
@@ -927,7 +822,7 @@ bootstrap_python() {
     [ -x "$boot_py" ] && "$boot_py" --version >/dev/null 2>&1 || fail "bootstrap Python is not executable: $boot_py" python_install_failed
 }
 
-# uv exits before PM can replace its tool entry. pm.cli then prepares and
+# pm.cli prepares and
 # enters its independently locked runtime before mutating application deps.
 bootstrap_pm() {
     local boot_py
@@ -937,7 +832,7 @@ bootstrap_pm() {
     # Legacy spelling on purpose: the stable PM this script installs by default
     # rejects `chromium`, and newer PMs read `agent-browser` as `chromium`.
     [ "$SKIP_BROWSER" = true ] && pm_args+=(--without agent-browser)
-    [ "$SKIP_COMPUTER_USE" = true ] && pm_args+=(--without cua-driver)
+
     bootstrap_python
     # Refresh the sudo ticket cached in prerequisites (never prompts): the
     # clone and downloads can outlast sudo's timestamp_timeout.

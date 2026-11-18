@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
+import subprocess
 import sys
 
 # The runner invokes this file before the checkout has been installed.
@@ -19,7 +21,7 @@ from pm.registry import walk
 from pm.store import current_target
 
 # npm stays beside pnpm: website/ and the sidecars are standalone npm projects.
-_ROOTS = {"python": ["uv"], "node": ["npm", "pnpm"], "all": ["npm", "pnpm", "uv"]}
+_ROOTS = {"python": ["python"], "node": ["npm", "pnpm"], "all": ["npm", "pnpm", "python"]}
 
 
 def parse_package_list(value: str) -> list[str]:
@@ -83,6 +85,11 @@ def prepare(args) -> None:
         "packages": json.dumps(names), "target": target, "arch": target.split("-")[1],
         "store": str(home / "tools"),
     }
+    if args.toolchain in ("python", "all"):
+        uv = shutil.which("uv")
+        if uv is None:
+            raise RuntimeError("uv is required on PATH")
+        values["uv-version"] = subprocess.check_output([uv, "--version"], text=True).split()[1]
     for name in names:
         version = lock.version(name)
         if not version or not lock.artifacts(name, target):
@@ -196,7 +203,7 @@ def install(args) -> None:
         ensure(name, explicit=True, progress=_live_progress(name))
     facts = Facts(facts_path())
     target = current_target()
-    public_names = [name for name in names if name != "uv"]
+    public_names = names
     binaries = {
         name: get_package(name).binary(store_root() / facts.get(name)["entry"], target)
         for name in public_names
@@ -207,10 +214,10 @@ def install(args) -> None:
     exported = {}
     outputs = {f"{name}-path": str(binaries[name]) for name in public_names}
     if "python" in names:
-        # uv is PM-internal (never on a user's PATH), but the test suites this
-        # toolchain serves drive real uv through shutil.which("uv").
-        uv = get_package("uv").binary(store_root() / facts.get("uv")["entry"], target)
-        path.append(str(uv.parent))
+        uv = shutil.which("uv")
+        if uv is None:
+            raise RuntimeError("uv is required on PATH")
+        path.append(str(Path(uv).parent))
         outputs["uv-path"] = str(uv)
         # Keep third-party CI tooling out of the verified interpreter store.
         # PM prepares the empty command environment through its normal builder.

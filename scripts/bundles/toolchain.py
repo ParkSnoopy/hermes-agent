@@ -110,7 +110,7 @@ def prepare_tools(source: Path, work: Path, cache: Path,
         raise ValueError("native tools require the isolated preparation worker")
     prepared = dict(env)
 
-    for name in ("uv", "pnpm"):
+    for name in ("python", "pnpm"):
         pm.ensure(name, explicit=True)
     binaries = {}
     for name in ("python", "node"):

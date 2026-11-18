@@ -39,7 +39,7 @@ def test_assembly_publishes_facts_as_termux_uid_and_returns_host_owned_output(tm
 
     payload = tmp_path / "payload"
     payload.mkdir()
-    for name in ("python", "uv"):
+    for name in ("python",):
         entry = payload / name
         entry.mkdir()
         (entry / "bytes").write_bytes(b"read-only staged tool bytes")
@@ -55,7 +55,6 @@ trap restore_assembly_owner EXIT
 docker run --rm --user 1000:1000 --network none \
     -v "$ASSEMBLY:/assembly" \
     -v "$PAYLOAD_ABS/python:/assembly/tools/python:ro" \
-    -v "$PAYLOAD_ABS/uv:/assembly/tools/uv:ro" \
     -v "$REPO:/app:ro" \
     -e HERMES_HOME=/tmp/hermes \
     "$IMAGE" sh -ec '
@@ -74,7 +73,7 @@ docker run --rm --user 1000:1000 --network none \
     assert result.returncode == build_exit, result.stdout + result.stderr
     assembly, = payload.glob(".environments-*")
     facts = json.loads((assembly / "tools/facts.json").read_text())
-    assert set(facts["packages"]) == {"python", "uv"}
+    assert set(facts["packages"]) == {"python"}
     assert (assembly / "writer").read_text().strip() == "1000:1000"
     assert (assembly / "pm-runtime/receipt").read_text() == "private build output"
     for path in [assembly, *assembly.rglob("*")]:

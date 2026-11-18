@@ -1,6 +1,6 @@
 """`hermes config get/set` must recognize keys the runtime reads but DEFAULT_CONFIG leaves unseeded:
 core provider selections (``browser.cloud_provider``, ``<category>.use_gateway``), MoA preset fields
-(``moa.presets.<name>.fanout``), core-owned keys with a known reader (``computer_use.backend``), and keys
+(``moa.presets.<name>.fanout``), and keys
 an ACTIVE plugin declares through ``config_keys``.
 Declarations never weaken the schema's typo notices."""
 
@@ -152,12 +152,6 @@ def test_every_selection_category_key_set_is_what_read_selection_returns(hermes_
         assert not _set_notice(f"{section}.{key}", f"vendor-{section}", capsys)
         assert read_selection(section) == f"vendor-{section}"
 
-
-def test_computer_use_backend_set_is_what_the_selector_reads(hermes_home, capsys):
-    from plugins.computer_use import configured_backend_name
-
-    assert not _set_notice("computer_use.backend", "widget-driver", capsys)
-    assert configured_backend_name() == "widget-driver"
 
 
 def test_plugin_config_keys_count_only_while_the_plugin_is_enabled(hermes_home, capsys):

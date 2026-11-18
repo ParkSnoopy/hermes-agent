@@ -1240,24 +1240,6 @@ def public_dns(monkeypatch):
     monkeypatch.setattr(url_safety, "_getaddrinfo", resolve)
 
 
-@pytest.fixture(autouse=True)
-def _isolate_computer_use_approval_state():
-    """Reset the computer-use explicit approval callback after every test.
-
-    ``tools.computer_use.tool._approval_callback`` is a module-global handed to
-    the shared approval gate as its explicit callback, where it takes precedence
-    over the per-thread terminal one. A test that installs it and does not
-    reset it poisons every later computer-use test in the same process: a
-    leaked callback that raises becomes a deny, a leaked one that blocks (the
-    real CLI one waits on an answer queue) hangs the whole single-process run.
-    Both symptoms are order-dependent. Teardown-only, so tests that install
-    their own callback keep it for their own duration.
-    """
-    yield
-    _cu_tool = sys.modules.get("tools.computer_use.tool")
-    if _cu_tool is not None:
-        _cu_tool.set_approval_callback(None)
-
 
 @pytest.fixture(autouse=True)
 def _restore_aux_runtime_main():

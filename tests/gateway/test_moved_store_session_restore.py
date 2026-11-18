@@ -107,7 +107,7 @@ async def test_renamed_profile_api_session_restores(tmp_path, monkeypatch):
 async def test_renamed_profile_local_session_restores(tmp_path, monkeypatch):
     """A local (Desktop / Bot Chat) session of a renamed profile resumes under the new name and
     stays a native chat (its turns keep the routing label, not an adopted row's stored label)."""
-    from gateway.session_a2a import storage_source
+    from gateway.session_recovery import storage_source
     from gateway.session_authorities import owner_scope
     from gateway.session_contract import SessionActor
     from gateway.session_local import create_local_session

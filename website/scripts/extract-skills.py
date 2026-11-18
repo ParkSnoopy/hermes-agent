@@ -554,7 +554,7 @@ for _cat, _tags in {
     "autonomous-ai-agents": [
         "ai", "agent", "agents", "ai-agent", "ai-agents", "agentic",
         "agentic-ai", "ai-assistant", "assistant", "multi-agent",
-        "autonomous", "llm", "rag", "prompt", "prompts", "a2a", "acp",
+        "autonomous", "llm", "rag", "prompt", "prompts", "acp",
     ],
     "creative": [
         "writing", "design", "creative", "art", "image-generation",

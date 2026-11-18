@@ -119,9 +119,6 @@ class ClientLifecycleMixin:
                         process["session_id"], source="agent_close", consume_output=True,
                     )
 
-        def release_computer_use() -> None:
-            from tools.computer_use.tool import release_computer_use_session
-            release_computer_use_session(task_id)
 
         def forget_file_state() -> None:
             # File tools key their read stamps / writer claims by the per-turn task_id (cron:
@@ -133,7 +130,7 @@ class ClientLifecycleMixin:
                     clear_file_ops_cache(owner)
 
         for step in (kill_processes, lambda: cleanup_vm(task_id), lambda: cleanup_browser(task_id),
-                     release_computer_use, forget_file_state):
+                     forget_file_state):
             _quietly(step)
 
     def _client_log_context(self) -> str:

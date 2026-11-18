@@ -75,12 +75,8 @@ def test_python_bionic_pin_is_independent_of_desktop_build_version(lock):
     assert py.deb_package == "python"
 
 
-def test_uv_bionic_row_matches_supplier(lock):
-    """The uv bionic row is an explicit pin of the termux-main pool .deb;
-    the row and Uv.fetch_url(bionic arm) must agree."""
-    _assert_pinned_bionic_row(lock, "uv", r"/u/uv/uv_(?P<ver>[0-9.]+)_aarch64\.deb$")
 @pytest.mark.parametrize("name,main,on_path", [
-    ("python", None, True), ("uv", "bin/uv", False), ("node", "bin/node", True),
+    ("python", None, True), ("node", "bin/node", True),
 ])
 def test_registered_bionic_stage_preserves_host_facts(tmp_path, monkeypatch, lock, name, main, on_path):
     import hashlib

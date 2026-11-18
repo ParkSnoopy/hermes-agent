@@ -1,4 +1,4 @@
-"""``hermes computer-use screen status`` shows the lease the way every RPC surface does: the holder's viewer
+"""``hermes screen status`` shows the lease the way every RPC surface does: the holder's viewer
 id is a capability (whoever presents it co-drives or releases the lease), so only its short hash leaves the
 gateway. Regression for #110006."""
 
@@ -8,13 +8,13 @@ import json
 
 import pytest
 
-from hermes_cli.subcommands import computer_use_screen
+from hermes_cli.subcommands import screen
 from tools.bot_desktop import lease, runtime
 
 
 def _parse(argv):
     parser = argparse.ArgumentParser()
-    computer_use_screen.build_screen_parser(
+    screen.build_screen_parser(
         parser.add_subparsers(), lambda sub, help_text: sub.add_argument("--json", action="store_true"))
     return parser.parse_args(argv)
 
@@ -36,12 +36,12 @@ def test_status_never_prints_the_holders_raw_viewer_id(running_screen, capsys):
     rpc_view = methods_display._display_snapshot()["lease"]  # what display.status / display.lease emit
     assert secret not in json.dumps(rpc_view)
 
-    assert computer_use_screen.SCREEN_ACTIONS["status"](_parse(["screen", "status", "--json"])) == 0
+    assert screen.SCREEN_ACTIONS["status"](_parse(["screen", "status", "--json"])) == 0
     payload = json.loads(capsys.readouterr().out)
     assert secret not in json.dumps(payload)
     assert payload["lease"] == rpc_view, "the CLI and the RPC surfaces emit one and the same redacted lease"
     assert payload["lease"]["viewer_hash"] == hashlib.sha256(secret.encode()).hexdigest()[:12]
 
-    assert computer_use_screen.SCREEN_ACTIONS["status"](_parse(["screen", "status"])) == 0
+    assert screen.SCREEN_ACTIONS["status"](_parse(["screen", "status"])) == 0
     human = capsys.readouterr().out
     assert secret not in human and "control: human" in human

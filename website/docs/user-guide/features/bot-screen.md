@@ -6,7 +6,7 @@ sidebar_position: 17
 # Bot Screen
 
 On a headless Linux gateway host (a server, a cloud VM, Hermes Cloud) each bot
-gets its **own desktop**: an Xfce screen the bot's `computer_use` and headed
+gets its **own desktop**: an Xfce screen the bot's headed
 browser act on, streamed live into Hermes Desktop. Watch what the bot does,
 **take over** when it hits a login, 2FA prompt, CAPTCHA or payment step, then
 **hand control back** and let it continue with the session you just signed in
@@ -23,7 +23,7 @@ hosted-agent products).
 and the control-lease file all belong to the gateway's OS user. Any process
 running as that user — another bot on the same host, and the bot's own
 `terminal` tool included — can reach them directly, bypassing the pane and the
-lease. The lease is a tool-level fence on `computer_use` and the browser tools,
+lease. The lease is a tool-level fence on the browser tools,
 not an OS one. One boundary is wider than the OS user: Chromium's DevTools
 port (the dock's Browser and every Chromium Hermes launches advertise one on
 loopback so the agent can attach) is reachable by **any** local user on the
@@ -58,8 +58,8 @@ reverse proxy's access log may record an already-spent ticket.
   root in the container (`docker exec -u 0 <container> apt-get install -y …`).
   Add `chromium` to that line if you want the dock's Browser icon; see
   [Browser sessions](#browser-sessions-that-survive-the-handoff) below. From a shell,
-  `hermes computer-use screen status` prints the exact line and
-  `hermes computer-use screen install` runs it:
+  `hermes screen status` prints the exact line and
+  `hermes screen install` runs it:
 
   | Distro | Packages |
   |---|---|
@@ -71,7 +71,7 @@ reverse proxy's access log may record an already-spent ticket.
   `tigervnc-server-minimal`) and `dbus-run-session` comes from `dbus-daemon`.
   Deliberately **not** the `xfce4` metapackage: it pulls in the screensaver,
   power manager and polkit agent that lock or prompt a headless desktop.
-- [Computer Use](./computer-use.md) enabled for the bot (cua-driver installed).
+
 - Memory. Measured in the official image: the gateway idles at ~300 MB, Xvnc +
   Xfce add ~220 MB, and the headed Chromium a human opens during a takeover adds
   0.5–1 GB (one page: ~550 MB). Plan on **~1.1–1.5 GB per open screen with a
@@ -83,7 +83,7 @@ reverse proxy's access log may record an already-spent ticket.
   cgroup, whichever is tighter — has `bot_desktop.min_free_memory_mb` free
   (default 1536; `0` disables the check). Below that the pane shows why in place
   of **Start screen** and
-  `hermes computer-use screen start` refuses; a screen already running is never
+  `hermes screen start` refuses; a screen already running is never
   taken down by this check. A screen nobody uses is stopped after
   `bot_desktop.idle_stop_minutes` (default 30) and comes back on the next use, so
   an instance pays for a desktop only while something is on it. The screen
@@ -129,7 +129,7 @@ Every bot's computer is one click away in Hermes Desktop:
 
 - **Bots → right-click a bot → Open Screen**. The same menu has **Open Screen
   when the bot uses it**: with it checked, the Screen tab comes forward on the
-  bot's first `computer_use` or browser call of a run, so you watch it work
+  bot's first headed browser call of a run, so you watch it work
   instead of finding out afterwards. Off by default, per bot. It raises the
   tab without taking your keyboard focus, never fires for replayed history,
   at most once every 30 seconds, and if you close the tab mid-run it stays
@@ -140,10 +140,10 @@ Every bot's computer is one click away in Hermes Desktop:
 
 1. Open the Screen with any of the entries above.
    The screen is **off by default** and nothing starts it for you: click
-   **Start screen** in the pane, run `hermes computer-use screen start` on the
+   **Start screen** in the pane, run `hermes screen start` on the
    host, or set `bot_desktop.auto_start: true` if you want a headless host to
-   start the screen by itself on the bot's first `computer_use` call or first
-   headed browser use (`browser.headed: true`) — off so that installing
+   start the screen by itself on the bot's first headed browser use
+   (`browser.headed: true`) — off so that installing
    TigerVNC never yields a screen nobody asked for. A headed browser opens on
    the screen once it is running.
 2. The pane streams the bot's desktop. The chip in the header says who is in
@@ -158,7 +158,7 @@ Every bot's computer is one click away in Hermes Desktop:
    reload and the pane still says a human holds control, a **Hand back (force)**
    button appears to clear it.
 
-While you hold control, the bot's `computer_use` and browser tools are refused
+While you hold control, the bot's browser tools are refused
 with `human_has_control`, captures included. This is a tool-level fence, not an
 OS one: the bot runs as the same user as its screen. Don't type secrets into a
 bot you wouldn't trust with them.
@@ -216,17 +216,17 @@ and the same.
 ## CLI
 
 ```bash
-hermes computer-use screen status          # installed? running? who holds control?
-hermes computer-use screen start           # start this profile's screen
-hermes computer-use screen stop            # stop it; refuses while a human holds control
-hermes computer-use screen stop --force    # ...unless you say so (also frees a stuck lease)
-hermes computer-use screen install [-y]    # apt/dnf/pacman the packages
-hermes -p research computer-use screen start   # another bot's screen
+hermes screen status          # installed? running? who holds control?
+hermes screen start           # start this profile's screen
+hermes screen stop            # stop it; refuses while a human holds control
+hermes screen stop --force    # ...unless you say so (also frees a stuck lease)
+hermes screen install [-y]    # apt/dnf/pacman the packages
+hermes -p research screen start   # another bot's screen
 ```
 
 ## Where the screen runs
 
-The screen and `computer_use` run on the gateway host. The terminal also runs
+The screen and browser run on the gateway host. The terminal also runs
 locally on that host; retired nonlocal terminal backends are refused. Browser
 cloud providers remain independently configurable.
 
@@ -235,15 +235,15 @@ cloud providers remain independently configurable.
 ```yaml
 bot_desktop:
   geometry: "1440x900"      # screen size; the viewer scales to fit the pane
-  auto_start: false         # set true to start on the first computer_use call or headed browser use
+  auto_start: false         # set true to start on headed browser use
   min_free_memory_mb: 1536  # refuse to start below this much free memory (0 = never check)
   idle_stop_minutes: 30     # stop a screen nobody used for this long (0 = keep it up)
 ```
 
 `auto_start` is off by default. Start the screen from the Desktop's Screen
-pane (**Start screen**), from `hermes computer-use screen start`, or set the
+pane (**Start screen**), from `hermes screen start`, or set the
 flag to `true` for a headless host that should bring its screen up the first
-time the bot calls `computer_use` or opens a headed browser (`browser.headed:
+time the bot opens a headed browser (`browser.headed:
 true`) and no display is available.
 
 State lives under `<HERMES_HOME>/bot-desktop/` per profile (RFB Unix socket,
@@ -266,7 +266,7 @@ Xauthority, launcher log, per-profile xfconf).
   and Hermes Cloud connections alike.
 - **Control lease.** The gateway drops keyboard, pointer and clipboard messages
   from any viewer that does not hold the lease, at the RFB byte level; noVNC's
-  view-only flag is only the UI hint. The same lease gates `computer_use` and
+  view-only flag is only the UI hint. The same lease gates
   the browser tools. It is a file under `<HERMES_HOME>/bot-desktop/`: no file
   means the bot holds control (a fresh profile); a file that exists but cannot
   be read or parsed fails closed — the bot is treated as locked out until the
@@ -274,7 +274,7 @@ Xauthority, launcher log, per-profile xfconf).
   to viewers (`-SendCutText=0`), so watchers do not receive what the person in
   control copies; pasting into the screen still works.
 - **Display binding.** The launcher publishes `DISPLAY`, `XAUTHORITY` and the
-  D-Bus address; every cua-driver and headed-browser spawn for that profile
+  D-Bus address; every headed-browser spawn for that profile
   inherits them, so the bot never acts on a display a human is sitting at.
 
 ## Troubleshooting
@@ -284,16 +284,16 @@ Xauthority, launcher log, per-profile xfconf).
   Hermes Desktop). The pane refuses a second install while one is running.
 - **Screen starts then stops** — read `<HERMES_HOME>/bot-desktop/launcher.log`.
 - **Typing produces wrong characters during a takeover** — the screen runs a
-  US keymap so RFB keysyms and cua-driver agree, and noVNC sends raw keycodes
+  US keymap and noVNC sends raw keycodes
   (QEMU extended key events) once Xvnc offers them, so on a non-US physical
   keyboard layout-dependent keys (Y/Z, symbols) land as their US counterparts
   while you hold control. Type passwords with that in mind, or change the layout
   with `setxkbmap` on that `DISPLAY`.
 - **Bot says `human_has_control` after you left** — click **Hand back** in the
   pane (or **Hand back (force)** after a reload). From a shell,
-  `hermes computer-use screen stop --force` releases the lease and stops the
+  `hermes screen stop --force` releases the lease and stops the
   screen (without `--force` the command refuses while a human holds control, so a
-  runbook can never yank a live takeover); `hermes computer-use screen start`
+  runbook can never yank a live takeover); `hermes screen start`
   brings it back with the bot in control.
 
 ### Testing under WSL

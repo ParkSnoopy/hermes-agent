@@ -97,11 +97,11 @@ def test_enable_on_string_platform_toolsets_keeps_listed_entries():
     config = {"platform_toolsets": {"telegram": '["browser", "terminal", "video", "video_gen"]'}}
 
     with patch("hermes_cli.tools_config.save_config"):
-        _apply_toolset_change(config, "telegram", ["computer_use"], "enable")
+        _apply_toolset_change(config, "telegram", ["session_search"], "enable")
 
     saved = config["platform_toolsets"]["telegram"]
     assert isinstance(saved, list)
-    assert {"browser", "terminal", "video", "video_gen", "computer_use"} <= set(saved)
+    assert {"browser", "terminal", "video", "video_gen", "session_search"} <= set(saved)
 
 
 def test_malformed_list_string_platform_toolsets_warns_then_falls_back(caplog):
@@ -654,19 +654,28 @@ def test_visible_providers_reuses_pool_video_feature_snapshot(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("selection", "managed", "expected"),
-    [("local", True, False), ("nous", True, True), ("browser-use", True, True), ("nous", False, False)],
+    ("category", "selected", "other"),
+    [
+        ("browser", {"cloud_provider": "nous"}, {"cloud_provider": "local"}),
+        ("web", {"backend": "firecrawl", "search_backend": "nous"}, {"backend": "firecrawl"}),
+        ("image_gen", {"provider": "nous"}, {"provider": "fal", "use_gateway": False}),
+        ("video_gen", {"provider": "nous"}, {"provider": "xai"}),
+    ],
 )
-def test_managed_browser_active_requires_matching_selection_and_managed_access(monkeypatch, selection, managed, expected):
+def test_picker_marks_managed_provider_active_only_when_it_serves(monkeypatch, category, selected, other):
     from hermes_cli import tools_config
 
+    feature = SimpleNamespace(managed_by_nous=True)
     monkeypatch.setattr(
         tools_config, "get_nous_subscription_features",
-        lambda config, **kwargs: SimpleNamespace(features={"browser": SimpleNamespace(managed_by_nous=managed)}),
+        lambda config, **kwargs: SimpleNamespace(features={category: feature}),
     )
-    provider = next(p for p in TOOL_CATEGORIES["browser"]["providers"] if p.get("managed_nous_feature") == "browser")
-    config = {"browser": {"cloud_provider": selection}}
-    assert tools_config._is_provider_active(provider, config) is expected
+    provider = next(p for p in TOOL_CATEGORIES[category]["providers"] if p.get("managed_nous_feature") == category)
+    providers = [{"name": "Fallback", "env_vars": []}, provider]
+    assert tools_config._detect_active_provider_index(providers, {category: selected}) == 1
+    assert tools_config._detect_active_provider_index(providers, {category: other}) == 0
+    feature.managed_by_nous = False
+    assert tools_config._detect_active_provider_index(providers, {category: selected}) == 0
 
 
 # ── One managed image row ─────────────────────────────────────────────────────
@@ -911,8 +920,8 @@ def test_explicit_plugin_toolset_admitted_in_platform_toolsets(monkeypatch):
     ``CONFIGURABLE_TOOLSETS`` only, so plugin keys in the explicit list were
     excluded from ``enabled_toolsets``.
     """
-    # Force a plugin toolset key to be present without depending on the a2a
-    # plugin being installed on disk. _get_plugin_toolset_keys() calls
+    # Force a plugin toolset key to be present without depending on a
+    # bundled plugin being installed on disk. _get_plugin_toolset_keys() calls
     # discover_plugins(); we patch its source so the test is hermetic.
     import hermes_cli.plugins as _plugins_mod
     import hermes_cli.tools_config as _tc_mod
@@ -950,9 +959,7 @@ def test_explicit_plugin_toolset_admitted_in_platform_toolsets(monkeypatch):
         raising=False,
     )
 
-    # An explicit platform_toolsets list with a plugin key alongside the
-    # standard composite — exactly the "I want hermes-cli AND a2a in my CLI
-    # session" config the issue's user was trying to write.
+    # An explicit platform_toolsets list with a plugin key alongside the standard composite.
     config = {"platform_toolsets": {"cli": ["hermes-cli", "dplat_client"]}}
 
     enabled = _get_platform_tools(config, "cli")
@@ -963,26 +970,7 @@ def test_explicit_plugin_toolset_admitted_in_platform_toolsets(monkeypatch):
     )
 
 
-def test_explicit_plugin_toolset_admitted_against_real_a2a_plugin(monkeypatch):
-    """End-to-end Layer 2 regression: with the bundled a2a plugin enabled and
-    a real config like ``platform_toolsets.cli: [hermes-cli, a2a]``, ``a2a``
-    must appear in the resolved enabled toolset set. Before the fix, the
-    filter dropped all non-CONFIGURABLE keys (a2a included)."""
-    # Discover real plugins so _get_plugin_toolset_keys() sees the a2a key.
-    # If the worktree lacks bundled plugin manifests, skip — this test
-    # exercises real bundled state and is meaningless without it.
-    from hermes_cli.plugins import discover_plugins, get_plugin_toolsets
-    discover_plugins()
-    plugin_ts_keys = {k for k, _, _ in get_plugin_toolsets()}
-    if "a2a" not in plugin_ts_keys:
-        pytest.skip("bundled a2a plugin not discoverable in this worktree")
 
-    config = {"platform_toolsets": {"cli": ["hermes-cli", "a2a"]}}
-    enabled = _get_platform_tools(config, "cli")
-    assert "a2a" in enabled, (
-        f"plugin-provided 'a2a' toolset dropped by _get_platform_tools "
-        f"(Layer 2 of #81163); enabled={sorted(enabled)}"
-    )
 
 
 class TestLightpandaPostSetup:
@@ -1017,7 +1005,7 @@ class TestLightpandaPostSetup:
 
     def test_post_setup_key_is_valid_and_readiness_gated(self):
         from hermes_cli.tools_config import (
-            _POST_SETUP_INSTALLED,
+
             _POST_SETUP_READY,
             valid_post_setup_keys,
         )
@@ -1027,6 +1015,3 @@ class TestLightpandaPostSetup:
             assert _POST_SETUP_READY["lightpanda"]() is True
         with patch("tools.browser_lightpanda.find_lightpanda_binary", return_value=None):
             assert _POST_SETUP_READY["lightpanda"]() is False
-        # Not in the forced-setup gate: a missing binary must not nag every
-        # user who toggles the browser toolset.
-        assert "lightpanda" not in _POST_SETUP_INSTALLED

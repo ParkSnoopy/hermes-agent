@@ -43,13 +43,13 @@ docker build \
     || { echo "builder image build failed" >&2; exit 1; }
 
 # Smoke: the baked image must answer the runtime probes termux_build.sh
-# performs (clang + rustc + cargo + make) before we publish it. /bin/sh is
+# performs (clang + rustc + cargo + make + uv) before we publish it. /bin/sh is
 # linked at RUNTIME inside the wheelhouse phase's --tmpfs /bin, so it is
 # deliberately absent from the baked image.
 docker run --rm --platform linux/arm64 "$IMAGE" \
     /data/data/com.termux/files/usr/bin/bash -c '
         export PREFIX=/data/data/com.termux/files/usr
-        for tool in clang rustc cargo make; do
+        for tool in clang rustc cargo make uv; do
             command -v "$tool" >/dev/null 2>&1 || { echo "smoke FAIL: $tool"; exit 1; }
         done
         echo "builder image smoke OK"

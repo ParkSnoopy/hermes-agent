@@ -1,9 +1,7 @@
 """HUD mode reaches the model as a per-turn note, not as a platform hint.
 
 The floating HUD sits over whatever the user is really working in, so a request
-typed there is usually about that other app — and usually wants to be carried
-out IN that app. Without the note the model answers from its own browser and
-panes, which is the wrong half of the screen.
+typed there is usually about that other app. The note helps identify that app.
 
 The same desktop session can be driven from the app window on one turn and the
 HUD on the next, so this cannot live in the system prompt — that has to stay
@@ -18,11 +16,12 @@ import pytest
 
 from agent.prompt_builder import hud_surface_note
 from tui_gateway import server
+from tui_gateway.session_notifications import _hud_surface_note
 
-FULL_KIT = {"read_window_below", "computer_use", "browser_navigate"}
+HUD_TOOLS = {"read_window_below"}
 
 
-def _session(*, tools=FULL_KIT, **extra):
+def _session(*, tools=HUD_TOOLS, **extra):
     return {
         "agent": types.SimpleNamespace(valid_tool_names=set(tools)),
         "session_key": "session-key",
@@ -39,65 +38,53 @@ def _session(*, tools=FULL_KIT, **extra):
 class TestNoteContents:
     """Every tool the note names has to be one this agent actually has."""
 
-
     def test_no_note_at_all_without_the_tool_it_rests_on(self):
-        assert hud_surface_note({"computer_use", "browser_navigate"}) == ""
+        assert hud_surface_note({"browser_exec"}) == ""
 
-    def test_identifies_the_app_even_when_it_cannot_drive_it(self):
-        note = hud_surface_note({"read_window_below"})
-
+    def test_identifies_the_app_with_the_direct_tool(self):
+        note = hud_surface_note(HUD_TOOLS)
         assert "read_window_below" in note
-        assert "computer_use" not in note
-
-    def test_browser_preference_needs_a_browser_to_prefer_over(self):
-        note = hud_surface_note({"read_window_below", "computer_use"})
-
-        assert "computer_use" in note
-        assert "browser_navigate" not in note
+        assert "tool_call bridge" not in note
 
     def test_no_tools_at_all(self):
         assert hud_surface_note(None) == ""
 
     def test_deferred_tools_count_and_are_routed_through_the_bridge(self):
-        """Tool search defers the desktop tools by default; the note must still fire and name the bridge."""
-        note = hud_surface_note({"tool_call"}, {"read_window_below", "computer_use"})
-        bridge_clause = note[note.index("Call "):]
-
+        note = hud_surface_note({"tool_call"}, HUD_TOOLS)
         assert "read_window_below identifies that app" in note
-        assert "read_window_below" in bridge_clause and "computer_use" in bridge_clause
-        mixed = hud_surface_note({"read_window_below"}, {"computer_use"})
-        assert "read_window_below" not in mixed[mixed.index("Call "):]  # a direct tool is never sent to the bridge
+        assert "Call read_window_below through the tool_call bridge" in note
+        direct = hud_surface_note(HUD_TOOLS | {"tool_call"}, HUD_TOOLS)
+        assert "tool_call bridge" not in direct
 
 
 class TestTurnRouting:
     def test_hud_turn_gets_the_note(self):
-        assert server._hud_surface_note(_session(client_surface="hud")) == hud_surface_note(FULL_KIT)
+        assert _hud_surface_note(_session(client_surface="hud")) == hud_surface_note(HUD_TOOLS)
 
-    def test_default_desktop_session_with_tool_search_gets_the_note(self):
-        """Real toolset resolution + real defer list: read_window_below is deferred, not dropped."""
-        from tools.registry import discover_builtin_tools
+    def test_hud_turn_uses_the_sessions_deferred_tools(self, monkeypatch):
+        from agent import tool_executor
 
-        discover_builtin_tools()
-        enabled = server._load_enabled_toolsets("desktop")
-        agent = types.SimpleNamespace(enabled_toolsets=enabled, disabled_toolsets=None,
-                                      valid_tool_names={"tool_search", "tool_describe", "tool_call"})
+        session = _session(tools={"tool_call"}, client_surface="hud")
 
-        note = server._hud_surface_note(_session(client_surface="hud") | {"agent": agent})
+        def scoped_names(agent):
+            assert agent is session["agent"]
+            return HUD_TOOLS
 
-        assert "read_window_below" in note and "through the tool_call bridge" in note
+        monkeypatch.setattr(tool_executor, "_tool_search_scoped_names", scoped_names)
+        note = _hud_surface_note(session)
+        assert "Call read_window_below through the tool_call bridge" in note
 
     def test_app_window_turn_gets_nothing(self):
-        assert server._hud_surface_note(_session(client_surface="")) == ""
+        assert _hud_surface_note(_session(client_surface="")) == ""
 
     def test_session_that_never_reported_a_surface_gets_nothing(self):
         """Every other client (TUI, dashboard, messaging) omits the field."""
-        assert server._hud_surface_note(_session()) == ""
+        assert _hud_surface_note(_session()) == ""
 
     def test_survives_an_agent_with_no_toolset_at_all(self):
         session = _session(client_surface="hud")
         session["agent"] = types.SimpleNamespace()
-
-        assert server._hud_surface_note(session) == ""
+        assert _hud_surface_note(session) == ""
 
 
 class TestPrepending:
@@ -108,7 +95,6 @@ class TestPrepending:
 
     def test_multimodal_turn_keeps_its_parts(self):
         parts = [{"type": "text", "text": "go to x"}, {"type": "image_url", "image_url": {}}]
-
         assert server._prepend_note(parts, "[Note: hi]") == [
             {"type": "text", "text": "[Note: hi]"},
             *parts,
@@ -116,7 +102,6 @@ class TestPrepending:
 
     def test_nothing_to_say_leaves_the_message_untouched(self):
         parts = [{"type": "text", "text": "go to x"}]
-
         assert server._prepend_note("go to x", "") == "go to x"
         assert server._prepend_note(parts, "") is parts
 
@@ -140,17 +125,14 @@ class TestSurfaceRecording:
 
     def test_hud_submit_is_recorded(self, busy_session):
         self._submit(surface="hud")
-
         assert busy_session["client_surface"] == "hud"
 
     def test_the_next_app_window_submit_clears_it(self, busy_session):
         """A stale 'hud' would tell the model the user is still floating."""
         self._submit(surface="hud")
         self._submit()
-
         assert busy_session["client_surface"] == ""
 
     def test_an_unknown_surface_is_not_hud(self, busy_session):
         self._submit(surface="pet-overlay")
-
         assert busy_session["client_surface"] == ""

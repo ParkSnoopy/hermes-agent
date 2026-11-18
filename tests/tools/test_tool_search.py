@@ -151,7 +151,7 @@ class TestClassification:
             [
                 _td("terminal", "Run a command"),
                 _td("memory", "Persistent memory"),
-                _td("computer_use", "Drive the OS"),
+                _td("session_search", "Search conversations"),
                 _td(mcp_name, "Deferred MCP capability"),
             ],
             context_length=200_000,
@@ -163,8 +163,8 @@ class TestClassification:
         assert mcp_name not in names
         assert BRIDGE_TOOL_NAMES <= names
         assert {"terminal", "memory"} <= names
-        # computer_use IS in the curated defer set → behind the bridge.
-        assert "computer_use" not in names
+        # session_search is in the curated defer set → behind the bridge.
+        assert "session_search" not in names
 
 
 

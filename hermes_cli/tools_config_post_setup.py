@@ -12,7 +12,8 @@ from hermes_cli.cli_output import (
     print_error as _print_error, print_info as _print_info, print_success as _print_success,
     print_warning as _print_warning)
 from hermes_cli.config import get_env_value
-from hermes_cli.tools_config_cua import _cua_driver_install_ready, install_cua_driver
+
+
 def _info_lines(*lines: str) -> None:
     """Print each line as a 4-space-indented info row."""
     for line in lines:
@@ -135,8 +136,8 @@ def _run_xai_oauth_login_from_setup() -> bool:
 
 
 def _post_setup_xai_grok() -> None:
-    """Shared xAI credential bootstrap for any picker row that talks to xAI (TTS, STT, Video Gen, x_search
-    …). Accepts a SuperGrok-tier OAuth token (preferred — billed to the existing subscription) or a raw
+    """Shared xAI credential bootstrap for picker rows that talk to xAI. Accepts a
+    SuperGrok-tier OAuth token (preferred — billed to the existing subscription) or a raw
     XAI_API_KEY; the rows declare empty env_vars so the auth UX lives here."""
     try:
         from hermes_cli.auth import get_xai_oauth_auth_status
@@ -247,7 +248,7 @@ _POST_SETUP_HOOKS: dict = {
     "chromium": _post_setup_chromium,
     # Cloud browser rows (plugins.browser.*): the vendor hosts Chromium; browser_exec attaches over CDP.
     "browserbase": lambda: _ensure_browser_use_cli(),
-    "cua_driver": lambda: install_cua_driver(upgrade=False),
+
     "xai_grok": _post_setup_xai_grok,
     "openai_codex": _post_setup_openai_codex,
     **{key: (lambda spec=spec: _post_setup_python(spec)) for key, spec in _PYTHON_POST_SETUP_HOOKS.items()},
@@ -300,22 +301,6 @@ def run_post_setup_command(args) -> int:
     return 0
 
 
-# post_setup_key -> predicate(): True when the install side-effect is already satisfied. Used by
-# `_toolset_needs_configuration_prompt` to force provider setup when a no-key provider still needs a
-# binary/dependency install (otherwise toggling the toolset on silently skips the hook). Only add an
-# entry when the post_setup is the ONLY install side-effect for a no-key provider and the check is
-# local, bounded, and import-light.
-_POST_SETUP_INSTALLED: dict = {"cua_driver": lambda: _cua_driver_install_ready()}
-
-
-def _post_setup_already_installed(post_setup_key: str) -> bool:
-    """Return True when the post_setup install side-effect is satisfied (or no check is registered)."""
-    predicate = _POST_SETUP_INSTALLED.get(post_setup_key)
-    try:
-        return predicate is None or bool(predicate())
-    except Exception:
-        return True
-
 
 def _module_installed(module_name: str) -> bool:
     """Cheap importable-without-importing check (no heavy side effects)."""
@@ -359,4 +344,4 @@ _POST_SETUP_READY: dict = {
     "chromium": lambda: _chromium_installed(),
     "browserbase": lambda: _browser_harness_installed(),
     "lightpanda": lambda: _lightpanda_installed(),
-    "cua_driver": lambda: _cua_driver_install_ready()}
+}

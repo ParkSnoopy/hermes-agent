@@ -21,7 +21,7 @@ def test_bionic_facts_and_agent_keep_fixed_prefix_and_tui_only(tmp_path):
     for name in RESOURCE_ENV:
         (repo / name).mkdir()
     target = "linux-arm64-bionic"
-    tools = ("python", "node", "uv", "npm", "ffmpeg", "ripgrep")
+    tools = ("python", "node", "npm", "ffmpeg", "ripgrep")
     for name in tools:
         executable = get_package(name).binary(payload / "tools" / name, target)
         executable.parent.mkdir(parents=True, exist_ok=True)

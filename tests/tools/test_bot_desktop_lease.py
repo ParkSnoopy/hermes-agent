@@ -1,9 +1,7 @@
-"""Bot Desktop invariants: the byte-level RFB input gate follows the lease, and computer_use refuses
-every action (capture included) while a human holds the screen."""
+"""Bot Desktop invariants: the byte-level RFB input gate follows the lease."""
 
 from __future__ import annotations
 
-import json
 
 import pytest
 
@@ -22,12 +20,8 @@ _SETENC = b"\x02\x00\x00\x02" + b"\x00\x00\x00\x07" + b"\xff\xff\xff\x21"  # Set
 
 @pytest.fixture(autouse=True)
 def _fresh_lease():
-    from tools.computer_use import tool
-
-    tool.reset_backend_for_tests()
     lease._reset_for_tests()
     yield
-    tool.reset_backend_for_tests()
     lease._reset_for_tests()
 
 
@@ -50,19 +44,6 @@ def test_rfb_filter_forwards_input_only_from_the_lease_holder_across_arbitrary_c
     assert lease.release("v2").holder == lease.AGENT
 
 
-def test_computer_use_refuses_every_action_while_a_human_holds_the_screen(monkeypatch):
-    from tools.computer_use import tool
-
-    calls = []
-    monkeypatch.setattr(tool, "_get_backend", lambda session_id="": calls.append(session_id) or object())
-    lease.acquire("human")
-    for action in ("capture", "click", "type", "list_windows"):
-        res = json.loads(tool.handle_computer_use({"action": action, "text": "pw"}))
-        assert res["code"] == "human_has_control", action
-    assert calls == [], "the driver is never touched while the human may be typing a credential"
-    lease.release("human")
-    assert lease.get().holder == lease.AGENT
-
 
 def test_lease_authority_is_shared_across_processes(tmp_path):
     """The gateway that streams the screen and the process running the agent are different processes;
@@ -82,49 +63,6 @@ def test_lease_authority_is_shared_across_processes(tmp_path):
     assert out.stdout.strip() == "HUMAN", out.stderr
     assert lease.get().holder == lease.AGENT, "the other process's release is visible here"
 
-
-def test_takeover_during_an_admitted_action_discards_its_result(monkeypatch):
-    """Approval / backend start-up can take seconds; a human who takes over meanwhile must not have
-    their keystrokes captured by an action admitted before they did."""
-    from tools.computer_use import tool
-
-    monkeypatch.setattr(tool, "_new_backend", lambda mode: tool._NoopBackend())
-
-    def _dispatch_then_takeover(backend, action, args, **_):
-        lease.acquire("human")  # a whole take-over / hand-back cycle inside the driver call:
-        lease.release("human")  # control is back, but the frame is still the human's turn
-        return json.dumps({"ok": True, "action": action, "png_b64": "SECRET"})
-
-    monkeypatch.setattr(tool, "_dispatch", _dispatch_then_takeover)
-    res = json.loads(tool.handle_computer_use({"action": "capture"}))
-    assert res["code"] == "human_has_control" and "SECRET" not in json.dumps(res)
-
-
-def test_takeover_handback_during_approval_does_not_start_the_device_op(monkeypatch):
-    """A full take-over / hand-back during approval leaves holder=agent, so assert_agent_may_act
-    succeeds. Input still belongs to the human's turn: compare admitted.epoch before _dispatch,
-    not only after. Do not patch _dispatch — a recording backend must never be called."""
-    from tools.computer_use import tool
-
-    class Rec(tool._NoopBackend):
-        def __init__(self):
-            self.calls = []
-
-        def click(self, **_kw):
-            self.calls.append("click")
-            return json.dumps({"ok": True, "action": "click"})
-
-    rec = Rec()
-    monkeypatch.setattr(tool, "_new_backend", lambda mode: rec)
-
-    def _approval_cycles_the_lease(scope, args, session_id=""):
-        lease.acquire("human")
-        lease.release("human")
-
-    monkeypatch.setattr(tool, "_request_approval", _approval_cycles_the_lease)
-    res = json.loads(tool.handle_computer_use({"action": "click", "coordinate": [1, 1]}))
-    assert rec.calls == []
-    assert res.get("code") == "human_has_control"
 
 
 def test_unreadable_lease_file_fails_closed_and_takeover_keeps_the_agents_reason(tmp_path):
@@ -155,16 +93,15 @@ def test_unreadable_lease_file_fails_closed_and_takeover_keeps_the_agents_reason
 
 
 def test_lease_works_without_fcntl(tmp_path):
-    """Windows and fcntl-less hosts: ``computer_use`` imports the lease on EVERY call, so a module-level
-    fcntl dependency turns every desktop action into ModuleNotFoundError there. The file semantics must
-    still work; only the cross-process lock degrades. Subprocess so the module cache is clean."""
+    """Without fcntl the file semantics still work; only the cross-process lock degrades.
+    Use a subprocess so the module cache is clean."""
     import os
     import subprocess
     import sys
 
     probe = (f"import sys; sys.modules['fcntl'] = None; sys.path.insert(0, {os.getcwd()!r})\n"
              "from tools.bot_desktop import lease\n"
-             "import tools.computer_use.tool\n"
+
              "assert lease.get().holder == lease.AGENT\n"
              "assert lease.acquire('v1').holder == lease.HUMAN\n"
              "assert lease.get().holder == lease.HUMAN\n"

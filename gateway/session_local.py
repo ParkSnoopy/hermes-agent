@@ -114,19 +114,15 @@ class LocalSessionAdapter(BasePlatformAdapter):
     def _unanswerable_clarify(self, chat_id):
         """Why no one can answer a question asked in this chat now, or None to ask it.
 
-        Hosted rooms (controls expose approvals only) and forwarded A2A conversations (the
-        author is a remote peer with no prompt surface) never have an answering viewer. Any
+        Hosted rooms (controls expose approvals only) never have an answering viewer. Any
         other chat can be answered by an attached viewer holding ``session:respond``; with none
         attached, a producer turn (Bot Chat DM, plugin/heartbeat injection) declines, while a
         viewer's own turn keeps waiting so its author can re-attach and answer."""
         policy = self.policies.get(chat_id)
         if policy is None:
             return None
-        from gateway.session_a2a import is_forward_policy
         if policy.source == 'bot_room':
             return 'Clarification is unavailable in hosted rooms'
-        if is_forward_policy(policy):
-            return 'Clarification is unavailable to a forwarded peer'
         live = self.authority.sessions.get(chat_id)
         if live is None:
             return None

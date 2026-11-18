@@ -287,8 +287,7 @@ def resolve_plugin_load_order(manifests: Mapping[str, PluginManifest]) -> list[s
 def _detect_kind_from_source(source_text: str) -> Optional[str]:
     """Detect exclusive providers and model providers from their source markers."""
     if any(marker in source_text for marker in (
-            "register_memory_provider", "MemoryProvider",
-            "register_computer_use_provider", "ComputerUseProvider")):
+            "register_memory_provider", "MemoryProvider")):
         return "exclusive"
     if "register_provider" in source_text and "ProviderProfile" in source_text:
         return "model-provider"

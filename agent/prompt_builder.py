@@ -558,16 +558,11 @@ def hud_surface_note(valid_tool_names: set[str] | None = None,
          "They move the HUD from app to app mid-conversation, so one you identified on an earlier turn is "
          "still a live target: a reference that does not fit the window below may name one from a turn or two "
          "ago, and a single message can span both."),
-        ("computer_use" in names,
-         "Prefer carrying the work out in that same app — computer_use "
-         "takes its name in `app` — over pulling the task into a surface of your own."),
-        ("computer_use" in names and "browser_navigate" in names,
-         "When the app underneath is a browser, that means driving the "
-         "user's browser rather than opening yours with browser_navigate."),
+
         (True, "This is a prior, not a rule: when the request names its own target, follow the request."),
     )
     note = " ".join(text for ok, text in gated if ok)
-    named = ("read_window_below", "computer_use") if "computer_use" in names else ("read_window_below",)
+    named = ("read_window_below",)
     bridged = [name for name in named if name in deferred]
     if bridged:
         note += f" Call {' and '.join(bridged)} through the tool_call bridge (deferred behind tool search)."

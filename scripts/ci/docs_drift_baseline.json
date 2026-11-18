@@ -20,9 +20,7 @@
   "browser.allow_unsafe_evaluate",
   "compression.abort_on_summary_failure",
   "compression.max_attempts",
-  "computer_use.ax_max_elements",
-  "computer_use.capture_after_mode",
-  "computer_use.max_image_dimension",
+
   "context.memory_trim.cooldown_seconds",
   "context.memory_trim.enabled",
   "context.memory_trim.info_log_min_delta_mb",
@@ -111,13 +109,12 @@
 
   "tts.deepinfra.model",
   "tts.deepinfra.voice",
-  "updates.refresh_cua_driver",
+
   "vault.bitwarden.binary_path",
   "vault.onepassword.binary_path",
   "voice.gpt_live.model",
   "voice.thinking_sound",
-  "wake_word.sherpa.model_dir",
-  "x_search.reasoning_effort"
+  "wake_word.sherpa.model_dir"
  ],
  "slash_commands": []
 }

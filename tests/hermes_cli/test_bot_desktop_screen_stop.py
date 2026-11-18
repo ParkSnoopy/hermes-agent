@@ -2,7 +2,7 @@
 
 import argparse
 
-from hermes_cli.subcommands.computer_use_screen import build_screen_parser
+from hermes_cli.subcommands.screen import build_screen_parser
 import pytest
 
 
@@ -14,7 +14,7 @@ def test_screen_stop_hands_back_even_when_the_desktop_has_already_exited():
     build_screen_parser(parser.add_subparsers(), lambda sub, help_text: sub.add_argument('--json', action='store_true'))
     lease.acquire('disconnected-viewer')
     args = parser.parse_args(['screen', 'stop', '--force'])
-    assert args.screen_func(args) == 0
+    assert args.func(args) == 0
     assert lease.get().holder == lease.AGENT
 
 
@@ -29,8 +29,8 @@ def test_screen_stop_refuses_while_a_human_holds_unless_forced(monkeypatch):
     build_screen_parser(parser.add_subparsers(), lambda sub, help_text: sub.add_argument('--json', action='store_true'))
     lease.acquire('human-at-keyboard')
     args = parser.parse_args(['screen', 'stop'])
-    assert args.screen_func(args) == 1
+    assert args.func(args) == 1
     assert lease.get().holder == lease.HUMAN and not stopped
     args = parser.parse_args(['screen', 'stop', '--force'])
-    assert args.screen_func(args) == 0
+    assert args.func(args) == 0
     assert lease.get().holder == lease.AGENT and stopped

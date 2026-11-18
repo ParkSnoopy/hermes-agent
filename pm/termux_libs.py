@@ -150,7 +150,7 @@ def pins(table: dict, lockfile) -> list[Pin]:
 
     The table owns the payload's libraries and its license package; the
     lockfile owns the cross-target tools whose bionic arm is a pool .deb
-    (python, node, uv). Other lock sources — GitHub tarballs, OCI digests —
+    (Python and Node.js). Other lock sources — GitHub tarballs, OCI digests —
     are not the pool's business.
     """
     out = [

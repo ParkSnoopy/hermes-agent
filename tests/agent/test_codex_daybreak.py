@@ -108,8 +108,7 @@ def test_offered_only_where_the_account_lists_it(catalog):
 
 
 def _owner_policies(home, monkeypatch):
-    """Real launch policies, built the way each producer builds them (build_policy, then the hosted-room and
-    A2A rewrites in gateway/session_hosted_rpc.py and gateway/session_a2a.py), keyed by a LOCAL chat id."""
+    """Real launch policies and hosted-room rewrites, keyed by a LOCAL chat id."""
     from dataclasses import replace
     from gateway import run as gateway_run
     from gateway import session_policy

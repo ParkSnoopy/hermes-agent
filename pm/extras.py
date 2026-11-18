@@ -38,7 +38,7 @@ ANCHORS: dict[str, str | tuple[str, ...]] = {
     "doc-extract": "anydoc",
     "documents": ("docx", "openpyxl", "pptx", "reportlab", "pypdf"),
     "documents-pdf": ("pdfplumber", "pypdfium2"),
-    "computer-use": "mcp",
+
     "trace-upload": "huggingface_hub",
 
 }

@@ -883,23 +883,9 @@ def _sync_profiles_after_update() -> None:
             print(f"→ Seeded .env for {len(backfilled)} profile(s) (empty placeholder): {', '.join(backfilled)}")
 
 
-def _refresh_cua_driver_after_update() -> None:
-    """Reconcile an installed optional package, never a user-selected external binary."""
-    import pm
-
-    if not _load_updates_cfg().get("refresh_cua_driver", True):
-        return
-    if os.environ.get("HERMES_CUA_DRIVER_CMD", "").strip():
-        return
-    if pm.installed_package("cua-driver", allow_outdated=True) is None:
-        return
-    print("\n→ Preparing pinned cua-driver (Computer Use)...")
-    pm.ensure("cua-driver", explicit=True)
-
-
 def _install_default_tools_after_update() -> None:
-    """Give the install its optional default tools: the PM defaults (Chromium,
-    cua-driver). browser_exec's engine (browser-harness) is a venv dependency.
+    """Give the install its optional default tools. browser_exec's engine
+    (browser-harness) is a venv dependency.
 
     Runs at the end of both the installers (via the source completion) and
     ``hermes update``: a source update re-syncs only the venv, so a tool that became
@@ -949,7 +935,7 @@ def _print_post_update_notices_and_self_heals() -> None:
         ('FHS PATH guard check failed: %s', _ensure_fhs_path_guard),
         ('CLI launcher exposure failed: %s', lambda: _launchers.expose_cli(_m().PROJECT_ROOT)),
 
-        ('cua-driver refresh failed: %s', _refresh_cua_driver_after_update),
+
         ('Default PM tool install failed: %s', _install_default_tools_after_update),
         ('Checkpoint footprint notice failed: %s', _print_checkpoint_footprint_notice),
     ):

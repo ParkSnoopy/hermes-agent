@@ -9,8 +9,7 @@
     "plugins/browser/browser_use/provider.py tools.tool_backend_helpers.selection_error": 1,
     "plugins/browser/browserbase/provider.py plugins.browser._common.CloudBrowserProvider": 1,
     "plugins/browser/firecrawl/provider.py plugins.browser._common.CloudBrowserProvider": 1,
-    "plugins/computer_use/cua/__init__.py tools.computer_use.cua_backend.CuaDriverBackend": 1,
-    "plugins/computer_use/cua/__init__.py tools.computer_use.cua_backend_driver.cua_driver_binary_available": 1,
+
     "plugins/config_backends/remote/backend.py hermes_cli.config._known_top_level_keys": 1,
     "plugins/config_backends/remote/backend.py hermes_cli.config_backend.BACKEND_ENV": 1,
     "plugins/config_backends/remote/backend.py hermes_cli.config_backend.Changes": 1,
@@ -254,16 +253,7 @@
     "plugins/model-providers/vertex/__init__.py agent.transports.chat_completions._snake_case_gemini_thinking_config": 1,
     "plugins/model-providers/xai/__init__.py hermes_cli.version_info.hermes_user_agent": 1,
     "plugins/model-providers/zai/__init__.py agent.reasoning_effort": 1,
-    "plugins/platforms/a2a/__init__.py hermes_cli.setup.get_env_value": 1,
-    "plugins/platforms/a2a/__init__.py hermes_cli.setup.print_header": 1,
-    "plugins/platforms/a2a/__init__.py hermes_cli.setup.print_info": 1,
-    "plugins/platforms/a2a/__init__.py hermes_cli.setup.print_warning": 1,
-    "plugins/platforms/a2a/__init__.py hermes_cli.setup.save_env_value": 1,
-    "plugins/platforms/a2a/adapter.py gateway.session_a2a.forward_to_owner": 1,
-    "plugins/platforms/a2a/adapter.py hermes_cli.profiles.get_active_profile_name": 1,
-    "plugins/platforms/a2a/adapter.py hermes_cli.profiles.get_profile_dir": 1,
-    "plugins/platforms/a2a/security.py agent.proxy_bypass.is_loopback_host": 1,
-    "plugins/platforms/a2a/security.py agent.redact.redact_for_egress": 1,
+
     "plugins/video_gen/deepinfra/__init__.py hermes_cli.models._fetch_deepinfra_models_by_tag": 1,
     "plugins/video_gen/fal/__init__.py tools.fal_common._ManagedFalSyncClient": 1,
     "plugins/video_gen/fal/__init__.py tools.fal_common._extract_http_status": 1,
@@ -401,7 +391,7 @@
     "plugins/web/xai/provider.py tools.xai_http.resolve_xai_http_credentials": 1
   },
   "core_to_module": {
-    "gateway/session_a2a.py plugins.platforms.a2a.adapter": 1,
+
     "hermes_cli/main_dashboard.py plugins.dashboard_auth.basic": 1,
 
     "hermes_cli/web_routers/tools.py plugins.web.firecrawl.provider": 1,

@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from agent.interrupt_compat import _accepts_keyword
 from agent.replay_cleanup import canonicalize_replay_history
 from gateway.config import Platform
-from gateway.media_repair import repair_explicit_computer_use_media_paths
+
 from gateway.platforms.base import BasePlatformAdapter
 from gateway.platforms.base_exec_approval import ea_default_reason_text
 from gateway.turn_context import TurnContext
@@ -799,7 +799,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                                    cmd, desc, getattr(adapter, "typed_command_prefix", "/"), **flags)
         try:
             # Mark as approval prompt: WeCom routes it through the control lane and Telegram pushes it
-            # in "important" mode (#132516). Never ``notify`` — A2A reads that as the turn-final reply.
+            # in "important" mode (#132516). Mark delivery as interim, not turn-final.
             metadata = {**(ctx._status_thread_metadata or {}), "is_approval_prompt": True}
             fut = self._schedule(
                 adapter.send(ctx._status_chat_id, msg, metadata=_interim_metadata(metadata)), "Approval text-send scheduling error",
@@ -1055,14 +1055,8 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                 clear_session(session_key)
             reset_current_session_key(token)
 
-    def _finish_stream_consumer(self, result, agent_history, stream_consumer):
+    def _finish_stream_consumer(self, result, stream_consumer):
         ctx = self._ctx
-        # Canonicalize a model-emitted computer-use screenshot path at the common result boundary so
-        # the streaming finalizer and the non-streaming delivery path see the same response.
-        if isinstance(result, dict) and isinstance(result.get("final_response"), str):
-            result["final_response"] = repair_explicit_computer_use_media_paths(
-                result["final_response"], result.get("messages", []), history_offset=len(agent_history),
-            )
         ctx.result_holder[0] = result
         if stream_consumer is None:
             return
@@ -1338,7 +1332,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
                 from gateway.session_local_inventory import publish_settled_info
                 publish_settled_info(self, agent)
         persisted_turn = _persisted_turn(agent, agent_history, result, compressions)
-        self._finish_stream_consumer(result, agent_history, stream_consumer)
+        self._finish_stream_consumer(result, stream_consumer)
         if _finite_viewer_turn() and getattr(agent, "_codex_session", None) is not None:
             # The classic `chat -q` process exit bounded the codex app-server child; a finite turn
             # hosted here must too, or every one-shot leaves one running until the idle-TTL sweep.

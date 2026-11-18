@@ -190,7 +190,7 @@ jobs:
         run: |
           echo "digest=$(python3 -c 'import sys; sys.path.insert(0, "."); from pm.lock import termux_docker_digest; print(termux_docker_digest())')" >> "$GITHUB_OUTPUT"
 
-      - name: actions/cache/restore@v6 - Restore the CPython + Node + Uv Payload Builds
+      - name: actions/cache/restore@v6 - Restore the CPython + Node Payload Builds
         # Restore/save are split: the save runs right after staging (with
         # `always()`), so a later phase's failure cannot throw away 20+
         # minutes of builds. The exact key is content-only on pm/lock.json +
@@ -201,12 +201,11 @@ jobs:
           path: |
             termux-build/payload/python
             termux-build/payload/node
-            termux-build/payload/uv
             termux-build/payload/npm
             termux-build/payload/ffmpeg
             termux-build/payload/ripgrep
             termux-build/payload/runtime-libs
-          key: termux-payload-${{ hashFiles('pm/lock.json', 'scripts/termux/build_cpython.sh', 'scripts/termux/build_node.sh', 'scripts/termux/build_uv.sh', 'scripts/termux/runtime_libs.json', 'scripts/termux/stage_runtime_libs.py') }}
+          key: termux-payload-${{ hashFiles('pm/lock.json', 'scripts/termux/build_cpython.sh', 'scripts/termux/build_node.sh', 'pm/termux_runtime_libs.json', 'scripts/termux/stage_runtime_libs.py') }}
           restore-keys: |
             termux-payload-
 
@@ -225,17 +224,10 @@ jobs:
       - name: bash - Stage the Runtime Libs into the Payload
         shell: bash
         # The payload interpreters' runtime libs (python's C-extension deps,
-        # node's, uv's zstd) ship INSIDE the sealed deb: the device's termux
+        # node's) ship INSIDE the sealed deb: the device's termux
         # tree may have none of them installed. Pin table derived from the
         # suppliers' own Depends metadata (see runtime_libs.json).
         run: python3 scripts/termux/stage_runtime_libs.py termux-build/payload
-
-      - name: bash - Stage Uv into the Payload
-        shell: bash
-        # The wheelhouse resolver + runtime lazy-install tool: pm stages
-        # the bionic uv .deb beside python/node (no PATH install; the
-        # payload environment composition exposes it).
-        run: bash scripts/termux/build_uv.sh termux-build/payload
 
       - name: bash - Stage the Remaining CLI Runtime Tools
         shell: bash
@@ -254,12 +246,11 @@ jobs:
           path: |
             termux-build/payload/python
             termux-build/payload/node
-            termux-build/payload/uv
             termux-build/payload/npm
             termux-build/payload/ffmpeg
             termux-build/payload/ripgrep
             termux-build/payload/runtime-libs
-          key: termux-payload-${{ hashFiles('pm/lock.json', 'scripts/termux/build_cpython.sh', 'scripts/termux/build_node.sh', 'scripts/termux/build_uv.sh', 'scripts/termux/runtime_libs.json', 'scripts/termux/stage_runtime_libs.py') }}
+          key: termux-payload-${{ hashFiles('pm/lock.json', 'scripts/termux/build_cpython.sh', 'scripts/termux/build_node.sh', 'pm/termux_runtime_libs.json', 'scripts/termux/stage_runtime_libs.py') }}
 
       - name: bash - Ensure the Derived Builder Image (toolchain Pre-baked)
         id: builder_image
@@ -290,7 +281,7 @@ jobs:
             termux-build/payload/SHA256SUMS
             termux-build/payload/.work/resolved.txt
             termux-build/payload/.work/build_set.txt
-          key: termux-wheelhouse-${{ hashFiles('uv.lock', 'pyproject.toml', 'pm/lock.json', 'scripts/termux/runtime_libs.json', 'scripts/termux/build_config.sh', 'scripts/termux/build_wheels.py', 'scripts/termux/termux_build.sh', 'scripts/termux/retag_wheel.py', 'scripts/termux/python_linkage.py', 'scripts/termux/wheelhouse_cache.py', 'scripts/termux/build_environment.py', 'pm/environment.py', 'pm/build_operations.py', 'pm/operations.py', 'pm/pyproject.toml', 'pm/uv.lock', 'scripts/termux/termux-builder.Dockerfile') }}
+          key: termux-wheelhouse-${{ hashFiles('uv.lock', 'pyproject.toml', 'pm/lock.json', 'pm/termux_runtime_libs.json', 'scripts/termux/build_config.sh', 'scripts/termux/build_wheels.py', 'scripts/termux/termux_build.sh', 'scripts/termux/retag_wheel.py', 'scripts/termux/python_linkage.py', 'scripts/termux/wheelhouse_cache.py', 'scripts/termux/build_environment.py', 'pm/environment.py', 'pm/build_operations.py', 'pm/operations.py', 'pm/pyproject.toml', 'pm/uv.lock', 'scripts/termux/termux-builder.Dockerfile') }}
           restore-keys: |
             termux-wheelhouse-
 
@@ -331,7 +322,7 @@ jobs:
             termux-build/payload/SHA256SUMS
             termux-build/payload/.work/resolved.txt
             termux-build/payload/.work/build_set.txt
-          key: termux-wheelhouse-${{ hashFiles('uv.lock', 'pyproject.toml', 'pm/lock.json', 'scripts/termux/runtime_libs.json', 'scripts/termux/build_config.sh', 'scripts/termux/build_wheels.py', 'scripts/termux/termux_build.sh', 'scripts/termux/retag_wheel.py', 'scripts/termux/python_linkage.py', 'scripts/termux/wheelhouse_cache.py', 'scripts/termux/build_environment.py', 'pm/environment.py', 'pm/build_operations.py', 'pm/operations.py', 'pm/pyproject.toml', 'pm/uv.lock', 'scripts/termux/termux-builder.Dockerfile') }}
+          key: termux-wheelhouse-${{ hashFiles('uv.lock', 'pyproject.toml', 'pm/lock.json', 'pm/termux_runtime_libs.json', 'scripts/termux/build_config.sh', 'scripts/termux/build_wheels.py', 'scripts/termux/termux_build.sh', 'scripts/termux/retag_wheel.py', 'scripts/termux/python_linkage.py', 'scripts/termux/wheelhouse_cache.py', 'scripts/termux/build_environment.py', 'pm/environment.py', 'pm/build_operations.py', 'pm/operations.py', 'pm/pyproject.toml', 'pm/uv.lock', 'scripts/termux/termux-builder.Dockerfile') }}
 
       - name: bash - Assemble the .deb
         shell: bash

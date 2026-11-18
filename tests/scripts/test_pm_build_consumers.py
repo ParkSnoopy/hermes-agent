@@ -28,7 +28,7 @@ def test_ci_setup_exports_python_first_and_no_installer_policy(tmp_path, monkeyp
     from types import SimpleNamespace
     from scripts.ci import setup_toolchain
 
-    monkeypatch.setattr(setup_toolchain, "packages", lambda toolchain, extra=None, lock=None: ["just", "python", "uv"])
+    monkeypatch.setattr(setup_toolchain, "packages", lambda toolchain, extra=None, lock=None: ["just", "python"])
     manager = importlib.import_module("pm.install")
     ensured = []
     monkeypatch.setattr(manager, "ensure", lambda name, **kwargs: ensured.append((name, kwargs["explicit"])))
@@ -44,8 +44,8 @@ def test_ci_setup_exports_python_first_and_no_installer_policy(tmp_path, monkeyp
     just_binary = tmp_path / "just-entry" / "just"
 
     def package(name):
-        binaries = {"uv": uv_binary, "just": just_binary}
-        return SimpleNamespace(binary=lambda *args: binaries.get(name, Path(sys.executable)))
+        binaries = {"python": Path(sys.executable), "just": just_binary}
+        return SimpleNamespace(binary=lambda *args: binaries[name])
 
     monkeypatch.setattr(manager, "env_for", environment)
     monkeypatch.setattr("pm.registry.get_package", package)
@@ -53,8 +53,8 @@ def test_ci_setup_exports_python_first_and_no_installer_policy(tmp_path, monkeyp
     files = {name: tmp_path / name for name in ("GITHUB_ENV", "GITHUB_OUTPUT", "GITHUB_PATH")}
     for name, path in files.items():
         monkeypatch.setenv(name, str(path))
-    setup_toolchain.install(SimpleNamespace(toolchain="python", packages=[], home=tmp_path / "ci"))
-    assert ensured == [("uv", True), ("just", True)]  # ensure already walks uv's Python dependency.
+    setup_toolchain.install(SimpleNamespace(toolchain="python", packages=["just"], home=tmp_path / "ci"))
+    assert ensured == [("python", True), ("just", True)]
     assert composed == [("just", "python")]
     outputs = dict(line.split("=", 1) for line in files["GITHUB_OUTPUT"].read_text(encoding="utf-8").splitlines())
     exported = dict(line.split("=", 1) for line in files["GITHUB_ENV"].read_text(encoding="utf-8").splitlines())

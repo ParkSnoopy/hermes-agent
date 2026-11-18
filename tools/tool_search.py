@@ -70,7 +70,7 @@ class ToolSearchConfig:
             # tool surface and got nothing — never silently ignore it (#116404).
             logger.warning(
                 "tools.tool_search.defer is %r, expected a YAML list of tool names "
-                "(e.g. [todo_list, computer_use]; [] keeps every tool eager) - "
+                "(e.g. [todo_list, session_search]; [] keeps every tool eager) - "
                 "using the curated default set.", defer_raw)
             defer_raw = None
         return cls(

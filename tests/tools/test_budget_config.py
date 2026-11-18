@@ -72,7 +72,7 @@ class TestResolveThreshold:
     def test_registry_value_capped_at_default(self, mock_registry):
         """A scaled-down budget caps an oversized registry value (#23767).
 
-        web/terminal/x_search register max_result_size_chars=100_000; a small
+        web/terminal register max_result_size_chars=100_000; a small
         model's scaled budget must not be re-inflated by that.
         """
         mock_registry.get_max_result_size.return_value = 100_000

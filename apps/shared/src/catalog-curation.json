@@ -1,7 +1,7 @@
 {
   "artwork": {
     "skills": {
-      "autonomous-ai-agents/computer-use": "official-art-feature.jpg",
+
       "autonomous-ai-agents/codex": "official-art.jpg",
       "autonomous-ai-agents/hermes-agent": "official-art-card-one.jpg"
     },
@@ -14,7 +14,7 @@
   "featured": {
     "skills": [
       "autonomous-ai-agents/hermes-agent",
-      "autonomous-ai-agents/computer-use",
+
       "autonomous-ai-agents/codex",
       "autonomous-ai-agents/claude-code"
     ],

@@ -35,7 +35,7 @@ async def shell_exec(connection, ref, params):
     from gateway.session_local import authorize_local_source
     from gateway.session_policy import policy_for_source
     live = authority.sessions[ref.session_id]
-    # Local terminal sessions only: an API, messaging or A2A session has no composer, and running
+    # Local terminal sessions only: an API or messaging session has no composer, and running
     # commands for it would be a remote-execution surface with no human at the keyboard.
     if authorize_local_source(authority.runner, live.source) is not True:
         raise RuntimeStoreError('permission_denied')

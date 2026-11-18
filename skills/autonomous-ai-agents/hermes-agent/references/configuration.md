@@ -35,11 +35,9 @@ Full enumeration: `TOOLSETS` dict in `toolsets.py` (`_HERMES_CORE_TOOLS` is the 
 | `file` | File read/write/search/patch |
 | `code_execution` | Sandboxed Python execution |
 | `coding` | Code-editing helpers (LSP-backed) |
-| `computer_use` | Desktop GUI control (cua-driver) |
 | `vision` | Image analysis |
 | `image_gen` | Image generation and image-to-image editing |
 | `video` / `video_gen` | Video analysis / video generation |
-| `x_search` | X (Twitter) search (X OAuth or API key) |
 | `skills` | Skill browsing and management |
 | `memory` | Persistent cross-session memory |
 | `session_search` | Search past conversations |
