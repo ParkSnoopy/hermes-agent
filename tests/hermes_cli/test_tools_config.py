@@ -653,6 +653,22 @@ def test_visible_providers_reuses_pool_video_feature_snapshot(monkeypatch):
 
 
 
+@pytest.mark.parametrize(
+    ("selection", "managed", "expected"),
+    [("local", True, False), ("nous", True, True), ("browser-use", True, True), ("nous", False, False)],
+)
+def test_managed_browser_active_requires_matching_selection_and_managed_access(monkeypatch, selection, managed, expected):
+    from hermes_cli import tools_config
+
+    monkeypatch.setattr(
+        tools_config, "get_nous_subscription_features",
+        lambda config, **kwargs: SimpleNamespace(features={"browser": SimpleNamespace(managed_by_nous=managed)}),
+    )
+    provider = next(p for p in TOOL_CATEGORIES["browser"]["providers"] if p.get("managed_nous_feature") == "browser")
+    config = {"browser": {"cloud_provider": selection}}
+    assert tools_config._is_provider_active(provider, config) is expected
+
+
 # ── One managed image row ─────────────────────────────────────────────────────
 #
 # FAL, Krea and Portal models all live behind the single "Nous Subscription" row; the stored

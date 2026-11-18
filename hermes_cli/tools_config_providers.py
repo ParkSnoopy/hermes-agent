@@ -395,12 +395,6 @@ def _web_backend_active(provider: dict, config: dict) -> bool:
         for row in TOOL_CATEGORIES["web"]["providers"])
 
 
-# Managed-row marker -> (config section, key) the pick writes, in check order.
-_MANAGED_SELECTION_KEYS: tuple[tuple[str, str, str], ...] = (
-
-    ("browser_provider", "browser", "cloud_provider"))
-
-
 def _has_marker(provider: dict, marker: str) -> bool:
     """``browser_provider`` is a membership test (a local row carries ``browser_provider: ""``); every other
     marker is a truthiness test."""
@@ -431,10 +425,9 @@ def _managed_provider_active(provider: dict, config: dict, managed_feature: str,
         # Search and extract pick their route separately: the managed row serves whichever one
         # resolves to the gateway (a ``nous`` override, or the shared ``nous`` selection).
         return feature.managed_by_nous and NOUS_MANAGED_PROVIDER in _web_serving_backends(config)
-    for marker, section, key in _MANAGED_SELECTION_KEYS:
-        if _has_marker(provider, marker):
-            current = cfg_get(config, section, key)
-            return feature.managed_by_nous and current in {provider[marker], NOUS_MANAGED_PROVIDER}
+    if "browser_provider" in provider:
+        current = cfg_get(config, "browser", "cloud_provider")
+        return feature.managed_by_nous and current in {provider["browser_provider"], NOUS_MANAGED_PROVIDER}
     return feature.managed_by_nous
 
 
