@@ -697,8 +697,11 @@ async def admit_automation(authority, adapter, event, identity, replaces=None, f
             fold=None if fold is None else QueuedFold(replaces, frozenset(fold)))
         replaced[:] = [replaces] if created and replaces is not None else []
         return admission_row(row)
-    return await tracked_write(authority, admit, then=admitted, ordered=True,
-                               after=partial(authority._schedule_admitted, ref))
+    receipt = await tracked_write(authority, admit, then=admitted, ordered=True,
+                                  after=partial(authority._schedule_admitted, ref))
+    from gateway.session_queued_controls import steer_completion
+    await steer_completion(authority, ref, receipt, payload)
+    return receipt
 
 
 _ROUTE_WAKE_PRODUCERS = frozenset({'kanban-wake', 'loop-tick'})

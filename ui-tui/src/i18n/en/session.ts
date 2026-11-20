@@ -18,6 +18,8 @@ export const sessionEn = {
       switchingSession: 'switching session…',
       resuming: 'resuming…',
       interrupting: 'interrupting…',
+      compressing: 'compressing…',
+      working: 'working…',
       reconnecting: 'reconnecting…',
       restarting: 'restarting…',
       stopped: 'stopped',

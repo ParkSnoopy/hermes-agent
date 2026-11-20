@@ -108,6 +108,28 @@ def _steer_fates(agent) -> dict:
     return vars(agent).setdefault("_steer_ticket_fates", {})
 
 
+def _steer_notices(agent) -> set:
+    """Tickets of buffered or drained ``steer(notice=True)`` parts, until ``withdraw_steer`` settles them."""
+    return vars(agent).setdefault("_steer_notice_tickets", set())
+
+
+def drained_steer_row(agent, steer_text: str) -> dict:
+    """The user row for *steer_text*, the last ``_drain_pending_steer`` result. Notice parts follow the
+    user's own steer outside its marker, so process and subagent output never gains user authority; they
+    carry their own machine-provenance footer, as their queued turn would."""
+    from agent.prompt_builder import STEER_DISPLAY_KIND, steer_user_row
+    with _ic_lock(agent, "_pending_steer_lock"):
+        notices = set(_steer_notices(agent))
+        drained, parts = vars(agent).get("_steer_last_drain", (None, None))
+    if not notices or drained != steer_text or not parts or not any(t in notices for t, _ in parts):
+        return steer_user_row(steer_text)
+    user = "\n".join(text for ticket, text in parts if ticket not in notices)
+    notes = "\n\n".join(text for ticket, text in parts if ticket in notices)
+    row = steer_user_row(user) if user else {"role": "user", "content": "", "display_kind": STEER_DISPLAY_KIND}
+    row["content"] = "\n\n".join(c for c in (row["content"], notes) if c)
+    return row
+
+
 def requeue_drained_steer(agent, steer_text: str) -> None:
     """Put drained steer text back (nothing took it). When it is the last drain's text, its parts go back
     with their tickets, so a transfer in it reads unconsumed again."""
@@ -307,17 +329,22 @@ class InterruptControlMixin:
                 _set_steer_parts(self, [])
         return True
 
-    def steer(self, text: str, *, ticket=None) -> bool:
+    def steer(self, text: str, *, ticket=None, notice: bool = False) -> bool:
         """Queue user text for delivery as its own user row after the current tool batch finishes (no
         interrupt); multiple calls concatenate with newlines. Returns False for empty text. ``ticket``
-        names the submission, so ``withdraw_steer`` can settle exactly it, whatever text others carry."""
-        if not text or not text.strip():
+        names the submission, so ``withdraw_steer`` can settle exactly it, whatever text others carry.
+        ``notice`` (ticketed only) marks machine text, a finished background process or subagent: the
+        drained row carries it outside the user-authority marker (``drained_steer_row``)."""
+        if not text or not text.strip() or (notice and ticket is None):
             return False
         cleaned = text.strip()
         with _ic_lock(self, "_pending_steer_lock"):
             _set_steer_parts(self, _steer_parts(self) + [(ticket, cleaned)])
-        # The turn no longer ran on its own (first-task-done detection reads this off the result).
-        self._turn_user_intervened = True
+            if notice:
+                _steer_notices(self).add(ticket)
+        if not notice:
+            # The turn no longer ran on its own (first-task-done detection reads this off the result).
+            self._turn_user_intervened = True
         return True
 
     def redirect(self, text: str) -> bool:
@@ -423,6 +450,7 @@ class InterruptControlMixin:
         if ticket is None:
             return False
         with _ic_lock(self, "_pending_steer_lock"):
+            _steer_notices(self).discard(ticket)  # settlement reads each ticket once
             parts = _steer_parts(self)
             kept = [part for part in parts if part[0] != ticket]
             consumed = _steer_fates(self).pop(ticket, True)

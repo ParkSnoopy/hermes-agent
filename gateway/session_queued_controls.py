@@ -11,6 +11,7 @@ under the session's ``event_stream.lock`` (the lock the drain clears ``executing
 write ever waits under that lock, which loop-side receipts, attaches and publication take.
 """
 import asyncio
+import logging
 from dataclasses import asdict
 from functools import partial
 
@@ -28,6 +29,8 @@ _TEXT_ONLY = frozenset({'text', 'surface_v1', 'display_v1', 'local_operator_v1'}
 # cron, kanban, a2a and hosted-room (bot_room) producers read a saved result for every outcome they
 # do not name, so a transfer or replacement would strand them: never offered, refused by name.
 _INTERACTIVE_SOURCES = frozenset({'cli', 'tui', 'gui', 'desktop', 'acp'})
+
+logger = logging.getLogger(__name__)
 
 
 def handlers(connection):
@@ -120,9 +123,10 @@ def _receiving_agent(authority, session_id, generation):
     return agent
 
 
-def _deliver(authority, session_id, generation, agent, admission_id, text):
+def _deliver(authority, session_id, generation, agent, admission_id, text, notice=False):
     """Hand the committed text to the claim's agent; the caller holds the stream lock. False once the
-    claim stopped executing (its settlement then decides the row) or its agent refused the text."""
+    claim stopped executing (its settlement then decides the row) or its agent refused the text.
+    ``notice``: machine text the agent keeps outside the user-authority marker (``steer_completion``)."""
     entry = authority.steer_transfers.get(session_id)
     if (entry is None or entry[0] != generation or admission_id not in entry[1]
             or _receiving_agent(authority, session_id, generation) is not agent):
@@ -130,7 +134,11 @@ def _deliver(authority, session_id, generation, agent, admission_id, text):
     if not entry[1][admission_id]:
         # Ticketed by its admission id: settlement withdraws exactly it if no drain of the turn consumed it.
         ticketed = callable(getattr(agent, 'withdraw_steer', None))
-        entry[1][admission_id] = bool(agent.steer(text, ticket=admission_id) if ticketed else agent.steer(text))
+        if notice:
+            delivered = ticketed and agent.steer(text, ticket=admission_id, notice=True)
+        else:
+            delivered = agent.steer(text, ticket=admission_id) if ticketed else agent.steer(text)
+        entry[1][admission_id] = bool(delivered)
     return entry[1][admission_id]
 
 
@@ -144,16 +152,22 @@ async def steer_queued(connection, ref, params):
             with authority.sessions[ref.session_id].event_stream.lock:
                 agent = _receiving_agent(authority, ref.session_id, row['generation'])
                 if agent is not None:
-                    _deliver(authority, ref.session_id, row['generation'], agent, admission_id, row['payload']['text'])
+                    _deliver(authority, ref.session_id, row['generation'], agent, admission_id, row['payload']['text'],
+                             _completion(row))
         return asdict(receipt)  # an exact retry replays the committed transfer
     if receipt.status != 'queued':
         raise AuthorityRefusal('admission_started')
     if 'steer' not in queued_controls(authority, row):
         raise AuthorityRefusal('unsupported_control')
+    return await _transfer(authority, ref, admission_id, row['payload']['text'])
+
+
+async def _transfer(authority, ref, admission_id, text, *, notice=False):
+    """Move the queued admission to the running claim as a steer; the caller checked it is steerable."""
     handle = authority._handle(ref)
     if handle.execution_state != 'running':
         raise AuthorityRefusal('session_idle')
-    generation, text, live = handle.execution_generation, row['payload']['text'], authority.sessions[ref.session_id]
+    generation, live = handle.execution_generation, authority.sessions[ref.session_id]
     session_id = ref.session_id
     with live.event_stream.lock:
         agent = _receiving_agent(authority, session_id, generation)
@@ -177,7 +191,7 @@ async def steer_queued(connection, ref, params):
         raise
     if fresh:
         with live.event_stream.lock:
-            delivered = _deliver(authority, session_id, generation, agent, admission_id, text)
+            delivered = _deliver(authority, session_id, generation, agent, admission_id, text, notice)
         if not delivered:
             # The claim ended first: the text reached nobody, so the admission is queued again.
             await tracked_write(authority, partial(admissions.revert_steer, epoch=authority.epoch,
@@ -240,3 +254,30 @@ async def replace_queued(connection, ref, params):
     from gateway.session_ingress_media import release_admission_media
     await asyncio.to_thread(release_admission_media, store, old_id)
     return asdict(admitted)
+
+
+def _completion(row):
+    """A finished background process's or subagent's result (``completion_resumes_parent`` /
+    ``delegation_wakes_parent``): the running turn takes it as a steer instead of the FIFO running it as
+    its own turn after the user's queued prompts. Liveness ticks and diagnostics stay whole turns."""
+    descriptor = (row.get('payload') or {}).get('local_automation_v1') or {}
+    return bool(descriptor.get('resumes_parent') or descriptor.get('wakes_parent'))
+
+
+async def steer_completion(authority, ref, receipt, payload):
+    """Transfer the queued completion (*receipt*, its admitted *payload*) to the running turn, when the
+    turn's agent keeps machine text out of the user-authority marker. Best effort after the admission
+    committed: any refusal leaves the row queued, so it runs as its own turn as before."""
+    if receipt.status != 'queued' or not _completion({'payload': payload}):
+        return
+    handle = authority._handle(ref)
+    if handle.execution_state != 'running':
+        return
+    with authority.sessions[ref.session_id].event_stream.lock:
+        agent = _receiving_agent(authority, ref.session_id, handle.execution_generation)
+    if not callable(getattr(agent, 'withdraw_steer', None)):
+        return
+    try:
+        await _transfer(authority, ref, receipt.admission_id, payload['text'], notice=True)
+    except AuthorityRefusal as exc:
+        logger.debug('completion %s stays queued: %s', receipt.admission_id, exc.reason)

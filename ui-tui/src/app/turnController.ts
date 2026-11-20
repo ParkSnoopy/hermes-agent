@@ -182,6 +182,9 @@ class TurnController {
   interrupted = false
   sealedInterrupt: null | SealedInterrupt = null
   lastStatusNote = ''
+  // A compression no turn owns (`compressing`: /compress, gateway hygiene past its turn hold).
+  // A turn's end keeps `compacting` set for it; only its `compacted` or a reset clears it.
+  offTurnCompacting = false
   persistedToolLabels = new Set<string>()
   persistSpawnTree?: (subagents: SubagentProgress[], sessionId: null | string) => Promise<void>
   protocolWarned = false
@@ -366,7 +369,7 @@ class TurnController {
       tools: [],
       turnTrail: []
     })
-    patchUiState({ busy: false, compacting: false })
+    patchUiState({ busy: false, compacting: this.offTurnCompacting })
     resetFlowOverlays()
   }
 
@@ -1026,6 +1029,7 @@ class TurnController {
   reset() {
     this.clearReasoning()
     this.clearStatusTimer()
+    this.offTurnCompacting = false
     this.idle()
     this.bufRef = ''
     this.interrupted = false

@@ -6,7 +6,8 @@ import { introMsg, toTranscriptMessages } from '../../domain/messages.js'
 import { t } from '../../i18n/runtime.js'
 import { asRpcResult, rpcErrorMessage } from '../../lib/rpc.js'
 import { patchOverlayState } from '../overlayStore.js'
-import { getUiState, patchUiState } from '../uiStore.js'
+import { getUiState, patchUiState, showPendingStatus } from '../uiStore.js'
+import { TIMED_OUT_RE } from '../userMessages.js'
 
 import type { SlashRunCtx } from './types.js'
 
@@ -172,7 +173,8 @@ export async function mutateCanonicalSession(
   operation: 'model' | 'branch' | 'compress',
   arg: string,
   stale: () => boolean = () => false,
-  confirm?: string
+  confirm?: string,
+  onRead?: (snapshot: MutationSnapshot) => void
 ) {
   // `confirm`: the owner's one-time token for a guarded model target the user accepted. It keys a
   // separate retained request, so an ambiguous reply to the confirmed send retries that exact one.
@@ -181,7 +183,7 @@ export async function mutateCanonicalSession(
     ...(confirm ? { confirm } : {})
   }
 
-  const mutation = await mutateCanonical(gw, sid, operation, payload, stale)
+  const mutation = await mutateCanonical(gw, sid, operation, payload, stale, onRead)
 
   return mutation?.result ? { result: mutation.result, expectedGeneration: mutation.expectedGeneration } : undefined
 }
@@ -408,13 +410,42 @@ export async function runCanonicalSessionControl(
   confirm?: string
 ) {
   const gw = ctx.gateway.gw
+  // The summarizer call runs with no turn, so nothing else tells the bar the chat is working.
+  const clearPending = operation === 'compress' ? showPendingStatus(t('session.status.compressing')) : undefined
 
   try {
     if (!ctx.sid) {
       throw new Error(t('slashCmd.core.status.noActiveSession'))
     }
 
-    const mutation = await mutateCanonicalSession(gw, ctx.sid, operation, arg, ctx.stale, confirm)
+    let revision: number | undefined
+    let mutation: Awaited<ReturnType<typeof mutateCanonicalSession>>
+
+    try {
+      mutation = await mutateCanonicalSession(gw, ctx.sid, operation, arg, ctx.stale, confirm, s => {
+        revision = s.revision
+      })
+    } catch (error) {
+      // A large chat compresses for longer than the RPC timeout, so the timeout alone proves nothing
+      // (a failed compression answers with its own error). Ask the owner for the compression's
+      // real state: a committed one advanced the session revision; otherwise it is still running.
+      if (operation !== 'compress' || !(error instanceof Error && TIMED_OUT_RE.test(error.message))) {
+        throw error
+      }
+
+      const now = asRpcResult<MutationSnapshot>(await gw.request('session.resume', { session_id: ctx.sid }))
+
+      if (ctx.stale()) {
+        return
+      }
+
+      // A retained request skips the revision read; its exact retry answers a committed one itself.
+      if (revision === undefined || now?.revision === revision) {
+        return ctx.transcript.sys(t('canonical.controls.compressingSlow'))
+      }
+
+      return await applyCompressResult(gw, ctx.sid, { execution_generation: now?.execution_generation }, ctx)
+    }
 
     if (!mutation) {
       return
@@ -447,5 +478,7 @@ export async function runCanonicalSessionControl(
     }
   } catch (error) {
     ctx.guardedErr(error)
+  } finally {
+    clearPending?.()
   }
 }

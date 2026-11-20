@@ -20,7 +20,6 @@ from agent.message_sanitization import _FULL_ARGS_LOG_BOUND, coerce_tool_name
 from session_rules.turns import coalesce_tool_call_id, tool_call_id_variants, tool_result_id_variants
 from agent.cache_bounds import publish_lru
 from agent.agent_init_session import agent_interface
-from agent.prompt_builder import steer_user_row
 from agent.tool_dispatch_helpers import _trajectory_normalize_msg, make_tool_result_message
 from agent.route_verdicts import ROUTE_VERDICT_FIELDS, reset_route_verdicts, reset_route_verdicts_if_moved
 from agent.think_scrubber import THINK_TAG_NAMES
@@ -3251,7 +3250,8 @@ def apply_pending_steer_to_tool_results(agent, messages: list, num_tool_msgs: in
         # user message (which persists like any other user turn).
         _requeue_pending_steer(agent, steer_text)
         return
-    messages.append(steer_user_row(steer_text))
+    from agent.interrupt_control import drained_steer_row
+    messages.append(drained_steer_row(agent, steer_text))
     _ra().logger.info(
         "Delivered /steer to agent after tool batch (%d chars) as new user message: %s", len(steer_text),
         steer_text[:120] + ("..." if len(steer_text) > 120 else ""),

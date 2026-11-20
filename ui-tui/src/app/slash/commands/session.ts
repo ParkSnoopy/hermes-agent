@@ -20,6 +20,7 @@ import type { PanelSection } from '../../../types.js'
 import { applyConfiguredTuiTheme } from '../../createGatewayEventHandler.js'
 import { DEFAULT_INDICATOR_STYLE, INDICATOR_STYLES, type IndicatorStyle } from '../../interfaces.js'
 import { patchOverlayState } from '../../overlayStore.js'
+import { turnController } from '../../turnController.js'
 import { getUiState, patchUiState } from '../../uiStore.js'
 import { canonicalReasoning, canonicalUsage } from '../canonicalSessionCommands.js'
 import { runCanonicalSessionControl } from '../canonicalSessionControls.js'
@@ -292,8 +293,16 @@ export const sessionCommands: SlashCommand[] = [
     help: 'compress transcript',
     name: 'compress',
     run: (arg, ctx) => {
+      // The summarizer runs with no turn, so no `busy` drives the spinner.
+      const done = () => {
+        turnController.offTurnCompacting = false
+        patchUiState({ compacting: false })
+      }
+
+      patchUiState({ compacting: true })
+
       if (ctx.gateway.gw.isCanonical) {
-        return runCanonicalSessionControl('compress', arg, ctx)
+        return runCanonicalSessionControl('compress', arg, ctx).finally(done)
       }
 
       ctx.gateway
@@ -357,6 +366,7 @@ export const sessionCommands: SlashCommand[] = [
           })
         )
         .catch(ctx.guardedErr)
+        .finally(done)
     }
   },
 

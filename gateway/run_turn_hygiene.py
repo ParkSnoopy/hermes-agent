@@ -324,6 +324,19 @@ class GatewayTurnHygieneMixin:
         except Exception as _werr:
             logger.warning("Failed to deliver %s to user: %s", what, _werr)
 
+    def _hmwa_hygiene_local_status(self, source, kind, text):
+        """Show a local viewer the compression state of a worker that outlives its turn.
+
+        The local adapter's ``send`` publishes nothing; local viewers read the canonical event stream.
+        """
+        if getattr(source, "platform", None) != Platform.LOCAL:
+            return
+        from gateway.session_authorities import active_authority
+        authority = active_authority(self)
+        live = authority.sessions.get(source.chat_id) if authority is not None else None
+        if live is not None:
+            live.event_stream.publish(source.chat_id, {"kind": kind, "text": text}, event_type="status.update")
+
     async def _hmwa_hygiene_record_failure_cooldown(self, hs, session_key, session_id, reason):
         """Escalate the failure streak (off-loop) and persist the cooldown, when enabled."""
         from gateway.run import _hygiene_cooldown_for_failure, _record_hygiene_cooldown
@@ -356,6 +369,8 @@ class GatewayTurnHygieneMixin:
             # comes from the durable compression lock. The done-callback records the flat retry-after
             # ONLY if the worker ends without committing anything.
             _sid, _skey, _agent = session_entry.session_id, session_key, attempt.agent
+            # `compressing` survives the turn's end in the TUI; the done-callback ends it.
+            self._hmwa_hygiene_local_status(source, "compressing", t("gateway.compress.turnhold_deferred"))
 
             def _hyg_adopt_or_space_retry(_fut, _gw=self, _sid=_sid, _skey=_skey, _agent=_agent):
                 try:
@@ -385,6 +400,8 @@ class GatewayTurnHygieneMixin:
                         "hygiene compression deferred: turn-hold budget expired and the "
                         "detached attempt did not commit",
                     )
+                _gw._hmwa_hygiene_local_status(source, "compacted", "✓ Context compression complete" if _committed
+                                               else "Context compression did not commit; the transcript is unchanged")
 
             attempt.future.add_done_callback(_hyg_adopt_or_space_retry)
             _log_suffix = (

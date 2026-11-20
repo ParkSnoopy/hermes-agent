@@ -60,4 +60,18 @@ export const sessionCwd = (): string | undefined => $uiState.get().info?.cwd || 
 export const patchUiState = (next: Partial<UiState> | ((state: UiState) => UiState)) =>
   $uiState.set(typeof next === 'function' ? next($uiState.get()) : { ...$uiState.get(), ...next })
 
+// Status text for an off-turn request (a slash command, /compress): there is no turn to set `busy`.
+// The returned restore leaves the text alone once something else (a started turn) replaced it.
+export const showPendingStatus = (text: string) => {
+  const prev = $uiState.get().status
+
+  patchUiState({ status: text })
+
+  return () => {
+    if ($uiState.get().status === text) {
+      patchUiState({ status: prev })
+    }
+  }
+}
+
 export const resetUiState = () => $uiState.set(buildUiState())

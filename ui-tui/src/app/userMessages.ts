@@ -127,7 +127,7 @@ export const versionSkewMessage = (): string => t('userMessages.rpc.versionSkew'
 
 const SESSION_NOT_FOUND_RE = /session not found/i
 const NOT_CONNECTED_RE = /^gateway not (?:connected|running)\b/
-const TIMED_OUT_RE = /^request timed out after (\d+)s/
+export const TIMED_OUT_RE = /^request timed out after (\d+)s/
 
 type RpcErrorRow = [
   matcher: (code: number | undefined, text: string) => RegExpExecArray | boolean | null,

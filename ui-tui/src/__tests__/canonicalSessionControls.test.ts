@@ -260,6 +260,36 @@ it('a /compress that removes nothing prints main\'s "No changes" report without 
   expect(getUiState().usage.compressions).toBe(0)
 })
 
+it.each([
+  ['is still running', 8, 'still compressing; this is taking longer than usual'],
+  ['committed meanwhile', 9, '✓ transcript compressed']
+])('a /compress whose reply timed out checks the session state (%s) without re-sending', async (_, revision, line) => {
+  const { ctx, request, slash } = harness()
+  let reads = 0
+
+  request.mockImplementation(async (method: string) => {
+    if (method === 'session.resume') {
+      return {
+        session_id: 'owner',
+        revision: ++reads === 1 ? 8 : revision,
+        execution_generation: 4,
+        info,
+        messages: []
+      } as any
+    }
+
+    throw new Error('request timed out after 120s: session.mutate')
+  })
+
+  slash('/compress')
+  await flush()
+  await flush()
+
+  expect(request.mock.calls.filter(([method]) => method === 'session.mutate')).toHaveLength(1)
+  expect(ctx.transcript.sys).toHaveBeenCalledWith(line)
+  expect(ctx.transcript.sys).not.toHaveBeenCalledWith(expect.stringMatching(/^error/))
+})
+
 it("a committed /compress drops the previous reply's context meter and counts the compaction", async () => {
   patchUiState({
     usage: {

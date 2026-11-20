@@ -14,6 +14,7 @@ export const canonicalEn = {
       identityUnavailable: 'session execution identity unavailable; reconnect before editing',
       compressedStale: 'compressed transcript is stale; reopen the session',
       compressed: '✓ transcript compressed',
+      compressingSlow: 'still compressing; this is taking longer than usual',
       notAvailable: (command: string) => `/${command} is not available on the shared gateway yet`,
       launchToolsets: (toolsets: string) => `toolsets fixed at session launch: ${toolsets}`,
       retryUnsupported: '/retry: retry does not support media or unknown content parts'

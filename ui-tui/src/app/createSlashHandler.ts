@@ -3,6 +3,7 @@ import { parseCommandDispatch, parseSlashCommand } from '@hermes/shared/slash'
 import { scoreSlashMenuItem } from '@hermes/shared/slash-score'
 
 import type { GatewayClient } from '../gatewayClient.js'
+import { t } from '../i18n/runtime.js'
 import { rpcErrorMessage } from '../lib/rpc.js'
 import { launchWidget } from '../sdk/host.js'
 import { getWidgetApp } from '../sdk/registry.js'
@@ -11,7 +12,7 @@ import type { SlashHandler, SlashHandlerContext, SlashSubmission } from './inter
 import { findSlashCommand } from './slash/registry.js'
 import type { SlashRunCtx } from './slash/types.js'
 import { captureDestination, isCurrentDestination } from './submissionDestination.js'
-import { getUiState } from './uiStore.js'
+import { getUiState, showPendingStatus } from './uiStore.js'
 import {
   describeSlashExecError,
   isUnsupportedCommand,
@@ -224,7 +225,12 @@ export function createSlashHandler(ctx: SlashHandlerContext): SlashHandler {
     }
 
     countTyped()
+
+    // A skill's turn only starts after this reply; send() then marks the session busy.
+    const clearPending = showPendingStatus(t('session.status.working'))
+
     gw.request<SlashExecResponse>('slash.exec', { command: cmd.slice(1), session_id: sid })
+      .finally(clearPending)
       .then(r => {
         if (stale()) {
           return

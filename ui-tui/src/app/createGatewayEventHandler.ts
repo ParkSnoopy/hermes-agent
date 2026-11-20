@@ -1324,12 +1324,14 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         if (p.kind === 'compressing' || p.kind === 'compacting') {
           sys(p.text)
           turnController.clearStatusTimer()
+          turnController.offTurnCompacting ||= p.kind === 'compressing'
           patchUiState({ compacting: true })
 
           return
         }
 
         if (p.kind === 'compacted') {
+          turnController.offTurnCompacting = false
           patchUiState({ compacting: false })
         }
 
